@@ -264,15 +264,15 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 
        python3 -c "from pypdf import PdfReader; print(len(PdfReader('/agenda-<TARGET_DATE>.pdf').pages))"
 
-   Target: 2 pages. A 3rd page is acceptable **only** if the
-   overflow is the closing "Completed today" table — that
-   section grows as the day progresses and is reference-only,
-   so letting it spill is fine. If the agenda body (MITs,
-   Suggested order, Cut order, Today's habits) itself runs
-   past page 2, trim content — never shrink the font — per the
-   "2-page body cap" priority order in operating principle 8
-   (habit cell names → suggested-order names → MIT names →
-   split the habits table), then regenerate. Always tear down
+   Target: 2 pages. A 3rd page from the closing "Completed today"
+   table is always fine — it grows as the day progresses and is
+   reference-only. If the agenda body (MITs, Suggested order, Cut
+   order, Today's habits) itself runs past page 2, work the
+   escalation in operating principle 8's "2-page body cap" section
+   — never shrink the font: abbreviate habit cell names → abbreviate
+   suggested-order names → abbreviate MIT names → drop the entire Cut
+   order section → if it's still over, accept it — then regenerate.
+   Always tear down
    the previous PDF with `rm -f` so the versioned-collision
    fallback doesn't kick in, and always regenerate `.render.md`
    fresh from the current `/tmp/<TARGET_DATE>.md` before each
@@ -578,17 +578,16 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
        (no pending + no completed-today), same rule as
        "Completed today" — never render an empty reference
        table.
-   - **2-page body cap (Completed today may spill).** The
-     agenda body — MIT callout, Suggested order, Cut order,
-     Today's habits — must fit on **at most 2 US-Letter pages,
-     default margins.** Page 1 holds the four page-1-contract
-     sections; page 2 holds Today's habits. The closing
-     "Completed today" table is allowed to overflow onto a 3rd
-     page — it grows as the day progresses and is
-     reference-only, so spilling it is fine. But the body itself
-     spilling past page 2 is a fit problem to solve. Trim in
-     this priority order — drop the first thing whose loss
-     doesn't change what the manager needs to execute:
+   - **2-page body cap (Completed today may spill; below that, accept
+     it).** The agenda body — MIT callout, Suggested order, Cut order,
+     Today's habits — must fit on **at most 2 US-Letter pages, default
+     margins.** Page 1 holds the four page-1-contract sections; page 2
+     holds Today's habits. The closing "Completed today" table is
+     allowed to overflow onto a 3rd page — it grows as the day
+     progresses and is reference-only, so spilling it is fine. But the
+     body itself spilling past page 2 is a fit problem to solve. Work
+     through this escalation in order, stopping as soon as the body
+     fits:
 
      1. **Today's habits cell names** — abbreviate aggressively
         (e.g. `**H12** Morning Read` → `**H12** AM Read`,
@@ -597,12 +596,23 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
         keeping the ID and ballpark time intact.
      3. **MIT-callout item names** — abbreviate as a last
         resort; the IDs and duration must stay.
-     4. **Split the Today's habits table** so the section
-        straddles the page break. Never split the MIT callout,
-        Suggested order, or Cut order.
+     4. **Drop the entire "Cut order if the day slips" section.**
+        Unlike the other four, Cut order is expendable outright — it's
+        a convenience list of what to drop first if the day
+        compresses, not something the manager executes directly. When
+        naming trims (1-3) alone don't get the body under 2 pages, cut
+        this section in full rather than picking at it piecemeal.
+     5. **Still over 2 pages? Accept it.** Once habits/suggested/MIT
+        names are trimmed and Cut order is gone, stop. Do not reach
+        for `--font-shrink` (see the implementation notes above — it's
+        never an option) and do not keep hunting for more content to
+        cut. A slightly-over agenda beats one that's illegible or
+        missing its cut-order safety valve for no page-budget reason.
 
-     Never cut any of the five allowed sections entirely. They
-     are all load-bearing.
+     **Never cut the MIT callout, Suggested order, or Today's habits**
+     — those three are always load-bearing. Cut order is the one
+     exception per step 4, and only when steps 1-3 weren't enough on
+     their own.
    - **"Completed today" — last section, two-column table.**
      At the very end of the file, under a `## ✅ Completed today`
      heading, render a **2-column markdown table, no header
@@ -1114,10 +1124,11 @@ See the "comment-stripping step is required" implementation note
 under operating principle 8 above for why `markdown-to-pdf` is
 never handed `/tmp/<TARGET_DATE>.md` directly.
 
-If body exceeds 2 pages: never pass `--font-shrink` — trim names
-per the "2-page body cap" priority list in operating principle 8
-instead (habit cell names → suggested-order names → MIT names →
-split the habits table), then regenerate.
+If body exceeds 2 pages: never pass `--font-shrink` — work the
+"2-page body cap" escalation in operating principle 8 instead
+(abbreviate habit cell names → abbreviate suggested-order names →
+abbreviate MIT names → drop the entire Cut order section → if still
+over, accept it), then regenerate.
 
 ### Phase 10 — Work-hours cutoff (optional)
 
