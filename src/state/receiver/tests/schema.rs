@@ -23,7 +23,7 @@ fn receiver_schema_enforces_conversation_foreign_keys() {
 }
 
 #[test]
-fn v6_upgrade_repairs_a_missing_receiver_jobs_table_before_advancing() {
+fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v8() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn
         .execute_batch("DROP TABLE receiver_jobs; PRAGMA user_version = 6;")
@@ -44,6 +44,16 @@ fn v6_upgrade_repairs_a_missing_receiver_jobs_table_before_advancing() {
             |row| row.get(0),
         )
         .expect("receiver retry-origin column count");
-    assert_eq!(version, 7);
+    let registration_tables: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'receiver_session_registrations'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("receiver registration table count");
+    assert_eq!(version, 8);
     assert_eq!(retry_origin_columns, 1);
+    assert_eq!(registration_tables, 1);
 }

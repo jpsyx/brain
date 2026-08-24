@@ -115,7 +115,8 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         let path = fixture.state_db(workspace_id);
         assert!(table_exists(&path, "receiver_conversations"));
         assert!(table_exists(&path, "receiver_jobs"));
-        assert_eq!(state_schema_version(&path), 7);
+        assert!(table_exists(&path, "receiver_session_registrations"));
+        assert_eq!(state_schema_version(&path), 8);
     }
 
     let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
@@ -134,6 +135,82 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
 }
 
 #[test]
+fn ordinary_startup_repairs_a_missing_launch_retry_column_in_damaged_v7_schema() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let first = fixture.run(&["server", "status"]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
+    let connection = rusqlite::Connection::open(&family).expect("family state");
+    connection
+        .execute_batch(
+            "DROP TABLE receiver_session_registrations;
+             ALTER TABLE receiver_jobs DROP COLUMN retry_from_state;",
+        )
+        .expect("restore a damaged v7 receiver schema");
+    connection
+        .pragma_update(None, "user_version", 7)
+        .expect("restore damaged v7 schema version");
+    drop(connection);
+    assert_eq!(state_schema_version(&family), 7);
+    assert!(!table_exists(&family, "receiver_session_registrations"));
+
+    let second = fixture.run(&["server", "status"]);
+
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(column_exists(
+        &family,
+        "receiver_jobs",
+        "retry_from_state"
+    ));
+    assert!(table_exists(&family, "receiver_session_registrations"));
+    assert_eq!(state_schema_version(&family), 8);
+}
+
+#[test]
+fn explicit_down_migration_removes_only_receiver_session_registration_state() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let up = fixture.run(&["server", "status"]);
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        env!("CARGO_PKG_VERSION"),
+        "--to-version",
+        "0.75.0",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        assert!(!table_exists(&path, "receiver_session_registrations"));
+        assert!(column_exists(&path, "receiver_jobs", "retry_from_state"));
+        assert_eq!(state_schema_version(&path), 7);
+    }
+}
+
+#[test]
 fn explicit_down_migration_removes_only_the_receiver_launch_retry_origin() {
     let fixture = Fixture::new();
     fixture.seed_pre_receiver_state();
@@ -147,7 +224,7 @@ fn explicit_down_migration_removes_only_the_receiver_launch_retry_origin() {
     let down = fixture.run(&[
         "__migrate",
         "--from-version",
-        "0.75.0",
+        env!("CARGO_PKG_VERSION"),
         "--to-version",
         "0.74.4",
     ]);

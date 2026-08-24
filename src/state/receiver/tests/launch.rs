@@ -118,131 +118,47 @@ fn only_a_due_pre_acceptance_retry_can_prepare_another_launch() {
 }
 
 #[test]
-fn native_binding_replacement_requires_the_exact_instance_actual_session_and_preserves_transcript()
-{
-    use crate::agent::{AgentSession, SessionScope, SessionStore};
-
-    for frontend in [
-        crate::agent::AgentKind::Codex,
-        crate::agent::AgentKind::OpenCode,
+fn generic_transition_cannot_launch_retries_from_progressed_states() {
+    for retry_from in [
+        ReceiverJobState::Accepted,
+        ReceiverJobState::Processing,
+        ReceiverJobState::Delivering,
     ] {
         let db = Db::open_in_memory().expect("receiver state");
         let identity =
             ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
-        let job = receiver_job(None, 100);
         let accepted = db
-            .accept_receiver_job(&job, &identity)
+            .accept_receiver_job(&receiver_job(None, 100), &identity)
             .expect("accept receiver job");
-        db.update_receiver_conversation(
-            accepted.conversation_id(),
-            "# Portable transcript\n\nUser: private context",
-            None,
-            1_000,
-        )
-        .expect("seed transcript");
-        let scope = SessionScope::new(frontend, receiver_workspace_id(), job.actor.clone());
-        let placeholder = AgentSession::new(format!("pending-{}-launch", frontend.as_str()))
-            .expect("placeholder");
-        SessionStore::register(&db, &placeholder, "remote-instance", 42, &scope)
-            .expect("register remote placeholder");
-
-        assert!(!db
-            .replace_receiver_binding_from_instance(
-                accepted.conversation_id(),
-                "remote-instance",
-                &placeholder,
-                &scope,
-                1_100,
-            )
-            .expect("placeholder is not a native binding"));
-        assert!(
-            db.receiver_conversation(accepted.conversation_id())
-                .unwrap()
-                .unwrap()
-                .binding()
-                .is_none()
-        );
-
         db.conn
             .execute(
-                "UPDATE brain_sessions SET agent_session_id = ?1
-                 WHERE brain_instance_id = 'remote-instance'",
-                [format!("actual-{}-session", frontend.as_str())],
+                "UPDATE receiver_jobs
+                 SET state = 'retrying', retry_from_state = ?1, retry_count = 1,
+                     retry_at_unix_ms = 2_000
+                 WHERE job_id = ?2",
+                rusqlite::params![retry_from.as_str(), accepted.job_id().to_string()],
             )
-            .expect("simulate lifecycle-reported rotation");
+            .expect("seed progressed receiver retry");
+        db.claim_next_receiver_run("remote-owner", 2_000, 2_100)
+            .expect("claim due retry")
+            .expect("due retry");
 
         assert!(!db
-            .replace_receiver_binding_from_instance(
-                accepted.conversation_id(),
-                "other-instance",
-                &placeholder,
-                &scope,
-                1_200,
+            .transition_receiver_job(
+                accepted.job_id(),
+                "remote-owner",
+                ReceiverJobState::Retrying,
+                ReceiverJobState::Launching,
+                2_050,
             )
-            .expect("reject another instance"));
-
-        let other_job = receiver_job_for(
-            receiver_workspace_id(),
-            crate::server::receiver::Channel::Email,
-            None,
-            100,
-        );
-        let other_scope =
-            SessionScope::new(frontend, receiver_workspace_id(), other_job.actor.clone());
-        let other_placeholder = AgentSession::new("pending-other-channel").expect("placeholder");
-        SessionStore::register(
-            &db,
-            &other_placeholder,
-            "other-channel-instance",
-            43,
-            &other_scope,
-        )
-        .expect("register other-channel placeholder");
-        db.conn
-            .execute(
-                "UPDATE brain_sessions SET agent_session_id = 'actual-other-channel'
-                 WHERE brain_instance_id = 'other-channel-instance'",
-                [],
-            )
-            .expect("simulate other-channel lifecycle rotation");
-        assert!(!db
-            .replace_receiver_binding_from_instance(
-                accepted.conversation_id(),
-                "other-channel-instance",
-                &other_placeholder,
-                &other_scope,
-                1_200,
-            )
-            .expect("reject another conversation channel"));
-
-        assert!(db
-            .replace_receiver_binding_from_instance(
-                accepted.conversation_id(),
-                "remote-instance",
-                &placeholder,
-                &scope,
-                1_200,
-            )
-            .expect("persist actual native binding"));
-
-        let conversation = db
-            .receiver_conversation(accepted.conversation_id())
-            .expect("load conversation")
-            .expect("conversation remains durable");
-        assert_eq!(
-            conversation.transcript_markdown(),
-            "# Portable transcript\n\nUser: private context"
-        );
-        assert_eq!(
-            conversation.binding(),
-            Some(
-                &ReceiverSessionBinding::new(
-                    frontend,
-                    format!("actual-{}-session", frontend.as_str())
-                )
-                .expect("actual binding")
-            )
-        );
+            .expect("reject generic progressed launch"));
+        let persisted = db
+            .receiver_job(accepted.job_id())
+            .expect("load retry")
+            .expect("durable retry");
+        assert_eq!(persisted.state(), ReceiverJobState::Retrying);
+        assert_eq!(persisted.retry_from_state(), Some(retry_from));
+        assert_eq!(persisted.retry_at_unix_ms(), Some(2_000));
     }
 }
 

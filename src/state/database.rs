@@ -220,7 +220,7 @@ impl Db {
         Ok(())
     }
 
-    fn now(&self) -> i64 {
+    pub(super) fn now(&self) -> i64 {
         (self.clock)()
     }
 

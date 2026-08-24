@@ -9,6 +9,7 @@ use crate::state::Db;
 
 mod claim;
 mod load;
+mod session;
 
 use load::{load_receiver_conversation, load_receiver_job};
 
@@ -178,69 +179,6 @@ impl Db {
                 to_i64(observed_at_unix_ms, "conversation update timestamp")?,
             ],
         )? == 1)
-    }
-
-    /// Replace only the native binding after an exact remote instance rotates.
-    pub fn replace_receiver_binding_from_instance(
-        &self,
-        conversation_id: ReceiverConversationId,
-        instance: &str,
-        placeholder: &crate::agent::AgentSession,
-        scope: &crate::agent::SessionScope,
-        observed_at_unix_ms: u64,
-    ) -> Result<bool> {
-        let instance = validated_owner(instance)?;
-        anyhow::ensure!(
-            scope.workspace_id().to_string() == self.workspace_id,
-            "receiver session scope belongs to another workspace"
-        );
-        let transaction = rusqlite::Transaction::new_unchecked(
-            &self.conn,
-            rusqlite::TransactionBehavior::Immediate,
-        )?;
-        let native_session = transaction
-            .query_row(
-                "SELECT agent_session_id FROM brain_sessions
-                 WHERE brain_instance_id = ?1 AND locked_pid IS NOT NULL
-                   AND agent_kind = ?2 AND workspace_id = ?3
-                   AND actor_id = ?4 AND channel = ?5",
-                rusqlite::params![
-                    instance,
-                    scope.agent_kind().as_str(),
-                    scope.workspace_id().to_string(),
-                    scope.actor().user_id().as_str(),
-                    scope.actor().channel().as_str(),
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let Some(native_session) = native_session else {
-            return Ok(false);
-        };
-        if native_session == placeholder.as_str() {
-            return Ok(false);
-        }
-        let native_session = crate::agent::AgentSession::new(native_session)?;
-        let changed = transaction.execute(
-            "UPDATE receiver_conversations
-             SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
-             WHERE workspace_id = ?1 AND conversation_id = ?2
-               AND user_id = ?6 AND channel = ?7",
-            rusqlite::params![
-                self.workspace_id,
-                conversation_id.to_string(),
-                scope.agent_kind().as_str(),
-                native_session.as_str(),
-                to_i64(observed_at_unix_ms, "receiver binding observation time")?,
-                scope.actor().user_id().as_str(),
-                scope.actor().channel().as_str(),
-            ],
-        )?;
-        if changed == 1 {
-            transaction.commit()?;
-            return Ok(true);
-        }
-        Ok(false)
     }
 
     fn validate_receiver_scope(

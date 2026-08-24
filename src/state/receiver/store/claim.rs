@@ -279,6 +279,9 @@ impl Db {
             expected.as_str(),
             next.as_str()
         );
+        if expected == ReceiverJobState::Retrying && next == ReceiverJobState::Launching {
+            return self.prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms);
+        }
         let owner = validated_owner(owner)?;
         let observed = to_i64(observed_at_unix_ms, "receiver transition time")?;
         let terminal = matches!(next, ReceiverJobState::Failed | ReceiverJobState::Done);

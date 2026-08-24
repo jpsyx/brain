@@ -38,6 +38,13 @@ mod recovery {
     include!("tests/recovery.rs");
 }
 
+mod binding {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/binding.rs");
+}
+
 mod launch {
     use super::support::*;
     use super::*;

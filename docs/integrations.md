@@ -242,8 +242,14 @@ The adjacent ownership seam gives every run a unique remote
 exact validated resume session, and never reuses the main TUI instance. Codex
 and OpenCode session-start integrations rotate that remote placeholder to the
 actual native ID. Only an exact locked remote instance whose ID differs from
-the placeholder and whose actor/channel matches the conversation may replace
-the durable binding; that update does not rewrite the portable transcript.
+the placeholder and whose complete durable registration tuple matches the
+workspace, logical conversation, frontend, actor, channel, instance, and
+registered placeholder may replace the durable binding. The lifecycle-reported
+native ID is retained in that registration, and the binding-only update does
+not rewrite the portable transcript. Pre-launch rollback stops the controller,
+uses a fallible exact-registration cleanup, and still records its bounded
+durable retry before surfacing any shutdown or cleanup diagnostic; `Drop` is
+only a best-effort fallback.
 Controller shutdown always reaches
 the transport even when frontend availability diagnostics fail, while still
 returning that diagnostic to orderly shell teardown. The seam does not yet

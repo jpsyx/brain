@@ -73,6 +73,40 @@ impl AppServices {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn register_receiver_session(
+        &self,
+        conversation_id: crate::state::ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<crate::state::ReceiverSessionAttribution> {
+        self.db
+            .register_receiver_session(conversation_id, session, instance, pid, scope)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn claim_receiver_session(
+        &self,
+        conversation_id: crate::state::ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> Result<Option<crate::state::ReceiverSessionAttribution>> {
+        self.db
+            .claim_receiver_session(conversation_id, session, instance, pid, scope)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn release_receiver_session(
+        &self,
+        registration: &crate::state::ReceiverSessionAttribution,
+    ) -> Result<()> {
+        self.db.release_receiver_session(registration)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn claim_receiver_run(
         &self,
         owner: &str,
@@ -115,19 +149,11 @@ impl AppServices {
     #[allow(dead_code)]
     pub(crate) fn replace_receiver_binding_from_instance(
         &self,
-        conversation_id: crate::state::ReceiverConversationId,
-        instance: &str,
-        placeholder: &AgentSession,
-        scope: &SessionScope,
+        registration: &crate::state::ReceiverSessionAttribution,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
-        self.db.replace_receiver_binding_from_instance(
-            conversation_id,
-            instance,
-            placeholder,
-            scope,
-            observed_at_unix_ms,
-        )
+        self.db
+            .replace_receiver_binding_from_instance(registration, observed_at_unix_ms)
     }
 
     #[must_use]

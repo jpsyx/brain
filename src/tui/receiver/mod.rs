@@ -22,6 +22,8 @@ mod planning_tests;
 mod runtime_tests;
 #[cfg(test)]
 mod session_tests;
+#[cfg(test)]
+mod test_support;
 
 pub(crate) use decision::{
     ReceiverDecision, ReceiverTickContext, ReceiverTickControl, TickStage, control_after_effect,
@@ -36,4 +38,6 @@ pub(crate) use runtime::{
     SyncGatePoll,
 };
 #[allow(unused_imports)]
-pub(crate) use session::{ReceiverRemoteSession, ReceiverSessionRegistration};
+pub(crate) use session::{
+    ReceiverRemoteSession, ReceiverSessionRegistration, ReceiverSessionStore,
+};

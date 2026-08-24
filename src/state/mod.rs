@@ -114,13 +114,14 @@ mod database;
 mod receiver;
 mod session_store;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;
+pub(crate) use receiver::schema::down_registration_to_launch_path as receiver_registration_schema_down;
 pub(crate) use receiver::schema::down_to_previous_path as receiver_launch_schema_down;
 pub use receiver::{
     EmailLineage, EmailLineageError, MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance,
     ReceiverClaim, ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity,
     ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverLaunchFailure,
-    ReceiverLaunchRetryOutcome, ReceiverRunClaim, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverLaunchRetryOutcome, ReceiverRunClaim, ReceiverSessionAttribution,
+    ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
 };
 #[cfg(test)]
 mod tests;

@@ -925,7 +925,7 @@ bypass it.
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-The state schema has four tables:
+The state schema has five tables:
 
 ```sql
 brain_sessions(
@@ -975,8 +975,21 @@ receiver_jobs(
   claim_expires_at_unix_ms  INTEGER,
   retry_count               INTEGER NOT NULL,
   retry_at_unix_ms          INTEGER,
+  retry_from_state          TEXT,
   last_error                TEXT,
   UNIQUE(workspace_id, channel, provider_id)
+)
+
+receiver_session_registrations(
+  workspace_id           TEXT NOT NULL,
+  conversation_id        TEXT NOT NULL REFERENCES receiver_conversations,
+  agent_kind             TEXT NOT NULL,  -- claude | codex | opencode
+  actor_id               TEXT NOT NULL,
+  channel                TEXT NOT NULL,  -- sms | email
+  brain_instance_id      TEXT NOT NULL,
+  registered_session_id  TEXT NOT NULL,  -- fresh placeholder or resumed native ID
+  actual_session_id      TEXT,
+  PRIMARY KEY(workspace_id, brain_instance_id)
 )
 ```
 
@@ -1033,9 +1046,12 @@ session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp. After a
 fresh Codex or OpenCode launch, a separate binding-only mutation reads the
-exact locked remote instance. It rejects the Brain placeholder and writes only
-the actual native ID installed by the lifecycle bridge when its actor/channel
-also matches the conversation, leaving the portable transcript bytes untouched.
+exact locked remote instance. It verifies the durable registration's workspace,
+logical conversation, frontend, actor, channel, instance, and original
+placeholder. It rejects the placeholder, records the actual native ID installed
+by the lifecycle bridge in the same registration, and writes only that actual
+ID to the conversation binding, leaving the portable transcript bytes
+untouched.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
@@ -1047,13 +1063,17 @@ durable claim, binding update, or coordinator state.
 
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
-nonterminal phases. Every DB open reconciles the tables for new or partially
-repaired workspaces. The automatic 0.72.0 machine migration applies the table
+nonterminal phases. Schema v8 adds the exact receiver-session registration
+table. Every DB open reconciles the tables and missing managed columns for new
+or partially repaired workspaces, including a damaged v7 database already
+stamped at that version. The automatic 0.72.0 machine migration applies the table
 reconciliation to every existing registered workspace state DB without
 creating an otherwise unused DB. The 0.75.0 migration upgrades those existing
 tables to v7; its down operation removes only the retry-origin column and
-returns the DB to v6. A newly attached workspace receives v7 on its first
-ordinary DB open. The older v6 down operation still transactionally removes
+returns the DB to v6. The 0.75.1 migration upgrades existing state to v8; its
+down operation removes only receiver-session registrations and returns the DB
+to v7. A newly attached workspace receives v8 on its first ordinary DB open.
+The older v6 down operation still transactionally removes
 the receiver schema and returns a v6 DB to v5.
 
 The `meta` table is a generic key/value store, so a new key like

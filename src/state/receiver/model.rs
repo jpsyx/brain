@@ -91,6 +91,51 @@ impl Display for ReceiverConversationId {
     }
 }
 
+/// Exact durable attribution registered before one isolated receiver launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverSessionAttribution {
+    conversation_id: ReceiverConversationId,
+    instance: String,
+    registered_session: crate::agent::AgentSession,
+    scope: crate::agent::SessionScope,
+}
+
+impl ReceiverSessionAttribution {
+    pub(super) fn new(
+        conversation_id: ReceiverConversationId,
+        instance: String,
+        registered_session: crate::agent::AgentSession,
+        scope: crate::agent::SessionScope,
+    ) -> Self {
+        Self {
+            conversation_id,
+            instance,
+            registered_session,
+            scope,
+        }
+    }
+
+    #[must_use]
+    pub const fn conversation_id(&self) -> ReceiverConversationId {
+        self.conversation_id
+    }
+
+    #[must_use]
+    pub fn instance(&self) -> &str {
+        &self.instance
+    }
+
+    #[must_use]
+    pub const fn registered_session(&self) -> &crate::agent::AgentSession {
+        &self.registered_session
+    }
+
+    #[must_use]
+    pub const fn scope(&self) -> &crate::agent::SessionScope {
+        &self.scope
+    }
+}
+
 /// Current frontend-owned native session attached to a logical conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiverSessionBinding {

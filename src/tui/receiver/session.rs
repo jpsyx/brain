@@ -1,6 +1,95 @@
 //! Exact session ownership for one isolated receiver process.
 
 use crate::agent::{AgentSession, SessionScope, SessionStore};
+use crate::state::{Db, ReceiverConversationId, ReceiverSessionAttribution};
+use crate::tui::state::AppServices;
+
+pub(crate) trait ReceiverSessionStore: SessionStore {
+    fn register_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<ReceiverSessionAttribution>;
+
+    fn claim_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<Option<ReceiverSessionAttribution>>;
+
+    fn release_receiver_session(
+        &self,
+        registration: &ReceiverSessionAttribution,
+    ) -> anyhow::Result<()>;
+}
+
+impl ReceiverSessionStore for Db {
+    fn register_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<ReceiverSessionAttribution> {
+        Self::register_receiver_session(self, conversation_id, session, instance, pid, scope)
+    }
+
+    fn claim_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<Option<ReceiverSessionAttribution>> {
+        Self::claim_receiver_session(self, conversation_id, session, instance, pid, scope)
+    }
+
+    fn release_receiver_session(
+        &self,
+        registration: &ReceiverSessionAttribution,
+    ) -> anyhow::Result<()> {
+        Self::release_receiver_session(self, registration)
+    }
+}
+
+impl ReceiverSessionStore for AppServices {
+    fn register_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<ReceiverSessionAttribution> {
+        Self::register_receiver_session(self, conversation_id, session, instance, pid, scope)
+    }
+
+    fn claim_receiver_session(
+        &self,
+        conversation_id: ReceiverConversationId,
+        session: &AgentSession,
+        instance: &str,
+        pid: i32,
+        scope: &SessionScope,
+    ) -> anyhow::Result<Option<ReceiverSessionAttribution>> {
+        Self::claim_receiver_session(self, conversation_id, session, instance, pid, scope)
+    }
+
+    fn release_receiver_session(
+        &self,
+        registration: &ReceiverSessionAttribution,
+    ) -> anyhow::Result<()> {
+        Self::release_receiver_session(self, registration)
+    }
+}
 
 /// Fresh hook lineage and placeholder for one isolated receiver process.
 pub(crate) struct ReceiverRemoteSession {
@@ -35,53 +124,77 @@ impl ReceiverRemoteSession {
 }
 
 /// Releases an exact remote owner unless its controller accepted ownership.
-pub(crate) struct ReceiverSessionRegistration<'store, Store: SessionStore> {
+pub(crate) struct ReceiverSessionRegistration<'store, Store: ReceiverSessionStore> {
     store: &'store Store,
-    instance: &'store str,
+    attribution: ReceiverSessionAttribution,
     armed: bool,
 }
 
-impl<'store, Store: SessionStore> ReceiverSessionRegistration<'store, Store> {
+impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, Store> {
     pub(crate) fn register_fresh(
         store: &'store Store,
-        remote: &'store ReceiverRemoteSession,
+        conversation_id: ReceiverConversationId,
+        remote: &ReceiverRemoteSession,
         pid: i32,
         scope: &SessionScope,
     ) -> anyhow::Result<Self> {
-        SessionStore::register(store, remote.placeholder(), remote.instance(), pid, scope)?;
+        let attribution = ReceiverSessionStore::register_receiver_session(
+            store,
+            conversation_id,
+            remote.placeholder(),
+            remote.instance(),
+            pid,
+            scope,
+        )?;
         Ok(Self {
             store,
-            instance: remote.instance(),
+            attribution,
             armed: true,
         })
     }
 
     pub(crate) fn claim_resume(
         store: &'store Store,
-        remote: &'store ReceiverRemoteSession,
+        conversation_id: ReceiverConversationId,
+        remote: &ReceiverRemoteSession,
         session: &AgentSession,
         pid: i32,
         scope: &SessionScope,
     ) -> anyhow::Result<Option<Self>> {
-        if !SessionStore::claim(store, session, remote.instance(), pid, scope)? {
+        let Some(attribution) = ReceiverSessionStore::claim_receiver_session(
+            store,
+            conversation_id,
+            session,
+            remote.instance(),
+            pid,
+            scope,
+        )?
+        else {
             return Ok(None);
-        }
+        };
         Ok(Some(Self {
             store,
-            instance: remote.instance(),
+            attribution,
             armed: true,
         }))
     }
 
-    pub(crate) fn commit(mut self) {
+    pub(crate) fn commit(mut self) -> ReceiverSessionAttribution {
         self.armed = false;
+        self.attribution.clone()
+    }
+
+    pub(crate) fn cleanup(mut self) -> anyhow::Result<()> {
+        ReceiverSessionStore::release_receiver_session(self.store, &self.attribution)?;
+        self.armed = false;
+        Ok(())
     }
 }
 
-impl<Store: SessionStore> Drop for ReceiverSessionRegistration<'_, Store> {
+impl<Store: ReceiverSessionStore> Drop for ReceiverSessionRegistration<'_, Store> {
     fn drop(&mut self) {
         if self.armed {
-            let _ = SessionStore::release(self.store, self.instance);
+            let _ = ReceiverSessionStore::release_receiver_session(self.store, &self.attribution);
         }
     }
 }

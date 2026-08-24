@@ -2691,16 +2691,23 @@ session or registers a fresh placeholder before process launch. The existing
 lifecycle bridge is the authority that rotates a Codex/OpenCode placeholder to
 the actual native ID; Brain refuses to persist the placeholder and performs a
 binding-only conversation update so portable transcript history cannot be
-lost. An armed registration guard releases the exact remote owner on early
-return without touching the main instance.
+lost. Binding requires the complete durable workspace, logical conversation,
+frontend, actor, channel, remote instance, and registered-placeholder tuple;
+the lifecycle-reported actual ID is retained alongside it. An armed
+registration guard releases the exact remote owner on early return without
+touching the main instance. Rollback invokes that cleanup explicitly so a
+release failure is reportable, while `Drop` remains a best-effort fallback.
 
 Launch retries stop at the pre-acceptance boundary. The exact live owner alone
 may move `claimed`, or a due retry originating in `claimed`/`launching`, to
 `launching`. Planning, registration, tab allocation, and spawn failures stop
 the controller, release the remote owner, and durably schedule at most two more
-attempts using a stable content-free reason; the third failure marks the job
-failed without deleting it. Reclaimed `accepted`, `processing`, answer, and
-delivery work stays unlaunched until BR-16 defines its recovery policy.
+attempts using a stable content-free reason; all rollback steps run even when
+controller shutdown or exact-session cleanup reports a diagnostic, and the
+concrete shutdown diagnostic remains available to its caller. The third
+failure marks the job failed without deleting it. Reclaimed `accepted`,
+`processing`, answer, and delivery work stays unlaunched until BR-16 defines
+its recovery policy.
 
 An open agent PTY is not proof that work is active: brain opens an idle panel
 before the startup daily-triage modal. The receiver therefore tracks submitted

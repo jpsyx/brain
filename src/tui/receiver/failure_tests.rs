@@ -17,6 +17,7 @@ use crate::tui::shell::ShellRunner;
 use crate::tui::state::{AppServices, AppServicesInit};
 use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
+use super::test_support::FailingReleaseStore;
 use super::{ReceiverRemoteSession, ReceiverSessionRegistration, rollback_receiver_launch};
 
 #[derive(Default)]
@@ -73,11 +74,19 @@ impl ReceiverSyncRuntime for NoopSyncRuntime {
     }
 }
 
-struct LaunchFrontend;
+struct LaunchFrontend {
+    shutdown_diagnostic: Option<&'static str>,
+}
 
 impl AgentFrontend for LaunchFrontend {
     fn kind(&self) -> AgentKind {
         AgentKind::Codex
+    }
+
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        self.shutdown_diagnostic.map_or(Ok(()), |message| {
+            Err(AgentError::Frontend(message.to_owned()))
+        })
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
@@ -233,21 +242,28 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
             );
         }
         let remote = ReceiverRemoteSession::new("interactive-shell");
-        ReceiverSessionRegistration::register_fresh(&services, &remote, 42, &scope)
-            .expect("register fresh remote placeholder")
-            .commit();
+        let registration = ReceiverSessionRegistration::register_fresh(
+            &services,
+            accepted.conversation_id(),
+            &remote,
+            42,
+            &scope,
+        )
+        .expect("register fresh remote placeholder");
         let shutdowns = Arc::new(Mutex::new(0));
         let mut controller = AgentController::new(
             Arc::clone(&workspace),
             actor,
-            Box::new(LaunchFrontend),
+            Box::new(LaunchFrontend {
+                shutdown_diagnostic: None,
+            }),
             Box::new(ShutdownTransport(Arc::clone(&shutdowns))),
         );
 
         let outcome = rollback_receiver_launch(
             &services,
             &claimed,
-            remote.instance(),
+            Some(registration),
             &mut controller,
             failure,
             1_020,
@@ -277,3 +293,5 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
         assert_eq!(retry.job().last_error(), Some(failure.as_str()));
     }
 }
+
+include!("failure_test_sections/diagnostics.rs");

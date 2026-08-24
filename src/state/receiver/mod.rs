@@ -15,6 +15,6 @@ use model::ReceiverRetryMetadata;
 pub use model::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance, ReceiverClaim, ReceiverConversation,
     ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverLaunchFailure,
-    ReceiverLaunchRetryOutcome, ReceiverRunClaim, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverLaunchRetryOutcome, ReceiverRunClaim, ReceiverSessionAttribution,
+    ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
 };
