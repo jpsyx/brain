@@ -70,10 +70,12 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         let workspace_name = app.context.workspace().name().as_str().to_owned();
         let agent = app.context.agent_kind().label().to_owned();
         let alert = app.status.alert().map(str::to_owned);
+        let active_tab = app.effective_brain_tab();
         let mut context = BrainPanelContext {
             focused: app.shell.focus() == Panel::Brain,
             tab_titles: app.brain.tab_titles(),
-            active_tab: app.effective_brain_tab(),
+            active_tab,
+            active_is_skill_session: app.brain.is_skill_session_tab(active_tab),
             active_index: app.active_brain_tab_index(),
             workspace_name,
             session_title: app.active_brain_tab_title().map(str::to_owned),

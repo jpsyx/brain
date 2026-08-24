@@ -476,6 +476,26 @@ deliberate differences from the main panel:
 `server/routes/session/`), an unauthenticated localhost-only endpoint consistent
 with the ingress-scoped habits completion route.
 
+### Shared ephemeral-tab storage for receiver runs
+
+`BrainPanelState` stores skill sessions and receiver runs in one ordered
+ephemeral collection, but the metadata variants remain distinct. A skill entry
+owns its configured key and completion token. A receiver entry owns its durable
+`ReceiverJobId` and remote instance identity. It does not borrow a
+`SkillSessionKey`, completion token, or configured-skill semantics.
+
+All entries share the checked monotonic `SessionTabId` allocator, rendered
+title order, controller lookup, and orderly shutdown pass. A receiver
+allocation rejected at counter exhaustion shuts down the supplied
+`AgentController` without inserting a tab or advancing the counter.
+The `BrainPanelState` receiver API performs insertion, observation, controller
+access, and removal without touching `ShellState`; therefore background
+operations preserve the current main view, effective tab, panel visibility, and
+keyboard focus.
+Receiver-only storage does not reveal a hidden panel. Task 2 intentionally
+stops at this in-memory integration seam; durable claiming, launch registration,
+and coordinator wiring remain later BR-14 tasks.
+
 ## Shared-server process lifecycle
 
 One machine-wide process stores its infrastructure below

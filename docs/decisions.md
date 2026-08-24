@@ -2778,9 +2778,22 @@ actually run" values.
 **Why a tab identity rather than a list index or a definition key.** A tab is
 addressed by a monotonic `SessionTabId`. An index would let closing one tab
 silently repoint the active tab at another; a `SkillSessionKey` would break if the
-user edited `skill_sessions` while a session was running. The id survives both.
-The `Alt+<digit>` slots and the `Alt+[` / `Alt+]` cycle are both derived from one
-pure `tab_order`, so the two can never disagree about which tab is second.
+user edited `skill_sessions` while a session was running. Receiver runs also
+need stable identity without pretending their durable job is a configured
+skill. One checked counter therefore spans both distinct metadata variants and
+never reuses an ID. The rendered strip, `Alt+<digit>` slots, and the `Alt+[` /
+`Alt+]` cycle all consume that same insertion order.
+
+**Why one collection with distinct metadata.** Controller ownership,
+allocation failure cleanup, title ordering, active-controller lookup, and shell
+shutdown are identical for skill and receiver tabs. Duplicating those mechanics
+would create two orders and two cleanup paths. Their lifecycle facts are not
+identical, so the collection stores a kind enum: skill metadata owns its
+definition key and completion token, while receiver metadata owns its durable
+job and remote instance identities. Receiver insertion only mutates this
+collection. It never invokes the shell selection path, and receiver-only state
+does not reveal a hidden panel. The durable receiver coordinator remains a
+later BR-14 task.
 
 **Why the session is untracked.** A skill-session tab is ephemeral by
 construction. `App::open_skill_session` builds an `AgentController` from a

@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::agent::{AgentController, AgentError, AgentKind, AgentTransport, InputSequence};
 use crate::skill_session::SkillSessionKey;
+use crate::state::ReceiverJobId;
 use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::{BrainPanelState, BrainPanelStateInit};
@@ -156,13 +157,69 @@ fn brain_state_assigns_monotonic_skill_tab_ids_and_keeps_session_identity() {
 }
 
 #[test]
+fn skill_and_receiver_tabs_share_monotonic_ids_and_one_stable_strip_order() {
+    let mut brain = BrainPanelState::new(BrainPanelStateInit {
+        instance: "shell-under-test".to_owned(),
+        interactive_actor: crate::actor::test_actor("tester"),
+        configured_skill_sessions: None,
+    });
+    let first_skill = brain
+        .add_skill_session(
+            SkillSessionKey::DailyTriage,
+            "Daily triage".to_owned(),
+            "token-one".to_owned(),
+            controller(AgentKind::Claude),
+        )
+        .expect("first skill tab");
+    let receiver_job = ReceiverJobId::from(
+        uuid::Uuid::parse_str("416432be-1f80-4c14-a1cd-a67990cba013").expect("receiver job ID"),
+    );
+    let receiver = brain
+        .add_receiver_run(
+            receiver_job,
+            "Receiver · SMS".to_owned(),
+            "receiver-instance".to_owned(),
+            controller(AgentKind::Codex),
+        )
+        .expect("receiver tab");
+    brain
+        .remove_skill_session(first_skill)
+        .expect("remove first skill tab");
+    let second_skill = brain
+        .add_skill_session(
+            SkillSessionKey::Custom(0),
+            "Inbox".to_owned(),
+            "token-two".to_owned(),
+            controller(AgentKind::OpenCode),
+        )
+        .expect("second skill tab");
+
+    assert_eq!(receiver, SessionTabId(1));
+    assert_eq!(second_skill, SessionTabId(2));
+    assert_eq!(brain.ephemeral_tab_ids(), [receiver, second_skill]);
+    assert_eq!(brain.tab_titles(), ["Brain", "Receiver · SMS", "Inbox"]);
+    assert_eq!(brain.skill_session_tab_ids(), [second_skill]);
+    let observations = brain.receiver_run_observations();
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].id, receiver);
+    assert_eq!(observations[0].job_id, receiver_job);
+    assert_eq!(observations[0].instance, "receiver-instance");
+    assert_eq!(
+        brain
+            .receiver_run_controller(receiver)
+            .map(AgentController::kind),
+        Some(AgentKind::Codex)
+    );
+}
+
+#[test]
 fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
         interactive_actor: crate::actor::test_actor("tester"),
         configured_skill_sessions: None,
     });
-    brain.next_session_tab_id = u32::MAX - 1;
+    brain.set_next_session_tab_id(u32::MAX - 1);
     let final_id = brain
         .add_skill_session(
             SkillSessionKey::Custom(0),
@@ -175,7 +232,7 @@ fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
     brain
         .remove_skill_session(final_id)
         .expect("remove final representable tab");
-    assert_eq!(brain.next_session_tab_id, u32::MAX);
+    assert_eq!(brain.next_session_tab_id(), u32::MAX);
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let controller = AgentController::for_workspace_with_command(
@@ -197,9 +254,58 @@ fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
 
     assert_eq!(error.to_string(), "skill-session tab identity exhausted");
     assert!(brain.skill_session_tab_ids().is_empty());
-    assert_eq!(brain.next_session_tab_id, u32::MAX);
+    assert_eq!(brain.next_session_tab_id(), u32::MAX);
     assert!(
         shutdown.load(Ordering::SeqCst),
         "a launched controller rejected by tab allocation must be shut down"
+    );
+}
+
+#[test]
+fn rejected_receiver_allocation_shuts_down_and_leaves_tabs_and_counter_unchanged() {
+    let mut brain = BrainPanelState::new(BrainPanelStateInit {
+        instance: "shell-under-test".to_owned(),
+        interactive_actor: crate::actor::test_actor("tester"),
+        configured_skill_sessions: None,
+    });
+    let skill = brain
+        .add_skill_session(
+            SkillSessionKey::DailyTriage,
+            "Daily triage".to_owned(),
+            "skill-token".to_owned(),
+            controller(AgentKind::Claude),
+        )
+        .expect("skill tab");
+    brain.set_next_session_tab_id(u32::MAX);
+    let tabs_before = brain.ephemeral_tab_ids();
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let controller = AgentController::for_workspace_with_command(
+        workspace(),
+        AgentKind::Codex,
+        AgentKind::Codex.as_str().to_owned(),
+        crate::actor::test_actor("receiver"),
+        Box::new(ShutdownRecordingTransport(Arc::clone(&shutdown))),
+    );
+
+    let error = brain
+        .add_receiver_run(
+            ReceiverJobId::from(
+                uuid::Uuid::parse_str("416432be-1f80-4c14-a1cd-a67990cba013")
+                    .expect("receiver job ID"),
+            ),
+            "Receiver · SMS".to_owned(),
+            "receiver-instance".to_owned(),
+            controller,
+        )
+        .expect_err("an exhausted identity space must reject the receiver tab");
+
+    assert_eq!(error.to_string(), "receiver-run tab identity exhausted");
+    assert_eq!(brain.ephemeral_tab_ids(), tabs_before);
+    assert_eq!(brain.skill_session_tab_ids(), [skill]);
+    assert!(brain.receiver_run_observations().is_empty());
+    assert_eq!(brain.next_session_tab_id(), u32::MAX);
+    assert!(
+        shutdown.load(Ordering::SeqCst),
+        "a rejected receiver controller must be shut down"
     );
 }

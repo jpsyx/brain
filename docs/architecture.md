@@ -127,7 +127,7 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
       └─→ tick → draw → poll/read → application update
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
-       ├─ BrainPanelState owns one AgentController per live main/skill-session panel
+       ├─ BrainPanelState owns one AgentController per live main or ephemeral tab
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
        │    ├─ agent::{ClaudeFrontend,CodexFrontend,OpenCodeFrontend} translate semantic operations
        │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
@@ -430,8 +430,8 @@ frontend constructors, command metadata, lifecycle installations, exact health
 checks, capability evidence, and compatibility probes. Shared command, doctor,
 and setup code consume that table instead of switching on concrete frontends.
 `PtyPane` implements `AgentTransport`. The main panel stores an
-`Option<AgentController>` because it may be closed; every live ephemeral
-skill-session tab owns one `AgentController` directly. Keyboard, receiver,
+`Option<AgentController>` because it may be closed; every live ephemeral tab
+owns one `AgentController` directly. Keyboard, receiver,
 draw, scroll, close, and event-loop code call controller semantics and never
 construct frontend keystrokes. Busy-turn follow-up is one controller operation;
 each adapter returns the complete native text and final-key sequence.
@@ -1277,10 +1277,23 @@ area). `BrainPanelState` owns the main persistent controller, while
 `app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
 while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
-`BrainPanelState` owns the ephemeral skill-session controllers and tab data;
-`app_skill_session/` coordinates their lifecycle (open/close/select and the
-`tick_skill_sessions` auto-close). Tab IDs are lifetime-monotonic and allocated
-with checked exhaustion before the tab collection or counter changes. The
+`BrainPanelState` delegates its one shared ephemeral-tab collection to
+`state/brain/ephemeral.rs`. Skill sessions and receiver runs retain distinct
+metadata variants, but both use one lifetime-monotonic `SessionTabId` allocator,
+controller store, title order, and shutdown pass. Checked allocation exhaustion
+shuts down the rejected controller before returning and leaves both the
+collection and counter unchanged. `app_brain_tab.rs` owns shared observation and
+keyboard navigation; `app_skill_session/` retains skill completion signals and
+configured-skill lifecycle. `BrainPanelState` exposes background-only receiver
+insertion, observation, controller access, and removal; a later behavior-owning
+App coordinator can compose that state API without a semantic-free aggregate
+forwarder. This task does not connect the durable receiver coordinator to that
+seam.
+
+Receiver-only tabs do not make a hidden brain panel visible. When the panel is
+already visible, skill and receiver titles render and navigate in their shared
+stable insertion order. Receiver insertion and terminal removal preserve the
+current main view, effective tab, panel visibility, and keyboard focus. The
 `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
@@ -1363,7 +1376,7 @@ after a day rollover, then report the refresh. The terminal loop itself contains
 only runtime tick, draw, terminal poll/read, and one application update call.
 
 Orderly shutdown is idempotent. It stops the heartbeat worker and attempts the
-bounded unregister before shutting down the main and skill-session controllers,
+bounded unregister before shutting down the main and all ephemeral controllers,
 drops the periodic puller and watcher, releases the shell's session lock, then
 restores the terminal. The singleton remains held until the runtime itself is
 dropped, after every owned resource has completed its orderly teardown. `Drop`

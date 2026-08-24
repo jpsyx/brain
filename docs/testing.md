@@ -351,6 +351,14 @@ first move is a failing test that reproduces it, *then* the fix.
   `open_skill_session` transaction, and proves the rejected controller and
   completion signal are cleaned up while the selected tab and tab collection
   stay unchanged and the error is reported.
+  The same owner tests now interleave skill and receiver tabs to prove one
+  never-reused ID stream, stable rendered/navigation order, failure-safe
+  allocation cleanup, distinct receiver metadata and controller lookup, and
+  whole-shell receiver shutdown. Composed App tests hold the main view, panel
+  visibility, effective tab, and focus fixed across background receiver insert,
+  exit observation, removal, and rejected allocation; they also prove receiver
+  teardown is independent from main and skill controllers. A renderer test
+  prevents receiver tabs from advertising the skill-only close shortcut.
   `AppServices` tests use focused runner and sync seams to pin semantic effects,
   and `StatusState` tests separate transient and persistent messages while
   covering triage-gate, live-toggle, and sync-poll transitions. Standalone

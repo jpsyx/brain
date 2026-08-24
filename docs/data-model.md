@@ -1112,15 +1112,20 @@ fresh `LaunchRequest`. Its hook metadata carries the session-done URL and token
 but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or `BRAIN_RESPONSE_ID`. The
 session-start bridge no-ops without the tracking values, so no `brain_sessions`
 row is ever written and it is never a resume candidate. A tab lives only in
-process memory: `BrainPanelState` owns its `SessionTabId`, `SkillSessionKey`, tab
-title, completion token, and controller, while `ShellState` owns the active
-`BrainTab`. It is torn down when its run completes or the shell exits.
+process memory: the shared ephemeral collection owns its `SessionTabId`, title,
+kind-specific metadata, and controller, while `ShellState` owns the active
+`BrainTab`. Skill metadata remains the `SkillSessionKey` plus completion token.
+Receiver metadata is a separate variant containing the durable `ReceiverJobId`
+plus remote instance identity; it is never represented as a configured skill.
+The single counter spans both kinds and never reuses an ID after removal.
 
-Both main and skill-session values are `AgentController` instances, not raw PTYs.
+Main, skill-session, and receiver-run values are `AgentController` instances,
+not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,
 and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down every controller before releasing
-the session-store lock.
+the session-store lock. The in-memory receiver tab seam is not yet wired to the
+durable consumer in this task.
 
 ## Skill sessions (`skill_session/`, `skill_sessions` env)
 

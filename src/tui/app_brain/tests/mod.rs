@@ -88,6 +88,7 @@ mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
 mod receiver_sync;
+mod receiver_tab;
 mod skill_session;
 mod triage_overlay;
 

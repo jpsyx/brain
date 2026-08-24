@@ -50,7 +50,7 @@ while the selected agent has focus or the filter is being typed. macOS
 Option-produced equivalents are accepted too, so richer keyboard reporting in
 embedded frontends does not strand the scroll binding.
 
-Every live main or daily-triage session sits behind an `AgentController`.
+Every live main or ephemeral-tab session sits behind an `AgentController`.
 Keyboard, receiver, render, scroll, completion, and close paths call semantic
 operations on that facade; only the Claude, Codex, and OpenCode adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
@@ -108,12 +108,18 @@ twice. Several *different* skill sessions can run at once, each in its own tab.
 
 **Switching tabs.** Cycle with **`Alt+[`** / **`Alt+]`** (previous / next) from
 either panel; the panel shows a `1 Brain` · `2 Daily triage` · `3 Email triage` …
-strip while any session is live, in the order they were opened. The **command
+strip while any ephemeral tab is live, in the order tabs were opened. The **command
 palette** also carries **Show main brain session** and one **Show <title>
-session** row per open tab — the works-anywhere alternative. (`Alt+1` selects the
-main session and `Alt+<n>` the nth skill session directly too, but terminal
+session** row per open skill tab (the works-anywhere alternative). (`Alt+1` selects the
+main session and `Alt+<n>` the nth ephemeral tab directly too, but terminal
 `Alt+digit` handling is unreliable, so the bracket cycle and palette rows are the
 dependable paths.)
+
+The same strip and slot order can hold a distinct background receiver-run tab.
+Receiver insertion never selects that tab, reveals a hidden panel, changes the
+main view, or moves keyboard focus. Task 2 provides this in-memory ownership
+seam only; the later BR-14 durable coordinator is still responsible for
+creating production receiver runs and closing them at terminal outcomes.
 
 Every skill session is **ephemeral**: never recorded in the session DB, never
 resumed. Because a run can involve back-and-forth with you, "the agent stopped

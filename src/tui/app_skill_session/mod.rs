@@ -20,7 +20,6 @@ use crate::tui::model::BrainTab;
 
 mod lifecycle;
 
-use crate::agent::AgentController;
 use crate::skill_session::{SkillSessionKey, SkillSessionSpec};
 
 /// One palette row group: a skill session's identity paired with the text the
@@ -52,90 +51,11 @@ impl App {
         (runnable, open)
     }
 
-    /// The tab actually showable right now: a `Session` only while a tab with
-    /// that identity exists, else `Main`.
-    pub(crate) fn effective_brain_tab(&self) -> BrainTab {
-        self.shell
-            .active_brain_tab(&self.brain.skill_session_tab_ids())
-    }
-
-    /// The controller behind the currently-active tab, if any.
-    pub(crate) fn active_brain_controller(&self) -> Option<&AgentController> {
-        let tab = self
-            .shell
-            .active_brain_tab(&self.brain.skill_session_tab_ids());
-        self.brain.active_controller(tab)
-    }
-
-    /// Mutable counterpart of [`Self::active_brain_controller`] used by the
-    /// per-frame terminal resize.
-    pub(crate) fn active_brain_controller_mut(&mut self) -> Option<&mut AgentController> {
-        let tab = self.effective_brain_tab();
-        self.brain.active_controller_mut(tab)
-    }
-
-    /// The active tab's title, used by the panel border.
-    pub(crate) fn active_brain_tab_title(&self) -> Option<&str> {
-        let tab = self
-            .shell
-            .active_brain_tab(&self.brain.skill_session_tab_ids());
-        self.brain.active_tab_title(tab)
-    }
-
-    /// Where the active tab sits in the tab strip (`0` = the main session).
-    pub(crate) fn active_brain_tab_index(&self) -> usize {
-        let ids = self.brain.skill_session_tab_ids();
-        self.shell.active_brain_tab_index(&ids)
-    }
-
-    /// Select a brain-panel tab (`Alt+1` / `Alt+<n>`) and focus the brain panel.
-    /// Selecting a skill session is a no-op when that tab isn't open; selecting
-    /// any tab when the panel is closed does nothing.
-    pub(crate) fn select_brain_tab(&mut self, tab: BrainTab) -> bool {
-        let open = self.brain.skill_session_tab_ids();
-        let selected = self
-            .shell
-            .select_brain_tab(tab, &open, self.brain.any_panel_visible());
-        if selected {
-            self.status.clear_alert();
-        }
-        selected
-    }
-
-    /// Select a tab by its `Alt+<digit>` slot: slot 0 is the main session, slot
-    /// `n` the nth open skill session. Returns whether a tab was actually
-    /// selected, so the caller can let an unclaimed keystroke carry on being
-    /// ordinary input instead of swallowing it.
-    pub(crate) fn select_brain_tab_slot(&mut self, slot: usize) -> bool {
-        let ids = self.brain.skill_session_tab_ids();
-        let selected = self
-            .shell
-            .select_brain_tab_slot(slot, &ids, self.brain.any_panel_visible());
-        if selected {
-            self.status.clear_alert();
-        }
-        selected
-    }
-
     /// Focus a running skill session by definition (the palette's counterpart to
     /// its `Alt+<n>`). No-op when that session isn't open.
     pub(crate) fn select_skill_session(&mut self, key: SkillSessionKey) {
         if let Some(id) = self.brain.skill_session_id(key) {
             self.select_brain_tab(BrainTab::Session(id));
-        }
-    }
-
-    /// Cycle the brain-panel tab (`Alt+[` previous / `Alt+]` next) and focus
-    /// the panel. With only the main session open this just focuses the panel.
-    /// Ordered `[Main, …sessions]` so `next` from Main lands on the first skill
-    /// session.
-    pub(crate) fn cycle_brain_tab(&mut self, forward: bool) {
-        let open = self.brain.skill_session_tab_ids();
-        if self
-            .shell
-            .cycle_brain_tab(&open, forward, self.brain.any_panel_visible())
-        {
-            self.status.clear_alert();
         }
     }
 }

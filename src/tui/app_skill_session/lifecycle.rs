@@ -151,7 +151,7 @@ impl App {
                         return;
                     }
                 };
-                let open = self.brain.skill_session_tab_ids();
+                let open = self.brain.ephemeral_tab_ids();
                 self.shell
                     .select_brain_tab(BrainTab::Session(id), &open, true);
                 self.status.clear_alert();
@@ -189,7 +189,7 @@ impl App {
         };
         crate::skill_session::signal::clear(self.context.workspace(), &removed.token);
         if was_showing {
-            let open = self.brain.skill_session_tab_ids();
+            let open = self.brain.ephemeral_tab_ids();
             self.shell.select_brain_tab(
                 BrainTab::Main,
                 &open,
@@ -223,7 +223,7 @@ impl App {
             .brain
             .add_skill_session(key, title.to_owned(), token.to_owned(), controller)
             .expect("test skill-session tab identity");
-        let open = self.brain.skill_session_tab_ids();
+        let open = self.brain.ephemeral_tab_ids();
         self.shell
             .select_brain_tab(BrainTab::Session(id), &open, true);
         id

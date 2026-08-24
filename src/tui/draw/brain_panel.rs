@@ -18,6 +18,7 @@ pub(crate) struct BrainPanelContext<'a> {
     pub(super) focused: bool,
     pub(super) tab_titles: Vec<String>,
     pub(super) active_tab: BrainTab,
+    pub(super) active_is_skill_session: bool,
     pub(super) active_index: usize,
     pub(super) workspace_name: String,
     pub(super) session_title: Option<String>,
@@ -66,7 +67,7 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // With any skill-session tab open, the top inner row is a tab strip; the
+    // With any ephemeral tab open, the top inner row is a tab strip; the
     // bottom row is always the help / status footer. The PTY fills what's left.
     let mut term_y = inner.y;
     let mut body_h = inner.height;
@@ -141,7 +142,13 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
                 .fg(Color::Rgb(255, 199, 119))
                 .add_modifier(Modifier::BOLD),
         )),
-        None if alive => footer_hint(active_tab, has_tabs, key, dim),
+        None if alive => footer_hint(
+            active_tab,
+            has_tabs,
+            context.active_is_skill_session,
+            key,
+            dim,
+        ),
         // The event loop closes the panel as soon as the agent exits, so this
         // shows for at most one frame before tasks goes full-width.
         None => Line::from(Span::styled(
@@ -154,8 +161,8 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
     f.render_widget(Paragraph::new(vec![footer]), footer_area);
 }
 
-/// The tab strip shown at the top of the brain panel while any skill session is
-/// running: the main session, then one numbered tab per open session, in the
+/// The tab strip shown at the top of the brain panel while any ephemeral tab is
+/// open: the main session, then one numbered tab per open tab, in the
 /// order they were opened (matching their `Alt+<digit>` slots). The active tab is
 /// bright; the others are dimmed.
 fn tab_bar_line(titles: &[String], active_index: usize) -> Line<'static> {
@@ -181,9 +188,15 @@ fn tab_bar_line(titles: &[String], active_index: usize) -> Line<'static> {
 }
 
 /// The normal (agent-alive) footer hint. Names the reliable way back to tasks
-/// and, when a skill-session tab is open, the tab-switch key and the tab-specific
-/// close action (`^X` closes only that ephemeral session from its own tab).
-fn footer_hint(active: BrainTab, has_tabs: bool, key: Style, dim: Style) -> Line<'static> {
+/// and, when an ephemeral tab is open, the tab-switch key. Skill sessions keep
+/// their tab-specific close action (`^X` from the selected skill tab).
+fn footer_hint(
+    active: BrainTab,
+    has_tabs: bool,
+    active_is_skill_session: bool,
+    key: Style,
+    dim: Style,
+) -> Line<'static> {
     let on_session = matches!(active, BrainTab::Session(_));
     let mut spans = vec![
         Span::raw(" "),
@@ -198,16 +211,18 @@ fn footer_hint(active: BrainTab, has_tabs: bool, key: Style, dim: Style) -> Line
             dim,
         ));
     }
-    spans.push(Span::styled("   ", dim));
-    spans.push(Span::styled("^X", key));
-    spans.push(Span::styled(
-        if has_tabs && on_session {
-            " close tab"
-        } else {
-            " close brain"
-        },
-        dim,
-    ));
+    if !on_session || active_is_skill_session {
+        spans.push(Span::styled("   ", dim));
+        spans.push(Span::styled("^X", key));
+        spans.push(Span::styled(
+            if active_is_skill_session {
+                " close tab"
+            } else {
+                " close brain"
+            },
+            dim,
+        ));
+    }
     Line::from(spans)
 }
 
@@ -235,7 +250,10 @@ pub(crate) fn panel_title(
 
 #[cfg(test)]
 mod tests {
-    use super::panel_title;
+    use ratatui::style::Style;
+
+    use super::{footer_hint, panel_title};
+    use crate::tui::model::{BrainTab, SessionTabId};
 
     #[test]
     fn the_main_tab_names_the_workspace_instead_of_the_product() {
@@ -263,5 +281,20 @@ mod tests {
             panel_title("family", Some("Daily triage"), "Claude", false),
             "family · Daily triage · Claude exited"
         );
+    }
+
+    #[test]
+    fn receiver_tabs_do_not_advertise_the_skill_session_close_shortcut() {
+        let footer = footer_hint(
+            BrainTab::Session(SessionTabId(7)),
+            true,
+            false,
+            Style::default(),
+            Style::default(),
+        );
+
+        assert!(footer.to_string().contains("Alt+[ ]"));
+        assert!(!footer.to_string().contains("^X"));
+        assert!(!footer.to_string().contains("close tab"));
     }
 }

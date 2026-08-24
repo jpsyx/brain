@@ -121,8 +121,7 @@ pub(crate) const CONTEXT_FIELDS: &[&str] = &[
 pub(crate) const BRAIN_FIELDS: &[&str] = &[
     "main",
     "brain_turn_active",
-    "skill_sessions",
-    "next_session_tab_id",
+    "ephemeral_tabs",
     "configured_skill_sessions",
     "instance",
     "interactive_actor",
