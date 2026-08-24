@@ -24,8 +24,35 @@ pub(super) struct Symbols {
 }
 
 impl Symbols {
-    pub(super) fn collect_items(&mut self, items: &[syn::Item], module: &[String]) {
+    pub(super) fn collect_declarations(&mut self, items: &[syn::Item], module: &[String]) {
         self.collect_imports(items, module);
+        for item in items {
+            if item_is_test(item) {
+                continue;
+            }
+            match item {
+                syn::Item::Mod(item_mod) => {
+                    if let Some((_, nested)) = &item_mod.content {
+                        let mut child = module.to_vec();
+                        child.push(item_mod.ident.to_string());
+                        self.collect_declarations(nested, &child);
+                    }
+                }
+                syn::Item::Type(item_type) => {
+                    self.aliases.insert(
+                        format!("{}::{}", module.join("::"), item_type.ident),
+                        TypeDefinition {
+                            module: module.to_vec(),
+                            ty: (*item_type.ty).clone(),
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub(super) fn collect_definitions(&mut self, items: &[syn::Item], module: &[String]) {
         for item in items {
             if item_is_test(item) {
                 continue;
@@ -43,19 +70,10 @@ impl Symbols {
                     if let Some((_, nested)) = &item_mod.content {
                         let mut child = module.to_vec();
                         child.push(item_mod.ident.to_string());
-                        self.collect_items(nested, &child);
+                        self.collect_definitions(nested, &child);
                     }
                 }
                 syn::Item::Struct(item_struct) => self.collect_fields(item_struct, module),
-                syn::Item::Type(item_type) => {
-                    self.aliases.insert(
-                        format!("{}::{}", module.join("::"), item_type.ident),
-                        TypeDefinition {
-                            module: module.to_vec(),
-                            ty: (*item_type.ty).clone(),
-                        },
-                    );
-                }
                 _ => {}
             }
         }
@@ -74,7 +92,7 @@ impl Symbols {
     }
 
     fn collect_impl(&mut self, item_impl: &syn::ItemImpl, module: &[String]) {
-        let Some(owner) = self.canonical_type(module, &item_impl.self_ty) else {
+        let Some(owner) = self.type_fact(module, &item_impl.self_ty).canonical else {
             return;
         };
         let trait_name = item_impl
@@ -261,13 +279,6 @@ impl Symbols {
         definition.map_or_else(TypeFact::default, |definition| {
             self.type_fact(&definition.module, &definition.ty)
         })
-    }
-
-    fn canonical_type(&self, module: &[String], ty: &syn::Type) -> Option<String> {
-        let syn::Type::Path(path) = ty else {
-            return None;
-        };
-        Some(self.resolve_path(module, &path.path))
     }
 }
 

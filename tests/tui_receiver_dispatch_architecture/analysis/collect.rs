@@ -34,7 +34,10 @@ pub(super) fn collect_program(root: &Path) -> Program {
         .collect::<Vec<_>>();
     let mut symbols = Symbols::default();
     for source in &sources {
-        symbols.collect_items(&source.syntax.items, &source.production.module);
+        symbols.collect_declarations(&source.syntax.items, &source.production.module);
+    }
+    for source in &sources {
+        symbols.collect_definitions(&source.syntax.items, &source.production.module);
     }
 
     let mut program = Program::default();
