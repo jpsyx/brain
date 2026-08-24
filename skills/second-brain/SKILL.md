@@ -279,11 +279,13 @@ Pointers to working files (`notes.md`, attached PDFs, etc.) when
 useful.>
 ```
 
-Keep `.METADATA.json` current — update `status`, `priority`, and
-`due` whenever the project's state changes (e.g. promote a `p2`
-project to `p1` when it becomes the current focus, demote to `p3`
-when it stalls), **then run the [reindex](#reindex-the-second-brain--second-brain-reindex)
-command** so `projects-lookup.csv` mirrors the change. Detailed
+Keep `.METADATA.json` current with `brain project set` — promote a `p2`
+project to `p1` when it becomes the current focus, demote it to `p3` when
+it stalls, move the due date when it moves. The command validates each
+value and rebuilds `projects-lookup.csv` for you, so there is no separate
+reindex step and no way to leave the lookup stale. Don't edit the file by
+hand: unknown fields you didn't write are carried through untouched, but a
+mistyped status is caught by nothing downstream. Detailed
 working notes live in `notes.md` (or other files in the folder);
 `.METADATA.json` is the dashboard and `README.md` is the brief.
 
@@ -560,22 +562,23 @@ validation is structured (Python diff), never LLM judgment.
    no deadline. **Priority is required** — always ask if it wasn't
    given; never silently default. Valid values: `p0`–`p4` (see the
    `priority` field rule above for what each tier means).
-4. Create `projects/<namespace>__<outcome>/` with both files per
-   [Every project has a `.METADATA.json` + `README.md`](#every-project-has-a-metadatajson--readmemd):
-   - `.METADATA.json` with `name`, `namespace`, `title`, `status`,
-     `priority`, `due`, `directory`, and an empty `tasks: []`
-     array. `name` is the full `<namespace>__<outcome>` slug;
-     `namespace` is just the prefix.
-   - `README.md` with the H1 title and a 1–2 sentence outcome
-     description. **No metadata block in the README.**
-   If the user supplied initial working material, put it in
-   `notes.md` alongside the README; otherwise the two files are
-   enough to start.
-5. **Run reindex** so `projects-lookup.csv` picks up the new row:
+4. **Create it:**
    ```
-   brain reindex --projects
+   brain project new <namespace>__<outcome> \
+     --title "<title>" --priority <p0-p4> \
+     [--status <not-started|in-progress|blocked>] [--due YYYY-MM-DD] \
+     --description "<one or two sentences>"
    ```
-6. Reply with a markdown link to the new folder/README so the user
+   That writes the folder, the full `.METADATA.json` (see [Every project
+   has a `.METADATA.json` + `README.md`](#every-project-has-a-metadatajson--readmemd)),
+   a README with the H1 and description, and rebuilds
+   `projects-lookup.csv`. It refuses to overwrite an existing project and
+   refuses a due date that isn't absolute — a project's due date is exactly
+   what gets sorted by. Don't hand-write any of those files.
+
+   If the user supplied initial working material, put it in `notes.md`
+   alongside the README; the two generated files are enough to start.
+5. Reply with a markdown link to the new folder/README so the user
    can jump straight in.
 
 ### "Mark this project as complete" / "Mark project as done" / "This project is done"
@@ -626,11 +629,12 @@ status; don't skip them silently.
    Do not flip the status until `ips/` has been resolved.
 
 4. **Flip the status.** Once both checks have either been resolved
-   or explicitly waived by the user, set `.METADATA.json:status` to
-   `done` and run:
+   or explicitly waived by the user:
    ```
-   brain reindex --projects
+   brain project set <namespace>__<outcome> --status done
    ```
+   That writes the field and rebuilds `projects-lookup.csv`. It reports
+   only what actually changed, so a re-run is visibly a no-op.
 
 5. **Reply** with a markdown link to the project and note that it
    is now ready to be archived via
@@ -657,11 +661,11 @@ status; don't skip them silently.
    rules; see [tasks/SCHEMA.json](~/brain/tasks/SCHEMA.json)
    `derived_columns.is_chronic_ignore`). Quick check:
    ```
-   brain tasks chronic \
-     | jq -c --arg slug "<project-slug>" 'select(.project == $slug)'
+   brain project show <namespace>__<outcome>
    ```
-   If every open task hits, surface this to the user **before**
-   step 4:
+   It reports the open and ignored counts and says so outright when every
+   open task has been ignored; `--json` gives you `died_quietly` directly.
+   If it fires, surface this to the user **before** step 4:
    > "All N open tasks under '<project>' have been ignored for
    > 21+ days. That usually means the project died quietly — is
    > archive really the right call, or should the open tasks be
@@ -683,15 +687,15 @@ status; don't skip them silently.
    pointing to the (now-archived) slug; that's fine — the archived
    project still exists, just under `archive/projects/<slug>/`. See
    [task-project-link.md](../todo/references/task-project-link.md).
-5. Move the **entire folder** with
-   `mv projects/<name> archive/projects/<name>` — preserve the path
-   under `archive/`.
-6. **Run reindex** so `projects-lookup.csv` drops the row and any
-   remaining task↔project links are revalidated:
+5. **Archive it:**
    ```
-   brain reindex
+   brain project archive <namespace>__<outcome>
    ```
-7. Reply with a markdown link to the new archived location.
+   That moves the entire folder to `archive/projects/<name>` keeping its
+   name, repoints `.METADATA.json:directory`, and rebuilds
+   `projects-lookup.csv`. Don't `mv` it by hand — the record has to move
+   with the folder.
+6. Reply with a markdown link to the new archived location.
 
 ### "Add a resource" / "Save this" (PDF, image, plaintext, notes)
 

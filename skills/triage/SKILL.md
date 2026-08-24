@@ -116,8 +116,8 @@ Do NOT ask the user "which mode?" outside of case (2). Saving their time is the 
 If the user says we can **skip** daily triage for the day ("skip daily
 triage", "no triage today", "we can skip triage"), run nothing else. If
 managed triage habits are enabled, complete the protected daily occurrence
-with `brain tasks lint \
---complete-managed-triage daily`. If they are disabled, acknowledge the skip
+with `brain habits complete-managed-triage daily`. If they are disabled,
+acknowledge the skip
 without reading or mutating `habits.csv`. In either case, send the optional
 background completion signal as the final action when its two environment
 variables are present.

@@ -1100,6 +1100,13 @@ the active journal. Every journaled failure is resume-only because remote
 publication can complete before its step record becomes durable. The backup
 remains machine-local and retained for forensic or coordinated recovery.
 
+### `project/`
+The PARA project record: `model` (the `.METADATA.json` schema, its validators,
+and the README template) and the mutations over it (`create`, `set`, `archive`,
+`show`). Keyed on an explicit root; unknown metadata fields round-trip through a
+serde flatten rather than being dropped. `show` composes the project's task list
+with `tasks::scan::chronic` to answer whether every open task has gone quiet.
+
 ### `contacts/` and `clean.rs`
 `contacts/` is the workspace's local contacts book: `model` (the CSV and id
 allocation), `find` (staged resolution and search), `render` (the table). It is

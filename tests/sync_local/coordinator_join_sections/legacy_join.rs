@@ -11,8 +11,8 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
     fixture.write_a_change();
     Fixture::assert_success(&fixture.migrate_a(), "migrate first machine");
     fixture.seed_a_high_counters();
-    Fixture::assert_success(&fixture.add_a_task(), "allocate first-machine high task");
-    Fixture::assert_success(&fixture.add_a_habit(), "allocate first-machine high habit");
+    fixture.add_a_task();
+    fixture.add_a_habit();
     fixture.repair_a_until_clean();
     let first_uuid = task_rows(&fixture.remote)["T1"]["task_uuid"].clone();
     let ordinary_repair = fixture.run_b_until_task_schema_refusal();
@@ -49,14 +49,8 @@ fn second_configured_legacy_machine_joins_current_remote_through_real_coordinato
         std::fs::read_to_string(fixture.root_b.join("tasks/.habits_next_id")).unwrap(),
         "9\n"
     );
-    Fixture::assert_success(
-        &fixture.add_b_task(),
-        "allocate second-machine task after join",
-    );
-    Fixture::assert_success(
-        &fixture.add_b_habit(),
-        "allocate second-machine habit after join",
-    );
+    fixture.add_b_task();
+    fixture.add_b_habit();
     let allocated_tasks = task_rows(&fixture.root_b);
     assert_eq!(
         allocated_tasks["T8"]["task_name"],
@@ -252,66 +246,56 @@ impl Fixture {
         std::fs::write(self.root_a.join("tasks/.habits_next_id"), "8\n").unwrap();
     }
 
-    fn add_a_task(&self) -> Output {
-        Self::run_add(
-            &self.root_a,
-            &self.home_a,
-            &["--name", "First-machine high task", "--type", "personal"],
-        )
+    fn add_a_task(&self) {
+        Self::run_add(&self.root_a, "First-machine high task", false);
     }
 
-    fn add_a_habit(&self) -> Output {
-        Self::run_add(
-            &self.root_a,
-            &self.home_a,
-            &[
-                "--name",
-                "First-machine high habit",
-                "--habit",
-                "--interval",
-                "1",
-                "--unit",
-                "days",
-            ],
-        )
+    fn add_a_habit(&self) {
+        Self::run_add(&self.root_a, "First-machine high habit", true);
     }
 
-    fn add_b_task(&self) -> Output {
-        Self::run_add(
-            &self.root_b,
-            &self.home_b,
-            &["--name", "Second-machine new task", "--type", "personal"],
-        )
+    fn add_b_task(&self) {
+        Self::run_add(&self.root_b, "Second-machine new task", false);
     }
 
-    fn add_b_habit(&self) -> Output {
-        Self::run_add(
-            &self.root_b,
-            &self.home_b,
-            &[
-                "--name",
-                "Second-machine new habit",
-                "--habit",
-                "--interval",
-                "1",
-                "--unit",
-                "days",
-            ],
-        )
+    fn add_b_habit(&self) {
+        Self::run_add(&self.root_b, "Second-machine new habit", true);
     }
 
-    fn run_add(root: &Path, home: &Path, args: &[&str]) -> Output {
-        Command::new("python3")
-            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py"))
-            .args(args)
-            .args(["--priority", "p2"])
-            .env("HOME", home)
-            .env("BRAIN_ROOT", root)
-            .env("BRAIN_ACTOR_ID", "pablo")
-            .env("BRAIN_WORKSPACE_ID", WORKSPACE_ID)
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .output()
-            .unwrap()
+    /// Create one row through the native writer.
+    ///
+    /// This test is about what the **sync** does with independently allocated
+    /// ids across two machines, so the writer only has to be the real one.
+    fn run_add(root: &Path, name: &str, habit: bool) {
+        brain::tasks::add::create_in_root_for_actor_with_today(
+            root,
+            &brain::actor::local_actor(&Self::allocation_workspace(root)).unwrap(),
+            &brain::tasks::add::CreateRequest {
+                name: name.to_owned(),
+                task_type: (!habit).then(|| "personal".to_owned()),
+                priority: "p2".to_owned(),
+                habit,
+                interval: habit.then_some(1),
+                unit: habit.then(|| "days".to_owned()),
+                due: habit.then(|| chrono::Local::now().date_naive().to_string()),
+                ..brain::tasks::add::CreateRequest::default()
+            },
+            chrono::Local::now().date_naive(),
+        )
+        .unwrap_or_else(|error| panic!("allocate {name}: {error:#}"));
+    }
+
+    /// A context just for resolving the writing actor against `root`.
+    fn allocation_workspace(root: &Path) -> brain::workspace::WorkspaceContext {
+        brain::workspace::WorkspaceContext::new(
+            root,
+            brain::workspace::WorkspaceId::parse(WORKSPACE_ID).unwrap(),
+            brain::workspace::WorkspaceName::parse("family").unwrap(),
+            root,
+            "pablo",
+            root,
+        )
+        .unwrap()
     }
 
     fn write_b_changes(&self) {

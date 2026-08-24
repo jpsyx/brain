@@ -146,6 +146,10 @@ pub fn run(
         );
         return Ok(());
     }
+    if let Some(Cmd::Project(args)) = &cli.command {
+        crate::logging::log("dispatch project");
+        return super::project::run(args, context);
+    }
     if let Some(Cmd::Contacts(args)) = &cli.command {
         crate::logging::log("dispatch contacts");
         return super::contacts::run(args, context);
@@ -217,6 +221,7 @@ pub fn run(
             | Cmd::Triage(_)
             | Cmd::Contacts(_)
             | Cmd::Clean(_)
+            | Cmd::Project(_)
             | Cmd::Check
             | Cmd::Killall
             | Cmd::Reindex(_)

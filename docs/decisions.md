@@ -4664,3 +4664,34 @@ created and can recreate, recognizable by name alone. Deleting a note someone
 wrote is unrecoverable; leaving a stray cache costs nothing. So the list only
 grows for things that are unambiguously regenerable, and a name that merely
 looks generated (`cache.md`, `pipeline.json`) is left alone.
+
+## Why `brain project` exists, and where it stops
+
+The `second-brain` skill's project flows were prose instructions to hand-write a
+JSON file with a fixed field set, hand-move a folder, and remember to reindex
+afterwards. Every one of those is mechanical, and every one of them has been got
+wrong: a `name` that no longer matches its folder, a `directory` still pointing
+at `projects/` after an archive, a status typo that nothing downstream catches,
+a lookup CSV that silently stopped mirroring the tree.
+
+So `brain project` owns the record-keeping: `new` writes the scaffold, `set`
+validates and writes one field at a time, `archive` moves the folder *and*
+repoints the record, and each of them rebuilds `projects-lookup.csv` before
+reporting. A `.METADATA.json` the lookup does not know about is the most common
+way this tree drifts from itself, so the reindex is not a step a caller can
+forget — it is part of the mutation.
+
+**The line is judgement, and it is drawn deliberately.** Which namespace a
+project belongs to, what its outcome slug should be, whether the reusable
+material has been harvested, whether it is really done — none of that is here,
+and none of it should be. The skill still walks the user through those, and the
+safety checks before marking a project `done` are still a conversation. What
+changed is that once a decision is made, executing it is one command that cannot
+half-apply.
+
+`brain project show` is the one addition that is not a straight port. Archiving
+used to include a `jq` pipeline over `brain tasks chronic` to answer "did every
+open task under this project go quiet?" — a real question, asked in a form
+nobody would type twice. It is now a field: `died_quietly`. It blocks nothing;
+it exists so archiving a project that *stopped* is a decision rather than a way
+of papering over rot.
