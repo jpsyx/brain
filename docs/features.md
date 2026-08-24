@@ -1522,6 +1522,11 @@ merge key. Each conversation stores
 Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
+That recovery prompt is capped at 64 KiB. Before attachment metadata can use
+the remaining space, Brain reserves up to 8 KiB for the newest transcript
+context and up to 16 KiB for the current authenticated message. Oversized
+sections carry explicit transcript, message, or attachment omission markers,
+so attachment metadata cannot silently erase the conversation or current turn.
 
 BR-12 established the storage contract, BR-13 moved authenticated provider
 admission onto it, and BR-14 made the isolated TUI coordinator its sole

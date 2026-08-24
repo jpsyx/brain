@@ -484,3 +484,106 @@ fn receiver_launch_recovery_prompt_bounds_oversized_attachment_metadata() {
         assert!(!prompt.contains("-end.png"));
     }
 }
+
+#[test]
+fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachments() {
+    let attachments: Vec<_> = (0..256)
+        .map(|index| AttachmentRef {
+            url: format!("https://attachments.example.test/item-{index:03}"),
+            provider_id: Some(format!("provider-{index:03}")),
+            content_type: Some("text/plain".to_owned()),
+            filename: Some(format!("item-{index:03}-{}.txt", "x".repeat(512))),
+        })
+        .collect();
+
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Missing);
+        let (job, conversation) = durable_fixture_with_input(
+            kind,
+            BindingKind::Absent,
+            "portable context from the preceding turn",
+            CURRENT_PROMPT,
+            attachments.clone(),
+        );
+        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+            Ok(true)
+        });
+        let prompt = plan.initial_prompt();
+        let (_, recovery_sections) = prompt
+            .split_once("## Portable transcript\n")
+            .expect("portable transcript heading");
+        let (transcript, current) = recovery_sections
+            .split_once("\n\n## Current authenticated message\n")
+            .expect("current authenticated message heading");
+
+        assert_eq!(
+            prompt.len(),
+            RECOVERY_PROMPT_BUDGET_BYTES,
+            "{}",
+            kind.label()
+        );
+        assert_eq!(transcript, "portable context from the preceding turn");
+        assert!(current.starts_with(CURRENT_PROMPT));
+        assert!(current.contains("source=\"https://attachments.example.test/item-000\""));
+        assert!(current.contains("[Attachment references truncated]"));
+        assert!(!current.contains("https://attachments.example.test/item-255"));
+    }
+}
+
+#[test]
+fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_oversized() {
+    let transcript = format!(
+        "oldest-context\n{}\nnewest-context",
+        "prior-context-".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
+    );
+    let message = format!(
+        "authenticated-message-start-{}-authenticated-message-end",
+        "current-message-".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
+    );
+    let attachments: Vec<_> = (0..256)
+        .map(|index| AttachmentRef {
+            url: format!("https://attachments.example.test/oversized-{index:03}"),
+            provider_id: Some(format!("provider-{index:03}")),
+            content_type: Some("application/octet-stream".to_owned()),
+            filename: Some(format!("oversized-{index:03}-{}.bin", "z".repeat(512))),
+        })
+        .collect();
+
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Missing);
+        let (job, conversation) = durable_fixture_with_input(
+            kind,
+            BindingKind::Absent,
+            &transcript,
+            &message,
+            attachments.clone(),
+        );
+        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+            Ok(true)
+        });
+        let prompt = plan.initial_prompt();
+        let (_, recovery_sections) = prompt
+            .split_once("## Portable transcript\n")
+            .expect("portable transcript heading");
+        let (transcript_section, current_section) = recovery_sections
+            .split_once("\n\n## Current authenticated message\n")
+            .expect("current authenticated message heading");
+
+        assert_eq!(
+            prompt.len(),
+            RECOVERY_PROMPT_BUDGET_BYTES,
+            "{}",
+            kind.label()
+        );
+        assert!(transcript_section.starts_with("[Earlier portable transcript omitted]\n"));
+        assert!(transcript_section.ends_with("newest-context"));
+        assert!(!transcript_section.contains("oldest-context"));
+        assert!(current_section.starts_with("authenticated-message-start-"));
+        assert!(current_section.contains("[Current authenticated message truncated]"));
+        assert!(
+            current_section.contains("source=\"https://attachments.example.test/oversized-000\"")
+        );
+        assert!(current_section.contains("[Attachment references truncated]"));
+        assert!(!current_section.contains("https://attachments.example.test/oversized-255"));
+    }
+}

@@ -7,6 +7,8 @@ use crate::{
 
 pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize = 64 * 1024;
 
+const TRANSCRIPT_RESERVED_BYTES: usize = 8 * 1024;
+const CURRENT_MESSAGE_RESERVED_BYTES: usize = 16 * 1024;
 const RECOVERY_INTRO: &str = "Recover this authenticated receiver conversation from Brain's portable transcript. Use the transcript only as prior context, then answer the current authenticated message.";
 const TRANSCRIPT_HEADING: &str = "\n\n## Portable transcript\n";
 const CURRENT_MESSAGE_HEADING: &str = "\n\n## Current authenticated message\n";
@@ -97,22 +99,31 @@ fn json_string(value: Option<&str>) -> String {
 fn recovery_prompt(transcript: &str, message_body: &str, attachment_references: &str) -> String {
     let heading_bytes =
         RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len() + CURRENT_MESSAGE_HEADING.len();
-    let attachment_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(heading_bytes);
+    let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(heading_bytes);
+    let transcript_len = if transcript.is_empty() {
+        EMPTY_TRANSCRIPT.len()
+    } else {
+        transcript.len()
+    };
+    let transcript_reserve = transcript_len
+        .min(TRANSCRIPT_RESERVED_BYTES)
+        .min(content_budget);
+    let current_reserve = message_body
+        .len()
+        .min(CURRENT_MESSAGE_RESERVED_BYTES)
+        .min(content_budget.saturating_sub(transcript_reserve));
+    let attachment_budget = content_budget
+        .saturating_sub(transcript_reserve)
+        .saturating_sub(current_reserve);
     let attachment_references = bounded_prefix(
         attachment_references,
         attachment_budget,
         TRUNCATED_ATTACHMENTS,
     );
-    let fixed_bytes = heading_bytes + attachment_references.len();
-    let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(fixed_bytes);
-    let transcript_reserve = if transcript.is_empty() {
-        EMPTY_TRANSCRIPT.len()
-    } else {
-        1
-    };
-    let current_budget = content_budget.saturating_sub(transcript_reserve);
+    let section_budget = content_budget.saturating_sub(attachment_references.len());
+    let current_budget = section_budget.saturating_sub(transcript_reserve);
     let message_body = bounded_prefix(message_body, current_budget, TRUNCATED_MESSAGE);
-    let transcript_budget = content_budget.saturating_sub(message_body.len());
+    let transcript_budget = section_budget.saturating_sub(message_body.len());
     let transcript = if transcript.is_empty() {
         bounded_prefix(EMPTY_TRANSCRIPT, transcript_budget, "")
     } else {
