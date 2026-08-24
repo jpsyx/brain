@@ -8,6 +8,6 @@ pub use dual_fixture::DualWorkspaceReceiverFixture;
 pub use fixture::SharedReceiverFixture;
 pub use model::{
     FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline, durable_conversation_count,
-    durable_jobs, job, poll_until, workspace,
+    durable_jobs, job, poll_until,
 };
 use process_fixture::ProcessFixtureProcess;

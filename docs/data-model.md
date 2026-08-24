@@ -267,9 +267,10 @@ ingress capacity; progressed, retrying, failed, and done evidence remains
 durable without blocking a new slot. Zero live TUIs still means zero server and
 no Brain response because routing requires a live enabled lease. The shared
 process owns no execution cursor or headless agent. The live TUI consumes these
-accepted rows through one durable receiver tick. The legacy memory queue remains
-runtime-local for BR-18 compatibility, but is neither the provider acceptance
-boundary nor a production execution consumer.
+accepted rows through one durable receiver tick. No socket or in-memory receiver
+queue remains as an acceptance or execution path. The UUID-local job-socket
+object is retained only as a narrowly named live-endpoint lifetime marker until
+BR-18 removes that representation.
 
 Receiver controls are durable jobs. An exact claimed `/new` atomically retires
 only its logical conversation key, creates an empty unbound conversation under
@@ -1053,6 +1054,9 @@ moves `launching` directly to `done` because BR-15 has not yet added accepted or
 processing proof. Losing exact ownership forbids every durable lifecycle,
 reply, session, and job mutation. A reclaimed progressed state is left unchanged
 for BR-16 rather than launched again.
+The background tab collection independently rejects a second simultaneous
+receiver insertion and shuts down its controller, so even a bookkeeping bug
+cannot create two live remote agents in one workspace process.
 Before choosing that FIFO row, the same immediate claim transaction parses
 queued unclaimed jobs for an exact `/restart`. If one committed first, no
 ordinary row is claimed; if ingress commits only after the claim transaction,
@@ -1099,6 +1103,9 @@ down operation removes only receiver-session registrations and returns the DB
 to v7. A newly attached workspace receives v8 on its first ordinary DB open.
 The older v6 down operation still transactionally removes
 the receiver schema and returns a v6 DB to v5.
+Task 5 changes only process-local ownership and removes obsolete consumers; it
+does not change this binding or database schema. BR-18 still owns the remaining
+representation cleanup and any schema migration or reconciliation it requires.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the

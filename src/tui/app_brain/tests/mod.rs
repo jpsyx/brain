@@ -28,22 +28,6 @@ use crate::workspace::{
     CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
 };
 
-fn enqueue_receiver_job(app: &mut App, job: InboundJob) {
-    app.receiver.enqueue(job).expect("receiver queue room");
-}
-
-fn begin_receiver_turn(
-    app: &mut App,
-    job: &InboundJob,
-    response_id: &str,
-    started: std::time::Instant,
-) {
-    enqueue_receiver_job(app, job.clone());
-    app.receiver.request_receiver_launch(job.actor.clone());
-    app.receiver.record_receiver_session(response_id.to_owned());
-    assert!(app.receiver.finish_dispatch(true, job, started));
-}
-
 fn receiver_job(
     app: &App,
     actor: crate::actor::ActorContext,

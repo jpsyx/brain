@@ -426,8 +426,9 @@ first move is a failing test that reproduces it, *then* the fix.
   controller and PTY; and launch, close, and the next launch preserve view, tab,
   visibility, and focus. Exact-completion tests cover crossed artifacts, claim
   renewal, ownership loss, progressed stale-state refusal, child exit, spawn
-  failure, reply delivery, task reload, and sync push. Focused
-  `tui/receiver/policy.rs` tests cover retry and input-lock helpers.
+  failure, reply delivery, task reload, and sync push. A focused tab test proves
+  that a second simultaneous receiver controller is rejected and shut down
+  without changing the user's selected tab, view, visibility, or focus.
   `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the
@@ -601,14 +602,13 @@ first move is a failing test that reproduces it, *then* the fix.
   transitions reject the pre-revocation ticket. Maximum-revision tests and
   staged durable-admission races cover disable, unregister, and disable-enable
   ABA after final revalidation but before commit; every losing admission
-  returns unavailable, creates no durable row, and leaves the legacy TUI queue
-  empty. Failed
+  returns unavailable and creates no durable row. Failed
   enablement update or receiver-changing registration replay leaves the
   whole lease table unchanged and cannot revive or extend authority.
   A synchronized test hook on the real `SharedReceiverPipeline` revokes
   authority after production final revalidation and authorization but before
   durable admission commits. Disable, unregister, and disable-enable ABA each
-  cancel the admission, create no row, and leave the live TUI queue empty. Mutation coverage
+  cancel the admission and create no row. Mutation coverage
   that removes authorized-state cancellation makes the real pipeline accept
   and enqueue, so the regression cannot pass through a copied test decision
   path.
@@ -620,44 +620,19 @@ first move is a failing test that reproduces it, *then* the fix.
   revocation, and an injected final-admission clock proves exact TTL rejects
   commit before the next watchdog tick. A second real-pipeline gate pauses
   after commit-side persisted-intent IO, advances the injected clock to exact
-  expiry, and proves durable state plus the legacy job socket remain empty. A third real-pipeline
+  expiry, and proves durable state remains empty. A third real-pipeline
   race holds the control mutex across that IO boundary, advances to exact
   expiry while commit waits for control, and proves the clock is sampled only
   after lock acquisition. Its commit probe requires both the COMMITTED state
   and the still-held mutex, making pre-lock clock and post-unlock CAS mutations
   fail.
-  `tests/inbound_queue.rs` specifies the live-TUI queue as FIFO at the exact
-  64-job boundary, including staged-token finalization and exact rollback,
-  launch-success head commit, restart and new-session controls, and read-only
-  snapshots. `tests/tui_receiver_queue_architecture.rs` walks every Rust file
-  under `src/tui/` and rejects any persistent type, type alias, `const`, or
-  `static` item that owns raw `InboundJob` storage outside
-  `tui/receiver/queue.rs`. A dev-only `syn` AST walk covers full struct, enum,
-  union, type-alias, const, and static syntax across module, associated,
-  foreign, function-local, and nested block scopes, plus resolved direct,
-  grouped, self-import, qualified, associated, and chained aliases. Identifier
-  comparisons canonicalize Rust raw identifiers with `IdentExt::unraw`.
-  Because files are scanned independently, the declaration-side rule rejects
-  every visible renamed re-export of a resolved `InboundJob` alias outside
-  `queue.rs`; private same-scope renamed imports remain resolvable and valid.
-  This structural rule is independent of collection, field, alias, and mutation
-  vocabulary. Item macros, opaque item syntax, and unsupported attribute
-  macros on persistent items are rejected. Statement macros recursively scan
-  `proc-macro2` token trees for job aliases. Fixtures include nested comments,
-  Unicode identifiers and lifetimes, where-clause function types,
-  const-generic braces, generic defaults, ordinary/raw/byte/C literals, nested
-  blocks, associated and foreign items, cfg implication, and macro-generated
-  storage. The guard permits local transient job values, use of the opaque
-  `InboundQueue` API, and only canonical-path one-shot payload shapes in the
-  top-level item at the exact `src/tui/receiver/effect.rs` path. `syn` does not
-  perform procedural expansion, and declared types cannot reveal type-erased
-  runtime contents; these remain manual branch-review limits. Socket characterization
-  separately proves the
-  prepared/commit/stage/accepted/finalize transaction and failed-final-ack
-  rollback.
-  `tests/tui_receiver_dispatch_architecture.rs` rejects main-panel injection
-  APIs and production compilation of legacy receiver-panel modules, and counts
-  exactly one live `.tick_receiver()` consumer. The composed durable tests use
+  `tests/tui_receiver_dispatch_architecture.rs` walks every production Rust
+  source under `src/`, including undeclared orphan files. It rejects any
+  receiver-facing main-panel injection, interactive activity wait or screen
+  sampling, socket or in-memory consumer, and dead-code masking, while counting
+  exactly one live `.tick_receiver()` consumer. Mutation fixtures prove the
+  guard catches orphaned source, indirect interactive calls, and socket-backed
+  consumers. The composed durable tests use
   the real state store and App coordinator together rather than relying only on
   store unit tests. They explicitly cover freshness-first renewal, exact
   registration and frontend-specific binding evidence, durable rollback, FIFO
@@ -845,9 +820,8 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `receiver/policy.rs` owns pure retry and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
-| `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: current receiver modules contain no main-panel injection calls or dead-code masking, durable controls compile in the live coordinator, legacy BR-18 runtime members use only narrow item-level allowances, and the TUI source contains exactly one live receiver-consumer tick. |
-| `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. It canonicalizes raw identifiers and rejects visible renamed re-exports of resolved job aliases at their declaration, while preserving private same-scope alias resolution. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `ReceiverRuntime` retains only intent, freshness gating, the durable run, and a narrowly allowed legacy endpoint lifetime owner for BR-18; the guard rejects activity, input, queue, and socket-consumer behavior. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: every receiver-facing production source, including undeclared orphan files, contains no main-panel injection, interactive activity wait or sampling, socket or in-memory consumer, or broad dead-code masking. Mutation fixtures pin those detections, durable controls compile in the live coordinator, and the TUI source contains exactly one live receiver-consumer tick. |
 | `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, lifecycle, non-destructive FIFO claim bundles, queued-restart claim exclusion, one live workspace claim, exact-owner launch CAS, generic-transition rejection of progressed retry origins, bounded pre-acceptance retry, conservative progressed recovery, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode receiver launch planning: validated matching resume, missing history, frontend change, probe failure, rejected/failed claim, empty transcript, UTF-8-safe newest-context truncation, attachment references, and both fresh/resume command translations with a non-blank initial prompt. |
 | `tui::receiver::{session_tests,failure_tests}` | Unique remote instances distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for every pre-acceptance failure class. |
@@ -913,8 +887,8 @@ No test reads or writes a real user workspace.
 
 The suite does not claim a filesystem sandbox, a general prompt-injection
 detector, live cloud migration against a production remote, or live provider
-compatibility beyond the probed OpenCode feature contract. Shared HTTP receiver routing and exact TUI
-job-forwarding are covered by the active Phase 4 integration suites.
+compatibility beyond the probed OpenCode feature contract. Shared HTTP receiver routing and exact durable
+TUI consumption are covered by the active Phase 4 integration suites.
 
 ### Phase 5 composed acceptance matrix
 

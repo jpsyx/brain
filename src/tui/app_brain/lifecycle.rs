@@ -24,57 +24,12 @@ impl App {
             .services
             .locked_session_for_instance(self.brain.instance(), &scope)
         {
-            self.receiver.record_interactive_agent_session(session_id);
+            self.brain.record_interactive_agent_session(session_id);
         }
         self.brain.clear_session();
         self.status.clear_alert();
         self.shell.focus_tasks();
         let _ = SessionStore::release(&self.services, self.brain.instance());
-        self.reload_after_brain();
-    }
-
-    #[cfg(test)]
-    pub(super) fn close_brain_with(
-        &mut self,
-        deliver: impl FnOnce(&mut Self, crate::server::delivery::CompletionDelivery),
-    ) {
-        let receiver_panel = self.receiver.has_receiver_session();
-        let completed_remote = self
-            .brain
-            .main_controller()
-            .is_some_and(|panel| panel.is_alive().is_ok_and(|alive| !alive))
-            && receiver_panel
-            && self.receiver.remote_turn_in_flight();
-        let completion = completed_remote
-            .then_some(self.brain.main_controller())
-            .flatten()
-            .and_then(crate::server::delivery::CompletionDelivery::capture);
-        if let Some(completion) = completion {
-            deliver(self, completion);
-        }
-        if let Some(mut controller) = self.brain.take_main() {
-            let _ = controller.shutdown();
-        }
-        if !receiver_panel {
-            let scope = crate::agent::SessionScope::new(
-                self.context.agent_kind(),
-                self.context.workspace().id(),
-                crate::actor::ActorContext::follow_up(self.brain.interactive_actor()),
-            );
-            if let Some(session_id) = self
-                .services
-                .locked_session_for_instance(self.brain.instance(), &scope)
-            {
-                self.receiver.record_interactive_agent_session(session_id);
-            }
-        }
-        self.brain.clear_session();
-        self.status.clear_alert();
-        self.shell.focus_tasks();
-        let _ = SessionStore::release(&self.services, self.brain.instance());
-        if receiver_panel {
-            self.clear_receiver_panel_state();
-        }
         self.reload_after_brain();
     }
 

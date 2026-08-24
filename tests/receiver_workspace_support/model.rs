@@ -3,24 +3,10 @@ use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
 use brain::server::receiver::{AttachmentRef, Channel, DispatchPipeline, InboundJob};
-use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
+use brain::workspace::WorkspaceContext;
 
 pub const PERSONAL_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 pub const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
-
-pub fn workspace(temp: &tempfile::TempDir, id: &str, name: &str) -> WorkspaceContext {
-    let root = temp.path().join(name);
-    std::fs::create_dir_all(&root).unwrap();
-    WorkspaceContext::new(
-        temp.path(),
-        WorkspaceId::parse(id).unwrap(),
-        WorkspaceName::parse(name).unwrap(),
-        &root,
-        "member",
-        temp.path(),
-    )
-    .unwrap()
-}
 
 pub fn job(workspace: &WorkspaceContext, prompt: &str) -> InboundJob {
     InboundJob {

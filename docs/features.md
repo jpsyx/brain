@@ -51,7 +51,7 @@ Option-produced equivalents are accepted too, so richer keyboard reporting in
 embedded frontends does not strand the scroll binding.
 
 Every live main or ephemeral-tab session sits behind an `AgentController`.
-Keyboard, receiver, render, scroll, completion, and close paths call semantic
+Keyboard, render, scroll, completion, receiver-run, and close paths call semantic
 operations on that facade; only the Claude, Codex, and OpenCode adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
 explicitly shuts down all controllers before their transports are dropped.
@@ -1431,7 +1431,8 @@ Email addresses are matched as bare addresses, so the usual
 `Display Name <someone@example.com>` header form authenticates normally and
 still reaches the reply thread. An email with no plain-text part is reduced
 from HTML to readable text, and any inbound message is capped at 16 KiB with
-an explicit truncation notice before it is typed into the brain panel.
+an explicit truncation notice before it is included in the isolated receiver
+run's initial prompt.
 Accepted provider IDs are deduplicated durably inside their exact workspace
 and channel before queued-capacity rejection, including after shared-process
 restart. Process memory excludes only simultaneous duplicates and remembers
@@ -1449,7 +1450,8 @@ logical conversation to the addressed workspace DB, and only that commit or a
 durable dedup hit permits provider success. Disabled, missing, storage-failed,
 and full durable-queue targets receive the existing channel-appropriate
 unavailable response with no new row. The shared process never launches an
-agent or consumes the queue; BR-14 owns that runtime cutover.
+agent or consumes the queue. The TUI's one durable receiver tick is the only
+execution consumer.
 
 The shared HTTP boundary admits exactly four active connections with a fixed
 worker set and no application request queue. It caps request heads and local
@@ -1477,45 +1479,34 @@ lease state. Slow or
 partial clients therefore cannot grow the thread set, block control requests,
 or make a stale lease authoritative.
 
-Inbound messages wait only for a submitted agent turn, not merely for the
-brain panel to exist. An idle startup panel is closed and replaced by the
-SMS- or email-specific session immediately, including while the daily-triage
-modal is visible. The modal itself never closes the agent panel. A submitted
-local turn is allowed to finish first; its lifecycle completion is consumed
-even while an SMS/email lease is warm, so queued messages cannot become
-stranded. After a remote response, its channel panel remains open and reusable
-for three minutes. Another message reuses it only when both channel and actor
-match; a different actor or channel switches once active work finishes. The
-initiating actor remains fixed for every follow-up in that session, even if a
-different machine-local user is selected elsewhere. A local prompt or
-keyboard input leaves a warm remote panel and resumes the interactive session.
+Inbound messages never take over, focus, type into, submit through, or wait on
+the interactive main panel. The one recurring TUI tick keeps at most one live
+receiver run for the workspace process, launches it in a background tab with a
+dedicated `AgentController` and PTY, and leaves later arrivals durable and
+unclaimed. Claude, Codex, and OpenCode use the same launch, lifecycle,
+completion, and shutdown facade. Receiver launch and terminal close never
+change the current main view, selected tab, panel visibility, or keyboard
+focus; ordinary interactive input remains available on the user's selected
+tab. There is no receiver screen sampling, panel-activity wait, warm-panel
+lease, or local-input lock.
 
-A dispatched message is sampled while its turn is still open (5s, 20s, and
-60s in), and each sample writes the panel's visible tail to the receiver log
-along with the delivery it took — a fresh launch argument or an injection into
-a warm panel. A prompt left unsubmitted in the composer and a genuinely slow
-tool call are the same "no completion yet" from brain's side, so the screen is
-the only thing that tells them apart, and only while the turn is still open.
-The exact wire form of an injected follow-up is logged before it is written,
-and the panel is captured again if the turn is ever abandoned.
-
-While a message is actually being answered, the panel belongs to that sender:
-local keystrokes are dropped rather than forwarded into the remote
-conversation, and a status line explains why. `Ctrl+C` is never locked out, so
-the user can always interrupt and take the session back. A dispatched message
-that produces no answer within ten minutes is given up on: the sender is told
-the message went unanswered and should be resent, and the panel is released so
-the messages queued behind it are still answered. (The two-minute "still
-processing" notice comes first, so a slow answer is never abandoned silently.)
-If an agent process cannot be launched, the inbound message remains queued and
-the receiver retries after a short backoff instead of leaving a phantom
-"processing" job. Twilio and Resend reply delivery runs on a bounded background
-worker so provider latency never blocks TUI input or `Ctrl+Q`.
+The current BR-14 boundary treats an exact lifecycle completion artifact from
+the exact locked remote instance as terminal evidence and otherwise treats
+child exit as a bounded pre-acceptance launch failure. It does not yet prove
+the distinct `accepted` and `processing` phases (BR-15), reconcile a proven
+accepted but stalled run after restart (BR-16), or persist an answer separately
+from retryable provider delivery (BR-17). Provider replies currently use the
+exact acceptance-time channel and recipient context on a bounded background
+worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
+failure is not yet a durable delivery-only retry. BR-18 still owns final schema
+migration/reconciliation, durable phase reporting, and removal of the narrowly
+retained legacy job-socket lifetime representation; it no longer needs to
+remove a parallel injection, warm-panel, or in-memory execution path.
 
 ### Durable receiver model foundation
 
-Every workspace state database has a durable receiver job and conversation
-model ready for the receiver cutover. It preserves immutable accepted inputs,
+Every workspace state database has the active durable receiver job and conversation
+model. It preserves immutable accepted inputs,
 provider delivery IDs, explicit queued through terminal lifecycle states,
 bounded retry metadata, and expiring claim ownership across Brain or machine
 restarts. Claims never pop a job from storage. If a consumer crashes, another
@@ -1532,11 +1523,12 @@ Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
 
-BR-12 established the storage contract, and BR-13 moves authenticated provider
-admission onto it. Provider success now follows durable insert or deduplication;
+BR-12 established the storage contract, BR-13 moved authenticated provider
+admission onto it, and BR-14 made the isolated TUI coordinator its sole
+execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
-The TUI executor, completion, and delivery paths remain for BR-14 and later
-PROJ-1 tasks to adopt.
+BR-15 through BR-18 complete acceptance/progress evidence, stalled-run
+recovery, durable answer/delivery separation, final migration, and reporting.
 
 ### Steering the receiver from SMS or email
 

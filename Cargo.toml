@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.76.2"
+version = "0.76.3"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -72,10 +72,8 @@ vt100 = "0.15"
 walkdir = "2"
 
 [dev-dependencies]
-# Full Rust AST traversal and recursive macro token-tree inspection keep
-# architecture guards structural without parser code or parser dependencies in
-# the shipped binary.
-proc-macro2 = "1"
+# Full Rust AST traversal keeps the active TUI architecture guard structural
+# without a parser dependency in the shipped binary.
 syn = { version = "2", features = ["full", "visit"] }
 tempfile = "3"
 

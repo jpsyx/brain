@@ -2414,109 +2414,25 @@ duplicate-lease exclusions for real contenders.
 
 ## Shared receiver admission with TUI-only execution
 
-The machine-wide shared process owns HTTP admission, but it never provides
-offline availability. Receiver ingress must first select an enabled, live TUI
-lease. Only then may Brain load that workspace's provider configuration,
-authenticate the provider, load its portable users, resolve `ActorContext`, and
-open the exact workspace's UUID-scoped durable queue. The shared process does
-not start for inbound traffic and contains no queue consumer, replay worker,
-headless agent, or availability-only responder.
+Authenticated provider ingress commits immutable jobs to the addressed
+workspace SQLite database before returning success. Acceptance, provider
+deduplication, and the 64-row `queued` capacity check share one immediate
+transaction. The machine-wide server authenticates and admits work but owns no
+execution cursor, replay worker, or agent.
 
-The shared fixed four-worker boundary covers habits, triage, SMS, and email.
-Receiver bodies and serialized job frames are limited to 1 MiB, and each
-workspace accepts at most 64 durable `queued` rows. Progressed, retrying,
-failed, and done rows do not consume queued ingress capacity. Final registry
-and exact-revision checks authorize an in-flight admission; only its atomic
-commit allows the server to enter SQLite acceptance. Disable and unregister cancel pending
-or authorized admissions. If commit already won, revocation waits outside the
-control-state mutex only until the original request deadline. A timeout rejects
-the control request and applies no later lease mutation. Watchdog expiry removes
-the exact lease first, preventing new admissions, then cancels every matching
-pre-commit admission. Ordinary lease operations filter expiry but never remove
-it; shared control and watchdog entry use that single revoke-aware removal.
-Final admission performs persisted-intent filesystem IO outside the control
-mutex. One combined commit operation then acquires control, samples exact TTL,
-revalidates the route and admission identity, and performs the admission CAS
-before unlocking. The complete job/conversation insert, durable provider
-deduplication, and queued-capacity decision then share one immediate SQLite
-transaction. Disabled, missing, full, and failed-storage endpoints receive one
-channel-specific unavailable response and create no new row.
+One recurring TUI tick is the sole receiver execution consumer. It claims FIFO
+durable work only when no live workspace claim exists, launches one isolated
+`AgentController` in a background receiver tab, and leaves later arrivals
+durable and unclaimed. The tab collection also rejects and shuts down a second
+simultaneous receiver controller without changing the user selected view, tab,
+panel visibility, or focus.
 
-The cap intentionally counts only `queued` rows. This preserves the old
-64-entry waiting-queue bound, where one active job had already left the
-`VecDeque`; progressed work is execution evidence rather than waiting ingress.
-Provider and exact-job deduplication run first so a response-loss retry still
-resolves to the original row when all 64 waiting slots are occupied. An
-immediate transaction serializes the count and insert, preventing concurrent
-requests from overbooking the final slot.
-
-The pre-BR-13 TUI socket path remains characterized for the BR-14 executor
-cutover, but it is no longer provider ingress acceptance. The TUI keeps its listener nonblocking so each event-loop poll stays bounded,
-but explicitly returns every accepted job stream to blocking mode before
-applying fixed read and write timeouts. Some platforms can otherwise surface
-`WouldBlock` while a sender is still completing a frame, turning a healthy live
-TUI into an intermittent unavailable response. Bounded deadline polling in the
-integration suite exercises this boundary without fixed sleeps.
-
-The live queue is represented by `InboundQueue`, not by a collection exposed
-through `App`. It alone owns the 64-entry `VecDeque` and every mutation:
-admission staging/finalization/rollback, successful FIFO head commit, and the
-two control-command cuts. Keeping those decisions together prevents socket,
-dispatch, completion, and control callers from depending on representation or
-silently changing FIFO semantics. Tests receive only an owned read-only
-snapshot.
-
-The architecture guard enforces the ownership boundary structurally: outside
-`receiver/queue.rs`, no source-declared persistent TUI item type, initializer,
-or resolved import/type alias may mention `InboundJob`. A dev-only `syn` AST
-walk covers complete struct, enum, union, type-alias, const, and static items
-in module, associated, foreign, function-local, and arbitrarily nested block
-scopes. Import and type aliases resolve in their lexical item scope, including
-associated aliases, and every identifier comparison canonicalizes raw Rust
-identifiers with `IdentExt::unraw`. The guard scans source files independently,
-so the declared-item/export invariant also rejects every visible renamed
-re-export of a resolved `InboundJob` alias outside `receiver/queue.rs`. This
-makes a cross-module rename fail at its declaration even though a sibling's
-plain-name import cannot be linked across separate ASTs. Private same-scope
-renamed imports remain resolved and valid. The guard does not depend on field,
-collection, alias, or mutation names. Item macros and all opaque `Verbatim`
-item forms fail closed. Statement
-macros remain valid only when recursive `proc-macro2` token-tree inspection
-finds no raw or resolved job alias. Non-builtin attributes on persistent items
-are rejected because they could generate storage outside the declared AST
-surface. Local transient values and calls through the semantic `InboundQueue`
-API remain valid. `cfg(test)`, `cfg(all(test, ...))`, and only other conditions
-that logically imply `test` are excluded; mixed production conditions are
-scanned conservatively.
-
-The sole exception is the top-level `ReceiverEffect` item at the exact
-manifest-relative `src/tui/receiver/effect.rs` path, and only its named direct
-one-shot payload shapes using canonical `std::boxed::Box` and
-`crate::server::receiver` paths. A generic, nested, or same-named item,
-suffix-matching path, shadowable import, collection, tuple, or different
-payload variant receives no exception. `syn` parses source but does not perform
-procedural expansion, and a type-erased runtime value does not expose its
-concrete contents in a declared item type. Those two cases remain explicit
-manual-review limitations. Blocking opaque item macros and unsupported
-attribute macros prevents them from silently bypassing the source-declared
-ownership surface.
-
-The original architecture spec and implementation plan said no dependency
-would be added. The implemented guard accepts a narrower rule: no new shipped
-or runtime dependency. Direct dev-only `syn` and `proc-macro2` declarations are
-intentional because both crates were already transitive dependencies and they
-replace the unsound handwritten source parser. Making them direct test
-dependencies keeps the AST contract explicit without changing the binary.
-
-This staged-socket rule describes the superseded ingress boundary and remains a
-runtime characterization until BR-14 removes or adopts it. If the TUI stages after `commit` but cannot write its final `accepted`
-acknowledgment, an opaque admission token bound to its issuing queue identity
-and admission generation removes only that exact staged tail item before
-releasing the exclusive queue borrow. A successful write finalizes the same
-token and makes the job dispatchable. The old server path therefore treated the
-failed handoff as unavailable and never committed an ID for work the TUI did
-not acknowledge. BR-13 instead commits the durable job before provider success
-and does not append through this socket.
+Before BR-13, provider ingress crossed a UUID-local Unix socket into an
+`InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
+admission protocol, and their execution policy. The remaining `jobs.sock`
+object is only a live-endpoint lifetime marker retained for builder and
+migration compatibility; it never accepts, reads, polls, dispatches, or stores
+receiver work. BR-18 owns removal of that final representation.
 
 ## Why receiver conversations keep both native history and a Brain transcript
 
@@ -2553,191 +2469,33 @@ progressed state as its lease changes owners. Erasing those states to claimed
 would prevent the later recovery policy from knowing whether a same-session
 recovery attempt is appropriate. Failed and done remain terminal.
 
-BR-12 intentionally stopped at this model boundary. BR-13 now uses it for
-provider ingress, including durable deduplication and queued capacity, but does
-not decide when a live TUI should inject input or replace agent execution,
-completion, or delivery. BR-14 and later PROJ-1 tasks own those consumers.
+BR-12 intentionally stopped at this model boundary, and BR-13 adopted it for
+provider ingress, including durable deduplication and queued capacity. BR-14 now
+owns the sole live-TUI durable consumer and its isolated agent execution.
+BR-15 through BR-18 retain phase proof, recovery, delivery, and final
+representation or schema work.
 
-## Why the receiver tick uses ordered decisions and effects, not one lifecycle enum
+## Historical: the pre-durable receiver tick used ordered decisions and effects
 
-A receiver tick observes several independent dimensions: an interactive turn,
-a remote completion, a processing-response delay, a panel activity sample, an
-activity probe, a turn timeout, a warm-session lease, a retry deadline, a sync
-freshness gate, control messages, and queued work. Combining those dimensions
-into one lifecycle enum would create a large cross-product whose variants
-encode incidental timing combinations rather than real domain states.
+The former warm-panel executor decomposed one tick into ordered pure decisions
+and typed effects. That design made its queue, activity, timeout, and panel
+coordination testable while it existed, but BR-14 replaced the executor rather
+than extending it. Task 5 removed `receiver::decision`, `receiver::effect`,
+`receiver::policy`, the socket queue, activity sampling, interactive completion
+coordination, and the related App call sites.
 
-`receiver::decision` therefore keeps those inputs as independent `TickFacts`.
-`TickStage` names only the historical execution order, and each pure stage
-decision produces at most one typed `ReceiverEffectKind`. The runtime
-re-snapshots facts before every stage and materializes one-shot targets only
-when that decision is reached. The App executes the corresponding
-`ReceiverEffect`, retaining ownership of `AgentController`, response files,
-provider delivery, task reloads, child processes, and sync observations. It
-then feeds semantic completion, dispatch, diagnostic, or freshness results
-back to the runtime. Re-snapshotting prevents duplicate state transitions and
-allows an earlier effect, such as a timeout or `/restart`, to change all later
-decisions in the same tick.
+The current rule is smaller: one recurring App tick owns durable FIFO claim,
+claim renewal, isolated all-frontend launch, exact completion correlation, and
+terminal cleanup. It never reads a receiver socket, maintains an in-memory
+execution cursor, or coordinates with the interactive panel. BR-15 still owns
+accepted and processing proof, BR-16 owns progressed-run recovery, BR-17 owns
+answer-ready and delivery-only recovery, and BR-18 owns the final retained
+representation and schema cleanup.
 
-The receiver facade owns `receiver::policy`, whose pure timeout,
-activity-probe, retry, and input-lock decisions support that runtime. Keeping
-the policy below `receiver/mod.rs` makes the facade's ownership explicit and
-does not introduce a second receiver-state owner.
-
-The fixed order remains remote completion, interactive completion, processing
-delay, panel activity, activity probe, turn timeout, warm-lease expiry, socket
-polling, `/restart`, retry readiness, sync freshness, `/new`, idle-panel
-selection, and dispatch. `/new` may repeat within its own stage to consume
-consecutive control messages, and a waiting retry or sync gate halts the
-remaining stages. The production effect executor reports semantic outcomes and
-the pure coordinator maps those outcomes to advance, stop, or repeat-current-
-stage control. Consequently App neither interprets a raw sync boolean nor
-special-cases an effect variant to choose control flow. `/restart` completes
-normally: later stages re-snapshot the real queue and can dispatch a job that
-survived the restart cut in the same tick. This is sequencing policy, not a
-second mutable receiver state machine.
-
-Webhook verification follows provider replay guidance: HMAC comparisons are
-constant-time and Resend timestamps have a five-minute tolerance. Provider
-delivery IDs are durable keys scoped by workspace and channel. Every
-nonconcurrent retry reaches SQLite acceptance, where provider deduplication
-precedes queued-capacity rejection. Process memory excludes only an in-flight
-duplicate, which is unavailable rather than prematurely acknowledged. A known unavailable Resend ingress is
-still resolved before credentials; only that routed workspace's signing secret
-is then loaded to verify the event. A verified unavailable Resend ID is retained
-as a permanent discard, so later TUI availability cannot replay it. When the
-same ID is already in flight, the verified path records a deferred discard,
-leaves the reservation owned by the pending acceptance, and returns 503. The
-pending completion promotes the deferred discard before a later retry. This
-1024-entry set is bounded discard memory, not durable-success authority, a
-queue, a replay worker, or a headless path.
-Persisted disable remains authoritative before live refresh: its failed route
-retains exact ingress-to-workspace identity for the same verified discard.
-
-The accepting request captures immutable actor, channel, normalized sender,
-response email, and allowed authenticated-thread recipients. The TUI routes
-that same context through `AgentController` for Claude, Codex, and OpenCode. Configuration
-changes during the turn cannot replace the initiating actor or broaden reply
-recipients.
-
-The route ticket remains attached to that accepted context. After provider
-work and actor/job construction, dispatch reloads the exact canonical registry
-record and requires its immutable workspace UUID and persistent receiver intent
-to remain valid. It then reacquires the control mutex only to revalidate the
-exact generation, authority revision, receiver enablement, and live lease, and
-releases the mutex before durable workspace admission. At admission commit,
-persisted intent is reloaded outside the mutex; one combined operation
-then locks control, samples exact TTL, revalidates that same authority and the
-admission's workspace/lease identity, and performs the admission CAS before
-unlock. The attached
-authority revision and cancellable admission reject notified,
-notification-lost, unregister, and disable-enable ABA revocation without
-holding the mutex during provider or database work.
-
-Persistent receiver intent is the mutation commit point. A generation-bound
-live refresh is a convergence notification, not a second transaction: failure
-to deliver it is surfaced as a warning while the committed setting remains in
-the CLI and palette state. Final admission's authoritative registry reload is
-the safety backstop that prevents such a failed notification from accepting
-new work.
-
-Resend's two possible Receiving API calls are bounded independently at ten
-seconds and 1 MiB inside the 30-second handler total. The parse phase must
-still be live before that handler phase can begin. After provider work, Brain
-reserves the final five seconds exclusively for the HTTP response and caps the
-durable admission at two seconds. One absolute handoff deadline is installed
-as SQLite's busy timeout before WAL configuration or schema reconciliation,
-then freshly recomputed and rebound after open before acceptance lock waiting.
-The deadline is
-checked after commit, so successful progress cannot consume a renewed timeout.
-One shared compile-time timing
-invariant prevents these bounds from drifting apart. The curl reader stops
-after one over-limit proof byte and reaps the child before returning a typed
-502. Resend receives HTTP success only for verified unavailable, ignored, and
-permanent discard outcomes so discarded webhooks cannot be replayed into a
-later live TUI. An exact in-flight unavailable duplicate receives 503 until
-its deferred discard is promoted; signature failures remain authentication
-failures, while 500 and 502 remain provider-visible failures. Accepted email jobs
-retain stable Resend email and attachment identifiers, and delayed dispatch
-refreshes signed download access using freshly loaded workspace credentials.
-Processing and final replies preserve accepted subject and message lineage
-without widening recipients.
-
-Provider requests still use the system `curl` binary to avoid adding a second
-HTTP client stack, but the complete curl configuration is written through the
-child's standard input. Secrets, message content, and signed attachment URLs
-therefore do not appear in the child process's argument list, and the child
-output is captured rather than inherited by the TUI. Outbound replies run on
-one bounded background worker. This preserves provider ordering and prevents a
-slow Twilio or Resend request from freezing keyboard input or delaying
-`Ctrl+Q`.
-
-Native receiver continuity fails closed because a stored opaque binding is a
-hint, not proof that frontend history still exists or is available to this
-run. The BR-14 launch planner therefore requires the binding's frontend to
-match, validates it through `AgentController`, and accepts it only after the
-caller's exact-session claim succeeds. Missing, corrupt, incompatible, or
-unclaimable history starts fresh from Brain's portable transcript. That
-recovery prompt is capped at 64 KiB and preserves the newest UTF-8-safe
-transcript suffix because recent turns are the most useful recovery context;
-the current authenticated message and attachment references remain in a
-separate section. Resume omits the transcript entirely. The plan contains no
-tab, durable claim, or binding mutation, which keeps frontend translation
-behind `AgentController`; the durable coordinator owns those effects without
-widening the planner.
-
-Receiver launch ownership is isolated from the interactive shell. Every remote
-run gets a unique instance ID and either claims the exact validated resume
-session or registers a Brain-supplied fresh ID before process launch. The
-existing lifecycle bridge is the authority: Claude may confirm that registered
-ID as its native session, while Codex and OpenCode must rotate it to a distinct
-native ID. Brain rejects an unproved placeholder and performs a binding-only
-conversation update so portable transcript history cannot be lost. Binding
-requires the complete durable workspace, logical conversation, frontend,
-actor, channel, remote instance, and registered-ID tuple; the lifecycle-reported
-actual ID is retained alongside it. An armed
-registration guard releases the exact remote owner on early return without
-touching the main instance. Rollback invokes that cleanup explicitly so a
-release failure is reportable, while `Drop` remains a best-effort fallback.
-
-Launch retries stop at the pre-acceptance boundary. The exact live owner alone
-may move `claimed`, or a due retry originating in `claimed`/`launching`, to
-`launching`. Planning, registration, tab allocation, and spawn failures stop
-the controller, release the remote owner, and durably schedule at most two more
-attempts using a stable content-free reason; all rollback steps run even when
-controller shutdown or exact-session cleanup reports a diagnostic, and the
-concrete shutdown diagnostic remains available to its caller. The third
-failure marks the job failed without deleting it. Reclaimed `accepted`,
-`processing`, answer, and delivery work stays unlaunched until BR-16 defines
-its recovery policy.
-
-**Why one durable consumer and no main-panel reuse.** Receiver work must not
-compete with a second in-memory execution cursor or inherit interactive panel
-state. One recurring App tick therefore owns durable FIFO claim through
-terminal close. Every frontend receives a new `AgentController` and PTY under a
-unique remote instance, even when the main panel is hidden or idle. Background
-tab insertion and removal preserve the user's current view and focus, and no
-receiver path types into or submits through the main panel.
-
-**Why freshness and ownership precede progress.** A claimed job is renewed
-before a pending freshness pull so a slow sync cannot let another owner launch
-the same work. While one receiver tab is active, later arrivals stay durable and
-unclaimed. Losing exact ownership permits local controller and tab cleanup only;
-mutating the job, session, lifecycle, or reply would race the new owner.
-
-**Why terminal completion requires exact lifecycle evidence.** Process spawn
-and screen activity do not prove acceptance or completion. Brain requires the
-exact completion artifact and exact locked remote session for the launched run.
-A valid completion currently moves `launching` directly to `done`, because
-BR-15 owns accepted and processing proof. Child exit without that evidence is a
-pre-acceptance retry. Reclaimed progressed states remain unchanged until BR-16
-defines their phase-specific recovery.
-
-SMS allowlist comparison uses the provider's exact E.164 sender form. Brain
-preserves the leading `+` as string data instead of interpreting it as a JSON
-number, recovers the one-number numeric shape written by older releases, and
-keeps a yellow TUI status warning visible for malformed configured numbers.
-This avoids silently disabling SMS while retaining strict sender matching.
+Webhook verification and provider deduplication remain independent ingress
+concerns. HMAC comparisons are constant-time, Resend timestamps have a
+five-minute tolerance, and provider delivery IDs remain durable keys scoped by
+workspace and channel.
 
 ## "sync" means cloud sync; the local lookup rebuild is "reindex"
 
@@ -3938,15 +3696,13 @@ to the address it names and let brain answer its own mail.
 
 ## Why an inbound email is converted to text and bounded
 
-The prompt is typed into the brain panel's PTY. Two properties of email make
-that unsafe without shaping. Mail from a rich client is often HTML-only, and
-the raw markup buries the actual message; and the receiving API's cap is 1 MiB,
-which a newsletter reaches easily, so an unbounded prompt is an unbounded PTY
-write. `body.rs` therefore drops `script`/`style` bodies, keeps element text
-with block boundaries as line breaks, and caps the result at 16 KiB with an
-explicit truncation notice — the agent is told the message was cut rather than
-answering a silently shortened one as if it were complete. A plain-text part,
-when present, is still preferred and passed through verbatim.
+The isolated receiver launch receives the email body inside its initial prompt.
+Mail from a rich client is often HTML-only, where raw markup buries the actual
+message, and the receiving API permits a body far larger than useful model
+context. `body.rs` therefore drops `script` and `style` bodies, keeps element
+text with block boundaries as line breaks, and caps the result at 16 KiB with
+an explicit truncation notice. A plain-text part, when present, is still
+preferred and passed through verbatim.
 
 ## Why every outbound email reply goes through one seam
 
@@ -4221,127 +3977,39 @@ mattered. The ingress itself is not gone: it still identifies local
 capability URLs and remains the lease-table key a routed provider request
 resolves through.
 
-## Injected prompts are pasted, not typed
+## Interactive programmatic prompts are pasted, not typed
 
-This remains the ordinary interactive `AgentController` input contract.
-Receiver runs no longer inject an existing panel; they pass the initial prompt
-to a new isolated launch.
+The ordinary interactive `AgentController` input contract sends programmatic
+text as bracketed paste, with control characters stripped, so vim-mode
+frontends cannot reinterpret message data as editing commands. This decision
+followed a historical receiver bug in which character-by-character multiline
+input corrupted a reused interactive composer. Receiver runs no longer use this
+path: an isolated launch receives its bounded prompt as initial launch data.
 
-A prompt Brain injects into an open panel used to be typed character by
-character, with each newline encoded as `ESC CR` — the "insert a literal
-newline, don't submit" chord all three frontends accept. That works only while
-the composer is a plain text field.
+## Interactive submit follows pasted input in a separate write
 
-With Claude Code (or Codex) in **vim mode** it fails completely, and it failed
-silently. The `ESC` leaves insert mode, so everything after the first newline is
-executed as normal-mode commands: motions, a stray `i` that re-enters insert
-somewhere unintended, and a final `Enter` that never submits because the
-composer is no longer where the sequence assumed. The visible symptom is a
-receiver prompt sitting half-written in the composer forever. Nothing errors —
-the bytes were delivered, the transport succeeded — so the turn simply never
-starts, `brain_turn_active` stays pinned, and every message queued behind it is
-answered with the processing notice and nothing else.
+For ordinary interactive follow-ups, paste application and submit are separate
+transport writes with a bounded settle interval. Claude historically applied a
+paste state update after a submit key received in the same PTY read, leaving
+valid text in the composer. The writer thread owns this pacing, so the UI thread
+does not block. Receiver runs supply an initial launch prompt and do not use the
+interactive follow-up or submit path.
 
-Every receiver prompt contains a newline (the actor preamble is separated from
-the message body by a blank line), so this hit **every** message that reused a
-warm panel. A message that launched a fresh panel was unaffected, because that
-path passes the prompt as a command-line argument and never types anything.
-That asymmetry is why the first SMS of a session answered and the rest did not.
+## Historical: a dispatched warm-panel turn needed a terminal escape
 
-So text is now delivered as one **bracketed paste**. It is the mechanism
-terminals already use to hand an application clipboard content that must not be
-read as keystrokes, all three frontends enable it (verified by probing each one
-for `ESC[?2004h`), and it removes the `ESC` entirely rather than trying to
-out-guess an editor mode. The submit key still lands as a real keystroke, after
-the paste closes. Control characters are stripped from the payload so inbound
-message text cannot close the paste early and have its remainder run as
-keystrokes — the payload is attacker-influenced, since it is someone else's SMS.
+The superseded warm-panel receiver once required a timeout because only a
+completion signal released its in-memory queue. That policy prevented one
+wedged turn from blocking every later message, but it could not prove durable
+agent progress. Isolated receiver runs now use exact claim renewal, lifecycle
+completion evidence, and child exit. BR-16 remains responsible for recovery of
+a progressed run after restart.
 
-The general rule this encodes: **injected content is data, and it must be
-delivered through a channel that cannot reinterpret it as control.** Typing is
-that channel's opposite.
+## Historical: remote work once locked local panel input
 
-## The submit key needs its own write, after the paste has landed
-
-This remains the ordinary interactive follow-up contract. Receiver runs no
-longer reuse a warm panel or submit a typed follow-up.
-
-Pasting fixed the vim-mode corruption but not the whole bug. A prompt injected
-into a warm panel still went unsubmitted, now with the composer holding the
-text *correctly* and no turn behind it. Reproduced deterministically against a
-real Claude Code PTY: send `ESC[200~…ESC[201~\r` as one write to a panel whose
-previous turn just finished, and the text lands while the `\r` does nothing.
-The same bytes submit fine on a panel that has never run a turn, which is why
-the first message of a session always worked and a follow-up did not — the same
-asymmetry as the vim-mode bug, from a different cause.
-
-A terminal frontend handles the two on different paths. The paste is
-accumulated and applied to the composer as a state update; the keystroke is
-dispatched straight to the focused handler. When they arrive in one read, the
-key can be handled against a composer the paste has not been applied to yet, so
-`Enter` submits an empty composer (a no-op) and the text appears immediately
-afterward, stranded.
-
-So a follow-up is now **two writes**: the paste, then the key after a
-`PASTE_SETTLE` pause. Measured on Claude: sharing the write loses the submit
-every time, and a separate write 400 ms later always lands. The same probe run
-against Codex and OpenCode did *not* reproduce the loss — both submitted either
-way — so this is a Claude flaw as of the builds tested. Every frontend is paced
-regardless: the cost is 400 ms on an injected follow-up, the alternative is a
-per-frontend exception that has to be re-verified on every upgrade, and the
-failure it prevents is a silently swallowed message. That made `InputSequence` a
-list of `InputWrite`s rather than one byte buffer — pacing is part of what an
-input *is*, not something a call site should improvise — and the wait belongs
-to `PtyPane`'s existing writer thread, so the UI thread that queues a prompt
-never blocks. Every frontend pays the same 400 ms, on injected follow-ups only:
-nothing a human types is paced.
-
-The general rule: **when a frontend's input paths can reorder relative to each
-other, order in the byte stream is not order of effect.** Separate the writes
-that depend on each other and let the earlier one take effect first.
-
-## A dispatched turn that never answers must not strand the queue behind it
-
-This warm-panel timeout policy is retained as historical rationale. Isolated
-receiver runs now treat child exit without exact completion as a durable
-pre-acceptance retry, while a live run is governed by its exact claim.
-
-The bug above exposed a second, independent one. Nothing released an in-flight
-receiver turn except a completion signal. The inactivity lease looks like a
-timeout but is not one: `expired` only fires once `receiver_started` is `None`,
-so it governs an idle warm panel, never a dispatched message. A turn that
-crashed, wedged, or was never submitted therefore pinned the panel forever, and
-every later message waited behind it indefinitely while its sender kept being
-told the answer was still coming.
-
-`remote_turn_timed_out` gives up on such a turn after ten minutes — comfortably
-longer than the two-minute processing notice, so a genuinely slow answer is told
-it is still coming long before it is ever abandoned. The sender is told plainly
-that the message went unanswered and should be resent, because silence after a
-promised reply is the worst available outcome. The panel is then torn down; the
-interactive session is restored only when nothing is queued, since queued work
-claims the panel next anyway.
-
-The check runs *after* the completion polls, so an answer that lands just past
-the deadline still wins.
-
-## The panel belongs to the sender while it is answering them
-
-This main-panel input lock is retained as historical rationale. Receiver work
-now owns a background tab, so local input remains routed to the user's selected
-tab and never enters the receiver PTY.
-
-Receiver dispatch focuses the brain panel, and a panel with a message in flight
-is not "warm", so `leave_warm_receiver_for_interactive_input` did not fire and
-local keystrokes were forwarded straight into the remote conversation's PTY.
-They landed in the composer beside the injected prompt, and a local `Enter`
-submitted it half-written.
-
-While a remote turn is in flight, local keystrokes are dropped and the footer
-says why. The interrupt key is deliberately exempt: a lock with no exit turns a
-wedged remote turn into a trapped TUI, and Ctrl+C is how the user takes their
-own agent back. That, plus the abandon deadline above, means the lock always
-ends — by answer, by interrupt, or by timeout.
+The superseded receiver reused the interactive PTY, so local keystrokes could
+enter a remote composer and required an input lock. Isolated receiver work now
+owns a background controller and tab. Local input continues to target the user
+selected tab, and no receiver-specific input lock remains.
 
 ## A hook command may not depend on the working directory
 
@@ -4358,12 +4026,11 @@ runs a hook in the session's **current** working directory, and its Bash tool's
 like `cd ~/brain/projects && …`, the turn-complete hook could no longer be
 found.
 
-The failure mode is the expensive part. The hook is what writes the completion
-artifact brain polls for, so its failure is silent and total: the agent answers
-correctly, on screen, and the answer is never delivered. `receiver_started`
-stays set, so the turn never ends, the queue never advances, the panel stays
-locked, and the sender gets nothing. A missing file at a path that "looks
-right" cost a delivered reply.
+The historical failure mode was expensive. The hook wrote the completion
+artifact the former receiver polled, so a missing command could strand the
+in-memory turn after the agent answered. A path that merely looked correct cost
+a delivered reply. The current isolated durable runner still depends on an
+exact lifecycle artifact, so the root-anchoring principle remains relevant.
 
 The command is now
 `python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/<script>.py"`.
@@ -4383,37 +4050,14 @@ The general rule: **a path recorded for later execution must be anchored to
 something the recorder controls** — an exported root variable — never to
 ambient state a tool call can change out from under it.
 
-## A deadline alone cannot tell a stalled turn from a slow one
+## Historical: panel activity once distinguished stalled receiver turns
 
-The abandon watchdog first shipped as a bare ten-minute deadline, which forced a
-bad trade: long enough not to kill a genuinely slow answer meant long enough to
-strand a queue behind a wedged one. Both failure modes are just "no completion
-artifact yet", so no single duration separates them.
-
-What separates them is whether anything is happening. Every frontend renders
-*something* while it works — a spinner, an elapsed counter, streaming tool
-output — so a panel that has not changed at all in ninety seconds is waiting on a
-person, not on a model. Abandoning now needs both: five minutes open **and** a
-completely quiet panel. A turn that keeps rendering is never abandoned, however
-long it runs, and the deadline could drop from ten minutes to five precisely
-because it no longer has to be generous enough to cover slow work.
-
-The activity signal is deliberately the **panel**, not a per-frontend transcript
-or session file. All three frontends draw into the same PTY, so reading the
-screen is one implementation that is correct for all of them by construction,
-rather than three that can drift — and a fourth frontend gets it for free. It
-also measures the right thing: not whether a file grew, but whether the agent is
-doing anything a person would recognise as work.
-
-The asymmetry of the two errors sets the constant. Calling a working turn stalled
-kills a good answer and tells the sender to resend something that was about to
-arrive; waiting another minute on a truly wedged one costs a minute. So ninety
-seconds is generous on purpose.
-
-An abandoned message's sender is told it could not be processed and asked to
-retry, on the channel it arrived on. Silence after a promised reply is the worst
-available outcome, and it is the one the sender cannot distinguish from being
-ignored.
+The superseded warm-panel watchdog combined a deadline with PTY screen changes
+to avoid abandoning a slow model while eventually releasing a stalled
+in-memory turn. That heuristic was frontend-neutral but could not prove agent
+lifecycle state. BR-14 removed screen sampling and interactive activity waits;
+the isolated durable run now relies on exact lifecycle completion, claim
+ownership, and child exit. Progressed-run recovery remains deferred to BR-16.
 
 ## An empty 404 to the provider, a specific one to the log
 

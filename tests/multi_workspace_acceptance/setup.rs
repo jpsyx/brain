@@ -110,7 +110,7 @@ pub(crate) fn assert_selector_cli(scenario: &Scenario) {
 }
 
 pub(crate) fn poll_family_jobs(
-    fixture: &mut DualWorkspaceReceiverFixture,
+    fixture: &DualWorkspaceReceiverFixture,
     expected: usize,
 ) -> Vec<brain::server::receiver::InboundJob> {
     poll_until(Instant::now() + Duration::from_secs(3), || {

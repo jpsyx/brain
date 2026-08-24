@@ -71,7 +71,7 @@ fn run_late_revocation(revocation: LateRevocation) {
         })
         .expect("machine registry");
     let _guard = crate::tui::singleton::Guard::acquire(&workspace).expect("TUI singleton");
-    let socket = crate::tui::singleton::JobSocket::bind(&workspace).expect("job socket");
+    let _socket = crate::tui::singleton::JobSocket::bind(&workspace).expect("job socket");
     let now = Instant::now();
     let generation = ServerGeneration::new();
     let lease_id = LeaseId::new();
@@ -243,22 +243,6 @@ fn run_late_revocation(revocation: LateRevocation) {
             .expect("report dispatch result");
     });
 
-    let queue = Arc::new(Mutex::new(crate::tui::receiver::InboundQueue::default()));
-    let stop_polling = Arc::new(AtomicBool::new(false));
-    let poller_queue = Arc::clone(&queue);
-    let poller_stop = Arc::clone(&stop_polling);
-    let poller = std::thread::spawn(move || {
-        while !poller_stop.load(Ordering::Acquire) {
-            socket.poll_jobs(
-                workspace_id,
-                &mut poller_queue
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner),
-            );
-            std::thread::yield_now();
-        }
-    });
-
     provider_finished_rx
         .recv_timeout(Duration::from_secs(1))
         .expect("pipeline reached final revalidation");
@@ -404,12 +388,5 @@ fn run_late_revocation(revocation: LateRevocation) {
             .expect("release final durable admission");
     }
 
-    finish_pipeline(
-        revocation,
-        &result_rx,
-        stop_polling.as_ref(),
-        poller,
-        queue.as_ref(),
-        &workspace,
-    );
+    finish_pipeline(revocation, &result_rx, &workspace);
 }

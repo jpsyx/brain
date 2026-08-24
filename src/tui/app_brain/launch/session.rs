@@ -44,8 +44,7 @@ impl App {
             self.close_brain();
         }
 
-        let launch = self.receiver.begin_session_launch();
-        let receiver_request = launch.receiver_request;
+        self.brain.begin_interactive_session_launch();
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
             Err(error) => {
@@ -59,9 +58,7 @@ impl App {
         };
 
         let pid = i32::try_from(std::process::id()).unwrap_or(0);
-        let actor = launch.requested_actor.unwrap_or_else(|| {
-            crate::actor::ActorContext::follow_up(self.brain.interactive_actor())
-        });
+        let actor = crate::actor::ActorContext::follow_up(self.brain.interactive_actor());
         let transport = brain_transport(self);
         let mut controller = self.controller_for_transport(actor.clone(), transport);
         if let Err(error) = controller.ensure_available() {
@@ -74,22 +71,10 @@ impl App {
             self.context.workspace().id(),
             actor.clone(),
         );
-        let selection = self.receiver.begin_session_selection();
-        // A `/new` sender asked to leave the previous conversation, so nothing
-        // is offered for resumption; the fresh session registered below becomes
-        // the most recent one and is what later messages resume instead.
         let mut resume = None::<(String, String)>;
         let mut skipped_missing = false;
         {
-            let candidates = if selection.force_fresh {
-                Vec::new()
-            } else {
-                selection.resume_override.map_or_else(
-                    || SessionStore::sessions_by_recency(&self.services, &scope),
-                    |id| vec![id],
-                )
-            };
-            for id in candidates {
+            for id in SessionStore::sessions_by_recency(&self.services, &scope) {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;
                 };
@@ -146,17 +131,8 @@ impl App {
                 }
             },
         };
-        self.receiver
-            .record_session_started(receiver_request, response_id.clone(), session_id);
-        if receiver_request {
-            let response_path = self
-                .context
-                .workspace()
-                .paths()
-                .responses_dir()
-                .join(format!("{response_id}.json"));
-            let _ = std::fs::remove_file(response_path);
-        }
+        self.brain
+            .record_interactive_session_started(response_id.clone(), session_id);
         let fresh_session = matches!(plan, Plan::Fresh(_));
         self.status.set_alert(if fresh_session {
             skipped_missing.then(|| {
@@ -235,7 +211,7 @@ impl App {
                     self.context.agent_kind().label()
                 ));
                 let _ = self.brain.take_main();
-                self.receiver.record_session_launch_failed(receiver_request);
+                self.brain.record_interactive_session_launch_failed();
                 self.brain.clear_session();
                 let _ = SessionStore::release(&self.services, self.brain.instance());
                 self.status.set_flash(FlashKind::Error(format!(

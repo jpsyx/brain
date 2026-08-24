@@ -68,7 +68,7 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
         }));
     assert!(app.open_or_focus_brain(None));
     let placeholder = app
-        .receiver
+        .brain
         .interactive_agent_session_id()
         .map(str::to_owned)
         .expect("fresh placeholder");
@@ -87,7 +87,7 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
 
     app.close_brain();
 
-    assert_eq!(app.receiver.interactive_agent_session_id(), Some(rotated));
+    assert_eq!(app.brain.interactive_agent_session_id(), Some(rotated));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
     app.brain.replace_brain_transport(recording.transport());
     assert!(app.open_or_focus_brain(None));
     let pending = app
-        .receiver
+        .brain
         .interactive_agent_session_id()
         .map(str::to_owned)
         .expect("pending frontend session");
@@ -111,7 +111,7 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
     app.close_brain();
 
     assert_eq!(
-        app.receiver.interactive_agent_session_id(),
+        app.brain.interactive_agent_session_id(),
         Some("root-after-new")
     );
     let connection =
@@ -164,44 +164,6 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
     assert_eq!(app.shell.focus(), Panel::Tasks);
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
-}
-
-#[test]
-fn close_delivers_transport_snapshot_with_the_initiating_actor_and_channel() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let initiating_actor = sms_actor();
-    let (controller, _) = recording_controller_for_actor(
-        &app,
-        initiating_actor.clone(),
-        false,
-        "remote transport snapshot",
-    );
-    app.brain.install_main(controller);
-    let job = receiver_job(
-        &app,
-        initiating_actor.clone(),
-        Channel::Email,
-        "remote request",
-    );
-    begin_receiver_turn(
-        &mut app,
-        &job,
-        "receiver-session",
-        std::time::Instant::now(),
-    );
-    let mut delivered = None;
-
-    app.close_brain_with(|_, completion| delivered = Some(completion));
-
-    let delivered = delivered.expect("completion delivered before teardown");
-    let (snapshot, actor, channel) = delivered.into_parts();
-    assert_eq!(snapshot, "remote transport snapshot");
-    assert_eq!(actor, initiating_actor);
-    assert_eq!(channel, Channel::Sms);
-    assert!(app.brain.main_controller().is_none());
-    assert_eq!(app.shell.focus(), Panel::Tasks);
 }
 
 #[test]
@@ -335,7 +297,7 @@ fn run_new_session_plugin_bridge(app: &App) {
         })
         .expect("OpenCode plugin acceptance requires Bun or Node");
     let response_id = app
-        .receiver
+        .brain
         .interactive_response_id()
         .expect("interactive response id");
     let output = std::process::Command::new(runtime)

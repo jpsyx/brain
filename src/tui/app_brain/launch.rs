@@ -123,7 +123,7 @@ impl App {
                 crate::logging::log(format!("marking agent session active failed: {error:#}"));
             }
         }
-        if let Some(session_id) = self.receiver.interactive_completion_to_clear() {
+        if let Some(session_id) = self.brain.main_completion_to_clear() {
             let path = self
                 .context
                 .workspace()

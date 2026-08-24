@@ -138,8 +138,8 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 
 ## The Brain Panel: Claude, Codex, Or OpenCode
 
-The persistent shell's `BrainPanelState` owns the main and skill-session
-`AgentController`s. The App mediator assembles launch context, while each
+The persistent shell's `BrainPanelState` owns the main, skill-session, and
+receiver-run `AgentController`s. The App mediator assembles launch context, while each
 controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
 `BrainPanelState` derives the completion actor from the controller at install
 time; callers cannot supply a second actor that disagrees with the controller
@@ -153,17 +153,18 @@ TuiRuntime
     │   └── AgentController
     │       └── frontend registry -> Claude | Codex | OpenCode adapter -> transport
     ├── AppServices (session DB, runners, receiver sync adapter)
-    └── ReceiverRuntime (receiver-local queue, intent, and decisions)
+    └── ReceiverRuntime (intent, freshness gate, durable-run handle,
+                         and BR-18 legacy endpoint lifetime)
 ```
 
-Launch, completion delivery, receiver takeover, and cross-feature focus stay
-on App. No one of those paths selects or invokes a concrete frontend outside
+Launch, receiver completion/delivery, and cross-feature coordination stay on
+App. No one of those paths selects or invokes a concrete frontend outside
 `AgentController`.
 
 TUI consumers name the owning agent, state, receiver, overlay, palette, or
 action module directly. The TUI root does not re-export child modules as a
 wildcard namespace, so importing an integration surface cannot silently grant
-access to unrelated frontend or runtime details. Receiver execution state under
+access to unrelated frontend or runtime details. The active durable-run handle under
 `ReceiverRuntime` remains live process state; receiver jobs, logical
 conversations, frontend-neutral sessions, and completion records are durable.
 
@@ -223,7 +224,7 @@ workspace's capability plan and asks the adapter for the candidate's stable
 response identity. A validation or identity error therefore cannot strand a
 free session as claimed. If the later transport launch fails, Brain releases
 the instance claim and clears the response identity for the attempted
-interactive or receiver launch.
+interactive launch.
 
 The isolated receiver-run path uses a frontend-neutral planning seam. A
 matching durable conversation binding is
@@ -388,13 +389,13 @@ They remain easy to bypass, are unsuitable for adversarial users or sensitive
 isolation, and do not replace an external OS, VM, machine, or container
 boundary.
 
-When Brain injects a prompt into an already-open panel, the caller requests one
+When ordinary interactive Brain behavior sends a prompt to an already-open
+main panel, the caller requests one
 semantic busy-turn follow-up from `AgentController`. The selected adapter owns
 the complete native sequence: Claude and OpenCode encode literal text followed
 by `Enter`; Codex encodes literal text followed by `Tab`, its native queue key.
-The controller does not expose or duplicate those keystrokes. The TUI may hold
-a receiver job until the current turn is eligible for handoff, but once it
-calls the facade the frontend's native busy-turn behavior owns the follow-up.
+The controller does not expose or duplicate those keystrokes. Receiver runs
+never use this API: their initial prompt belongs to a new isolated launch.
 
 Injected text is always delivered as one **bracketed paste**
 (`ESC[200~` … `ESC[201~`, DEC mode 2004, in `src/agent/input.rs`), exactly as a
@@ -502,8 +503,9 @@ owns its configured key and completion token. A receiver entry owns its durable
 
 All entries share the checked monotonic `SessionTabId` allocator, rendered
 title order, controller lookup, and orderly shutdown pass. A receiver
-allocation rejected at counter exhaustion shuts down the supplied
-`AgentController` without inserting a tab or advancing the counter.
+allocation rejected at counter exhaustion, or because the process already owns
+a receiver run, shuts down the supplied `AgentController` without inserting a
+tab or advancing the counter.
 The `BrainPanelState` receiver API performs insertion, observation, controller
 access, and removal without touching `ShellState`; therefore background
 operations preserve the current main view, effective tab, panel visibility, and
@@ -871,8 +873,7 @@ that evidence intact for BR-16 recovery policy.
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
 Email lineage, then commits or durably deduplicates before provider success.
-The existing TUI in-memory queue is no longer the ingress acceptance boundary
-or an execution consumer. Prompt submission, completion, delivery, and durable
+No TUI in-memory receiver queue remains. Prompt submission, completion, delivery, and durable
 queue consumption remain in the live TUI and never move into the shared server.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
@@ -1038,20 +1039,23 @@ reconciliation and the atomic acceptance transaction therefore cannot inherit
 the ordinary five-second lock wait. Provider and exact-job deduplication run
 before the atomic 64-row `queued` capacity check. Provider success follows only
 the commit or an existing durable match. The mode-`0600`
-`<workspace-cache>/jobs.sock` remains part of live-lease validation and the
-legacy TUI representation, but provider ingress no longer appends to its
-private memory queue and no production coordinator consumes it.
+`<workspace-cache>/jobs.sock` remains part of live-lease validation and is held
+only by a narrowly named legacy lifetime field until BR-18; it has no receiver
+read, poll, dispatch, or in-memory queue behavior.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle. The one `App::tick_receiver` call is the sole
-production consumer. It runs only while receiver intent is enabled, renews an
-already claimed job before a pending freshness pull, and otherwise does no work
-while a receiver tab is active. When ready, it claims the oldest durable job by
+production consumer. Disabled intent blocks only a new idle claim; the tick
+continues to renew and manage an existing pending or active run. It renews an
+already claimed job before a pending freshness pull and otherwise does no new
+claim work while a receiver tab is active. When ready, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, prepares launch through the exact
 claim, registers a unique remote instance, and spawns a new controller and PTY
 for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
 background without selecting it or changing view, visibility, or focus. No
 receiver path types into, submits through, or otherwise injects the main panel.
+The tab collection rejects and shuts down a second simultaneous receiver
+controller before insertion, without moving the user.
 
 The active tick renews only its exact claim. A second arrival stays durable and
 unclaimed until the active run closes, then the next tick applies the same FIFO
@@ -1064,6 +1068,11 @@ focus. Spawn failure and child exit without valid completion perform explicit
 registration cleanup and durable pre-acceptance retry. Lost claim ownership
 permits local tab cleanup only. Progressed stale states are not rerun before
 BR-16 defines their recovery policy.
+BR-15 still owns exact accepted/progress observations, and BR-17 still owns
+atomic answer persistence plus delivery-only retry. BR-18 retains final
+schema/migration reconciliation, durable status and diagnostics, and deletion
+of the legacy endpoint representation; receiver injection, warm-panel reuse,
+activity inference, and the second execution cursor are already absent.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.

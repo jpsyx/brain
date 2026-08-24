@@ -178,7 +178,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v8 schema; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/claim.rs` owns FIFO leases, launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `run.rs` owns durable local-run state; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, planning, registration, launch, and background tab insertion; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. The legacy memory queue remains representation-only until BR-18 and is not a production consumer. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `run.rs` owns durable local-run state; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, planning, registration, launch, and background tab insertion; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -1028,18 +1028,11 @@ which explicitly stop and join only their workers, and performs no exit sync.
 observation-driven pure poll transition. `AppServices` owns the injected sync
 adapter that reads clocks, journals, and current process state and launches
 children.
-Each receiver tick walks one explicit ordered stage list. The runtime
-re-snapshots receiver-local facts before each stage and returns a typed effect,
-so a completed effect can change a later decision without replaying a one-shot
-timeout, lease, control, or dispatch transition.
-The App mediator returns a semantic `ReceiverEffectOutcome`; the pure
-tick coordinator converts that outcome into `AdvanceStage`, `StopTick`, or
-`RepeatCurrentStage`. Sync waiting therefore stops production execution and a
-consumed `/new` repeats only its current stage without either rule depending on
-a raw boolean or an App-side effect-variant check. A completed `/restart`
-advances normally, so later stages observe and can dispatch work that survived
-the restart queue cut.
-`tui/app_sync.rs` passes those observations into the runtime and owns the
+The sole receiver tick first continues any pending or active durable run, then
+applies durable `/restart` and `/new` controls, the sync-freshness gate, and at
+most one FIFO claim. There is no second process-local cursor, interactive-panel
+handoff, activity sample, or socket poll.
+`tui/app_sync.rs` passes freshness observations into the runtime and owns the
 cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job
 consumption boundary. It
 queues stale inbound work behind a pull and reloads tasks before dispatch. It
@@ -1180,12 +1173,14 @@ TuiRuntime (process lifetime)
 └── App (cross-feature mediator)
     ├── AppContext       immutable command, workspace, config, frontend, and path identity
     ├── TasksState       task materialization, filtering, selection, and logical day
-    ├── BrainPanelState  controllers, tabs, actors, turn state, and skill sessions
+    ├── BrainPanelState  controllers, tabs, actors, interactive-session state,
+    │                    and skill/receiver sessions
     ├── ShellState       main view, focus, layout, search, logs, and selected tab
     ├── Overlay          the one active cross-feature modal
     ├── AppServices      runners, state DB, session store, receiver intent refresh, and sync effects
     ├── StatusState      triage gate, live toggle, messages, and sync status
-    └── ReceiverRuntime  queue, socket, enabled intent, and receiver-local decisions
+    └── ReceiverRuntime  enabled intent, freshness gate, durable-run handle,
+                         and BR-18 legacy endpoint lifetime
 ```
 
 The context is replaced as a complete immutable snapshot when portable config
@@ -1197,16 +1192,17 @@ main controller derives the completion actor from that controller, so the live
 controller and its response-validation identity cannot diverge. Skill-session
 tab identities advance monotonically with checked exhaustion; a rejected tab
 does not mutate the tab collection or counter and its launched controller is
-shut down.
+shut down. Receiver-tab insertion additionally rejects and shuts down a second
+simultaneous receiver controller before it can mutate tab state.
 
 `Overlay` remains a top-level field because it mediates mutually exclusive
 modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
-also remains top-level because its ordered decisions coordinate brain, task,
-status, delivery, and sync effects while its queue, socket, enabled intent, and
-retry state stay one natural owner. The injected receiver intent refresher is a
+also remains top-level because it holds receiver intent, freshness, and the one
+durable run across ticks. Its narrowly named legacy job socket only preserves
+builder/lifetime compatibility until BR-18 and has no consumer behavior. The injected receiver intent refresher is a
 cross-feature server-control effect owned behind `AppServices`; App invokes its
 semantic receiver-action operation without obtaining the adapter. Cross-feature
-launch, database, receiver takeover, task refresh, and focus changes remain App
+launch, database, receiver lifecycle, task refresh, and focus changes remain App
 operations; neither focused owner receives the whole App.
 Immutable context and brain queries are consumed through their focused owners
 instead of being mirrored as App accessors. App methods remain only where an
@@ -1284,10 +1280,10 @@ owner), `action/` (the closed
 (`model`/`command`/`state`), `app_state/` (`construct`/`view`), `app_actions/`
 (`commands`/`receiver`/`triage`, with pure triage policy in
 `triage/decision.rs`), `app_brain/` (`launch`/`lifecycle` plus receiver
-`dispatch`/`completion`/`state` effect executors and focused tests), and
+`dispatch`/`active`/`artifact`/`reply` coordinators and focused tests), and
 `tests/` (split by
 area). `BrainPanelState` owns the main persistent controller, while
-`app_brain/` coordinates receiver dispatch and completion delivery;
+`app_brain/` coordinates isolated receiver dispatch and terminal delivery;
 `app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
 while `launch.rs` keeps capability construction, transport selection, and the
 public app actions.
@@ -1299,10 +1295,9 @@ shuts down the rejected controller before returning and leaves both the
 collection and counter unchanged. `app_brain_tab.rs` owns shared observation and
 keyboard navigation; `app_skill_session/` retains skill completion signals and
 configured-skill lifecycle. `BrainPanelState` exposes background-only receiver
-insertion, observation, controller access, and removal; a later behavior-owning
-App coordinator can compose that state API without a semantic-free aggregate
-forwarder. This task does not connect the durable receiver coordinator to that
-seam.
+insertion, observation, controller access, and removal. It rejects and shuts
+down a second simultaneous receiver controller before insertion, so one
+workspace process cannot own more than one live receiver run.
 
 Receiver-only tabs do not make a hidden brain panel visible. When the panel is
 already visible, skill and receiver titles render and navigate in their shared
@@ -1314,17 +1309,12 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel and tab types live in
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
-narrow shell entry exports, and module wiring. Receiver
-representation is private to `receiver/runtime.rs` and its focused child
-modules. `receiver/planning.rs` owns the frontend-neutral durable job plus
+narrow shell entry exports, and module wiring. Receiver representation is
+private to `receiver/runtime.rs` and its focused sync child.
+`receiver/planning.rs` owns the frontend-neutral durable job plus
 conversation to `SessionPlan` and initial-prompt decision without owning tab,
-claim, or coordinator state. `receiver/decision.rs` maps independent facts
-onto the fixed tick stages, while `receiver/effect.rs` carries only the data each App mediator
-effect needs. App coordinators execute those effects and feed semantic outcomes back
-through completion, dispatch, diagnostic, and freshness-gate operations rather
-than mutating receiver fields. The runtime
-receives sync observations and never reads journals, files, or process state or
-launches sync children. Cross-feature
+claim, or coordinator state. The runtime receives sync observations and never
+reads journals, files, or process state or launches sync children. Cross-feature
 work that touches the brain aggregate, task reloads, sync processes, response
 files, or provider delivery remains in the existing App coordinators.
 `status_warning.rs` validates receiver
@@ -1372,7 +1362,8 @@ returns focus to the tasks main view so `j`/`k` work at once. The sync-services
 stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
 workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
-identity, and the App state that holds the session lock and receiver job socket.
+identity, and the App state that holds the session lock and the legacy receiver
+endpoint lifetime.
 From successful server registration through final runtime assembly, one partial-
 startup owner retains the heartbeat lease before the bound job socket. Assignment
 resolution, terminal acquisition, DB/config/model construction, initial-panel
@@ -1586,9 +1577,9 @@ consumer, or agent launcher.
   `http/sms.rs` and `http/email/` return typed provider outcomes while they
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request; `http/email/body.rs` is the pure
-  prompt-shaping half — HTML-only mail becomes readable text and the result is
-  bounded at 16 KiB with an explicit truncation notice, since the prompt is
-  typed into the panel's PTY;
+  prompt-shaping half: HTML-only mail becomes readable text and the result is
+  bounded at 16 KiB with an explicit truncation notice before it enters an
+  isolated receiver launch prompt;
   `dispatch.rs` resolves the selected workspace's portable actor, while
   `dispatch/deliveries.rs` owns in-flight provider-ID exclusion and the bounded
   verified-unavailable Email discard set. Durable provider deduplication and
@@ -1671,8 +1662,8 @@ consumer, or agent launcher.
   the expected UUID before saving. After persistence, a generation-bound
   control refresh names only the workspace UUID; the shared process reloads
   the authoritative record and updates a matching live lease if present. This
-  path never elects a process. The UUID-local job socket accepts only JSON
-  inbound jobs and has no text lifecycle control grammar. Receiver command
+  path never elects a process. The UUID-local job socket is only a live-endpoint
+  validation marker; the TUI does not read or dispatch jobs from it. Receiver command
   dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
   mutation, refresh-warning, and status decisions live in its focused
   `enablement.rs` child, with their tests under `enablement/tests.rs`.
@@ -1738,8 +1729,8 @@ through `AgentController`, and launches a new background receiver tab. Later
 arrivals remain durable and unclaimed until the active run reaches a terminal
 outcome. Receiver insertion,
 completion, and removal preserve the active main view, tab, panel visibility,
-and keyboard focus. `tui/receiver/policy.rs` retains pure retry and input-lock
-policy below the receiver facade.
+and keyboard focus. A second receiver-run insertion is rejected and its supplied
+controller is shut down without changing tab state or focus.
 The idle claim transaction holds SQLite's immediate writer reservation while
 it checks for a queued exact `/restart`. A ready restart refuses the ordinary
 claim so the next control scan can apply its cut. Ingress that commits after
@@ -1747,12 +1738,6 @@ the claim instead sees an already active owner, which the restart deliberately
 preserves. An already claimed `/new` may finish after intent is disabled, but
 its fresh boundary returns to idle and cannot claim following work until intent
 is enabled again.
-The queue architecture guard canonicalizes raw identifiers before resolving
-`InboundJob` names and aliases. Its files are scanned independently, so the
-declared-item/export invariant rejects every visible renamed re-export of a
-resolved job alias outside `receiver/queue.rs`; private same-scope renamed
-imports remain resolvable. A cross-module alias therefore fails at its public
-rename declaration instead of depending on unavailable sibling-file context.
 `tui/app_sync.rs` holds inbound dispatch behind a pull when downstream state is
 more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
@@ -1867,15 +1852,11 @@ sibling so the two projects share a stack:
   `reply/plain_text/` pass, which is intentionally not a parser — see
   `docs/decisions.md`.
 
-Architecture tests depend directly on `syn` with its `full` and `visit`
-features and on `proc-macro2`. The receiver-queue ownership guard needs a
-complete Rust syntax tree for persistent item declarations, aliases,
-attributes, and item macros; its macro boundary also recursively inspects
-`proc-macro2` token trees for resolved job aliases. Both are dev dependencies,
-so this parser contract adds nothing to the shipped binary. This is the
-accepted implementation deviation from the refactor's original
-"no new dependency" wording: both crates were already transitive, and direct
-dev declarations replace the unsound handwritten Rust parser.
+Architecture tests depend directly on **`syn`** with its `full` and `visit`
+features. The active TUI dependency guard uses a complete Rust syntax tree to
+pin event-loop routing without adding a parser to the shipped binary. The
+former receiver-queue guard's direct `proc-macro2` dependency is gone with that
+obsolete in-memory consumer boundary.
 
 `brain sync` also depends on **`rclone`**, but as an external command it
 shells out to (`src/sync/run.rs`), not a Cargo crate: brain builds the argv

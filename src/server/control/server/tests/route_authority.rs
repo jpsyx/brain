@@ -214,7 +214,7 @@ fn disable_after_actor_resolution_rejects_before_socket_handoff() {
     worker
         .join()
         .expect("dispatch thread")
-        .expect_err("revoked route must reject before socket handoff");
+        .expect_err("revoked route must reject before durable admission");
     assert_eq!(forwards.load(Ordering::Acquire), 0);
 }
 

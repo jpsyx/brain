@@ -239,8 +239,8 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
             "resume_candidate_exists",
         ),
         (
-            include_str!("../src/tui/app_brain/receiver/state.rs"),
-            "can_resume_response_session",
+            include_str!("../src/tui/receiver/planning.rs"),
+            "resume_candidate_exists",
         ),
     ];
     for (caller, operation) in semantic_calls {
@@ -262,12 +262,12 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
             include_str!("../src/tui/app_brain/receiver/dispatch.rs"),
         ),
         (
-            "receiver completion",
-            include_str!("../src/tui/app_brain/receiver/completion.rs"),
+            "receiver active lifecycle",
+            include_str!("../src/tui/app_brain/receiver/active.rs"),
         ),
         (
-            "receiver state",
-            include_str!("../src/tui/app_brain/receiver/state.rs"),
+            "receiver planning",
+            include_str!("../src/tui/receiver/planning.rs"),
         ),
     ];
     for adapter_detail in [

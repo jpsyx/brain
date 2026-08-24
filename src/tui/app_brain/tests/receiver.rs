@@ -123,5 +123,3 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
         [app.context.workspace().id(), app.context.workspace().id(),]
     );
 }
-
-mod turns;

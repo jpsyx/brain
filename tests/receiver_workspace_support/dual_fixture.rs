@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use brain::server::receiver::InboundJob;
-use brain::tui::receiver::InboundQueue;
 use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
@@ -15,8 +14,6 @@ pub struct DualWorkspaceReceiverFixture {
     pub family: WorkspaceContext,
     personal_socket: Option<JobSocket>,
     family_socket: Option<JobSocket>,
-    personal_jobs: InboundQueue,
-    family_jobs: InboundQueue,
     personal_guard: Option<brain::tui::singleton::Guard>,
     family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
@@ -94,8 +91,6 @@ impl DualWorkspaceReceiverFixture {
             family,
             personal_socket: Some(personal_socket),
             family_socket: Some(family_socket),
-            personal_jobs: InboundQueue::default(),
-            family_jobs: InboundQueue::default(),
             personal_guard: Some(personal_guard),
             family_guard: Some(family_guard),
             client,
@@ -155,54 +150,25 @@ impl DualWorkspaceReceiverFixture {
         self.post_sms(FAMILY_PHONE, "family-token", provider_id, prompt)
     }
 
-    pub fn personal_jobs(&mut self) -> Vec<InboundJob> {
-        if let Some(socket) = &self.personal_socket {
-            socket.poll_jobs(self.personal.id(), &mut self.personal_jobs);
-        }
-        assert!(
-            self.personal_jobs.is_empty(),
-            "personal ingress reached the legacy TUI queue"
-        );
+    pub fn personal_jobs(&self) -> Vec<InboundJob> {
         durable_jobs(&self.personal)
     }
 
-    pub fn family_jobs(&mut self) -> Vec<InboundJob> {
-        if let Some(socket) = &self.family_socket {
-            socket.poll_jobs(self.family.id(), &mut self.family_jobs);
-        }
-        assert!(
-            self.family_jobs.is_empty(),
-            "family ingress reached the legacy TUI queue"
-        );
+    pub fn family_jobs(&self) -> Vec<InboundJob> {
         durable_jobs(&self.family)
     }
 
-    pub fn poll_both_jobs(&mut self) -> (Vec<InboundJob>, Vec<InboundJob>) {
+    pub fn poll_both_jobs(&self) -> (Vec<InboundJob>, Vec<InboundJob>) {
         poll_until(Instant::now() + Duration::from_secs(3), || {
-            self.personal_socket
-                .as_ref()
-                .expect("personal fake TUI is live")
-                .poll_jobs(self.personal.id(), &mut self.personal_jobs);
-            self.family_socket
-                .as_ref()
-                .expect("family fake TUI is live")
-                .poll_jobs(self.family.id(), &mut self.family_jobs);
             !durable_jobs(&self.personal).is_empty() && !durable_jobs(&self.family).is_empty()
         });
-        assert!(self.personal_jobs.is_empty());
-        assert!(self.family_jobs.is_empty());
         (durable_jobs(&self.personal), durable_jobs(&self.family))
     }
 
-    pub fn poll_personal_jobs(&mut self, expected: usize) -> Vec<InboundJob> {
+    pub fn poll_personal_jobs(&self, expected: usize) -> Vec<InboundJob> {
         poll_until(Instant::now() + Duration::from_secs(3), || {
-            self.personal_socket
-                .as_ref()
-                .expect("personal fake TUI is live")
-                .poll_jobs(self.personal.id(), &mut self.personal_jobs);
             durable_jobs(&self.personal).len() >= expected
         });
-        assert!(self.personal_jobs.is_empty());
         durable_jobs(&self.personal)
     }
 

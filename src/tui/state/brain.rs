@@ -12,7 +12,7 @@ pub(super) mod exhausted_tab_ids;
 
 use ephemeral::EphemeralTabs;
 pub(crate) use ephemeral::{
-    ReceiverRunObservation, ReceiverRunTabIdExhausted, RemovedReceiverRun, RemovedSkillSession,
+    ReceiverRunObservation, ReceiverRunTabError, RemovedReceiverRun, RemovedSkillSession,
     SkillSessionObservation, SkillSessionTabIdExhausted,
 };
 
@@ -29,6 +29,8 @@ pub(crate) struct BrainPanelState {
     configured_skill_sessions: Option<serde_json::Value>,
     instance: String,
     interactive_actor: ActorContext,
+    interactive_response_id: Option<String>,
+    interactive_agent_session_id: Option<String>,
     session_actor: Option<ActorContext>,
     #[cfg(test)]
     brain_transport_override: Option<Box<dyn AgentTransport>>,
@@ -49,6 +51,8 @@ impl BrainPanelState {
             configured_skill_sessions: init.configured_skill_sessions,
             instance: init.instance,
             interactive_actor: init.interactive_actor,
+            interactive_response_id: None,
+            interactive_agent_session_id: None,
             session_actor: None,
             #[cfg(test)]
             brain_transport_override: None,
@@ -100,6 +104,55 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) const fn interactive_actor(&self) -> &ActorContext {
         &self.interactive_actor
+    }
+
+    pub(crate) fn begin_interactive_session_launch(&mut self) {
+        self.interactive_response_id = None;
+        self.interactive_agent_session_id = None;
+    }
+
+    pub(crate) fn record_interactive_session_started(
+        &mut self,
+        response_id: String,
+        agent_session_id: String,
+    ) {
+        self.interactive_response_id = Some(response_id);
+        self.interactive_agent_session_id = Some(agent_session_id);
+    }
+
+    pub(crate) fn record_interactive_session_launch_failed(&mut self) {
+        self.interactive_response_id = None;
+        self.interactive_agent_session_id = None;
+    }
+
+    #[must_use]
+    pub(crate) fn main_completion_to_clear(&self) -> Option<&str> {
+        self.interactive_response_id.as_deref()
+    }
+
+    pub(crate) fn record_interactive_agent_session(&mut self, session_id: String) {
+        self.interactive_agent_session_id = Some(session_id);
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn interactive_response_id(&self) -> Option<&str> {
+        self.interactive_response_id.as_deref()
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn interactive_agent_session_id(&self) -> Option<&str> {
+        self.interactive_agent_session_id.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_interactive_session(
+        &mut self,
+        response_id: String,
+        agent_session_id: String,
+    ) {
+        self.record_interactive_session_started(response_id, agent_session_id);
     }
 
     #[must_use]
@@ -296,7 +349,7 @@ impl BrainPanelState {
         title: String,
         instance: String,
         controller: AgentController,
-    ) -> Result<SessionTabId, ReceiverRunTabIdExhausted> {
+    ) -> Result<SessionTabId, ReceiverRunTabError> {
         self.ephemeral_tabs
             .add_receiver_run(job_id, title, instance, controller)
     }

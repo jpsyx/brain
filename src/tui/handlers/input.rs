@@ -5,7 +5,6 @@ use crossterm::event::KeyCode;
 
 use crate::tui::App;
 use crate::tui::keymap::{key_to_bytes, panel_at};
-use crate::tui::modal_state::FlashKind;
 use crate::tui::model::Panel;
 
 /// Number of tasks a single wheel notch moves the selection in the tasks
@@ -87,19 +86,6 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
             }
             _ => return false,
         }
-    }
-
-    // A remote message is mid-answer: the panel is the sender's conversation
-    // and every keystroke would land in the composer beside the injected
-    // prompt, so only the interrupt key gets through.
-    if !crate::tui::receiver::policy::forwards_local_keystroke(
-        app.receiver.remote_turn_in_flight(),
-        ctrl && matches!(k.code, KeyCode::Char('c' | 'C')),
-    ) {
-        app.status.set_flash(FlashKind::Info(
-            "Brain is answering a received message — input is locked until it replies (Ctrl+C interrupts)".to_owned(),
-        ));
-        return false;
     }
 
     let Some(bytes) = key_to_bytes(k) else {

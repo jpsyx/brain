@@ -63,15 +63,21 @@ impl std::fmt::Display for SkillSessionTabIdExhausted {
 impl std::error::Error for SkillSessionTabIdExhausted {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ReceiverRunTabIdExhausted;
+pub(crate) enum ReceiverRunTabError {
+    AlreadyRunning,
+    IdExhausted,
+}
 
-impl std::fmt::Display for ReceiverRunTabIdExhausted {
+impl std::fmt::Display for ReceiverRunTabError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("receiver-run tab identity exhausted")
+        match self {
+            Self::AlreadyRunning => formatter.write_str("a receiver run is already active"),
+            Self::IdExhausted => formatter.write_str("receiver-run tab identity exhausted"),
+        }
     }
 }
 
-impl std::error::Error for ReceiverRunTabIdExhausted {}
+impl std::error::Error for ReceiverRunTabError {}
 
 #[derive(Default)]
 pub(super) struct EphemeralTabs {
@@ -201,13 +207,22 @@ impl EphemeralTabs {
         title: String,
         instance: String,
         controller: AgentController,
-    ) -> Result<SessionTabId, ReceiverRunTabIdExhausted> {
+    ) -> Result<SessionTabId, ReceiverRunTabError> {
+        if self
+            .tabs
+            .iter()
+            .any(|tab| matches!(&tab.metadata, EphemeralTabMetadata::ReceiverRun(_)))
+        {
+            let mut controller = controller;
+            let _ = controller.shutdown();
+            return Err(ReceiverRunTabError::AlreadyRunning);
+        }
         self.add(
             title,
             EphemeralTabMetadata::ReceiverRun(ReceiverRunMetadata { job_id, instance }),
             controller,
         )
-        .map_err(|SessionTabIdExhausted| ReceiverRunTabIdExhausted)
+        .map_err(|SessionTabIdExhausted| ReceiverRunTabError::IdExhausted)
     }
 
     pub(super) fn remove_skill_session(&mut self, id: SessionTabId) -> Option<RemovedSkillSession> {

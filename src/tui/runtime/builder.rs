@@ -113,7 +113,7 @@ impl RuntimeBuilder {
                 periodic_puller,
                 instance,
             } = prepared;
-            app.receiver.install_socket(job_socket);
+            app.receiver.install_legacy_job_socket(job_socket);
             TuiRuntime {
                 terminal,
                 app,

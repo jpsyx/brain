@@ -28,15 +28,6 @@ impl HandoffDeadline {
         Self { clock, expires_at }
     }
 
-    pub(in crate::server) fn from_now(budget: Duration) -> std::io::Result<Self> {
-        let clock: Arc<dyn ConnectionClock> = Arc::new(SystemClock);
-        let expires_at = clock
-            .now()
-            .checked_add(budget)
-            .ok_or_else(|| std::io::Error::other("receiver handoff deadline overflow"))?;
-        Ok(Self::new(clock, expires_at))
-    }
-
     pub(in crate::server) fn ensure_open(&self) -> std::io::Result<Duration> {
         self.expires_at
             .checked_duration_since(self.clock.now())
@@ -47,10 +38,6 @@ impl HandoffDeadline {
                     "receiver job handoff deadline elapsed",
                 )
             })
-    }
-
-    pub(in crate::server) const fn expires_at(&self) -> Instant {
-        self.expires_at
     }
 }
 

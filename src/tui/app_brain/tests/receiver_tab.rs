@@ -89,6 +89,45 @@ fn background_receiver_lifecycle_never_changes_view_visibility_tab_or_focus() {
 }
 
 #[test]
+fn second_receiver_run_is_rejected_and_shut_down_without_moving_the_user() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.shell.show_main_view(MainView::BrainSearch);
+    let before = visible_state(&app);
+
+    let first_recording = TransportRecording::default();
+    first_recording.set_alive(true);
+    let first = app
+        .brain
+        .add_receiver_run(
+            receiver_job_id("416432be-1f80-4c14-a1cd-a67990cba013"),
+            "Receiver · SMS".to_owned(),
+            "first-receiver-instance".to_owned(),
+            receiver_controller(&app, &first_recording),
+        )
+        .expect("first receiver run");
+    let tabs_before = app.brain.ephemeral_tab_ids();
+
+    let rejected_recording = TransportRecording::default();
+    rejected_recording.set_alive(true);
+    app.brain
+        .add_receiver_run(
+            receiver_job_id("1fe4e060-c513-48f7-a4a0-eb925ff884fc"),
+            "Receiver · Email".to_owned(),
+            "second-receiver-instance".to_owned(),
+            receiver_controller(&app, &rejected_recording),
+        )
+        .expect_err("a workspace process may own only one receiver run");
+
+    assert_eq!(app.brain.ephemeral_tab_ids(), tabs_before);
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert_eq!(app.brain.receiver_run_observations()[0].id, first);
+    assert_eq!(rejected_recording.shutdowns(), 1);
+    assert_eq!(visible_state(&app), before);
+}
+
+#[test]
 fn receiver_controller_closes_independently_and_shell_shutdown_stops_the_rest() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);

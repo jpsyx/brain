@@ -114,24 +114,34 @@ fn receiver_runtime_contains_no_cross_feature_effect_adapters_or_io() {
 }
 
 #[test]
-fn receiver_pure_policy_is_owned_by_the_receiver_module() {
+fn legacy_receiver_endpoint_is_representation_only_until_br18() {
     let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
     let receiver_root = tui_root.join("receiver");
-
+    let runtime =
+        std::fs::read_to_string(receiver_root.join("runtime.rs")).expect("read receiver runtime");
+    let singleton =
+        std::fs::read_to_string(tui_root.join("singleton.rs")).expect("read singleton source");
     assert!(
-        !tui_root.join("receiver_state.rs").exists(),
-        "receiver timeout, probe, retry, and input-lock policy must not remain at the TUI root"
+        runtime.contains("legacy_job_socket: Option<crate::tui::singleton::JobSocket>"),
+        "BR-18 compatibility must be explicit and narrowly named"
     );
     assert!(
-        receiver_root.join("policy.rs").exists(),
-        "receiver-owned pure policy must live at src/tui/receiver/policy.rs"
+        runtime.contains("fn install_legacy_job_socket"),
+        "the runtime builder must retain only endpoint lifetime ownership"
     );
-    let facade =
-        std::fs::read_to_string(receiver_root.join("mod.rs")).expect("read receiver facade");
-    assert!(
-        facade.contains("mod policy;"),
-        "the receiver facade must declare its policy owner"
-    );
+    for forbidden in [
+        "InboundQueue",
+        "poll_jobs(",
+        "process_job_stream(",
+        "receiver_panel_is_warm",
+        "remote_turn_in_flight",
+        "panel_activity",
+    ] {
+        assert!(
+            !runtime.contains(forbidden) && !singleton.contains(forbidden),
+            "legacy endpoint regained consumer or control behavior: {forbidden}"
+        );
+    }
 }
 
 #[test]

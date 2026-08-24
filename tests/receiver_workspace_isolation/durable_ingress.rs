@@ -4,11 +4,7 @@ use super::*;
 fn signed_sms_commits_durable_job_before_provider_success() {
     let mut fixture = SharedReceiverFixture::start();
     let response_rx = fixture.post_sms_async("SM-task-five", "hello from shared HTTP");
-    let mut legacy_queue = brain::tui::receiver::InboundQueue::default();
     poll_until(Instant::now() + Duration::from_secs(3), || {
-        fixture
-            .socket
-            .poll_jobs(fixture.workspace.id(), &mut legacy_queue);
         let durable = durable_jobs(&fixture.workspace);
         if durable.is_empty()
             && let Ok(response) = response_rx.try_recv()
@@ -25,10 +21,6 @@ fn signed_sms_commits_durable_job_before_provider_success() {
     assert_eq!(durable[0].workspace_id, fixture.workspace.id());
     assert_eq!(durable[0].actor.user_id().as_str(), "personal-member");
     assert_eq!(durable[0].prompt, "hello from shared HTTP");
-    assert!(
-        legacy_queue.is_empty(),
-        "ingress still dispatched work into the live TUI queue"
-    );
     fixture.shutdown();
 }
 
@@ -87,12 +79,8 @@ fn full_durable_queue_returns_sms_unavailable_without_a_sixty_fifth_job() {
     drop(db);
 
     let response_rx = fixture.post_sms_async("SM-capacity-overflow", "must remain unavailable");
-    let mut legacy_queue = brain::tui::receiver::InboundQueue::default();
     let mut response = None;
     poll_until(Instant::now() + Duration::from_secs(3), || {
-        fixture
-            .socket
-            .poll_jobs(fixture.workspace.id(), &mut legacy_queue);
         if let Ok(received) = response_rx.try_recv() {
             response = Some(received);
         }
@@ -105,6 +93,5 @@ fn full_durable_queue_returns_sms_unavailable_without_a_sixty_fifth_job() {
     assert!(response.contains("Content-Type: application/xml"));
     assert_eq!(durable_jobs(&fixture.workspace).len(), 64);
     assert_eq!(durable_conversation_count(&fixture.workspace), 1);
-    assert!(legacy_queue.is_empty());
     fixture.shutdown();
 }

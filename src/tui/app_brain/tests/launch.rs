@@ -61,8 +61,8 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
             specs[0].clone()
         };
         assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
-        let response_id = app.receiver.interactive_response_id().unwrap();
-        let agent_session_id = app.receiver.interactive_agent_session_id().unwrap();
+        let response_id = app.brain.interactive_response_id().unwrap();
+        let agent_session_id = app.brain.interactive_agent_session_id().unwrap();
         match kind {
             AgentKind::Claude => {
                 assert_eq!(response_id, agent_session_id);
@@ -121,7 +121,7 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
     let mut config = app.context.config().clone();
     config.access_mode = crate::access::AccessMode::WorkspaceOnly;
     app.context = app.context.replacing_config(config);
-    app.receiver.record_interactive_session(
+    app.brain.record_interactive_session(
         "stale-interactive-response".to_owned(),
         "stale-interactive-agent".to_owned(),
     );
@@ -153,9 +153,8 @@ fn capability_failure_leaves_a_resumable_session_free_and_clears_response_identi
         [session.as_str()],
         "fallible prelaunch work must finish before claiming the candidate"
     );
-    assert!(app.receiver.interactive_response_id().is_none());
-    assert!(app.receiver.interactive_agent_session_id().is_none());
-    assert!(app.receiver.receiver_response_id().is_none());
+    assert!(app.brain.interactive_response_id().is_none());
+    assert!(app.brain.interactive_agent_session_id().is_none());
     assert!(recording.0.lock().expect("launch recording").is_empty());
 }
 
@@ -256,10 +255,7 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
 
     assert!(resume_app.open_or_focus_brain(None));
 
-    assert_eq!(
-        resume_app.receiver.interactive_response_id(),
-        Some(valid_id)
-    );
+    assert_eq!(resume_app.brain.interactive_response_id(), Some(valid_id));
     assert!(resume_app.status.alert().is_none());
     assert_eq!(
         SessionStore::sessions_by_recency(&resume_app.services, &resume_scope),
@@ -286,10 +282,7 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
 
     assert!(fresh_app.open_or_focus_brain(None));
 
-    assert_ne!(
-        fresh_app.receiver.interactive_response_id(),
-        Some(missing_id)
-    );
+    assert_ne!(fresh_app.brain.interactive_response_id(), Some(missing_id));
     assert!(
         fresh_app
             .status
@@ -299,55 +292,5 @@ fn app_session_selection_skips_missing_claude_transcripts_and_claims_valid_resum
     assert_eq!(
         SessionStore::sessions_by_recency(&fresh_app.services, &fresh_scope),
         [missing_id]
-    );
-}
-
-#[test]
-fn receiver_restore_uses_the_frontend_session_id_not_the_response_artifact_id() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let frontend_session_id = "frontend-session-id";
-    let interactive_scope = SessionScope::new(
-        AgentKind::Claude,
-        app.context.workspace().id(),
-        app.brain.interactive_actor().clone(),
-    );
-    let frontend_session = AgentSession::new(frontend_session_id).unwrap();
-    SessionStore::register(
-        &app.services,
-        &frontend_session,
-        "prior-shell",
-        42,
-        &interactive_scope,
-    )
-    .unwrap();
-    SessionStore::release(&app.services, "prior-shell").unwrap();
-    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), frontend_session_id);
-    let (controller, _) = recording_controller(&app, true, "receiver");
-    app.brain.install_main(controller);
-    app.receiver
-        .record_receiver_session("receiver-response-artifact".to_owned());
-    app.receiver.record_interactive_session(
-        "interactive-response-artifact".to_owned(),
-        frontend_session_id.to_owned(),
-    );
-    let launches = LaunchRecording::default();
-    app.brain
-        .replace_brain_transport(Box::new(LaunchRecordingTransport {
-            recording: launches.clone(),
-            alive: false,
-        }));
-
-    app.close_receiver_panel(true);
-
-    let specs = launches.0.lock().expect("launch recording");
-    assert_eq!(specs.len(), 1);
-    assert!(specs[0].command.contains("--resume 'frontend-session-id'"));
-    assert!(!specs[0].command.contains("interactive-response-artifact"));
-    drop(specs);
-    assert_eq!(
-        app.receiver.interactive_agent_session_id(),
-        Some(frontend_session_id)
     );
 }

@@ -18,9 +18,6 @@ pub(super) fn provider_id(revocation: LateRevocation) -> &'static str {
 pub(super) fn finish_pipeline(
     revocation: LateRevocation,
     result_rx: &std::sync::mpsc::Receiver<anyhow::Result<InboundJob>>,
-    stop_polling: &std::sync::atomic::AtomicBool,
-    poller: std::thread::JoinHandle<()>,
-    queue: &std::sync::Mutex<crate::tui::receiver::InboundQueue>,
     workspace: &crate::workspace::WorkspaceContext,
 ) {
     let deadline = Instant::now() + Duration::from_secs(1);
@@ -31,8 +28,6 @@ pub(super) fn finish_pipeline(
         assert!(Instant::now() < deadline, "shared pipeline did not finish");
         std::thread::yield_now();
     };
-    stop_polling.store(true, Ordering::Release);
-    poller.join().expect("job socket poller");
     if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
         let job = result.expect("live authority should commit under the control mutex");
         let db = crate::state::Db::open(workspace).expect("durable receiver state");
@@ -41,27 +36,12 @@ pub(super) fn finish_pipeline(
             .expect("load committed receiver job")
             .expect("committed receiver job");
         assert_eq!(persisted.inbound(), &job);
-        assert_eq!(
-            queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .len(),
-            0,
-            "durably committed ingress also reached the legacy live-TUI queue"
-        );
     } else {
         result.expect_err("revoked authority must reject before durable admission");
         assert_eq!(
             durable_job_count(workspace),
             0,
             "revoked work reached durable receiver state"
-        );
-        assert!(
-            queue
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .is_empty(),
-            "revoked work reached the live TUI queue"
         );
     }
 }

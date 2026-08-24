@@ -41,7 +41,7 @@ fn personal_and_family_workspaces_complete_the_multitenant_lifecycle() {
     assert_eq!(fixture.server_snapshot().live_leases, 2);
 
     let response = fixture.post_family_async("SM-acceptance-family", "Add the grocery task");
-    let family_jobs = setup::poll_family_jobs(&mut fixture, 1);
+    let family_jobs = setup::poll_family_jobs(&fixture, 1);
     assert!(
         response
             .recv_timeout(Duration::from_secs(2))

@@ -10,11 +10,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::{Duration, Instant};
 
-use brain::server::receiver::{Channel, execute_pipeline, forward_job, forward_or_unavailable};
-use brain::tui::singleton::JobSocket;
+use brain::server::receiver::execute_pipeline;
 use receiver_workspace_support::{
-    DualWorkspaceReceiverFixture, FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline,
-    SharedReceiverFixture, durable_conversation_count, durable_jobs, job, poll_until, workspace,
+    DualWorkspaceReceiverFixture, RecordingPipeline, RevocationPipeline, SharedReceiverFixture,
+    durable_conversation_count, durable_jobs, job, poll_until,
 };
 
 #[test]
@@ -127,24 +126,6 @@ fn the_addressed_workspaces_own_credential_is_the_one_that_must_verify() {
 }
 
 #[test]
-fn failed_socket_is_discarded_with_one_unavailable_response_and_no_retry() {
-    let temp = tempfile::tempdir().unwrap();
-    let personal = workspace(&temp, PERSONAL_ID, "personal");
-    let missing_socket = personal.paths().job_socket();
-
-    let outcome = forward_or_unavailable(&missing_socket, &job(&personal, "discard me"));
-
-    assert!(!outcome.forwarded);
-    assert!(!outcome.retry_scheduled);
-    assert_eq!(outcome.responses.len(), 1);
-    assert_eq!(
-        outcome.responses[0].body,
-        "Brain is unavailable for this workspace. Please try again when its TUI is open."
-    );
-    assert!(!missing_socket.exists());
-}
-
-#[test]
 fn absent_shared_process_stays_absent_and_has_no_responder() {
     let temp = tempfile::tempdir().unwrap();
     let paths = brain::server::lifecycle::ServerPaths::from_directory(temp.path().join("server"));
@@ -164,11 +145,8 @@ fn signed_unknown_sender_is_rejected_without_enqueuing() {
         "must not enter the queue",
         "+12125550999",
     );
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-
     assert!(response.starts_with("HTTP/1.1 403"), "{response}");
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
 }
 
@@ -177,11 +155,8 @@ fn accepted_receiver_route_rejects_body_over_one_mib_before_authentication() {
     let mut fixture = SharedReceiverFixture::start();
 
     let response = fixture.post_oversized_sms();
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-
     assert!(response.starts_with("HTTP/1.1 413"), "{response}");
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
 }
 
@@ -191,11 +166,8 @@ fn missing_email_target_returns_one_json_unavailable_and_enqueues_nothing() {
     fixture.unregister_target();
 
     let response = fixture.post_email_without_credentials();
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-
     assert!(response.starts_with("HTTP/1.1 401"), "{response}");
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
 }
 
@@ -204,11 +176,8 @@ fn authenticated_non_received_email_event_returns_accepted_without_enqueue() {
     let mut fixture = SharedReceiverFixture::start();
 
     let response = fixture.post_ignored_email_event();
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
 }
 
@@ -224,9 +193,7 @@ fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
         assert!(!response.contains("queued\":true"), "{response}");
     }
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
     drop(fixture);
 
@@ -240,8 +207,7 @@ fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
         assert!(response.matches("Brain is unavailable").count() <= 1);
         assert!(!response.contains("queued\":true"), "{response}");
     }
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     fixture.shutdown();
 }
 
@@ -253,101 +219,17 @@ fn signed_resend_event_unavailable_before_credentials_is_rejected_on_live_replay
     let unavailable = fixture.post_received_email_event();
     fixture.register_target();
     let replay = fixture.post_received_email_event();
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-
     assert!(unavailable.starts_with("HTTP/1.1 200"), "{unavailable}");
     assert!(replay.starts_with("HTTP/1.1 200"), "{replay}");
     assert!(
         !replay.contains("Resend"),
         "replayed unavailable event reached provider fetch: {replay}"
     );
-    assert!(queue.is_empty());
+    assert!(durable_jobs(&fixture.workspace).is_empty());
     let log = fixture.server_log();
     assert!(
         !log.contains("Resend"),
         "replayed unavailable event reached provider fetch: {log}"
     );
     fixture.shutdown();
-}
-
-#[test]
-fn job_socket_acknowledges_only_the_matching_workspace_enqueue() {
-    let temp = tempfile::tempdir().unwrap();
-    let personal = workspace(&temp, PERSONAL_ID, "personal");
-    let family = workspace(&temp, FAMILY_ID, "family");
-    let socket = JobSocket::bind(&personal).unwrap();
-    let personal_job = job(&personal, "hello personal");
-    let path = personal.paths().job_socket();
-    let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-
-    std::thread::spawn(move || {
-        result_tx.send(forward_job(&path, &personal_job)).unwrap();
-    });
-
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    poll_until(Instant::now() + Duration::from_secs(1), || {
-        socket.poll_jobs(personal.id(), &mut queue);
-        !queue.is_empty()
-    });
-
-    result_rx
-        .recv_timeout(Duration::from_secs(1))
-        .unwrap()
-        .unwrap();
-    assert_eq!(queue.len(), 1);
-    let queued = queue.snapshot();
-    assert_eq!(queued[0].workspace_id, personal.id());
-    assert_eq!(queued[0].prompt, "hello personal");
-    assert_ne!(queued[0].workspace_id, family.id());
-    assert!(queue.len() <= 64);
-
-    let family_job = job(&family, "must stay in family");
-    let personal_path = personal.paths().job_socket();
-    let (rejected_tx, rejected_rx) = std::sync::mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        rejected_tx
-            .send(forward_job(&personal_path, &family_job))
-            .unwrap();
-    });
-    poll_until(Instant::now() + Duration::from_secs(1), || {
-        socket.poll_jobs(personal.id(), &mut queue);
-        rejected_rx.try_recv().is_ok_and(|result| result.is_err())
-    });
-    assert_eq!(queue.len(), 1, "family work entered the personal queue");
-}
-
-#[test]
-fn full_tui_queue_rejects_and_returns_one_unavailable_response_without_retry() {
-    let temp = tempfile::tempdir().unwrap();
-    let personal = workspace(&temp, PERSONAL_ID, "personal");
-    let socket = JobSocket::bind(&personal).unwrap();
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    for _ in 0..64 {
-        let staged = queue
-            .stage(job(&personal, "already queued"))
-            .expect("queue has room through its boundary");
-        assert!(queue.finalize(staged));
-    }
-    let path = personal.paths().job_socket();
-    let rejected_job = job(&personal, "discard when full");
-    let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
-
-    std::thread::spawn(move || {
-        result_tx
-            .send(forward_or_unavailable(&path, &rejected_job))
-            .unwrap();
-    });
-    poll_until(Instant::now() + Duration::from_secs(1), || {
-        socket.poll_jobs(personal.id(), &mut queue);
-        result_rx.try_recv().is_ok_and(|outcome| {
-            assert!(!outcome.forwarded);
-            assert!(!outcome.retry_scheduled);
-            assert_eq!(outcome.responses.len(), 1);
-            assert_eq!(outcome.responses[0].channel, Channel::Sms);
-            true
-        })
-    });
-
-    assert_eq!(queue.len(), 64);
 }

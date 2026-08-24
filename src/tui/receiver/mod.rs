@@ -1,9 +1,7 @@
-//! Live-TUI receiver state with representation-owned queue behavior.
+//! Durable receiver-run scheduling and session ownership.
 
 mod failure;
 pub(crate) mod planning;
-pub(crate) mod policy;
-mod queue;
 mod run;
 mod runtime;
 mod session;
@@ -20,7 +18,6 @@ mod session_tests;
 mod test_support;
 
 pub(crate) use failure::rollback_receiver_launch;
-pub use queue::{InboundQueue, StageError, StagedAdmission};
 pub(crate) use run::{
     ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun, ReceiverEffectOutcome,
 };
