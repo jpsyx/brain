@@ -196,27 +196,41 @@ fn authenticated_inbound_actor_drives_default_task_assignment() {
         .unwrap();
         assert_eq!(actor.user_id().as_str(), "remote-member");
         assert!(matches!(actor.channel(), Channel::Email | Channel::Sms));
-        let mut command = Command::new("python3");
-        command
-            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py"))
-            .args([
-                "--name",
-                &format!("Inbound task {}", index + 1),
-                "--type",
-                "personal",
-                "--priority",
-                "p2",
-            ])
-            .env("HOME", &home)
-            .env("XDG_CONFIG_HOME", &config)
-            .env("XDG_CACHE_HOME", &cache)
-            .env("TMPDIR", temporary.path().join("tmp"))
-            .env("PYTHONDONTWRITEBYTECODE", "1");
-        for (key, value) in context.integration_env(&actor) {
-            command.env(key, value);
-        }
-        let output = command.output().unwrap();
-        assert_success(&output);
+        // The binary, with the authenticated actor's integration environment:
+        // `BRAIN_ACTOR_ID` has to decide `assigned_to` without the caller
+        // naming it, which is what makes an inbound task belong to its sender.
+        let agenda = temporary.path().join("agenda");
+        std::fs::create_dir_all(&agenda).unwrap();
+        let brain = |arguments: &[&str]| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_brain"));
+            command
+                .args(arguments)
+                .env("HOME", &home)
+                .env("XDG_CONFIG_HOME", &config)
+                .env("XDG_CACHE_HOME", &cache)
+                .env("NO_COLOR", "1");
+            for (key, value) in context.integration_env(&actor) {
+                command.env(key, value);
+            }
+            command.output().unwrap()
+        };
+        // `agenda_markdown_dir` defaults to the machine-shared `/tmp`, which a
+        // temporary HOME does not redirect — see docs/testing.md.
+        assert_success(&brain(&[
+            "env",
+            "set",
+            &format!("agenda_markdown_dir={}", agenda.display()),
+        ]));
+        assert_success(&brain(&[
+            "tasks",
+            "add",
+            "--name",
+            &format!("Inbound task {}", index + 1),
+            "--type",
+            "personal",
+            "--priority",
+            "p2",
+        ]));
     }
 
     let rows = csv::Reader::from_path(root.join("tasks/tasks.csv"))

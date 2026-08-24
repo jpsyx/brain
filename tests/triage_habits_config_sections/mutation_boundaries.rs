@@ -130,8 +130,8 @@ fn bundled_skills_gate_only_managed_habit_mutation_when_feature_is_disabled() {
 
     for contract in [
         "brain --workspace \"$BRAIN_WORKSPACE\" config get enable_triage_habits",
-        "--complete-managed-triage daily",
-        "--complete-managed-triage weekly",
+        "brain habits complete-managed-triage daily",
+        "brain habits complete-managed-triage weekly",
         "still run the full manual triage workflow",
         "send the background completion signal whether managed habits are enabled or disabled",
     ] {

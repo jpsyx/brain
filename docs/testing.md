@@ -806,10 +806,9 @@ first move is a failing test that reproduces it, *then* the fix.
   agenda_markdown_dir=<tempdir>` once the workspace is ready, and
   `tests/habits_workspace_routing/support.rs::agenda_env` writes the value
   straight into the fixture's registry records.
-- **The `/todo` mutator → binary delegation**
-  (`tests/todo_script_mutators.rs`). `BRAIN_BIN` points at a shell script that
-  records its argv, so the seam is asserted (`-b <workspace> tasks sync-agenda
-  <id> --action <action>`) without running a real sync.
+- **The bundled skills ship no executable code** (`skills::embed`). A skill
+  carrying a script would be a second implementation nobody can test from here,
+  so the bundle asserts no `.py`/`.sh`/`.js`/`.rb` file reaches it.
 
 - **The bundled skills' command references** (`tests/bundled_skill_commands.rs`).
   Every `brain …` command named in any bundled skill is extracted — from code

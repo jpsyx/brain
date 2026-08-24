@@ -4,6 +4,7 @@ pub mod backlog;
 pub mod configuration;
 pub mod contacts;
 pub mod dispatch;
+pub mod project;
 pub mod reindex;
 pub mod server;
 pub mod sync;

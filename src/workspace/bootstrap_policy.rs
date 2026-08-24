@@ -35,6 +35,7 @@ pub enum Invocation {
     Triage,
     Contacts,
     Clean,
+    Project,
     Reindex,
     Tasks,
     TasksDoctor,
@@ -92,6 +93,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Triage
         | Invocation::Contacts
         | Invocation::Clean
+        | Invocation::Project
         | Invocation::Reindex
         | Invocation::Tasks
         | Invocation::TasksDoctor
@@ -135,6 +137,7 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::Triage
         | Invocation::Contacts
         | Invocation::Clean
+        | Invocation::Project
         | Invocation::Reindex
         | Invocation::Tasks
         | Invocation::Tui => BootstrapPolicy::ReadyWorkspace,
@@ -199,6 +202,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Triage(_)) => Invocation::Triage,
         Some(Cmd::Contacts(_)) => Invocation::Contacts,
         Some(Cmd::Clean(_)) => Invocation::Clean,
+        Some(Cmd::Project(_)) => Invocation::Project,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,
         Some(Cmd::Tasks(args)) => {
             if tasks_doctor(&args.rest) {

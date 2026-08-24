@@ -8,6 +8,7 @@ mod configuration;
 mod contacts;
 mod global;
 mod internal;
+mod project;
 mod server;
 mod sync;
 mod tasks;
@@ -18,6 +19,7 @@ pub use configuration::*;
 pub use contacts::*;
 pub use global::{AgentSelectionError, Cli};
 pub use internal::InternalMigrationArgs;
+pub use project::*;
 pub use server::*;
 pub use sync::*;
 pub use tasks::*;
@@ -118,6 +120,11 @@ pub enum Cmd {
     /// The workspace's local contacts book: add, edit, delete, list, and
     /// search. Bare `brain contacts` lists everyone.
     Contacts(ContactsArgs),
+
+    /// Scaffold, edit, archive, and inspect a PARA project. The judgement —
+    /// which namespace, which outcome, whether it is really done — stays with
+    /// you; the record-keeping does not.
+    Project(ProjectArgs),
 
     /// The deterministic bookkeeping behind triage. Running a triage pass is
     /// judgement work an agent does; this owns only the state that must

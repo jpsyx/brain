@@ -33,11 +33,17 @@ fn every_task_store_writer_declares_the_shared_owner_boundary() {
             "task-store writer {path} lacks the shared owner"
         );
     }
-    let csvlib = std::fs::read_to_string(root.join("skills/todo/scripts/_csvlib.py")).unwrap();
-    assert!(csvlib.contains("BEGIN IMMEDIATE"));
-    assert!(csvlib.contains("changed after it was read"));
-    let next_id = std::fs::read_to_string(root.join("skills/todo/scripts/next_id.py")).unwrap();
-    assert!(next_id.contains("_acquire_task_store_lock"));
+    // There is no second family of writers to hold to this any more: the
+    // bundled skills ship no executable code, so every task-store writer in
+    // existence is in the list above.
+    for skill in std::fs::read_dir(root.join("skills")).unwrap() {
+        let scripts = skill.unwrap().path().join("scripts");
+        assert!(
+            !scripts.exists(),
+            "{} ships scripts; make them brain subcommands instead",
+            scripts.display()
+        );
+    }
 }
 
 #[test]

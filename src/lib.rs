@@ -27,6 +27,7 @@ pub mod open_target;
 pub mod paths;
 pub mod personalization;
 pub mod picker;
+pub mod project;
 pub mod pty_pane;
 pub mod reindex;
 pub mod render;

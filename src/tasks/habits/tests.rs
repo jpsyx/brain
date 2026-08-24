@@ -78,3 +78,90 @@ fn a_managed_row_left_behind_by_a_disabled_feature_is_counted() {
     assert_eq!(plan.deferred_managed, 1);
     assert!(plan.dropped.is_empty());
 }
+
+#[test]
+fn deferring_a_habit_advances_its_due_date_and_stamps_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("brain");
+    std::fs::create_dir_all(root.join("tasks")).expect("tasks dir");
+    // A legacy table with no `last_touched` column at all.
+    std::fs::write(root.join("tasks/tasks.csv"), "task_id,task_name,status\n").expect("tasks.csv");
+    std::fs::write(
+        root.join("tasks/habits.csv"),
+        "task_id,task_name,status,due_date,recur_interval,recur_unit\n\
+H1,Stretch,not_started,2026-08-20,1,weeks\n",
+    )
+    .expect("habits.csv");
+    let targets = crate::tasks::agenda::Targets {
+        markdown: root.join("no-agenda/2026-08-24.md"),
+        pdf: root.join("no-agenda/agenda.pdf"),
+        renderer: None,
+        tasks_dir: root.join("tasks"),
+    };
+
+    let (result, _) =
+        super::defer::defer_in_root(&root, &targets, "H1", 1, today()).expect("defer");
+
+    // Anchor-to-due with catch-up: a weekly habit stays on its weekday.
+    assert_eq!(result.old_due, "2026-08-20");
+    assert_eq!(result.new_due, "2026-08-27");
+    let habits = std::fs::read_to_string(root.join("tasks/habits.csv")).expect("read habits");
+    assert!(
+        habits.contains("last_touched"),
+        "the column is added:\n{habits}"
+    );
+    assert!(
+        habits.contains("2026-08-24"),
+        "the row is stamped:\n{habits}"
+    );
+}
+
+#[test]
+fn deferring_several_occurrences_skips_that_many() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("brain");
+    std::fs::create_dir_all(root.join("tasks")).expect("tasks dir");
+    std::fs::write(root.join("tasks/tasks.csv"), "task_id,task_name,status\n").expect("tasks.csv");
+    std::fs::write(
+        root.join("tasks/habits.csv"),
+        "task_id,task_name,status,due_date,recur_interval,recur_unit,last_touched\n\
+H1,Stretch,not_started,2026-08-20,1,weeks,2026-08-20\n",
+    )
+    .expect("habits.csv");
+    let targets = crate::tasks::agenda::Targets {
+        markdown: root.join("no-agenda/2026-08-24.md"),
+        pdf: root.join("no-agenda/agenda.pdf"),
+        renderer: None,
+        tasks_dir: root.join("tasks"),
+    };
+
+    let (result, _) =
+        super::defer::defer_in_root(&root, &targets, "H1", 3, today()).expect("defer");
+
+    assert_eq!(result.new_due, "2026-09-10");
+    assert_eq!(result.occurrences, 3);
+}
+
+#[test]
+fn deferring_a_task_through_the_habit_path_is_refused() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("brain");
+    std::fs::create_dir_all(root.join("tasks")).expect("tasks dir");
+    std::fs::write(
+        root.join("tasks/tasks.csv"),
+        "task_id,task_name,status\nT1,Ship,not_started\n",
+    )
+    .expect("tasks.csv");
+    std::fs::write(root.join("tasks/habits.csv"), "task_id,task_name,status\n")
+        .expect("habits.csv");
+    let targets = crate::tasks::agenda::Targets {
+        markdown: root.join("no-agenda/2026-08-24.md"),
+        pdf: root.join("no-agenda/agenda.pdf"),
+        renderer: None,
+        tasks_dir: root.join("tasks"),
+    };
+
+    let error = super::defer::defer_in_root(&root, &targets, "T1", 1, today()).expect_err("a task");
+
+    assert!(error.to_string().contains("tasks defer"), "{error}");
+}

@@ -887,6 +887,26 @@ is not a match. The two re-derived sections render as a two-column markdown
 table, cells padded to an even count, and are omitted entirely when nothing
 qualifies.
 
+## Project record (`project/model.rs`, `<brain-root>/projects/<slug>/.METADATA.json`)
+
+`name`, `namespace`, `title`, `status`, `priority`, `due`, `directory`, `tasks`.
+The slug is `<namespace>__<outcome>` in lowercase kebab, and three fields are
+derived from where the project actually lives: `name` is the folder, `namespace`
+is the part before `__`, and `directory` is the path relative to the brain root
+(`projects/<slug>`, or `archive/projects/<slug>` once archived). Every write
+realigns those three, because a record that disagrees with its own location is
+the failure this file exists to prevent.
+
+`status` is one of `not-started`, `in-progress`, `blocked`, `extracting-ips`,
+`done`; `priority` is `p0`–`p4`, the same scale tasks use; `due` is an absolute
+`YYYY-MM-DD` or `none` — strictly, because the due date is what a project list
+sorts by. `tasks` is maintained bidirectionally with the task CSVs' `project`
+column, and `brain tasks lint --fix` repairs the metadata side of that link.
+
+Fields core does not model are carried through untouched on every write, so a
+caller (or a purge's `deleted_backlog_tasks` breadcrumb) can keep its own state
+in the same file.
+
 ## Contacts book (`contacts/`, `<brain-root>/resources/contacts/contacts.csv`)
 
 One CSV per workspace, columns in a fixed order: `id`, `name`, `job`, `company`,
