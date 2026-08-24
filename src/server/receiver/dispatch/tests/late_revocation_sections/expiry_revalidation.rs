@@ -10,7 +10,7 @@ fn exact_lease_expiry_rejects_commit_without_waiting_for_watchdog_tick() {
 }
 
 #[test]
-fn commit_intent_reload_crossing_exact_expiry_rejects_before_socket_commit() {
+fn commit_intent_reload_crossing_exact_expiry_rejects_before_durable_admission() {
     run_late_revocation(LateRevocation::ExpireDuringCommitIntentReload);
 }
 

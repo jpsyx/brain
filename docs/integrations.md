@@ -124,8 +124,10 @@ helpers and shell-outs live in the tasks modules:
   participant are reduced to a bare address (`crate::users::normalize_mailbox`)
   before either is compared with a configured identity. Successful
   Resend deliveries receive HTTP 200, and the Receiving Email plus Receiving
-  Attachments APIs supply the full body and signed download URLs. The process
-  stops when its final live TUI lease is removed or expires.
+  Attachments APIs supply the full body and signed download URLs. Success for
+  an accepted inbound SMS or Email job follows an exact durable workspace-job
+  commit or durable provider-ID dedup hit. The process stops when its final live
+  TUI lease is removed or expires.
 - **`<agent_cmd> …` with cwd set to `<root>`**: the brain panel's PTY,
   shared by both main views (see below).
 
@@ -161,9 +163,9 @@ on App. No one of those paths selects or invokes a concrete frontend outside
 TUI consumers name the owning agent, state, receiver, overlay, palette, or
 action module directly. The TUI root does not re-export child modules as a
 wildcard namespace, so importing an integration surface cannot silently grant
-access to unrelated frontend or runtime details. Receiver state remains live
-process state under `ReceiverRuntime`; only the established frontend-neutral
-session and completion records are durable.
+access to unrelated frontend or runtime details. Receiver execution state under
+`ReceiverRuntime` remains live process state; receiver jobs, logical
+conversations, frontend-neutral sessions, and completion records are durable.
 
 **Which frontend runs.** A selector flag wins; with none, the selected
 workspace's machine-local `default_agent_frontend` env value decides; with that
@@ -589,7 +591,7 @@ disable/re-enable or same-fields unregister/re-register ABA transition always
 invalidates the old ticket. The next revision is checked before expiry,
 enablement, registration, or revision state changes, so overflow cannot partly
 apply a transition.
-Immediately before the job-socket handoff, dispatch also reloads the exact
+Immediately before durable admission, dispatch also reloads the exact
 canonical registry record, verifies the selected workspace UUID, and requires
 its persisted receiver intent to remain enabled before revalidating the live
 generation and authority revision. A persisted disable that races after route
@@ -597,7 +599,9 @@ loading therefore cannot enqueue even when its best-effort refresh notification
 was lost. At admission commit, that filesystem reload remains outside the
 control mutex. One combined operation then acquires control, samples the
 monotonic instant inside the lock, revalidates exact route and admission
-identity, and performs the admission CAS before unlocking.
+identity, and performs the admission CAS before unlocking. The SQLite
+transaction then accepts or deduplicates the complete immutable job while
+revocation waits on that linearized admission outside the control mutex.
 Unknown ingress returns 404. Receiver-disabled or no-live-TUI ingress returns
 503 for provider-facing receiver dispatch. Local capability routes remain
 available to a live TUI or browser-only habits lease even when inbound
@@ -807,11 +811,13 @@ An expired progressed lease changes ownership without erasing its lifecycle or
 retry evidence. This lets a later runtime decide whether to resume the bound
 native session, start from the transcript, retry delivery, or fail the job.
 
-BR-12 does not connect these APIs to provider ingress or the TUI executor. The
-existing live socket, in-memory queue, prompt submission, completion bridge,
-and delivery paths remain active until their dedicated PROJ-1 tasks cut over.
-The durable store therefore defines the integration boundary without creating
-a second runtime consumer.
+BR-13 connects provider ingress to these APIs. The authenticated pipeline
+constructs SMS's stable workspace/user/channel identity or an uncertain fresh
+Email lineage, then commits or durably deduplicates before provider success.
+The existing TUI in-memory queue is no longer the ingress acceptance boundary,
+but prompt submission, completion, delivery, and durable queue consumption do
+not move into the shared server; BR-14 and later PROJ-1 tasks own those runtime
+cutovers.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
 root-anchored `SessionStart` and `Stop` entries in
@@ -964,18 +970,19 @@ whole `agent_capabilities` documents and nested
 policy after the same uppercase/dash canonicalization as `brain env set`. Each run log is created exclusively with mode
 `0600` as defense in depth.
 
-The receiver handoff endpoint is the selected workspace's mode-`0600`
-`<workspace-cache>/jobs.sock`. One bounded serialized `InboundJob` carries the
+Receiver ingress durably admits one bounded serialized `InboundJob` carrying the
 workspace UUID, immutable actor and channel, normalized sender, prompt, stable
 provider email/attachment IDs, provider ID, and acceptance-time response
-metadata. The TUI returns `prepared`, then after the server's exact-revision
-admission commits, `InboundQueue` stages the decoded job under an opaque token
-bound to that queue's stable identity and the admission generation in its
-private 64-entry memory queue. The socket writes final `accepted` before the
-queue finalizes that job for dispatch. If the write fails, token-scoped
-rollback removes only that exact staged append before the event-loop poll
-releases its exclusive queue borrow. The queue remains live-TUI-only and has no
-durable backing or headless consumer.
+metadata. After final persisted-intent, route-revision, lease, and admission
+checks, the shared server opens the UUID-scoped state DB with the remaining
+handoff duration already installed as SQLite's busy timeout. Schema
+reconciliation and the atomic acceptance transaction therefore cannot inherit
+the ordinary five-second lock wait. Provider and exact-job deduplication run
+before the atomic 64-row `queued` capacity check. Provider success follows only
+the commit or an existing durable match. The mode-`0600`
+`<workspace-cache>/jobs.sock` remains part of live-lease validation and the
+pre-BR-14 TUI runtime, but provider ingress no longer appends to its private
+memory queue.
 One private `ReceiverRuntime` owns that queue together with the job socket,
 persisted-intent view, channel reset controls, sender and recipient context,
 interactive and remote session identity, lease and generation, activity and
@@ -1001,11 +1008,11 @@ completed `/restart` advances so the same tick can see a post-command queue
 survivor. No raw sync boolean or effect-variant inspection carries this policy.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
-1024-entry recent-delivery cache keyed by workspace, channel, and provider ID.
-Only acknowledged SMS jobs enter the cache. A failed or in-flight SMS handoff
-returns unavailable and schedules no retry; a later provider retry may attempt
-a fresh handoff. A signature-verified unavailable Resend ID is retained as a
-permanent discard in the same bounded cache. Known unavailable ingress is
+bounded provider-ID coordinator keyed by workspace, channel, and provider ID.
+It excludes simultaneous duplicates while the first request is in flight but
+does not remember successful durable SMS or Email acceptance; every later
+retry rechecks the workspace DB. A signature-verified unavailable Resend ID is
+retained as a permanent discard in a separate 1024-key set. Known unavailable ingress is
 resolved before selecting that exact workspace's signing credential, and no
 root, user, prompt, or job socket is opened for this verification. A later live
 replay is rejected before Receiving API access. Persisted disable uses this
@@ -1013,9 +1020,10 @@ same exact-workspace path even when live refresh is blocked or fails. Dispatch r
 route ticket, reserves five seconds for
 the response, derives one handoff deadline capped at two seconds and at that
 response cutoff, then revalidates the exact generation, authority incarnation,
-enabled state, and live lease immediately before socket IO. The safe
-nonblocking connector, complete frame write, and acknowledgment read all use
-that same absolute handoff deadline; continuous progress cannot renew it.
+enabled state, and live lease immediately before durable admission. SQLite
+configuration, reconciliation, lock waiting, and transaction work use that
+remaining duration, and the deadline is rechecked after commit; continuous
+progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
 proof byte beyond the cap, before JSON parsing. Verified unavailable, ignored,

@@ -1,4 +1,4 @@
-//! Linearizable receiver admission across authority revocation and TUI enqueue.
+//! Linearizable receiver admission across authority revocation and durable enqueue.
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Condvar, Mutex};
@@ -54,7 +54,6 @@ impl ReceiverAdmission {
     }
 
     #[cfg(test)]
-    #[expect(dead_code)]
     pub(crate) fn is_committed(&self) -> bool {
         self.state.load(Ordering::Acquire) == COMMITTED
     }
@@ -130,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn revocation_after_final_revalidation_cancels_before_socket_commit() {
+    fn revocation_after_final_revalidation_cancels_before_durable_admission() {
         let admission = admission();
         admission.authorize().expect("final revalidation");
 
@@ -143,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn revocation_waits_for_an_already_linearized_socket_commit() {
+    fn revocation_waits_for_an_already_linearized_durable_admission() {
         let admission = std::sync::Arc::new(admission());
         admission.authorize().unwrap();
         admission.commit().unwrap();

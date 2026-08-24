@@ -1399,7 +1399,7 @@ registered workspace publishes is a plain 404; two workspaces publishing one
 address is refused as ambiguous rather than delivered to a guess. The selected
 workspace then serves the request only while it has receiver enablement and a
 live TUI lease, resolving its remembered ingress before loading provider
-credentials, users, prompt content, or the UUID-local job socket. Brain verifies
+credentials, users, prompt content, or the UUID-scoped state DB. Brain verifies
 the Twilio or Resend/Svix signature — against the workspace the message was
 addressed to, so holding a peer workspace's credential reaches nothing — then
 re-checks the now-authenticated destination against that workspace's own
@@ -1407,7 +1407,9 @@ published address before resolving
 the normalized sender through the selected workspace's enabled portable phone
 or email identities. Unknown and disabled senders are rejected. Resend
 timestamps must be within five minutes. Request bodies and serialized job
-frames are capped at 1 MiB, and the live TUI queue is bounded at 64 jobs.
+frames are capped at 1 MiB. The durable ingress queue accepts at most 64
+`queued` rows per workspace; progressed, retrying, failed, and done rows do not
+consume queued capacity.
 Each Resend received-email or attachment-metadata response is also capped at
 1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
 events receive HTTP success; invalid signatures remain authentication errors.
@@ -1417,21 +1419,23 @@ Email addresses are matched as bare addresses, so the usual
 still reaches the reply thread. An email with no plain-text part is reduced
 from HTML to readable text, and any inbound message is capped at 16 KiB with
 an explicit truncation notice before it is typed into the brain panel.
-Accepted provider IDs are deduplicated in a bounded cache scoped by workspace
-and channel; failed handoffs retain no retry state. SMS numbers use exact E.164
-matching, including the leading `+` and country code. A malformed configured
+Accepted provider IDs are deduplicated durably inside their exact workspace
+and channel before queued-capacity rejection, including after shared-process
+restart. Process memory excludes only simultaneous duplicates and remembers
+verified unavailable Email discards; it is not acceptance authority. SMS
+numbers use exact E.164 matching, including the leading `+` and country code. A malformed configured
 SMS number produces a persistent yellow warning in the TUI status line. The
 former generic `/webhooks/capture` route has been removed.
 
-Each ready
-TUI binds a UUID-scoped job socket, registers a validated live lease, heartbeats
-it, recovers the shared process after a crash, and unregisters before removing
-its socket. Every shared-process endpoint has an opaque ingress prefix and is
-resolved to a verified live workspace before route behavior. The job socket
-acknowledges only a successful in-memory enqueue and rolls that append back if
-the acknowledgment write fails. Disabled, missing, full, and failed-socket
-targets receive one channel-appropriate unavailable response, with no durable
-queue, replay, or headless execution.
+Each ready TUI binds a UUID-scoped job socket for lease validation, registers a
+validated live lease, heartbeats it, recovers the shared process after a crash,
+and unregisters before removing its socket. Provider ingress no longer sends
+accepted jobs through that socket. It commits the complete immutable job and
+logical conversation to the addressed workspace DB, and only that commit or a
+durable dedup hit permits provider success. Disabled, missing, storage-failed,
+and full durable-queue targets receive the existing channel-appropriate
+unavailable response with no new row. The shared process never launches an
+agent or consumes the queue; BR-14 owns that runtime cutover.
 
 The shared HTTP boundary admits exactly four active connections with a fixed
 worker set and no application request queue. It caps request heads and local
@@ -1440,10 +1444,11 @@ parse deadline, and revalidates a captured live route ticket after workspace
 filesystem checks. Receiver body plus local provider verification remain in
 that phase; successful verification starts one bounded 30-second provider,
 handoff, and response phase only if the parse deadline is still open. Brain
-reserves the final five seconds for the response, caps the local handoff at two
+reserves the final five seconds for the response, caps durable admission at two
 seconds, and revalidates the retained route ticket again immediately before
-enqueue. One absolute handoff deadline covers nonblocking connect, full frame
-write, and acknowledgment read. Byte-by-byte progress and a slow response
+enqueue. One absolute handoff deadline bounds SQLite configuration, schema
+reconciliation, lock waiting, and the acceptance transaction; completion is
+checked again before provider success. Byte-by-byte progress and a slow response
 drain cannot renew any deadline. Signed ignored email events are logged as
 accepted without enqueue, not as rejected requests.
 Conflicting `Content-Length`/`Transfer-Encoding`, repeated
@@ -1505,15 +1510,19 @@ evidence needed to decide whether to recover their native session.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only
-verified provider thread lineage; missing or ambiguous lineage creates a fresh
-conversation, and subject text is never a merge key. Each conversation stores
+verified provider thread lineage; Resend currently supplies no stable verified
+thread key, so each new delivery creates an uncertain fresh conversation while
+a provider retry resolves to the original durable row. Subject text is never a
+merge key. Each conversation stores
 Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
 
-BR-12 establishes storage and decisions only. The current provider routes and
-TUI still use the live in-memory queue until the later PROJ-1 ingress and
-runtime tasks move admission, execution, and delivery onto the durable model.
+BR-12 established the storage contract, and BR-13 moves authenticated provider
+admission onto it. Provider success now follows durable insert or deduplication;
+the shared process still requires a live enabled lease and owns no execution.
+The TUI executor, completion, and delivery paths remain for BR-14 and later
+PROJ-1 tasks to adopt.
 
 ### Steering the receiver from SMS or email
 
@@ -1634,10 +1643,11 @@ matching portable inbound mapping. Status never prints provider secrets or sende
 If all TUIs are closed, the final unregister stops the server immediately, so
 an inbound text reaches no Brain process and receives no Brain response. If
 some other workspace TUI remains live but the target workspace is disabled,
-closed, expired, full, or unreachable, the sender receives one unavailable
-response and that message is discarded. A crashed final TUI leaves only its
-renewable lease; expiry after TTL stops the process. Nothing is retained for
-later replay.
+closed, expired, at its 64-row queued capacity, or unable to commit state, the
+sender receives one unavailable response and no new row is created. Otherwise
+the accepted message is retained in the target workspace DB before success. A
+crashed final TUI leaves only its renewable lease; expiry after TTL stops the
+process, but already committed jobs survive for the later durable consumer.
 
 - `brain server status` reports process reachability and the live TUI lease
   count only, or says that no process is running. It neither elects a starter

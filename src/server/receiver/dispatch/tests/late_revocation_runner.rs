@@ -1,3 +1,4 @@
+#[path = "late_revocation_runner_support.rs"]
 mod runner_support;
 use runner_support::*;
 
@@ -57,11 +58,15 @@ fn run_late_revocation(revocation: LateRevocation) {
                             serde_json::json!("personal-token"),
                         ),
                         (
-                            "brain_receiver_public_url".to_owned(),
-                            serde_json::json!("https://receiver.example.test"),
+                            "twilio_from_number".to_owned(),
+                            serde_json::json!("+13105550100"),
                         ),
                     ]),
                 },
+            )]),
+            env: serde_json::Map::from_iter([(
+                "brain_receiver_public_url".to_owned(),
+                serde_json::json!("https://receiver.example.test"),
             )]),
         })
         .expect("machine registry");
@@ -98,15 +103,18 @@ fn run_late_revocation(revocation: LateRevocation) {
         .finish_workspace_route(&ticket, context, now)
         .expect("resolved route");
     let control = Arc::new(Mutex::new(server));
-    let body = format!("Body=late+disable&From=%2B12125550100&MessageSid={provider_id}");
+    let body = format!(
+        "Body=late+disable&From=%2B12125550100&MessageSid={provider_id}&To=%2B13105550100"
+    );
     let fields = BTreeMap::from([
         ("Body".to_owned(), "late disable".to_owned()),
         ("From".to_owned(), "+12125550100".to_owned()),
         ("MessageSid".to_owned(), provider_id.to_owned()),
+        ("To".to_owned(), "+13105550100".to_owned()),
     ]);
     let signature = crate::server::security::twilio_signature(
         "personal-token",
-        &format!("https://receiver.example.test/w/{ingress}/sms"),
+        "https://receiver.example.test/sms",
         &fields,
     );
     let wire = format!(
@@ -196,6 +204,7 @@ fn run_late_revocation(revocation: LateRevocation) {
         let mut pipeline = SharedReceiverPipeline {
             route: Some(route),
             request: &mut request,
+            body: body.as_bytes(),
             control: &worker_control,
             channel: Channel::Sms,
             handoff_deadline: None,
@@ -226,7 +235,7 @@ fn run_late_revocation(revocation: LateRevocation) {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .recv_timeout(Duration::from_secs(1))
-                    .expect("release final socket admission");
+                    .expect("release final durable admission");
             })),
         };
         result_tx
@@ -351,7 +360,7 @@ fn run_late_revocation(revocation: LateRevocation) {
         LateRevocation::ExpireDuringCommitIntentReload => {
             release_admission_tx
                 .send(())
-                .expect("release authorize-side socket admission");
+                .expect("release authorize-side durable admission");
             commit_intent_reloaded_rx
                 .recv_timeout(Duration::from_secs(1))
                 .expect("pipeline reached commit-side intent boundary");
@@ -370,7 +379,7 @@ fn run_late_revocation(revocation: LateRevocation) {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             release_admission_tx
                 .send(())
-                .expect("release authorize-side socket admission");
+                .expect("release authorize-side durable admission");
             commit_intent_reloaded_rx
                 .recv_timeout(Duration::from_secs(1))
                 .expect("pipeline completed commit-side persisted-intent IO");
@@ -392,8 +401,15 @@ fn run_late_revocation(revocation: LateRevocation) {
     ) {
         release_admission_tx
             .send(())
-            .expect("release final socket admission");
+            .expect("release final durable admission");
     }
 
-    finish_pipeline(revocation, result_rx, stop_polling, poller, queue);
+    finish_pipeline(
+        revocation,
+        &result_rx,
+        stop_polling.as_ref(),
+        poller,
+        queue.as_ref(),
+        &workspace,
+    );
 }

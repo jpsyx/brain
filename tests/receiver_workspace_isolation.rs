@@ -1,5 +1,7 @@
 #[path = "receiver_workspace_isolation/complete_lifecycle.rs"]
 mod complete_lifecycle;
+#[path = "receiver_workspace_isolation/durable_ingress.rs"]
+mod durable_ingress;
 #[path = "receiver_workspace_isolation/persisted_disable.rs"]
 mod persisted_disable;
 mod receiver_workspace_support;
@@ -12,7 +14,7 @@ use brain::server::receiver::{Channel, execute_pipeline, forward_job, forward_or
 use brain::tui::singleton::JobSocket;
 use receiver_workspace_support::{
     DualWorkspaceReceiverFixture, FAMILY_ID, PERSONAL_ID, RecordingPipeline, RevocationPipeline,
-    SharedReceiverFixture, job, poll_until, workspace,
+    SharedReceiverFixture, durable_conversation_count, durable_jobs, job, poll_until, workspace,
 };
 
 #[test]
@@ -74,7 +76,7 @@ fn same_sender_resolves_independently_in_each_selected_workspace() {
 }
 
 #[test]
-fn one_shared_process_routes_the_same_sender_to_two_exact_workspace_sockets() {
+fn one_shared_process_routes_the_same_sender_to_two_exact_durable_queues() {
     let mut fixture = DualWorkspaceReceiverFixture::start();
 
     let swapped = fixture.post_personal_signed_with_family_credentials();
@@ -151,31 +153,6 @@ fn absent_shared_process_stays_absent_and_has_no_responder() {
     assert!(client.connect_existing().is_err());
     assert!(!paths.process_record().exists());
     assert!(!paths.control_socket().exists());
-}
-
-#[test]
-fn signed_sms_routes_through_shared_process_into_exact_live_tui() {
-    let mut fixture = SharedReceiverFixture::start();
-    let response_rx = fixture.post_sms_async("SM-task-five", "hello from shared HTTP");
-    let mut queue = brain::tui::receiver::InboundQueue::default();
-    poll_until(Instant::now() + Duration::from_secs(3), || {
-        fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
-        if queue.is_empty()
-            && let Ok(response) = response_rx.try_recv()
-        {
-            panic!("shared receiver responded without enqueue: {response}");
-        }
-        !queue.is_empty()
-    });
-    let response = response_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-
-    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-    assert_eq!(queue.len(), 1);
-    let queued = queue.snapshot();
-    assert_eq!(queued[0].workspace_id, fixture.workspace.id());
-    assert_eq!(queued[0].actor.user_id().as_str(), "personal-member");
-    assert_eq!(queued[0].prompt, "hello from shared HTTP");
-    fixture.shutdown();
 }
 
 #[test]

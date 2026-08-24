@@ -166,12 +166,13 @@ watchdog observes it.
 
 Watchdog expiry first removes exact lease authority under the control-state
 mutex, then revokes matching admissions outside it with one absolute deadline.
-Pending and authorized admissions become cancelled; work whose socket commit
-already linearized may finish. Orderly disable and unregister wait only to the
-request deadline, and a timeout leaves their lease mutation unapplied.
+Pending and authorized admissions become cancelled; work whose durable
+admission already linearized may finish. Orderly disable and unregister wait
+only to the request deadline, and a timeout leaves their lease mutation
+unapplied.
 Ordinary lease-table paths filter expired leases without removing them. Shared
 control and watchdog entry use the single revoke-aware removal transition.
-Final socket commit performs persisted-intent IO outside the control mutex,
+Final durable admission performs persisted-intent IO outside the control mutex,
 then samples exact TTL, revalidates the route and admission identity, and
 performs the admission CAS within one control-mutex operation.
 
@@ -216,15 +217,16 @@ disable, replacement, or expiry makes the ticket stale. An address no workspace
 publishes, or a workspace this process has never leased, maps to 404; a known
 workspace with receiver disabled or no live TUI maps to 503; one address
 published by two workspaces maps to 503 as ambiguous. The returned context and lease remain paired with the original ticket
-for later forwarding without reopening another selector. Receiver dispatch
+for later durable admission without reopening another selector. Receiver dispatch
 reloads the exact canonical registry record after actor/job construction,
 requires the same workspace UUID and persisted `receiver_enabled = true`, and
-then revalidates that ticket immediately before the socket handoff. A disable,
+then revalidates that ticket immediately before durable admission. A disable,
 unregister, expiry, or replacement during provider work therefore cannot
 enqueue, including when a persisted disable's live-refresh notification is
 lost. It also derives one absolute handoff deadline,
-capped at two seconds and before the separately reserved response window, and
-carries it through nonblocking connect, frame write, and acknowledgment read.
+capped at two seconds and before the separately reserved response window. The
+remaining duration is installed before SQLite configuration or migration, then
+carried through lock waiting and the acceptance transaction.
 A registration replay or enablement refresh
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
@@ -234,8 +236,9 @@ For Resend only, a known unavailable ingress can yield its remembered workspace
 UUID without yielding a live route ticket. That UUID selects exactly one
 registry record for signature verification and bounded in-memory provider-ID
 deduplication. It never constructs `WorkspaceContext`, loads portable users, or
-opens the job socket. A verified unavailable ID is a permanent discard in the
-same 1024-key workspace/channel cache, not a queued job or durable replay item.
+opens the state DB or job socket. A verified unavailable ID is a permanent
+discard in the 1024-key workspace/channel set, not a queued job or durable
+replay item.
 The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.
@@ -251,15 +254,17 @@ new winner's record or socket. The elected process must receive its first
 registration within two seconds or it exits and removes its generation
 artifacts, covering a starter TUI that disappears before registration.
 
-There is intentionally no durable inbound-work model. `InboundJob` crosses one
-bounded Unix connection and exists afterward only in the exact target TUI's
-64-entry memory queue. A successful acknowledgment means that append occurred;
-an unavailable response means the message was discarded. No row, spool file,
-replay cursor, or headless-agent record exists. Consequently, zero live TUIs
-means zero server and no Brain response, while a live peer plus unavailable
-target means one unavailable response and no retained work. A `/restart`
-command removes every queued entry ahead of it from that same memory queue,
-which is the only way work leaves it unanswered other than the abandon timeout.
+Authenticated inbound work is durable before provider success. `InboundJob`
+is stored as immutable JSON in the addressed workspace's `receiver_jobs` row
+and linked to one logical conversation. Acceptance or deduplication and the
+64-row `queued` capacity check share one immediate SQLite transaction, so
+concurrent ingress cannot overbook a workspace. Only `queued` rows consume this
+ingress capacity; progressed, retrying, failed, and done evidence remains
+durable without blocking a new slot. Zero live TUIs still means zero server and
+no Brain response because routing requires a live enabled lease. The shared
+process owns no execution cursor or headless agent, and BR-14 owns consumption
+of these accepted rows. The pre-BR-14 TUI memory queue and its `/restart` cut
+remain runtime-local but are no longer the provider acceptance boundary.
 
 Session retirement has no model of its own. `/new` records nothing durable:
 `ReceiverRuntime` consumes the queued control job, remembers its channel, and
@@ -707,9 +712,11 @@ the resolved actor, never an untrusted sender string as `BRAIN_ACTOR_ID`.
 UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
 attachment references, receipt time, provider delivery ID, authenticated
 thread participants, the actor's acceptance-time normalized response email,
-and the acceptance-time allowed response recipients. It exists only in the
-matching live TUI's in-memory queue. A socket acknowledgment means that append
-succeeded; failed acknowledgment writes roll it back. Follow-ups retain the
+and the acceptance-time allowed response recipients. Authenticated ingress
+stores that complete frame in the matching workspace DB before provider
+success. A provider retry with the same workspace/channel/provider identity
+returns the original durable job rather than replacing its accepted frame.
+Follow-ups retain the
 initiating actor and channel even if machine registry or portable user data
 changes during the turn. A ready legacy workspace whose portable
 user store is absent uses its exact lower-case kebab local ID as an immutable
@@ -976,14 +983,21 @@ other workspace. A conversation identity is the composite
 `(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
 email bucket. SMS uses the stable key `sms`. Verified email provider lineage
 uses `thread:<provider-thread-id>`. Uncertain email lineage mints a unique
-`fresh:<uuid>` key, so subject text alone can never merge conversations.
+`fresh:<uuid>` key, so subject text alone can never merge conversations. Resend
+currently supplies only a per-message ID at authenticated ingress, not a
+verified stable thread key, so BR-13 always constructs `Uncertain` Email
+lineage. A provider retry still deduplicates to the original job and
+conversation before that fresh identity could insert another row.
 
 **Durable receiver jobs.** Acceptance inserts the conversation when needed and
 the complete immutable `InboundJob` in one transaction before provider
 acknowledgement can depend on it. A non-null provider ID deduplicates only
 inside its exact workspace and channel. A null provider ID does not create an
 accidental shared deduplication key. FIFO claim order is
-`received_at_unix_ms, job_id`.
+`received_at_unix_ms, job_id`. Provider and exact-job deduplication run before
+the queued-capacity decision. That decision counts only `queued` rows and caps
+them at 64 inside the same immediate transaction; concurrent writers therefore
+cannot admit a sixty-fifth queued job.
 
 The stored lifecycle is `queued`, `claimed`, `launching`, `accepted`,
 `processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.

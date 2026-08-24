@@ -1,4 +1,4 @@
-//! Bounded provider-ID reservations and completed-delivery memory.
+//! Provider-ID in-flight reservations and verified-unavailable discard memory.
 
 use anyhow::Result;
 
@@ -7,7 +7,7 @@ pub(super) type ProviderKey = (crate::workspace::WorkspaceId, super::super::Chan
 pub(super) static DELIVERIES: std::sync::LazyLock<std::sync::Mutex<ProviderDeliveries>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(ProviderDeliveries::default()));
 
-pub(in crate::server) fn provider_delivery_completed(
+pub(in crate::server) fn provider_delivery_was_discarded(
     workspace_id: crate::workspace::WorkspaceId,
     channel: super::super::Channel,
     provider_id: &str,
@@ -15,7 +15,7 @@ pub(in crate::server) fn provider_delivery_completed(
     DELIVERIES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .completed(&(workspace_id, channel, provider_id.to_owned()))
+        .was_discarded(&(workspace_id, channel, provider_id.to_owned()))
 }
 
 pub(in crate::server) fn remember_verified_unavailable_email(
@@ -27,7 +27,7 @@ pub(in crate::server) fn remember_verified_unavailable_email(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if deliveries.begin(key.clone()).started() {
-        deliveries.finish(&key, false);
+        deliveries.finish(&key, true);
     }
 }
 
@@ -51,24 +51,24 @@ pub(super) fn forward_provider_delivery(
     deliveries
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .finish(key, result.is_ok());
+        .finish(key, false);
     result
 }
 
 #[derive(Default)]
 pub(super) struct ProviderDeliveries {
     pending: std::collections::HashSet<ProviderKey>,
-    order: std::collections::VecDeque<ProviderKey>,
-    accepted: std::collections::HashSet<ProviderKey>,
+    discarded_order: std::collections::VecDeque<ProviderKey>,
+    discarded: std::collections::HashSet<ProviderKey>,
 }
 
 impl ProviderDeliveries {
-    fn completed(&self, key: &ProviderKey) -> bool {
-        self.accepted.contains(key)
+    fn was_discarded(&self, key: &ProviderKey) -> bool {
+        self.discarded.contains(key)
     }
 
     pub(super) fn begin(&mut self, key: ProviderKey) -> ProviderReservation {
-        if self.accepted.contains(&key) {
+        if self.discarded.contains(&key) {
             return ProviderReservation::Duplicate;
         }
         if !self.pending.insert(key) {
@@ -77,18 +77,16 @@ impl ProviderDeliveries {
         ProviderReservation::Started
     }
 
-    pub(super) fn finish(&mut self, key: &ProviderKey, accepted: bool) {
+    pub(super) fn finish(&mut self, key: &ProviderKey, remember_discard: bool) {
         const RECENT_PROVIDER_IDS: usize = 1024;
         self.pending.remove(key);
-        if (!accepted && key.1 != super::super::Channel::Email)
-            || !self.accepted.insert(key.clone())
-        {
+        if !remember_discard || !self.discarded.insert(key.clone()) {
             return;
         }
-        self.order.push_back(key.clone());
-        while self.order.len() > RECENT_PROVIDER_IDS {
-            if let Some(expired) = self.order.pop_front() {
-                self.accepted.remove(&expired);
+        self.discarded_order.push_back(key.clone());
+        while self.discarded_order.len() > RECENT_PROVIDER_IDS {
+            if let Some(expired) = self.discarded_order.pop_front() {
+                self.discarded.remove(&expired);
             }
         }
     }

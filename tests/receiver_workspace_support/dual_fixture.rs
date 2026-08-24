@@ -8,7 +8,7 @@ use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::provider_request::{FAMILY_PHONE, PERSONAL_PHONE, PUBLIC_URL, post, signed_sms};
-use super::{FAMILY_ID, PERSONAL_ID, poll_until};
+use super::{FAMILY_ID, PERSONAL_ID, durable_jobs, poll_until};
 
 pub struct DualWorkspaceReceiverFixture {
     home: tempfile::TempDir,
@@ -160,14 +160,22 @@ impl DualWorkspaceReceiverFixture {
         if let Some(socket) = &self.personal_socket {
             socket.poll_jobs(self.personal.id(), &mut self.personal_jobs);
         }
-        self.personal_jobs.snapshot()
+        assert!(
+            self.personal_jobs.is_empty(),
+            "personal ingress reached the legacy TUI queue"
+        );
+        durable_jobs(&self.personal)
     }
 
     pub fn family_jobs(&mut self) -> Vec<InboundJob> {
         if let Some(socket) = &self.family_socket {
             socket.poll_jobs(self.family.id(), &mut self.family_jobs);
         }
-        self.family_jobs.snapshot()
+        assert!(
+            self.family_jobs.is_empty(),
+            "family ingress reached the legacy TUI queue"
+        );
+        durable_jobs(&self.family)
     }
 
     pub fn poll_both_jobs(&mut self) -> (Vec<InboundJob>, Vec<InboundJob>) {
@@ -180,9 +188,11 @@ impl DualWorkspaceReceiverFixture {
                 .as_ref()
                 .expect("family fake TUI is live")
                 .poll_jobs(self.family.id(), &mut self.family_jobs);
-            !self.personal_jobs.is_empty() && !self.family_jobs.is_empty()
+            !durable_jobs(&self.personal).is_empty() && !durable_jobs(&self.family).is_empty()
         });
-        (self.personal_jobs.snapshot(), self.family_jobs.snapshot())
+        assert!(self.personal_jobs.is_empty());
+        assert!(self.family_jobs.is_empty());
+        (durable_jobs(&self.personal), durable_jobs(&self.family))
     }
 
     pub fn poll_personal_jobs(&mut self, expected: usize) -> Vec<InboundJob> {
@@ -191,9 +201,10 @@ impl DualWorkspaceReceiverFixture {
                 .as_ref()
                 .expect("personal fake TUI is live")
                 .poll_jobs(self.personal.id(), &mut self.personal_jobs);
-            self.personal_jobs.len() >= expected
+            durable_jobs(&self.personal).len() >= expected
         });
-        self.personal_jobs.snapshot()
+        assert!(self.personal_jobs.is_empty());
+        durable_jobs(&self.personal)
     }
 
     pub fn shutdown(&mut self) {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::server::receiver::InboundJob;
 
 pub(super) fn provider_id(revocation: LateRevocation) -> &'static str {
     match revocation {
@@ -16,10 +17,11 @@ pub(super) fn provider_id(revocation: LateRevocation) -> &'static str {
 
 pub(super) fn finish_pipeline(
     revocation: LateRevocation,
-    result_rx: std::sync::mpsc::Receiver<anyhow::Result<InboundJob>>,
-    stop_polling: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    result_rx: &std::sync::mpsc::Receiver<anyhow::Result<InboundJob>>,
+    stop_polling: &std::sync::atomic::AtomicBool,
     poller: std::thread::JoinHandle<()>,
-    queue: std::sync::Arc<std::sync::Mutex<crate::tui::receiver::InboundQueue>>,
+    queue: &std::sync::Mutex<crate::tui::receiver::InboundQueue>,
+    workspace: &crate::workspace::WorkspaceContext,
 ) {
     let deadline = Instant::now() + Duration::from_secs(1);
     let result = loop {
@@ -32,17 +34,28 @@ pub(super) fn finish_pipeline(
     stop_polling.store(true, Ordering::Release);
     poller.join().expect("job socket poller");
     if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
-        result.expect("live authority should commit under the control mutex");
+        let job = result.expect("live authority should commit under the control mutex");
+        let db = crate::state::Db::open(workspace).expect("durable receiver state");
+        let persisted = db
+            .receiver_job(crate::state::ReceiverJobId::from(job.job_id))
+            .expect("load committed receiver job")
+            .expect("committed receiver job");
+        assert_eq!(persisted.inbound(), &job);
         assert_eq!(
             queue
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .len(),
-            1,
-            "committed work did not reach the real live-TUI queue"
+            0,
+            "durably committed ingress also reached the legacy live-TUI queue"
         );
     } else {
-        result.expect_err("revoked authority must reject before the real job-socket handoff");
+        result.expect_err("revoked authority must reject before durable admission");
+        assert_eq!(
+            durable_job_count(workspace),
+            0,
+            "revoked work reached durable receiver state"
+        );
         assert!(
             queue
                 .lock()
@@ -53,7 +66,20 @@ pub(super) fn finish_pipeline(
     }
 }
 
-fn tcp_pair() -> (TcpStream, TcpStream) {
+fn durable_job_count(workspace: &crate::workspace::WorkspaceContext) -> i64 {
+    let path = workspace.paths().state_db();
+    if !path.exists() {
+        return 0;
+    }
+    let connection = rusqlite::Connection::open(path).expect("open receiver state observer");
+    match connection.query_row("SELECT COUNT(*) FROM receiver_jobs", [], |row| row.get(0)) {
+        Ok(count) => count,
+        Err(error) if error.to_string().contains("no such table: receiver_jobs") => 0,
+        Err(error) => panic!("count durable receiver jobs: {error}"),
+    }
+}
+
+pub(super) fn tcp_pair() -> (TcpStream, TcpStream) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test listener");
     let client = TcpStream::connect(listener.local_addr().expect("test address"))
         .expect("connect request client");

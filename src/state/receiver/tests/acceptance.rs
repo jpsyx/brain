@@ -64,6 +64,109 @@ fn provider_delivery_id_deduplicates_without_replacing_the_original_job() {
 }
 
 #[test]
+fn queued_capacity_rejects_new_work_but_allows_provider_retry_deduplication() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let mut first = None;
+    for index in 0..64 {
+        let provider_id = format!("provider-capacity-{index}");
+        let job = receiver_job(Some(&provider_id), 100 + index);
+        let accepted = db
+            .accept_receiver_job(&job, &identity)
+            .expect("capacity should accept the first 64 queued jobs");
+        first.get_or_insert((job, accepted));
+    }
+
+    let overflow = receiver_job(Some("provider-capacity-overflow"), 1_000);
+    let error = db
+        .accept_receiver_job(&overflow, &identity)
+        .expect_err("capacity must reject a new queued job");
+    assert_eq!(
+        error.to_string(),
+        "receiver queued-job capacity of 64 is full"
+    );
+
+    let (original, original_acceptance) = first.expect("first accepted job");
+    let mut provider_retry = receiver_job(original.provider_id.as_deref(), 2_000);
+    provider_retry.prompt = "provider retry after response loss".to_owned();
+    let duplicate = db
+        .accept_receiver_job(&provider_retry, &identity)
+        .expect("a provider retry must resolve before the capacity check");
+    assert!(!duplicate.was_inserted());
+    assert_eq!(duplicate.job_id(), original_acceptance.job_id());
+}
+
+#[test]
+fn concurrent_admission_cannot_overbook_the_last_queued_slot() {
+    let temporary = tempfile::tempdir().expect("temporary receiver state");
+    let path = temporary.path().join("state.db");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let seed = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("open receiver state");
+    for index in 0..63 {
+        let provider_id = format!("provider-concurrent-seed-{index}");
+        seed.accept_receiver_job(&receiver_job(Some(&provider_id), 100 + index), &identity)
+            .expect("seed queued capacity");
+    }
+    drop(seed);
+
+    let contenders = 8;
+    let start = std::sync::Arc::new(std::sync::Barrier::new(contenders));
+    #[expect(
+        clippy::needless_collect,
+        reason = "all barrier contenders must start before any join"
+    )]
+    let handles = (0..contenders)
+        .map(|index| {
+            let db = Db::open_path_with_legacy_identity(
+                &path,
+                &receiver_workspace_id().to_string(),
+                receiver_user_id().as_str(),
+            )
+            .expect("open contender state");
+            let start = std::sync::Arc::clone(&start);
+            let identity = identity.clone();
+            std::thread::spawn(move || {
+                let provider_id = format!("provider-concurrent-{index}");
+                let job = receiver_job(Some(&provider_id), 1_000 + index as u64);
+                start.wait();
+                db.accept_receiver_job(&job, &identity)
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let results = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("admission contender"))
+        .collect::<Vec<_>>();
+    let inserted = results
+        .iter()
+        .filter(|result| result.as_ref().is_ok_and(|accepted| accepted.was_inserted()))
+        .count();
+    let capacity_rejections = results
+        .iter()
+        .filter(|result| {
+            result
+                .as_ref()
+                .is_err_and(|error| {
+                    error.to_string() == "receiver queued-job capacity of 64 is full"
+                })
+        })
+        .count();
+
+    assert_eq!(inserted, 1, "exactly one contender should fill slot 64");
+    assert_eq!(
+        capacity_rejections,
+        contenders - 1,
+        "every losing contender should observe durable capacity: {results:?}"
+    );
+}
+
+#[test]
 fn receiver_database_rejects_an_inbound_job_from_another_workspace() {
     let db = Db::open_in_memory().expect("receiver state");
     let other_workspace = crate::workspace::WorkspaceId::parse(

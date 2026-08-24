@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::CombinedCommitProbe;
 use super::{
-    Context, DELIVERIES, DispatchHttpError, DispatchPipeline, InboundJob, Result, commit_admission,
-    final_admission, forward_job_until_with_admission, forward_provider_delivery,
+    Context, DELIVERIES, DispatchHttpError, DispatchPipeline, InboundJob, JOB_FRAME_LIMIT, Result,
+    commit_admission, final_admission, forward_provider_delivery,
 };
 
 pub(super) struct SharedReceiverPipeline<'a> {
@@ -30,6 +30,24 @@ pub(super) struct ResolvedActor {
     actor: crate::actor::ActorContext,
     response_email: Option<String>,
     allowed_response_recipients: Vec<String>,
+}
+
+pub(super) fn conversation_identity(
+    job: &crate::server::receiver::InboundJob,
+) -> crate::state::ReceiverConversationIdentity {
+    match job.channel {
+        crate::server::receiver::Channel::Sms => crate::state::ReceiverConversationIdentity::sms(
+            job.workspace_id,
+            job.actor.user_id().clone(),
+        ),
+        crate::server::receiver::Channel::Email => {
+            crate::state::ReceiverConversationIdentity::email(
+                job.workspace_id,
+                job.actor.user_id().clone(),
+                crate::state::EmailLineage::Uncertain,
+            )
+        }
+    }
 }
 
 impl DispatchPipeline for SharedReceiverPipeline<'_> {
@@ -171,7 +189,13 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
         let commit_intent_hook = self.after_final_intent_reload.clone();
         #[cfg(test)]
         let commit_probe = self.after_combined_commit.clone();
-        let authorize = || {
+        let accept = || -> Result<()> {
+            let frame = serde_json::to_vec(job).context("serializing inbound job")?;
+            anyhow::ensure!(
+                frame.len() <= JOB_FRAME_LIMIT,
+                "inbound job exceeds the durable frame limit"
+            );
+            handoff_deadline.ensure_open()?;
             #[cfg(test)]
             let clock = || {
                 authorize_clock
@@ -192,9 +216,6 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             if let Some(hook) = &self.before_final_admission {
                 hook();
             }
-            Ok(())
-        };
-        let commit = || {
             #[cfg(test)]
             let clock = || {
                 commit_clock
@@ -212,37 +233,25 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
                 commit_intent_hook.as_deref(),
                 #[cfg(test)]
                 commit_probe.as_deref(),
-            )
+            )?;
+            handoff_deadline.ensure_open()?;
+            let identity = conversation_identity(job);
+            let remaining = handoff_deadline.ensure_open()?;
+            let db = crate::state::Db::open_for_receiver_ingress(workspace.context(), remaining)?;
+            db.accept_receiver_job(job, &identity)?;
+            handoff_deadline.ensure_open()?;
+            Ok(())
         };
-        let result = job.provider_id.as_ref().map_or_else(
-            || {
-                forward_job_until_with_admission(
-                    &workspace.lease().job_socket,
-                    job,
-                    handoff_deadline,
-                    authorize,
-                    commit,
-                )
-            },
-            |provider_id| {
-                let key = (job.workspace_id, job.channel, provider_id.clone());
-                forward_provider_delivery(&DELIVERIES, &key, || {
-                    forward_job_until_with_admission(
-                        &workspace.lease().job_socket,
-                        job,
-                        handoff_deadline,
-                        authorize,
-                        commit,
-                    )
-                })
-            },
-        );
+        let result = job.provider_id.as_ref().map_or_else(accept, |provider_id| {
+            let key = (job.workspace_id, job.channel, provider_id.clone());
+            forward_provider_delivery(&DELIVERIES, &key, accept)
+        });
         admission.complete();
         result.map_err(|error| {
             DispatchHttpError {
                 status: 503,
                 unavailable: true,
-                message: format!("live workspace TUI did not accept the job: {error}"),
+                message: format!("durable receiver queue did not accept the job: {error}"),
             }
             .into()
         })

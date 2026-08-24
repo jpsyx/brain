@@ -1,4 +1,4 @@
-//! Exact persisted-intent and live-lease check at socket admission boundaries.
+//! Exact persisted-intent and live-lease checks at durable admission boundaries.
 
 pub(super) fn final_admission(
     control: &std::sync::Mutex<crate::server::control::ControlServer>,

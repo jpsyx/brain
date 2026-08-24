@@ -209,12 +209,14 @@ reopen. Conversation rows store Brain-owned markdown plus the current
 frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
 
-This foundation does not yet replace the live receiver path. Provider ingress,
-TUI queue consumption, agent launch, completion, and delivery continue through
-the existing runtime until the later PROJ-1 cutover tasks wire them to this
-store. Keeping schema authority separate from runtime integration lets those
-tasks adopt one durable contract without expanding BR-12 into ingress or
-execution behavior.
+Authenticated provider ingress now uses this foundation as its acceptance
+boundary. After final workspace and lease authority revalidation, the shared
+server opens the addressed workspace DB with the remaining HTTP handoff budget
+and atomically inserts or deduplicates the exact job and conversation. Provider
+success follows that transaction, so process or TUI restart cannot erase
+accepted work. The shared process still requires a live enabled lease for
+routing and remains ingress-only: BR-14 will replace TUI queue consumption,
+while agent launch, completion, and delivery remain outside the server.
 
 One bootstrap resolves an immutable `CommandContext` / `WorkspaceContext`.
 Env, config, personalization, state, TUI, tasks, reindex, sync, and child
@@ -1479,7 +1481,8 @@ See
 ### `server/`
 Brain has one machine-wide, TUI-lifetime shared process. It serves the local
 habits and triage routes, owns the public route grammar, and authenticates and
-forwards receiver requests only to live workspace TUIs.
+durably admits receiver requests only for enabled workspaces with live TUI
+leases.
 
 The lifecycle is closed around those TUIs except for the explicit browser-only
 habits lease. Startup binds the workspace-local
@@ -1490,8 +1493,9 @@ stops it when the final crashed lease reaches TTL. A background habits lease
 keeps the process alive without a TUI until `brain habits kill`; a TUI
 registration replaces that lease. If a peer TUI keeps the
 process alive but the selected target is unavailable, the handler sends one
-unavailable response and discards the message. No process component stores an
-offline queue or launches an agent.
+unavailable response and creates no job. Accepted work is stored in the exact
+workspace DB, but the shared process has no offline routing mode, queue
+consumer, or agent launcher.
 - `server/router.rs` — pure exact-component mapping for the two machine-wide
   provider paths `/sms` and `/email`, which name no workspace, and for
   capability-protected local
@@ -1549,18 +1553,19 @@ offline queue or launches an agent.
   bounded at 16 KiB with an explicit truncation notice, since the prompt is
   typed into the panel's PTY;
   `dispatch.rs` resolves the selected workspace's portable actor, while
-  `dispatch/deliveries.rs` owns transactional, workspace-scoped provider-ID
-  deduplication, `dispatch/final_authority.rs` owns the repeated persisted
-  intent and exact-TTL admission checks, and `dispatch/forward.rs` owns bounded
-  live-TUI socket delivery. Verified
-  unavailable Resend IDs enter the same bounded memory cache before discard,
-  so later availability cannot replay them into a TUI;
+  `dispatch/deliveries.rs` owns in-flight provider-ID exclusion and the bounded
+  verified-unavailable Email discard set. Durable provider deduplication and
+  queued capacity live in `state::receiver`; `dispatch/final_authority.rs` owns
+  the repeated persisted-intent and exact-TTL admission checks, and
+  `dispatch/pipeline.rs` owns the durable acceptance call. Verified unavailable
+  Resend IDs enter discard memory before any state DB is opened, so later
+  availability cannot replay them into a TUI;
   `admission.rs` linearizes cancellable exact-lease admission with revocation,
   while `dispatch/tests/late_revocation.rs` exercises the production pipeline's
   synchronized final admission boundary and `dispatch/tests/deliveries.rs`
-  covers provider-ID state; `transport.rs`
-  carries one short absolute deadline through nonblocking job-socket connect,
-  frame write, and acknowledgment read; `job.rs` defines
+  covers provider-ID state; the receiver-specific DB open installs the short
+  absolute handoff remainder before configuration, migration, lock waiting,
+  and acceptance; `job.rs` defines
   the immutable serialized `InboundJob`; `control.rs` is the pure reading of a
   message as a `/new` or `/restart` command plus the queue cut a restart makes;
   `unavailable.rs` owns the one-response,
@@ -1645,25 +1650,25 @@ offline queue or launches an agent.
   signal (see `skill_session/signal.rs`).
 
 The shared HTTP process resolves receiver ingress availability before loading
-credentials, users, prompt data, or the workspace job socket. A request is
-accepted only after provider authentication, actor resolution, and a
-committed staged handoff to the exact live TUI's 64-entry in-memory queue. The
-mode-`0600` UUID-local socket bounds serialized frames at 1 MiB. After final
-authority commits, `InboundQueue` stages the decoded job under an opaque token,
-the socket writes `accepted`, and only then does the queue finalize the job for
-dispatch. If that write fails, the token can roll back only its exact staged
-append. Failed, full, disabled,
-and missing targets receive one channel-specific unavailable response and are
-not retained or retried. Provider IDs are retained only after an enqueue ack;
-the accepted cache is bounded at 1024 keys scoped by workspace and channel.
-Immediately before socket handoff, dispatch reserves the final five seconds
+credentials, users, prompt data, or the workspace state DB. A request is
+accepted only after provider authentication, actor resolution, final authority
+revalidation, and an atomic insert or deduplication in the exact workspace's
+durable receiver queue. Complete serialized jobs remain bounded at 1 MiB. The
+acceptance transaction resolves provider and exact-job duplicates before it
+counts `queued` rows, then rejects a sixty-fifth queued job without inserting a
+conversation. Progressed, retrying, failed, and done rows do not consume that
+queued capacity. Failed-storage, full, disabled, and missing targets receive
+one channel-specific unavailable response and create no new row. Successful
+provider IDs are authoritative in SQLite, not process memory; memory only excludes
+simultaneous requests and retains up to 1024 verified-unavailable Email
+discards. Immediately before durable admission, dispatch reserves the final five seconds
 for the HTTP response and derives one handoff deadline capped at two seconds
 and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
-control mutex. The staged socket reloads persisted intent outside the mutex,
-then acquires control once, samples the monotonic clock, revalidates the exact
+control mutex. The commit path reloads persisted intent outside the mutex, then
+acquires control once, samples the monotonic clock, revalidates the exact
 route and admission identity, and atomically commits the cancellable admission
-before unlocking and enqueueing. Disable, unregister, and disable-enable
+before unlocking and entering durable enqueue. Disable, unregister, and disable-enable
 ABA either cancel before commit or wait only until the control request's
 absolute deadline outside the mutex. A deadline rejection performs no later
 disable or unregister mutation. Watchdog expiry removes the exact lease and
@@ -1675,12 +1680,10 @@ receiver intent to remain enabled, so a lost live-refresh notification cannot
 let a raced disable enqueue. Only after that filesystem IO does the combined
 commit operation acquire control, sample the monotonic clock inside the lock,
 revalidate exact live authority, and perform the admission CAS before unlock.
-It then carries that exact handoff deadline
-through nonblocking connect, the complete frame write, and acknowledgment
-read. The TUI removes the just-staged queue item if its final `accepted`
-acknowledgment cannot be written, so the server observes a failed handoff and
-dedup state remains correct. Successful byte progress cannot renew it. Provider and socket IO never
-run while the control mutex is held.
+It then installs the exact remaining duration before SQLite WAL configuration
+or schema reconciliation and carries it through lock waiting and the acceptance
+transaction. The deadline is checked again after commit before provider
+success. Provider and database IO never run while the control mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
 `tui/receiver/decision.rs` orders the pure dispatch stages, and

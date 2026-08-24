@@ -113,13 +113,7 @@ pub fn signed_received_email_event(
 }
 
 pub fn post(port: u16, request: &ProviderPost) -> String {
-    let wire = format!(
-        "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-        request.path,
-        request.headers,
-        request.body.len(),
-        request.body
-    );
+    let wire = wire(request);
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
@@ -131,6 +125,26 @@ pub fn post(port: u16, request: &ProviderPost) -> String {
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response
+}
+
+pub fn post_without_response(port: u16, request: &ProviderPost) {
+    let wire = wire(request);
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    stream.write_all(wire.as_bytes()).unwrap();
+    drop(stream);
+}
+
+fn wire(request: &ProviderPost) -> String {
+    format!(
+        "POST {} HTTP/1.1\r\nHost: localhost\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        request.path,
+        request.headers,
+        request.body.len(),
+        request.body
+    )
 }
 
 fn twilio_signature(token: &str, url: &str, fields: &BTreeMap<String, String>) -> String {

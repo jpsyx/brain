@@ -1,11 +1,11 @@
 use std::sync::{Arc, Barrier, Mutex};
 
-use super::super::{ProviderDeliveries, ProviderKey, forward_provider_delivery};
+use super::super::deliveries::{ProviderDeliveries, ProviderKey, forward_provider_delivery};
 use crate::server::receiver::Channel;
 use crate::workspace::WorkspaceId;
 
 #[test]
-fn failed_handoff_releases_provider_id_for_one_later_success() {
+fn every_nonconcurrent_provider_retry_reaches_durable_acceptance() {
     let deliveries = Mutex::new(ProviderDeliveries::default());
     let key = key(PERSONAL_ID, Channel::Sms, "provider-1");
     let mut attempts = 0;
@@ -13,7 +13,7 @@ fn failed_handoff_releases_provider_id_for_one_later_success() {
     assert!(
         forward_provider_delivery(&deliveries, &key, || {
             attempts += 1;
-            anyhow::bail!("socket unavailable")
+            anyhow::bail!("durable receiver state unavailable")
         })
         .is_err()
     );
@@ -28,7 +28,40 @@ fn failed_handoff_releases_provider_id_for_one_later_success() {
     })
     .unwrap();
 
-    assert_eq!(attempts, 2);
+    assert_eq!(attempts, 3);
+}
+
+#[test]
+fn completed_durable_delivery_still_rechecks_persistence_on_retry() {
+    let deliveries = Mutex::new(ProviderDeliveries::default());
+    let key = key(PERSONAL_ID, Channel::Sms, "provider-durable-retry");
+    let mut durable_checks = 0;
+
+    forward_provider_delivery(&deliveries, &key, || {
+        durable_checks += 1;
+        Ok(())
+    })
+    .unwrap();
+    forward_provider_delivery(&deliveries, &key, || {
+        durable_checks += 1;
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(durable_checks, 2);
+}
+
+#[test]
+fn successful_durable_email_is_not_remembered_as_an_unavailable_discard() {
+    let deliveries = Mutex::new(ProviderDeliveries::default());
+    let key = key(PERSONAL_ID, Channel::Email, "provider-durable-email");
+
+    forward_provider_delivery(&deliveries, &key, || Ok(())).unwrap();
+
+    assert!(
+        deliveries.lock().unwrap().begin(key).started(),
+        "successful durable Email would bypass persistence during authentication"
+    );
 }
 
 #[test]
@@ -37,7 +70,7 @@ fn verified_email_unavailability_is_remembered_as_a_discarded_delivery() {
     let key = key(PERSONAL_ID, Channel::Email, "verified-unavailable-email");
 
     assert!(deliveries.begin(key.clone()).started());
-    deliveries.finish(&key, false);
+    deliveries.finish(&key, true);
 
     assert!(
         !deliveries.begin(key).started(),
@@ -67,14 +100,11 @@ fn in_flight_duplicate_is_not_acknowledged_before_first_handoff_finishes() {
     assert!(forward_provider_delivery(&deliveries, &key, || Ok(())).is_err());
     release.wait();
     worker.join().unwrap().unwrap();
-    forward_provider_delivery(&deliveries, &key, || {
-        panic!("accepted duplicate reached the job socket")
-    })
-    .unwrap();
+    forward_provider_delivery(&deliveries, &key, || Ok(())).unwrap();
 }
 
 #[test]
-fn retained_provider_ids_are_bounded_and_workspace_channel_scoped() {
+fn retained_unavailable_discards_are_bounded_and_workspace_channel_scoped() {
     let mut deliveries = ProviderDeliveries::default();
     for index in 0..=1024 {
         let key = key(PERSONAL_ID, Channel::Sms, &format!("provider-{index}"));

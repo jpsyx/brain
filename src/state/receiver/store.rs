@@ -9,6 +9,8 @@ use crate::state::Db;
 
 mod claim;
 
+const QUEUED_JOB_LIMIT: i64 = 64;
+
 impl Db {
     /// Persist one authenticated inbound job before acknowledging its provider.
     pub fn accept_receiver_job(
@@ -19,7 +21,10 @@ impl Db {
         self.validate_receiver_scope(inbound, identity)?;
         let channel = channel_str(inbound.channel);
         let job_id = ReceiverJobId::from(inbound.job_id);
-        let transaction = self.conn.unchecked_transaction()?;
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
 
         if let Some((stored_job, conversation)) = inbound
             .provider_id
@@ -59,6 +64,17 @@ impl Db {
                 false,
             ));
         }
+
+        let queued_jobs = transaction.query_row(
+            "SELECT COUNT(*) FROM receiver_jobs
+             WHERE workspace_id = ?1 AND state = 'queued'",
+            [self.workspace_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )?;
+        anyhow::ensure!(
+            queued_jobs < QUEUED_JOB_LIMIT,
+            "receiver queued-job capacity of {QUEUED_JOB_LIMIT} is full"
+        );
 
         let conversation_id = transaction
             .query_row(

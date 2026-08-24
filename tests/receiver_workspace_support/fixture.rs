@@ -9,7 +9,7 @@ use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::provider_request::{
-    PERSONAL_EMAIL, PERSONAL_PHONE, PUBLIC_URL, post, signed_email_event,
+    PERSONAL_EMAIL, PERSONAL_PHONE, PUBLIC_URL, post, post_without_response, signed_email_event,
     signed_received_email_event, signed_sms,
 };
 use super::{FAMILY_ID, PERSONAL_ID, poll_until};
@@ -125,7 +125,11 @@ impl SharedReceiverFixture {
             .unwrap();
         let child = spawn_server(&home, generation);
         let handoff = election.handoff();
-        let client = brain::server::control::ServerClient::new(paths);
+        let client = brain::server::control::ServerClient::with_launch_context(
+            paths,
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+            home.path().to_path_buf(),
+        );
         let record = poll_value(Instant::now() + Duration::from_secs(3), || {
             client.connect_existing().ok()
         });
@@ -256,6 +260,42 @@ impl SharedReceiverFixture {
         response_rx
     }
 
+    pub fn post_sms_without_response(&self, provider_id: &str, prompt: &str) {
+        post_without_response(
+            self.port,
+            &signed_sms(
+                PERSONAL_PHONE,
+                "personal-token",
+                provider_id,
+                prompt,
+                "+12125550100",
+            ),
+        );
+    }
+
+    pub fn crash_and_recover_server(&mut self) {
+        assert!(self.anchor.is_none(), "crash fixture must have one lease");
+        self.child
+            .kill()
+            .expect("terminate shared receiver process");
+        self.child.wait().expect("reap crashed receiver process");
+        let heartbeat = self.heartbeat.as_ref().expect("target heartbeat");
+        let generation = poll_value(Instant::now() + Duration::from_secs(8), || {
+            heartbeat.poll().find_map(|event| match event {
+                brain::server::control::HeartbeatEvent::Recovered(generation) => Some(generation),
+                brain::server::control::HeartbeatEvent::RecoveryFailed(_) => None,
+            })
+        });
+        let record = poll_value(Instant::now() + Duration::from_secs(3), || {
+            self.client
+                .connect_existing()
+                .ok()
+                .filter(|record| record.generation == generation)
+        });
+        self.generation = generation;
+        self.port = record.port;
+    }
+
     pub fn post_email_without_credentials(&self) -> String {
         let request = signed_email_event(PERSONAL_EMAIL, b"wrong-secret", "unsigned", "invalid");
         post(self.port, &request)
@@ -347,7 +387,7 @@ impl SharedReceiverFixture {
             heartbeat.shutdown().unwrap();
         }
         poll_until(Instant::now() + Duration::from_secs(3), || {
-            self.child.try_wait().ok().flatten().is_some()
+            self.client.connect_existing().is_err()
         });
     }
 }

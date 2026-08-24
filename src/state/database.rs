@@ -9,6 +9,18 @@ impl Db {
         )
     }
 
+    pub(crate) fn open_for_receiver_ingress(
+        workspace: &crate::workspace::WorkspaceContext,
+        busy_timeout: std::time::Duration,
+    ) -> Result<Self> {
+        Self::open_path_with_legacy_identity_and_busy_timeout(
+            &workspace.paths().state_db(),
+            &workspace.id().to_string(),
+            workspace.local_user_id(),
+            busy_timeout,
+        )
+    }
+
     /// Open or create a state DB at an explicit path.
     pub fn open_path(path: &Path) -> Result<Self> {
         Self::open_path_with_legacy_identity(path, "legacy-workspace", "legacy-user")
@@ -20,13 +32,27 @@ impl Db {
         workspace_id: &str,
         local_actor_id: &str,
     ) -> Result<Self> {
+        Self::open_path_with_legacy_identity_and_busy_timeout(
+            path,
+            workspace_id,
+            local_actor_id,
+            std::time::Duration::from_secs(5),
+        )
+    }
+
+    fn open_path_with_legacy_identity_and_busy_timeout(
+        path: &Path,
+        workspace_id: &str,
+        local_actor_id: &str,
+        busy_timeout: std::time::Duration,
+    ) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
         }
         let conn = Connection::open(path)
             .with_context(|| format!("opening sqlite at {}", path.display()))?;
-        Self::configure(&conn)?;
+        Self::configure_with_busy_timeout(&conn, busy_timeout)?;
         let db = Self {
             conn,
             workspace_id: workspace_id.to_owned(),
@@ -60,10 +86,18 @@ impl Db {
         self
     }
 
+    #[cfg(test)]
     fn configure(conn: &Connection) -> Result<()> {
+        Self::configure_with_busy_timeout(conn, std::time::Duration::from_secs(5))
+    }
+
+    fn configure_with_busy_timeout(
+        conn: &Connection,
+        busy_timeout: std::time::Duration,
+    ) -> Result<()> {
+        conn.busy_timeout(busy_timeout)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", true)?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(())
     }
 
@@ -416,5 +450,35 @@ mod configuration_tests {
             .expect("foreign key setting after configuration");
         assert_eq!(before, 0);
         assert_eq!(after, 1);
+    }
+
+    #[test]
+    fn receiver_open_bounds_lock_wait_before_schema_reconciliation() {
+        let temporary = tempfile::tempdir().expect("temporary state database");
+        let path = temporary.path().join("state.db");
+        let db = Db::open_path_with_legacy_identity(&path, "workspace", "member")
+            .expect("seed current state database");
+        db.conn
+            .pragma_update(None, "user_version", 5)
+            .expect("stage receiver schema reconciliation");
+        drop(db);
+        let writer = rusqlite::Connection::open(&path).expect("open competing writer");
+        writer
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("hold state write lock");
+
+        let started = std::time::Instant::now();
+        let result = Db::open_path_with_legacy_identity_and_busy_timeout(
+            &path,
+            "workspace",
+            "member",
+            std::time::Duration::from_millis(20),
+        );
+
+        assert!(result.is_err(), "locked reconciliation unexpectedly opened");
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "receiver open exceeded its lock-wait budget"
+        );
     }
 }

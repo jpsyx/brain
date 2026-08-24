@@ -1,7 +1,7 @@
 ---
 id: BR-13
 title: Durably enqueue receiver jobs at ingress
-status: backlog
+status: in-progress
 priority: high
 assignee: jpsyx
 labels: [feature, server]
@@ -11,7 +11,7 @@ milestone: MS-1
 cycle:
 parent:
 github:
-blocked_by: [BR-12]
+blocked_by: []
 created: 2026-08-23
 updated: 2026-08-23
 ---
@@ -32,38 +32,67 @@ job.
 
 ## Acceptance criteria
 
-- [ ] The authenticated pipeline persists the complete immutable job before
+- [x] The authenticated pipeline persists the complete immutable job before
       returning provider success.
-- [ ] A crash after durable commit but before or after the provider response
+- [x] A crash after durable commit but before or after the provider response
       cannot lose the job or create a duplicate on provider retry.
-- [ ] Provider delivery IDs preserve current SMS/email deduplication behavior
+- [x] Provider delivery IDs preserve current SMS/email deduplication behavior
       across process restarts.
-- [ ] Final workspace authority and receiver enablement are revalidated before
+- [x] Final workspace authority and receiver enablement are revalidated before
       durable admission commits.
-- [ ] An unavailable or disabled workspace retains the existing explicit
+- [x] An unavailable or disabled workspace retains the existing explicit
       provider-facing behavior and does not enqueue work.
-- [ ] The shared server never launches an agent or owns conversation execution.
-- [ ] Red/green tests cover commit-before-ack, response loss, provider retry,
+- [x] The shared server never launches an agent or owns conversation execution.
+- [x] Red/green tests cover commit-before-ack, response loss, provider retry,
       revocation, capacity/backpressure, and restart recovery without sleeps.
-- [ ] Server, integration, feature, architecture, data-model, decision, and
+- [x] Server, integration, feature, architecture, data-model, decision, and
       testing docs reflect the new acceptance boundary.
 
 ## Notes
 
 ### Pointers (as of 2026-08-23)
 
-- `src/server/receiver/dispatch/` owns the ordered authenticated pipeline,
-  final authority revalidation, provider deduplication, and live handoff. Move
-  the acceptance commit without reordering its security-sensitive stages.
-- `src/server/receiver/transport.rs` and `src/tui/singleton.rs` implement the
-  current socket prepare/accept transaction. Retire queue authority here only
-  after the durable transaction provides equivalent acknowledgement semantics.
+- `src/server/receiver/dispatch/pipeline.rs` owns the ordered authenticated
+  pipeline and constructs the complete immutable `InboundJob`. Move its final
+  acceptance boundary without reordering routing, authentication, actor, or
+  authority decisions.
+- `src/state/receiver/store.rs` owns schema-v6 transactional acceptance and
+  provider deduplication. Extend that transaction with the durable queued
+  capacity decision before ingress depends on it.
 - `src/server/receiver/admission.rs` linearizes receiver admission against
-  enablement and lease revocation. Keep that race guarantee at the new commit
-  boundary.
-- `src/server/request.rs` and `src/server/receiver/http/` map provider outcomes
-  and body limits. Provider success must continue to mean one accepted job.
+  enablement and lease revocation. Keep that race guarantee around the durable
+  commit without holding control authority during SQLite IO.
+- `src/server/request.rs`, `src/server/receiver/http/`, and
+  `src/server/receiver/dispatch/deliveries.rs` map provider outcomes and the
+  current process-local deduplication behavior. Durable provider retries must
+  resolve before capacity rejection while verified unavailable email remains a
+  non-enqueued discard.
+
+### Plan (2026-08-23)
+
+1. Specify atomic durable capacity and deduplication ordering at the BR-12 store
+   boundary, then implement the smallest transaction change.
+2. Specify SMS and email conversation identity construction at ingress, using
+   stable SMS identity and fresh email identity when Resend exposes no verified
+   thread key.
+3. Replace live socket acceptance with final-authority-guarded durable admission
+   while preserving deadline, unavailable, revocation, and provider response
+   semantics.
+4. Cover commit-before-ack, response loss, provider retry, restart recovery,
+   capacity, and revocation through focused and real-boundary tests with no
+   timing sleeps.
+5. Update the product contract, bump the additive pre-1.0 minor version, run
+   formatting, release tests, Clippy, and hygiene checks, then commit BR-13.
 
 ### Log
 
 - 2026-08-23 created from PROJ-1 planning.
+- 2026-08-23 started after BR-12 established the schema-v6 durable receiver
+  model.
+- 2026-08-23 implemented authenticated SMS and email durable admission with
+  atomic queued capacity, restart-safe provider deduplication, and ingress
+  deadline enforcement before potentially blocking database setup.
+- 2026-08-23 verified response-loss retry, abrupt shared-server crash recovery,
+  revocation, unavailable routing, and the 64-job queued capacity through
+  deterministic focused and composed HTTP tests. The release test and Clippy
+  gates pass.

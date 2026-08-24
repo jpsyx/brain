@@ -218,7 +218,7 @@ pub(super) fn authenticate(
             verified
         }
     };
-    if crate::server::receiver::dispatch::provider_delivery_completed(
+    if crate::server::receiver::dispatch::provider_delivery_was_discarded(
         config.workspace_id,
         Channel::Email,
         pending_email.webhook_id(),

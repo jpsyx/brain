@@ -45,6 +45,41 @@ pub fn job(workspace: &WorkspaceContext, prompt: &str) -> InboundJob {
     }
 }
 
+pub fn durable_jobs(workspace: &WorkspaceContext) -> Vec<InboundJob> {
+    let path = workspace.paths().state_db();
+    if !path.exists() {
+        return Vec::new();
+    }
+    let connection = rusqlite::Connection::open(path).expect("open durable receiver state");
+    let mut statement = match connection
+        .prepare("SELECT inbound_json FROM receiver_jobs ORDER BY received_at_unix_ms, job_id")
+    {
+        Ok(statement) => statement,
+        Err(error) if error.to_string().contains("no such table: receiver_jobs") => {
+            return Vec::new();
+        }
+        Err(error) => panic!("prepare durable receiver jobs: {error}"),
+    };
+    statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .expect("query durable receiver jobs")
+        .map(|row| {
+            serde_json::from_str(&row.expect("durable receiver JSON"))
+                .expect("parse durable receiver job")
+        })
+        .collect()
+}
+
+pub fn durable_conversation_count(workspace: &WorkspaceContext) -> i64 {
+    let connection = rusqlite::Connection::open(workspace.paths().state_db())
+        .expect("open durable receiver state");
+    connection
+        .query_row("SELECT COUNT(*) FROM receiver_conversations", [], |row| {
+            row.get(0)
+        })
+        .expect("count durable receiver conversations")
+}
+
 fn actor() -> brain::actor::ActorContext {
     let users = brain::users::Users {
         schema_version: brain::users::USERS_SCHEMA_VERSION,

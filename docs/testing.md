@@ -438,30 +438,38 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Receiver admission and workspace isolation.**
   `tests/receiver_workspace_isolation.rs` uses focused fixture and model
   support modules with deadline-bounded polling and no fixed sleeps. It drives
-  signed SMS through the real shared process and exact live TUI socket. A
+  signed SMS through the real shared process into the exact UUID-scoped
+  durable queue and proves HTTP success cannot precede the committed row. A
   second real-process fixture registers two live workspaces with distinct
   numbers, credentials, and actors for the same normalized sender, posts every
   request to the one machine-wide `/sms` URL, rejects a request signed with a
   peer workspace's credential (in both directions: a peer's number and a peer's
-  token), then proves each request enters only its exact socket.
+  token), then proves each request enters only its exact workspace DB.
   The suite also rejects an unknown sender and cross-workspace frames, verifies
   the 1 MiB body cap, and proves disabled or missing targets return one
   channel-specific unavailable response while another workspace keeps the
-  process alive. It also covers absent-process silence, failed sockets, a full
-  64-job queue,
-  enqueue acknowledgment, and rollback when the acknowledgment write fails.
-  The rollback case performs the complete frame, `prepared`, `commit`, and
-  peer-close sequence, then polls the production socket and requires an empty
-  queue. A signed Resend event submitted while its exact TUI is unavailable is
+  process alive. Composed HTTP cases drop the client response after a complete
+  write, observe the committed row, retry the same provider ID, and require one
+  original job/conversation. A second case kills the shared child abruptly,
+  observes production heartbeat/election recovery and re-registration, then
+  proves the retry still resolves to that row. A 64-row durable queued-capacity
+  case maps the rejected sixty-fifth SMS to the existing unavailable response
+  without inserting a job or conversation. Low-level socket characterization
+  separately retains absent-process, failed-socket, staged acknowledgment, and
+  rollback coverage for the pre-BR-14 TUI runtime. The rollback case performs
+  the complete frame, `prepared`, `commit`, and peer-close sequence, then polls
+  the production socket and requires an empty memory queue. A signed Resend event submitted while its exact TUI is unavailable is
   replayed after re-registration; the replay must remain outside the queue and
   must not reach the Receiving API.
   Pure tests under `server/receiver/dispatch/tests/` pin the synchronized late
-  revocation boundary separately from transactional provider-ID state: failed
-  handoffs retain no ID, in-flight duplicates are not
-  acknowledged, successful duplicates are idempotent, and the 1024-entry cache
-  is scoped by workspace and channel. Barrier-driven dispatch tests disable
+  revocation boundary separately from provider-ID coordination: in-flight
+  duplicates are unavailable, every later successful SMS/Email retry re-enters
+  durable acceptance, and only verified-unavailable Email is retained in the
+  bounded workspace/channel discard set. Store tests prove durable provider
+  deduplication returns the original row before queued-capacity rejection.
+  Barrier-driven dispatch tests disable
   exact live authority after actor resolution and prove revalidation prevents
-  any socket handoff. Typed provider tests preserve ignored-event 202 and
+  any durable admission. Typed provider tests preserve ignored-event 202 and
   upstream 502 outcomes. Injected Resend fetch tests cap both provider
   responses, and a counting reader proves only one proof byte beyond the limit
   is consumed. Inbound email identity is pinned at the boundary that produces
@@ -569,16 +577,17 @@ first move is a failing test that reproduces it, *then* the fix.
   and the loaded ticket is rejected after unregister. Pure revision and
   blocked-route tests prove heartbeat renewal preserves a ticket, while
   disable/re-enable and identical same-ID unregister/re-register ABA
-  transitions reject the pre-revocation ticket. Maximum-revision tests prove a
-  staged job-socket races cover disable, unregister, and disable-enable ABA
-  after final revalidation but before commit acknowledgment; every losing
-  admission returns unavailable and leaves the TUI queue empty. Failed
+  transitions reject the pre-revocation ticket. Maximum-revision tests and
+  staged durable-admission races cover disable, unregister, and disable-enable
+  ABA after final revalidation but before commit; every losing admission
+  returns unavailable, creates no durable row, and leaves the legacy TUI queue
+  empty. Failed
   enablement update or receiver-changing registration replay leaves the
   whole lease table unchanged and cannot revive or extend authority.
   A synchronized test hook on the real `SharedReceiverPipeline` revokes
   authority after production final revalidation and authorization but before
-  the staged socket commit. Disable, unregister, and disable-enable ABA each
-  cancel the admission and leave the live TUI queue empty. Mutation coverage
+  durable admission commits. Disable, unregister, and disable-enable ABA each
+  cancel the admission, create no row, and leave the live TUI queue empty. Mutation coverage
   that removes authorized-state cancellation makes the real pipeline accept
   and enqueue, so the regression cannot pass through a copied test decision
   path.
@@ -590,7 +599,7 @@ first move is a failing test that reproduces it, *then* the fix.
   revocation, and an injected final-admission clock proves exact TTL rejects
   commit before the next watchdog tick. A second real-pipeline gate pauses
   after commit-side persisted-intent IO, advances the injected clock to exact
-  expiry, and proves the real job socket remains empty. A third real-pipeline
+  expiry, and proves durable state plus the legacy job socket remain empty. A third real-pipeline
   race holds the control mutex across that IO boundary, advances to exact
   expiry while commit waits for control, and proves the clock is sampled only
   after lock acquisition. Its commit probe requires both the COMMITTED state
@@ -654,7 +663,10 @@ first move is a failing test that reproduces it, *then* the fix.
   renew it without relying on sleeps. Separate injected-clock cases prove an
   expired parse phase cannot be revived, the two-second handoff cutoff leaves
   the response reserve open, and synchronized expiry after provider work does
-  not enter the job socket. Real Unix-stream step-clock tests advance the same
+  not enter durable state. A real SQLite lock test stages schema reconciliation,
+  holds a competing writer, and proves receiver open installs the handoff busy
+  budget before configuration or migration. Legacy Unix-stream step-clock
+  characterization advances the same
   handoff deadline between successful frame bytes and acknowledgment bytes,
   proving continuous progress cannot renew it. Parser tests reject
   conflicting or repeated framing, unsupported transfer codings, invalid
@@ -816,7 +828,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the old representation directly. The runtime exposes pure stage decisions and typed effects but no App aggregate. `receiver/policy.rs` owns pure timeout, probe, retry, and input-lock policy beneath the thin facade. `AppServices` retains the cross-feature sync effect adapter; the guard rejects adapters, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/tui_receiver_queue_architecture.rs` + `tests/tui_receiver_queue_architecture/` | Queue ownership seam: a dev-only `syn` AST walk rejects source-declared persistent item types and initializers that mention raw `InboundJob` or a resolved import/type alias outside `receiver/queue.rs`, including declarations in function-local and nested block scopes. It canonicalizes raw identifiers and rejects visible renamed re-exports of resolved job aliases at their declaration, while preserving private same-scope alias resolution. Full declaration, alias, literal, comment, Unicode, cfg, macro-token, attribute, transient-`let`, and semantic queue-API fixtures pin the boundary without collection, field, or mutator vocabulary. Item macros, opaque item syntax, and unsupported attribute macros are rejected. The only persistent exception is the exact canonical-path one-shot payload shape in the non-generic top-level `ReceiverEffect` item at the exact real source path; procedural expansion and type-erased runtime contents remain manual-review limits. |
-| `state::receiver::tests` | Durable job/conversation identity, lifecycle, FIFO, deduplication, claims, retries, recovery evidence, transcript/native binding, scope checks, numeric safety, foreign keys, and reopen persistence through focused behavior modules. |
+| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, lifecycle, FIFO, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, claims, retries, recovery evidence, transcript/native binding, scope checks, numeric safety, foreign keys, reopen persistence, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schema v6 across every registered workspace that already has a state DB; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |

@@ -2342,9 +2342,10 @@ immediately; the watchdog applies injected-clock lease expiry and exits after
 the final crashed lease reaches TTL. Final-expiry shutdown is latched across
 failed late control transitions, and a child without its first registration
 exits after a two-second bootstrap deadline. Signal flags and the cleanup owner
-exist before state publication, closing the startup signal window. The design
-deliberately has no durable inbound queue, replay worker, headless agent,
-manual restart, or always-on responder.
+exist before state publication, closing the startup signal window. Accepted
+receiver work lives in each workspace DB, never in machine-shared process
+state. The design deliberately has no process-owned replay worker, headless
+agent, manual restart, or always-on responder.
 
 ## Why status probes bypass ordinary bootstrap and logging
 
@@ -2417,16 +2418,16 @@ The machine-wide shared process owns HTTP admission, but it never provides
 offline availability. Receiver ingress must first select an enabled, live TUI
 lease. Only then may Brain load that workspace's provider configuration,
 authenticate the provider, load its portable users, resolve `ActorContext`, and
-forward to the lease's server-derived UUID-local job socket. The shared process
-does not start for inbound traffic and contains no durable queue, replay worker,
+open the exact workspace's UUID-scoped durable queue. The shared process does
+not start for inbound traffic and contains no queue consumer, replay worker,
 headless agent, or availability-only responder.
 
 The shared fixed four-worker boundary covers habits, triage, SMS, and email.
-Receiver bodies and serialized job frames are limited to 1 MiB, and each TUI's
-in-memory handoff queue is bounded at 64 jobs. The socket first holds a decoded
-job in connection-local staging and returns `prepared`. Final registry and
-exact-revision checks authorize an in-flight admission; only its atomic commit
-allows the TUI to append and acknowledge. Disable and unregister cancel pending
+Receiver bodies and serialized job frames are limited to 1 MiB, and each
+workspace accepts at most 64 durable `queued` rows. Progressed, retrying,
+failed, and done rows do not consume queued ingress capacity. Final registry
+and exact-revision checks authorize an in-flight admission; only its atomic
+commit allows the server to enter SQLite acceptance. Disable and unregister cancel pending
 or authorized admissions. If commit already won, revocation waits outside the
 control-state mutex only until the original request deadline. A timeout rejects
 the control request and applies no later lease mutation. Watchdog expiry removes
@@ -2436,11 +2437,21 @@ it; shared control and watchdog entry use that single revoke-aware removal.
 Final admission performs persisted-intent filesystem IO outside the control
 mutex. One combined commit operation then acquires control, samples exact TTL,
 revalidates the route and admission identity, and performs the admission CAS
-before unlocking. Disabled, missing,
-full, and failed endpoints receive one
-channel-specific unavailable response and the request is discarded.
+before unlocking. The complete job/conversation insert, durable provider
+deduplication, and queued-capacity decision then share one immediate SQLite
+transaction. Disabled, missing, full, and failed-storage endpoints receive one
+channel-specific unavailable response and create no new row.
 
-The TUI keeps its listener nonblocking so each event-loop poll stays bounded,
+The cap intentionally counts only `queued` rows. This preserves the old
+64-entry waiting-queue bound, where one active job had already left the
+`VecDeque`; progressed work is execution evidence rather than waiting ingress.
+Provider and exact-job deduplication run first so a response-loss retry still
+resolves to the original row when all 64 waiting slots are occupied. An
+immediate transaction serializes the count and insert, preventing concurrent
+requests from overbooking the final slot.
+
+The pre-BR-13 TUI socket path remains characterized for the BR-14 executor
+cutover, but it is no longer provider ingress acceptance. The TUI keeps its listener nonblocking so each event-loop poll stays bounded,
 but explicitly returns every accepted job stream to blocking mode before
 applying fixed read and write timeouts. Some platforms can otherwise surface
 `WouldBlock` while a sender is still completing a frame, turning a healthy live
@@ -2497,13 +2508,15 @@ intentional because both crates were already transitive dependencies and they
 replace the unsound handwritten source parser. Making them direct test
 dependencies keeps the AST contract explicit without changing the binary.
 
-If the TUI stages after `commit` but cannot write its final `accepted`
+This staged-socket rule describes the superseded ingress boundary and remains a
+runtime characterization until BR-14 removes or adopts it. If the TUI stages after `commit` but cannot write its final `accepted`
 acknowledgment, an opaque admission token bound to its issuing queue identity
 and admission generation removes only that exact staged tail item before
 releasing the exclusive queue borrow. A successful write finalizes the same
-token and makes the job dispatchable. The server therefore treats the failed
-handoff as unavailable and never commits an ID for work the TUI did not
-acknowledge.
+token and makes the job dispatchable. The old server path therefore treated the
+failed handoff as unavailable and never committed an ID for work the TUI did
+not acknowledge. BR-13 instead commits the durable job before provider success
+and does not append through this socket.
 
 ## Why receiver conversations keep both native history and a Brain transcript
 
@@ -2514,6 +2527,12 @@ identity is specific to workspace, portable user, channel, and channel lineage;
 there is no machine-global Email session or SMS session. SMS has one stable
 lineage for that tuple. Email reuses only a verified provider thread and never
 guesses from its subject.
+
+Resend's authenticated payload currently exposes a per-message ID rather than
+a verified stable thread key. Each new Email delivery therefore uses
+`EmailLineage::Uncertain`, even when subject or message fields match. A retry of
+the same provider delivery resolves to the original durable job and
+conversation before the fresh identity can create another conversation.
 
 Native history alone is insufficient durable authority. Its storage and resume
 rules belong to Claude, Codex, or OpenCode, it may be deleted independently of
@@ -2534,10 +2553,10 @@ progressed state as its lease changes owners. Erasing those states to claimed
 would prevent the later recovery policy from knowing whether a same-session
 recovery attempt is appropriate. Failed and done remain terminal.
 
-BR-12 intentionally stops at this model boundary. It neither decides when a
-live TUI should inject input nor replaces ingress, agent execution, completion,
-or delivery. Those consumers will adopt the durable conversation, state, and
-lease evidence in later PROJ-1 tasks.
+BR-12 intentionally stopped at this model boundary. BR-13 now uses it for
+provider ingress, including durable deduplication and queued capacity, but does
+not decide when a live TUI should inject input or replace agent execution,
+completion, or delivery. BR-14 and later PROJ-1 tasks own those consumers.
 
 ## Why the receiver tick uses ordered decisions and effects, not one lifecycle enum
 
@@ -2580,14 +2599,15 @@ second mutable receiver state machine.
 
 Webhook verification follows provider replay guidance: HMAC comparisons are
 constant-time and Resend timestamps have a five-minute tolerance. Provider
-delivery IDs use a 1024-entry accepted cache keyed by workspace, channel, and
-provider ID. An ID is retained only after a successful enqueue acknowledgment;
-failed SMS handoffs release it, and an in-flight duplicate is unavailable
-rather than prematurely acknowledged. A known unavailable Resend ingress is
+delivery IDs are durable keys scoped by workspace and channel. Every
+nonconcurrent retry reaches SQLite acceptance, where provider deduplication
+precedes queued-capacity rejection. Process memory excludes only an in-flight
+duplicate, which is unavailable rather than prematurely acknowledged. A known unavailable Resend ingress is
 still resolved before credentials; only that routed workspace's signing secret
 is then loaded to verify the event. A verified unavailable Resend ID is retained
-as a permanent discard, so later TUI availability cannot replay it. This is a
-bounded in-memory dedup record, not a queue, replay worker, or headless path.
+as a permanent discard, so later TUI availability cannot replay it. This
+1024-entry set is bounded discard memory, not durable-success authority, a
+queue, a replay worker, or a headless path.
 Persisted disable remains authoritative before live refresh: its failed route
 retains exact ingress-to-workspace identity for the same verified discard.
 
@@ -2602,14 +2622,14 @@ work and actor/job construction, dispatch reloads the exact canonical registry
 record and requires its immutable workspace UUID and persistent receiver intent
 to remain valid. It then reacquires the control mutex only to revalidate the
 exact generation, authority revision, receiver enablement, and live lease, and
-releases the mutex before the UUID-local socket handoff. At staged-socket
-commit, persisted intent is reloaded outside the mutex; one combined operation
+releases the mutex before durable workspace admission. At admission commit,
+persisted intent is reloaded outside the mutex; one combined operation
 then locks control, samples exact TTL, revalidates that same authority and the
 admission's workspace/lease identity, and performs the admission CAS before
 unlock. The attached
 authority revision and cancellable admission reject notified,
 notification-lost, unregister, and disable-enable ABA revocation without
-holding the mutex during provider or socket work.
+holding the mutex during provider or database work.
 
 Persistent receiver intent is the mutation commit point. A generation-bound
 live refresh is a convergence notification, not a second transaction: failure
@@ -2622,9 +2642,11 @@ Resend's two possible Receiving API calls are bounded independently at ten
 seconds and 1 MiB inside the 30-second handler total. The parse phase must
 still be live before that handler phase can begin. After provider work, Brain
 reserves the final five seconds exclusively for the HTTP response and caps the
-job handoff at two seconds. One absolute handoff deadline covers the safe
-nonblocking connect, full frame write, and acknowledgment read, so successful
-progress cannot consume a renewed timeout. One shared compile-time timing
+durable admission at two seconds. One absolute handoff deadline is installed
+as SQLite's busy timeout before WAL configuration or schema reconciliation,
+then covers lock waiting and the acceptance transaction. The deadline is
+checked after commit, so successful progress cannot consume a renewed timeout.
+One shared compile-time timing
 invariant prevents these bounds from drifting apart. The curl reader stops
 after one over-limit proof byte and reaps the child before returning a typed
 502. Resend receives HTTP success only for verified unavailable, ignored, and
@@ -2954,11 +2976,11 @@ and workspace UUID. The process reloads authoritative intent and refreshes only
 that live lease; it does not trust a client-supplied boolean. No process or live
 lease is a successful no-op because the next registration reads the persisted
 value. Route loading also rechecks persistent intent on the exact record before
-workspace-sensitive data or the job socket is opened, closing the notification
+workspace-sensitive data or the state DB is opened, closing the notification
 race. Status deliberately prints intent, TUI liveness, process reachability,
-and effective acceptance separately. This preserves TUI-only execution without
-inventing a durable queue, replay path, headless agent, manual lifecycle, or
-always-on responder.
+and effective acceptance separately. This preserves TUI-only execution while
+durable ingress remains workspace-scoped and the shared process gains no queue
+consumer, headless agent, manual lifecycle, or always-on responder.
 
 ## Why receiver setup joins machine credentials to portable users by workspace
 

@@ -12,11 +12,10 @@ mod forward;
 mod pipeline;
 use deliveries::{DELIVERIES, forward_provider_delivery};
 pub(in crate::server) use deliveries::{
-    provider_delivery_completed, remember_verified_unavailable_email,
+    provider_delivery_was_discarded, remember_verified_unavailable_email,
 };
 use final_authority::{commit_admission, final_admission};
 pub use forward::forward_job;
-use forward::forward_job_until_with_admission;
 use pipeline::SharedReceiverPipeline;
 
 pub(crate) const JOB_FRAME_LIMIT: usize = 1024 * 1024;
@@ -129,3 +128,6 @@ pub(in crate::server) fn dispatch_http(
             })
     })
 }
+
+#[cfg(test)]
+mod tests;
