@@ -85,7 +85,11 @@ fn two_not_started_occurrences_for_the_same_day_collapse_to_one() {
     assert_eq!(removed, 1);
     assert_eq!(table.rows.len(), 1);
     // The lexicographically smaller uuid survives, deterministically.
-    assert!(table.rows.contains_key("10000000-0000-4000-8000-000000000001"));
+    assert!(
+        table
+            .rows
+            .contains_key("10000000-0000-4000-8000-000000000001")
+    );
     assert!(!notes.is_empty());
 }
 
@@ -196,10 +200,7 @@ fn a_table_with_no_recur_interval_column_is_never_touched() {
     ];
     let mut table = Table {
         header,
-        rows: BTreeMap::from([
-            (row_a[0].clone(), row_a),
-            (row_b[0].clone(), row_b),
-        ]),
+        rows: BTreeMap::from([(row_a[0].clone(), row_a), (row_b[0].clone(), row_b)]),
         schema_status: SchemaStatus::Current,
     };
 

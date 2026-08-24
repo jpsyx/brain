@@ -74,7 +74,8 @@ pub(super) fn dedupe_habit_occurrences(table: &mut Table) -> (usize, Vec<String>
             let Some(loser_row) = table.rows.get(loser).cloned() else {
                 continue;
             };
-            let (row, folded_notes) = field_merge(None, &folded, &loser_row, &columns, &header, &id);
+            let (row, folded_notes) =
+                field_merge(None, &folded, &loser_row, &columns, &header, &id);
             folded = row;
             notes.extend(folded_notes);
         }
