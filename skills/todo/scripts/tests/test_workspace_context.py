@@ -661,6 +661,39 @@ class WorkspaceContextTests(unittest.TestCase):
         self.assertNotIn("Caller content", rendered)
         self.assertIn("Replacement content", rendered)
 
+    def test_render_ready_markdown_strips_the_appendix_marker_comment(self):
+        # markdown-to-pdf is a bespoke line renderer with no concept of HTML,
+        # so an unstripped comment shows up as literal text in the PDF. The
+        # marker must still round-trip through AGENDA_MD itself (checked by
+        # test_appendix_baker_uses_only_caller_supplied_content_and_paths
+        # above) — this only covers the copy handed to the PDF renderer.
+        program = (
+            "from update_agenda_on_mutation import _render_ready_markdown\n"
+            "text = (\n"
+            "    '# Agenda\\n\\n'\n"
+            "    '## Appendix <!-- brain:optional-content -->\\n\\n'\n"
+            "    'Body text\\n'\n"
+            ")\n"
+            "print(_render_ready_markdown(text), end='')\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=SCRIPTS,
+            env=self.env(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = result.stdout
+        self.assertNotIn("<!--", rendered)
+        self.assertNotIn("-->", rendered)
+        self.assertNotIn("brain:optional-content", rendered)
+        self.assertIn("## Appendix", rendered)
+        self.assertIn("Body text", rendered)
+
     def test_agenda_mutation_inserts_core_sections_before_generic_optional_content(self):
         program = (
             "from update_agenda_on_mutation import "

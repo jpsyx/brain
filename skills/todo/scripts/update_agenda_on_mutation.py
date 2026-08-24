@@ -340,6 +340,21 @@ def _replace_or_set_section(sections, prefix: str, new_section):
         sections[idx] = new_section
 
 
+def _render_ready_markdown(text: str) -> str:
+    """Strip HTML comments before handing markdown to `markdown-to-pdf`.
+
+    `markdown-to-pdf` is a bespoke line-based renderer with no concept of
+    HTML — it has no comment-stripping logic at all, so a raw HTML comment
+    (e.g. bake_triage_appendix.py's idempotency marker,
+    `<!-- brain:optional-content -->`) shows up as literal visible text on
+    the PDF page instead of disappearing the way it would in a real
+    markdown-to-HTML renderer. The marker must stay in the *source* file —
+    bake_triage_appendix.py greps for it to find and replace the appendix
+    section idempotently on every later run — so only the copy handed to
+    the PDF renderer gets comments stripped, never AGENDA_MD itself."""
+    return re.sub(r"[ \t]*<!--.*?-->", "", text, flags=re.DOTALL)
+
+
 def _regen_pdf():
     """Regen $AGENDA_DIR/agenda-<today>.pdf if it already exists. Honors
     the SKILL.md operating-principle-7 carve-out: no PDF on disk → skip."""
@@ -349,10 +364,16 @@ def _regen_pdf():
         log(f"markdown-to-pdf command not found ({MD2PDF}); skipping PDF regen")
         return
     # Any optional content already in AGENDA_MD is re-rendered automatically.
+    render_source = AGENDA_MD
     try:
+        source_text = AGENDA_MD.read_text()
+        rendered_text = _render_ready_markdown(source_text)
+        if rendered_text != source_text:
+            render_source = AGENDA_MD.with_suffix(".render.md")
+            render_source.write_text(rendered_text)
         AGENDA_PDF.unlink()
         subprocess.run(
-            [MD2PDF, str(AGENDA_MD), "--out", str(AGENDA_PDF), "--agenda"],
+            [MD2PDF, str(render_source), "--out", str(AGENDA_PDF), "--agenda"],
             check=True,
             capture_output=True,
             text=True,
@@ -361,6 +382,9 @@ def _regen_pdf():
         log(f"PDF regen failed (rc={e.returncode}): {e.stderr.strip() or e.stdout.strip()}")
     except OSError as e:
         log(f"PDF regen failed: {e}")
+    finally:
+        if render_source != AGENDA_MD:
+            render_source.unlink(missing_ok=True)
 
 
 def main() -> int:

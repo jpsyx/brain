@@ -251,7 +251,14 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    Run, in order:
 
        rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-       markdown-to-pdf /tmp/<TARGET_DATE>.md --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
+       PYTHONPATH="$BRAIN_ROOT/.agents/skills/todo/scripts" python3 -c "
+       from pathlib import Path
+       from update_agenda_on_mutation import _render_ready_markdown
+       src = Path('/tmp/<TARGET_DATE>.md')
+       Path('/tmp/<TARGET_DATE>.render.md').write_text(_render_ready_markdown(src.read_text()))
+       "
+       markdown-to-pdf /tmp/<TARGET_DATE>.render.md --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
+       rm -f /tmp/<TARGET_DATE>.render.md
 
    Then **verify the page count**:
 
@@ -266,7 +273,11 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    then `--font-shrink 2`, and so on (1 pt at a time) until
    the body fits on 2 pages. Always tear down the previous
    PDF with `rm -f` between attempts so the versioned-collision
-   fallback doesn't kick in.
+   fallback doesn't kick in, and always regenerate `.render.md`
+   fresh from the current `/tmp/<TARGET_DATE>.md` before each
+   attempt — the first pass already deleted it, and re-using a
+   stale copy would carry a possibly-outdated snapshot into
+   the retry.
 
 <!-- brain:ext todo:agenda-after-build -->
 
@@ -274,9 +285,25 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 
        /usr/bin/open $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
 
-   Five implementation notes, all load-bearing — do not
+   Six implementation notes, all load-bearing — do not
    substitute aliases or drop the flags:
 
+   - **The comment-stripping step is required, not optional.**
+     `markdown-to-pdf` is a bespoke line renderer with no concept
+     of HTML — it has no comment-stripping logic at all, so an
+     HTML comment on a source line (most commonly
+     `bake_triage_appendix.py`'s idempotency marker,
+     `## Appendix <!-- brain:optional-content -->`, once the
+     appendix has been baked in) shows up as **literal visible
+     text** on the printed page instead of disappearing the way
+     it would in a real markdown-to-HTML renderer. Feed
+     `markdown-to-pdf` the `.render.md` copy, never
+     `/tmp/<TARGET_DATE>.md` directly — the marker must stay in
+     the *source* file so reruns of the appendix bake can still
+     find and replace it idempotently; only the copy handed to
+     the renderer gets comments stripped. Delete the `.render.md`
+     copy after conversion; it's a disposable render artifact, not
+     agenda content.
    - **The `rm -f` is required, not optional.** The PDF script's
      default in non-interactive contexts is to write a versioned
      file (e.g. `agenda-…-v2.pdf`) on collision — never to
@@ -1075,10 +1102,21 @@ contract:
 
 ```
 rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-markdown-to-pdf /tmp/<TARGET_DATE>.md \
+PYTHONPATH="$BRAIN_ROOT/.agents/skills/todo/scripts" python3 -c "
+from pathlib import Path
+from update_agenda_on_mutation import _render_ready_markdown
+src = Path('/tmp/<TARGET_DATE>.md')
+Path('/tmp/<TARGET_DATE>.render.md').write_text(_render_ready_markdown(src.read_text()))
+"
+markdown-to-pdf /tmp/<TARGET_DATE>.render.md \
     --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
+rm -f /tmp/<TARGET_DATE>.render.md
 python3 -c "from pypdf import PdfReader; print(len(PdfReader('/agenda-<TARGET_DATE>.pdf').pages))"
 ```
+
+See the "comment-stripping step is required" implementation note
+under operating principle 8 above for why `markdown-to-pdf` is
+never handed `/tmp/<TARGET_DATE>.md` directly.
 
 If body exceeds 2 pages: escalate `--font-shrink 1`, then `2`,
 then `3`. If still spilling at `--font-shrink 3`, trim names per
