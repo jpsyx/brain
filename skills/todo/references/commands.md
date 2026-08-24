@@ -15,7 +15,7 @@ Anywhere a command takes `<task>`, the user may pass:
   e.g. `apple store`. If two rows match, the CLI lists them with
   their IDs and exits — pick by ID and rerun.
 
-This is implemented in [`scripts/_csvlib.py`](../scripts/_csvlib.py)
+This is implemented in `brain`
 `find_by_id_or_fuzzy()` + `locate()`. **Short IDs are shorthand;
 name fragments still work.**
 
@@ -30,7 +30,7 @@ row without changing its immutable `task_uuid`.
   `status=not_started`, `defer_count=0`, `assigned_to=BRAIN_ACTOR_ID`,
   everything else empty. `--assigned-to <user-id>` is an explicit override
   and must name a member in the selected workspace's `.config/users.json`.
-  Implementation: [scripts/add_task.py](../scripts/add_task.py).
+  Implementation: `brain tasks add`.
 
   **Chunked tasks** (`--chunks N --duration M`): split the task into
   N sequential sessions of M minutes each. Names become
@@ -57,7 +57,7 @@ row without changing its immutable `task_uuid`.
   If the row is in habits.csv, the binary also appends the next occurrence.
 - **`/todo defer <task> +Nd|YYYY-MM-DD`** — push `due_date`,
   increment `defer_count`. Warns at `defer_count >= 3`. See
-  [scripts/defer_task.py](../scripts/defer_task.py).
+  `brain tasks defer`.
   **Defer-demote rule (deterministic, in the script):** any defer
   strips `mit` from `task_type` and demotes `p0 → p1`. Lower
   priorities keep their level but still lose MIT. Rationale: if it
@@ -75,7 +75,7 @@ row without changing its immutable `task_uuid`.
   changes. Use for the chronic-ignore "revive" action: the user
   acknowledges a stale task ("yes I still care"); it then has
   another 21 days before resurfacing in chronic-ignore. See
-  [scripts/touch_task.py](../scripts/touch_task.py).
+  `brain tasks touch`.
 - **`/todo defer-habit <habit> [--occurrences N]`** — skip the next
   N occurrences of a habit (default 1). Advances `due_date` by N
   recurrence intervals using the same anchor-to-due-with-catch-up
@@ -83,12 +83,12 @@ row without changing its immutable `task_uuid`.
   after skipping. Use this instead of `defer` for habits — raw
   `+Nd` would knock weekly/monthly cycles off-rhythm. No
   `completed_date` is recorded (the skipped instance is simply not
-  done). See [scripts/defer_habit.py](../scripts/defer_habit.py).
+  done). See `brain habits defer`.
 - **`/todo priority <task> p0|p1|p2|p3|p4`**
 - **`/todo mit <task>`** — adds `mit` to `task_type` (and removes if
   already present — toggle).
 - **`/todo assign <task> <user-id>`** — explicit reassignment through
-  `reassign_task.py`; validates portable membership and preserves every
+  `brain tasks assign`; validates portable membership and preserves every
   unrelated field.
 - **`/todo set <task> <field>=<value>`** — generic setter for
   `energy_level`, `context`, `estimated_duration`, `project`,
@@ -132,10 +132,10 @@ assistant first.
   **Persistence:** every time you build or rework an agenda,
   **write it to `/tmp/<TARGET_DATE>.md`** (overwriting). Every task
   mutation keeps that file current on its own: `brain tasks complete`
-  syncs it in-process, and the mutator scripts (`defer_task.py`,
-  `defer_habit.py`, `touch_task.py`, `backlog_task.py`) hand it to
+  syncs it in-process, and the mutator scripts (`brain tasks defer`,
+  `brain habits defer`, `brain tasks touch`, `brain backlog park`) hand it to
   `brain tasks sync-agenda` via
-  [scripts/update_agenda_on_mutation.py](../scripts/update_agenda_on_mutation.py)
+  `brain tasks sync-agenda`
   — see SKILL.md operating principle 7. Only **non-mutation** reworks
   (drops, swaps, manual reorderings) are yours to write.
   The user reads these files via the `agenda` zsh helper
@@ -147,7 +147,7 @@ assistant first.
 - **`/todo triage`** — see [triage-heuristics.md](triage-heuristics.md).
   Bulk-group past-due tasks; offer defer-all / drop-all / 1-by-1.
 - **`/todo chronic`** — list chronically-ignored tasks via
-  [scripts/find_chronic_ignored.py](../scripts/find_chronic_ignored.py).
+  `brain tasks chronic`.
   Same set that `/triage` Step 7 sweeps; useful for ad-hoc inspection
   without running a full triage pass. Pass `--count` for just the
   number; `--pretty` for human-readable JSON.
@@ -162,7 +162,7 @@ See [task-project-link.md](task-project-link.md) for the full doc.
 - **`/todo project-tasks <project>`** — list tasks for a project.
 - **`/todo project-status <project>`** — done / total counts +
   ETA.
-- **`/todo orphans`** — alias for `apply_sync_rules.py` dry-run.
+- **`/todo orphans`** — alias for `brain tasks lint` dry-run.
 
 ## Linear linkage (code tasks)
 
@@ -174,15 +174,15 @@ judgment is delegated to `/linear-pm`.
   issue. Hands placement (Backlog / project / cycle) + priority + labels
   to `/linear-pm`, confirms the draft (`AskUserQuestion`), creates the
   issue (`save_issue`), then persists the link via
-  `set_linear_issue.py`. Confirm before any Linear write.
+  `brain tasks set`. Confirm before any Linear write.
 - **`/todo link-issue <task> <AVA-###> [url]`** — link an existing task
   to an existing issue. Wraps
-  [scripts/set_linear_issue.py](../scripts/set_linear_issue.py).
+  `brain tasks set`.
 - **`/todo unlink-issue <task>`** — clear the `linear_issue` link.
-  `set_linear_issue.py <task> --clear`.
+  `brain tasks set <task> --linear-issue ""`.
 - **`/todo sync-linear`** — reconcile linked code tasks with Linear on
   demand (the same pass /triage runs daily):
-  `list_linked_tasks.py --open-only` → `get_issue` each → sync **state
+  `brain tasks linked --open-only` → `get_issue` each → sync **state
   and properties** (status, `due_date`↔`dueDate`, `priority`,
   `task_name`↔`title`; most-recently-edited wins, conflicts surfaced);
   apply the **ownership filter** (mirror in the user's untracked code
@@ -191,7 +191,7 @@ judgment is delegated to `/linear-pm`.
   whole workspace; drop ones reassigned to others); create
   **PR-review tasks** for PRs awaiting the user's review (deduped on PR URL).
   See [linear-link.md](linear-link.md) and
-  [scripts/list_linked_tasks.py](../scripts/list_linked_tasks.py).
+  `brain tasks linked`.
 
 `/todo add` also accepts `--linear-issue AVA-###` to set the link at
 creation (rare — the issue usually doesn't exist yet). `/todo done` on a
@@ -200,8 +200,8 @@ remove` should cancel it (never delete).
 
 ## Reindex
 
-- **`/todo reindex`** — runs `apply_sync_rules.py --fix` +
-  `cleanup_done_habits.py`. Same code paths invoked by
+- **`/todo reindex`** — runs `brain tasks lint --fix` +
+  `brain habits cleanup`. Same code paths invoked by
   `/second-brain reindex`.
 - **`/second-brain reindex`** — runs the full brain reindex, including
   tasks. See `../second-brain/SKILL.md`.

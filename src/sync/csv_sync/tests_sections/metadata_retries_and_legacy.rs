@@ -121,7 +121,6 @@ fn one_invalid_csv_preflight_blocks_both_csvs_baselines_and_metadata() {
 fn python_legacy_writer_output_syncs_by_task_id_until_schema_activation() {
     use std::cell::RefCell;
     use std::collections::BTreeMap;
-    use std::process::Command;
 
     let directory = tempfile::tempdir().unwrap();
     let home = directory.path().join("home");
@@ -141,31 +140,9 @@ fn python_legacy_writer_output_syncs_by_task_id_until_schema_activation() {
     std::fs::write(tasks_dir.join("tasks.csv"), legacy_tasks).unwrap();
     std::fs::write(tasks_dir.join("habits.csv"), legacy_habits).unwrap();
 
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py");
-    let output = Command::new("python3")
-        .arg(script)
-        .args([
-            "--name",
-            "New row",
-            "--type",
-            "personal",
-            "--priority",
-            "p2",
-        ])
-        .env("HOME", &home)
-        .env("XDG_CACHE_HOME", directory.path().join("xdg-cache"))
-        .env("BRAIN_ROOT", &root)
-        .env("BRAIN_WORKSPACE", "fixture")
-        .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
-        .env("BRAIN_ACTOR_ID", "member-a")
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // A native create against a legacy-shaped table: the row it writes is what
+    // the sync then has to keep task_id-keyed until the schema is activated.
+    create_natively(&root, "New row");
     let hybrid = std::fs::read_to_string(tasks_dir.join("tasks.csv")).unwrap();
     assert!(hybrid.starts_with("task_id,"));
     assert!(hybrid.contains("task_uuid"));
@@ -202,7 +179,6 @@ fn python_legacy_writer_output_syncs_by_task_id_until_schema_activation() {
 fn python_new_file_stays_task_id_keyed_until_schema_activation() {
     use std::cell::RefCell;
     use std::collections::BTreeMap;
-    use std::process::Command;
 
     let directory = tempfile::tempdir().unwrap();
     let home = directory.path().join("home");
@@ -217,31 +193,9 @@ fn python_new_file_stays_task_id_keyed_until_schema_activation() {
     .unwrap();
     std::fs::write(root.join("tasks/tasks.csv"), "").unwrap();
     std::fs::write(root.join("tasks/habits.csv"), "task_id,status\n").unwrap();
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/add_task.py");
-    let output = Command::new("python3")
-        .arg(script)
-        .args([
-            "--name",
-            "First row",
-            "--type",
-            "personal",
-            "--priority",
-            "p2",
-        ])
-        .env("HOME", &home)
-        .env("XDG_CACHE_HOME", directory.path().join("xdg-cache"))
-        .env("BRAIN_ROOT", &root)
-        .env("BRAIN_WORKSPACE", "fixture")
-        .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
-        .env("BRAIN_ACTOR_ID", "member-a")
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // A native create against a legacy-shaped table: the row it writes is what
+    // the sync then has to keep task_id-keyed until the schema is activated.
+    create_natively(&root, "First row");
 
     let remote = RefCell::new(BTreeMap::from([
         ("tasks/tasks.csv".to_owned(), String::new()),
@@ -267,4 +221,23 @@ fn python_new_file_stays_task_id_keyed_until_schema_activation() {
     assert_eq!(table.merge_key(), Some("task_id"));
     assert!(table.rows.contains_key("T1"));
     assert_eq!(remote.borrow()["tasks/tasks.csv"], local);
+}
+
+/// Create one ordinary task through the native writer.
+///
+/// These tests are about what the **sync** does with a freshly written row, so
+/// the writer just has to be the real one.
+fn create_natively(root: &std::path::Path, name: &str) {
+    crate::tasks::add::create_in_root_for_actor_with_today(
+        root,
+        &crate::actor::test_actor("member-a"),
+        &crate::tasks::add::CreateRequest {
+            name: name.to_owned(),
+            task_type: Some("personal".to_owned()),
+            priority: "p2".to_owned(),
+            ..crate::tasks::add::CreateRequest::default()
+        },
+        chrono::NaiveDate::from_ymd_opt(2026, 8, 24).expect("valid date"),
+    )
+    .expect("create the row");
 }

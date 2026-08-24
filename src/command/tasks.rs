@@ -60,6 +60,19 @@ pub fn launch(
         Some(TasksCommand::SyncAgenda(args)) => {
             return sync_agenda::run(context, &args);
         }
+        Some(TasksCommand::Lint(args)) => return run_lint(context, args.fix),
+        Some(TasksCommand::Streak(args)) => return run_streak(context, &args),
+        Some(TasksCommand::AgendaPdf(args)) => return sync_agenda::run_pdf(context, &args),
+        Some(TasksCommand::Chronic(args)) => return scan::run_chronic(context, &args),
+        Some(TasksCommand::StaleWaiting(args)) => return scan::run_waiting(context, &args),
+        Some(TasksCommand::Linked(args)) => return scan::run_linked(context, &args),
+        Some(TasksCommand::AgendaAppendix(args)) => {
+            return sync_agenda::run_appendix(context, &args);
+        }
+        Some(TasksCommand::Remove(args)) => return mutate::run_remove(context, &args),
+        Some(TasksCommand::Defer(args)) => return mutate::run_defer(context, &args),
+        Some(TasksCommand::Touch(args)) => return mutate::run_touch(context, &args),
+        Some(TasksCommand::Assign(args)) => return mutate::run_assign(context, &args),
         Some(TasksCommand::Search(args)) => browse::Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
             let db_path = context.workspace.paths().state_db();
@@ -123,6 +136,52 @@ pub fn launch(
     )
 }
 
+/// `brain tasks lint [--fix]`, and the rule half of `brain reindex --tasks`.
+pub(crate) fn run_lint(context: &crate::workspace::CommandContext, fix: bool) -> Result<()> {
+    let report = lint_report(context, fix)?;
+    eprint!(
+        "{}",
+        crate::tasks::rules::render(&report, fix, crate::theme::Theme::active())
+    );
+    if !fix && !report.issues.is_empty() {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// Run the rules, holding the task-store lock while they may write.
+pub(crate) fn lint_report(
+    context: &crate::workspace::CommandContext,
+    fix: bool,
+) -> Result<crate::tasks::rules::LintReport> {
+    let _owner = fix
+        .then(|| crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace))
+        .transpose()?;
+    crate::tasks::rules::run(context.workspace.root(), Local::now().date_naive(), fix)
+}
+
+/// `brain tasks streak <name> [status|mark|unmark]`.
+fn run_streak(
+    context: &crate::workspace::CommandContext,
+    args: &crate::tasks::cli::StreakArgs,
+) -> Result<()> {
+    use crate::tasks::cli::StreakAction;
+
+    let date = match &args.date {
+        Some(raw) => chrono::NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d")
+            .map_err(|_| anyhow::anyhow!("'{raw}' is not a date (expected YYYY-MM-DD)"))?,
+        None => Local::now().date_naive(),
+    };
+    let root = context.workspace.root();
+    let status = match args.action.as_ref().unwrap_or(&StreakAction::Status) {
+        StreakAction::Status => crate::tasks::streak::status(root, &args.name, date)?,
+        StreakAction::Mark => crate::tasks::streak::mark(root, &args.name, date)?,
+        StreakAction::Unmark => crate::tasks::streak::unmark(root, &args.name, date)?,
+    };
+    println!("{}", serde_json::to_string(&status)?);
+    Ok(())
+}
+
 fn prepare_empty_workspace(context: &crate::workspace::CommandContext) -> Result<()> {
     if !crate::workspace::is_empty_workspace(context.workspace.root())? {
         return Ok(());
@@ -175,6 +234,11 @@ fn format_add_result(result: &crate::tasks::add::CreateResult, json: bool) -> Re
 }
 
 mod set;
+
+mod mutate;
+
+mod scan;
+pub(crate) use mutate::run_backlog_move;
 
 mod sync_agenda;
 

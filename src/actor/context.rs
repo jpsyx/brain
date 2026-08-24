@@ -20,6 +20,19 @@ pub enum Channel {
 }
 
 impl Channel {
+    /// Parse the wire spelling Brain passes to its own children.
+    ///
+    /// Anything unrecognized reads as interactive: a malformed channel should
+    /// not silently claim an inbound one.
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        match value.trim() {
+            "sms" => Self::Sms,
+            "email" => Self::Email,
+            _ => Self::Interactive,
+        }
+    }
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {

@@ -19,6 +19,7 @@
 //! filesystem; [`io`] is the thin best-effort shell that reads/writes the file
 //! and regenerates the PDF.
 
+pub(crate) mod appendix;
 mod derive;
 mod doc;
 pub(crate) mod io;
@@ -28,7 +29,9 @@ mod sync;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use io::{Outcome, Targets, resolve_targets, sync_after_command_mutation, sync_targets};
+pub(crate) use io::{
+    Outcome, Targets, render_pdf, resolve_targets, sync_after_command_mutation, sync_targets,
+};
 pub(crate) use sync::{Action, Snapshot, sync_markdown};
 
 /// Section heading prefixes. Matched by prefix rather than exact text so the

@@ -6,10 +6,10 @@ description: Use when the user asks to triage tasks, run "morning triage", run w
 # triage
 
 Throughout this skill, `<brain>` is the selected workspace root in
-`BRAIN_ROOT`, and `$BRAIN_ROOT/.agents/skills/todo/scripts/` is where `brain skills sync`
-installs the `/todo` skill's helper scripts. Run mutators only inside the Brain
-workspace/actor environment; they deliberately fail instead of falling back to
-a home-directory brain. Preserve each row's `assigned_to` unless the user asks
+`BRAIN_ROOT`. Every task and habit operation below is a `brain` subcommand —
+this skill ships no scripts. Run them inside the Brain workspace/actor
+environment so they act on the selected workspace; `-w <name>` picks another.
+Preserve each row's `assigned_to` unless the user asks
 for explicit reassignment through the validated `/todo assign` path.
 
 ## Triage never touches habits (hard invariant)
@@ -34,13 +34,13 @@ Concretely, for every pass below:
   never appear in a group, a count, a bulk operation, or a per-task prompt. If a
   past-due list you assembled contains an `H###` row, the list is wrong — rebuild
   it from `tasks.csv`.
-- **"Drop all" and per-task "Drop" apply to tasks only.** `remove_task.py`
+- **"Drop all" and per-task "Drop" apply to tasks only.** `brain tasks remove`
   refuses a habit needle unless given `--habit`; triage must **never** pass that
   flag, under any circumstance, including a direct user instruction mid-triage
   (send them to `/todo remove` for that, so retiring a habit is a deliberate act
   outside a bulk cleanup).
-- **"Defer all N days" applies to tasks only.** Do not use `defer_task.py` or
-  `defer_habit.py` on a habit during triage. A habit the user wants out of the
+- **"Defer all N days" applies to tasks only.** Do not use `brain tasks defer` or
+  `brain habits defer` on a habit during triage. A habit the user wants out of the
   way today is handled by `/todo`'s cadence-aware `brain habits skip`, after
   triage, at their explicit request.
 - **Step 0's backlog auto-purge only touches `status=backlog` rows in
@@ -116,7 +116,7 @@ Do NOT ask the user "which mode?" outside of case (2). Saving their time is the 
 If the user says we can **skip** daily triage for the day ("skip daily
 triage", "no triage today", "we can skip triage"), run nothing else. If
 managed triage habits are enabled, complete the protected daily occurrence
-with `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" \
+with `brain tasks lint \
 --complete-managed-triage daily`. If they are disabled, acknowledge the skip
 without reading or mutating `habits.csv`. In either case, send the optional
 background completion signal as the final action when its two environment
@@ -161,7 +161,7 @@ straight to Step 0.
 Before the task-triage steps, run the 6-month backlog purge:
 
 ```
-python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/purge_old_backlog.py"
+brain backlog purge
 ```
 
 It deletes any `status=backlog` task whose `backlogged_date` is >6 months
@@ -206,8 +206,8 @@ The "> 30d old" cross-cut is shown even when the primary grouping is by `task_ty
 
 ## Step 3 — Bulk operations per group
 
-- **Defer all N days** — accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `defer_task.py` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
-- **Drop all** — confirms with the count, then removes those rows from `tasks.csv` via `remove_task.py`. Never silently destructive, and never applied to a habit (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+- **Defer all N days** — accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `brain tasks defer` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
+- **Drop all** — confirms with the count, then removes those rows from `tasks.csv` via `brain tasks remove`. Never silently destructive, and never applied to a habit (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
 - **1-by-1** — walks the group with per-task prompts (see Step 4).
 - **Skip group** — moves to next.
 
@@ -223,7 +223,7 @@ question: **Due 7/5 (1d late):** T108 "Check in with the vendor on the billing-s
 options:  Done / Defer +7d / Drop / Start now
 ```
 
-The full action vocabulary (`defer +14d`, `defer to date`, `mit`, `change-priority`, `convert-to-project`, `move-to-backlog`, `skip`) is still available — the user can type any of those via the auto-added "Other" option. **`move-to-backlog`** parks the task indefinitely (`backlog_task.py`); surface it as an explicit option once `defer_count >= 4` (see "Default 4-option sets").
+The full action vocabulary (`defer +14d`, `defer to date`, `mit`, `change-priority`, `convert-to-project`, `move-to-backlog`, `skip`) is still available — the user can type any of those via the auto-added "Other" option. **`move-to-backlog`** parks the task indefinitely (`brain backlog park`); surface it as an explicit option once `defer_count >= 4` (see "Default 4-option sets").
 
 **High-defer warning**: if `defer_count >= 3` *before* this action, prepend a line in red/bold:
 
@@ -253,7 +253,7 @@ After past-due is clean, scan the next **8 days** for tasks likely to slip. This
 A task in `status=waiting` is paused on an **external** party (a reply, a vendor, a legal review), so its slipping isn't avoidance — deferring it never raised `defer_count`. But waiting forever is its own failure mode. Run:
 
 ```
-python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_stale_waiting.py" --pretty
+brain tasks stale-waiting --pretty
 ```
 
 For each task that's been waiting **more than 7 days** (`waiting_since`), nudge the user: offer to **follow up with the external party** (infer who from the `task_name`/`see_also` if you can) and ask whether to **create a check-in task** for that follow-up. A task with `status=waiting` but an empty `waiting_since` is also surfaced (we can't tell how long — stamp it now). This is the counterpart to the chronic-ignore sweep: chronic-ignore is "we're avoiding it"; stale-waiting is "someone else is sitting on it and it's time to chase them."
@@ -334,7 +334,7 @@ A task in `tasks.csv` qualifies if `status != done`, its deadline is imminent or
 Don't apply these filters in your head — LLMs are bad at calendar math. Run the script:
 
 ```
-python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py"
+brain tasks chronic
 ```
 
 Outputs one JSON object per matching task (sorted by max-days-since-touch first) with `task_id`, `task_name`, `reasons[]`, `days_since_touch`, `days_since_create`, `status`, `priority`, `task_type`, `due_date`, `defer_count`, `project`, `hard_deadline`. Pipe to `--count` for a quick number, `--pretty` for human-readable.
@@ -366,7 +366,7 @@ options:  Drop (Recommended) / Revive / Start now / Defer to date
 Actions:
 
 - **`drop`** — remove from CSV (confirms first). Use as default.
-- **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/touch_task.py" <T###>`.
+- **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `brain tasks touch <T###>`.
 - **`start-now`** — set `status=in_progress` and `start_date=today` (the underlying scripts will also touch the row). Use when the user commits to begin now.
 - **`convert-to-project`** — when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md). Note: don't reflexively convert — converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.
 - **`defer to date`** — push `due_date` to a real date with a real commitment. Hard-deadline rows still require the Step 5 confirmation.
@@ -424,7 +424,7 @@ After the daily triage process completes (user has either resolved every past-du
 
 1. If managed triage habits are enabled, complete the protected daily occurrence via:
    ```
-   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" --complete-managed-triage daily
+   brain habits complete-managed-triage daily
    ```
    The helper resolves `system_key=brain.triage.daily`, records completion,
    and advances the recurring chain. Do not use the ordinary task or habit
@@ -530,19 +530,19 @@ Every weekly triage also checks whether it's the **monthly** triage.
 "Monthly" is not its own command — it's simply the **first weekly triage
 of a calendar month**, and its only extra job is reviewing the backlog.
 
-1. **Detect:** `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/monthly_triage_state.py"`.
+1. **Detect:** `brain triage state`.
    If `is_monthly` is `false`, skip this step entirely. If `true`, do the
-   dedupe + backlog review below, then mark it: `monthly_triage_state.py
+   dedupe + backlog review below, then mark it: `brain triage state
    --mark` (so the next weekly triage this month is just weekly).
 2. **Dedupe backlog vs active (monthly only, silent):**
-   `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/dedupe_backlog.py"`. This deletes
+   `brain backlog dedupe`. This deletes
    any backlog task that has an active-list twin which was *created after*
    the task was backlogged — i.e. the user already re-created (revived) it
    by hand, so the backlog copy is a stale duplicate. It does nothing but
    delete the duplicate backlog row, and prints nothing. **Silent like the
    purge: don't announce what (if anything) was deduped.** Run it before
    the backlog review so resurfaced candidates are dup-free.
-3. **Backlog review (monthly only):** `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/list_backlog.py" --pretty`.
+3. **Backlog review (monthly only):** `brain backlog`.
    The goal is **resurfacing**, not clearing: surface only backlog items
    that (a) look **relevant to current work** and (b) look **doable given
    current time/demands**. This is how the user rediscovers tasks they
@@ -550,8 +550,8 @@ of a calendar month**, and its only extra job is reviewing the backlog.
    matter now. **Do NOT walk every backlog item** — that defeats the
    purpose and wastes the user's time. Pick the handful that genuinely
    merit a second look and ask, via `AskUserQuestion`, whether to
-   **leave it parked** or **restore** each (`backlog_task.py <T###>
-   --restore`, then set a fresh `due_date`/`priority`). **`Leave parked`
+   **leave it parked** or **restore** each (`brain backlog restore <T###>`,
+   then set a fresh `due_date`/`priority`). **`Leave parked`
    is ALWAYS the first option** — the backlog default is to stay parked,
    and surfacing an item here is a preview, not a nudge to restore it
    (same reasoning as Step 6's `Leave as is`). Items that aren't
@@ -565,7 +565,7 @@ After **all** in-baskets are empty:
 
 1. If managed triage habits are enabled, complete the protected weekly occurrence via:
    ```
-   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" --complete-managed-triage weekly
+   brain habits complete-managed-triage weekly
    ```
    The helper resolves `system_key=brain.triage.weekly`; visible names are not identity.
 2. If managed triage habits are disabled, skip habit lookup and mutation. The
@@ -619,7 +619,7 @@ After the bolded deadline, give the task ID, name, type/priority/age, and key fl
 
 Deviate from these defaults when context obviously warrants it (e.g. show `Defer +14d` instead of `+7d` when the user has been deferring +14 repeatedly this session).
 
-**`Move to backlog` is a standing action everywhere.** It's always reachable via "Other," and you should **surface it as an explicit option whenever `defer_count >= 4`** — at that point deferring again is the wrong default, so swap `Defer` for `Move to backlog` in the option set (e.g. Step 4: `Done` / `Move to backlog` / `Drop` / `Start now`). Backlogging parks the task (clears its dates, hides it from active views) via `backlog_task.py <T###>`; it stops the per-triage nagging without losing the task. **If the task belongs to a project, run the project follow-up** (backlog whole project? archive it?) per /todo SKILL.md "Backlog ↔ projects" — ask with `AskUserQuestion`, don't assume.
+**`Move to backlog` is a standing action everywhere.** It's always reachable via "Other," and you should **surface it as an explicit option whenever `defer_count >= 4`** — at that point deferring again is the wrong default, so swap `Defer` for `Move to backlog` in the option set (e.g. Step 4: `Done` / `Move to backlog` / `Drop` / `Start now`). Backlogging parks the task (clears its dates, hides it from active views) via `brain backlog park <T###>`; it stops the per-triage nagging without losing the task. **If the task belongs to a project, run the project follow-up** (backlog whole project? archive it?) per /todo SKILL.md "Backlog ↔ projects" — ask with `AskUserQuestion`, don't assume.
 
 **Group-level prompts:**
 

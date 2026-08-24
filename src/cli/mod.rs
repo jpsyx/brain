@@ -5,6 +5,7 @@
 //! public `crate::cli::*` surface.
 
 mod configuration;
+mod contacts;
 mod global;
 mod internal;
 mod server;
@@ -14,6 +15,7 @@ mod users;
 mod workspace;
 
 pub use configuration::*;
+pub use contacts::*;
 pub use global::{AgentSelectionError, Cli};
 pub use internal::InternalMigrationArgs;
 pub use server::*;
@@ -104,6 +106,23 @@ pub enum Cmd {
     /// habit for today (cadence-aware: a daily habit is marked done + respawned;
     /// a non-daily habit is deferred one day; `--until` defers to a given date).
     Habits(HabitsArgs),
+
+    /// Review the backlog, or park, restore, purge, and dedupe it. Bare
+    /// `brain backlog` lists what is parked, stalest first.
+    Backlog(BacklogArgs),
+
+    /// Remove tool byproducts (Finder metadata, Python caches, editor
+    /// scratch) from the workspace root. Idempotent, and `--dry-run` previews.
+    Clean(CleanArgs),
+
+    /// The workspace's local contacts book: add, edit, delete, list, and
+    /// search. Bare `brain contacts` lists everyone.
+    Contacts(ContactsArgs),
+
+    /// The deterministic bookkeeping behind triage. Running a triage pass is
+    /// judgement work an agent does; this owns only the state that must
+    /// survive a session ending mid-run.
+    Triage(TriageArgs),
 
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.

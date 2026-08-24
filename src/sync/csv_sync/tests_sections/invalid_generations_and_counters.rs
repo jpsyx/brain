@@ -140,7 +140,6 @@ fn malformed_or_duplicate_generation_refuses_the_whole_operation() {
 fn push_only_collision_floors_task_and_habit_counters_before_allocation() {
     use std::cell::RefCell;
     use std::collections::BTreeMap;
-    use std::process::Command;
 
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("workspace");
@@ -203,21 +202,31 @@ fn push_only_collision_floors_task_and_habit_counters_before_allocation() {
         },
     );
 
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("skills/todo/scripts/next_id.py");
-    let allocate = |kind: &str| {
-        let output = Command::new("python3")
-            .arg(&script)
-            .args(["--kind", kind])
-            .current_dir(script.parent().unwrap())
-            .env("HOME", directory.path())
-            .env("BRAIN_ROOT", &root)
-            .env("BRAIN_WORKSPACE_ID", "e806258e-491a-436d-9db4-a5ca9903e0d4")
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    // The next id a native create allocates is the counter's answer: the
+    // floors the push wrote must be what a later row starts from.
+    let actor = crate::actor::test_actor("member-a");
+    let allocate = |habit: bool| {
+        crate::tasks::add::create_in_root_for_actor_with_today(
+            &root,
+            &actor,
+            &crate::tasks::add::CreateRequest {
+                name: "Next".to_owned(),
+                priority: "p2".to_owned(),
+                task_type: (!habit).then(|| "personal".to_owned()),
+                habit,
+                interval: habit.then_some(1),
+                unit: habit.then(|| "days".to_owned()),
+                due: habit.then(|| "2026-08-24".to_owned()),
+                ..crate::tasks::add::CreateRequest::default()
+            },
+            chrono::NaiveDate::from_ymd_opt(2026, 8, 24).expect("valid date"),
+        )
+        .expect("allocate")
+        .created[0]
+            .id
+            .clone()
     };
 
-    assert_eq!(allocate("tasks"), "T12");
-    assert_eq!(allocate("habits"), "H7");
+    assert_eq!(allocate(false), "T12");
+    assert_eq!(allocate(true), "H7");
 }

@@ -51,7 +51,7 @@ patches the reverse direction.
 
 ## Validation (CLI, structured — never LLM)
 
-[`apply_sync_rules.py`](../scripts/apply_sync_rules.py):
+`brain tasks lint`:
 
 1. For every non-empty `tasks.csv:project`: assert the project
    folder exists. If not → log orphan, **never silently clear**.
@@ -132,7 +132,7 @@ flow.
 | `/todo add-to-project <project> "<text>"` | Create a new task already linked to `<project>` — same as `/todo add` with the `project` arg pre-filled. |
 | `/todo project-tasks <project>` | List tasks for a project: open + done in last 7d. |
 | `/todo project-status <project>` | Counts: done / total, MITs, past-due, ETA from `estimated_duration` sum. |
-| `/todo orphans` | Run validation in dry-run mode; print orphan tasks + projects. Same as `apply_sync_rules.py` without `--fix`. |
+| `/todo orphans` | Run validation in dry-run mode; print orphan tasks + projects. Same as `brain tasks lint` without `--fix`. |
 
 ## Archiving a project (extends `/second-brain` "Archive this project")
 

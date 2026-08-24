@@ -12,8 +12,9 @@ The user's canonical task system lives at `<brain>/tasks/`:
 - `SCHEMA.json` — machine-readable schema.
 
 Throughout, `<brain>` is the selected workspace root from `BRAIN_ROOT`;
-`<brain-root>/.agents/skills/todo/scripts/` is where `brain skills sync` installs this
-skill's helper scripts; `$AGENDA_DIR` is `brain config get
+every task operation is a `brain` subcommand (this skill ships no scripts —
+run `brain tasks --help`, `brain habits --help`, and `brain backlog --help` to
+see them); `$AGENDA_DIR` is `brain config get
 agenda_dir` (the folder the agenda PDF is written to, default your Downloads
 folder); and `markdown-to-pdf` is the configured PDF command
 (`markdown_to_pdf_path`) — run that path, not a same-named shell
@@ -66,7 +67,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   exclusive states — if it has a date it isn't backlogged; if it's
   backlogged it has no date. A date on a backlog row is never "maybe it's
   mis-statused"; it is always drift to be corrected **by clearing the
-  date**. `backlog_task.py` enforces this on entry (clears all four);
+  date**. `brain backlog park` enforces this on entry (clears all four);
   never hand-set a `due_date` on a backlog row afterward. If a backlogged
   task is linked to an external issue tracker, keeping that side's date in
   sync is the tracker workflow's job (see the `todo:linear` extension point).
@@ -82,7 +83,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 
   In **both** cases the slip isn't avoidance, so **deferring does NOT
   increment `defer_count`** and the defer-demote rule is skipped (no
-  stripping mit, no p0→p1). `defer_task.py` applies this automatically
+  stripping mit, no p0→p1). `brain tasks defer` applies this automatically
   when `status==waiting` or `blocked_by` is non-empty; `--no-count`
   forces it for any other genuinely-not-our-fault push. `defer_count`
   stays the "are *we* ignoring this?" signal — it should only climb on
@@ -91,15 +92,15 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   than 7 days (by `waiting_since`) should trigger a nudge: the
   assistant offers to follow up with the external party (infer who
   from the task name if possible) and to create a check-in task.
-  Detector: `python3 scripts/find_stale_waiting.py` (`--count`,
+  Detector: `brain tasks stale-waiting` (`--count`,
   `--pretty`, `--threshold N`). Run it in the agenda flow and in
   `/triage`.
 - **Bidirectional task ↔ project link.** Always validated by
   structured CLI tools (Python diff), never LLM judgment.
 - **Optional external-issue link.** A task may carry a link to an
   external issue tracker in the `linear_issue` column, managed by the
-  local scripts [`set_linear_issue.py`](scripts/set_linear_issue.py) /
-  [`list_linked_tasks.py`](scripts/list_linked_tasks.py). Core treats it as
+  local scripts `brain tasks set` /
+  `brain tasks linked`. Core treats it as
   inert metadata — an empty value is always fine and nothing here contacts an
   external service. The sync *workflow* (when/how to mirror to a tracker) is
   personal; see the [External issue tracker](#external-issue-tracker-optional)
@@ -108,14 +109,14 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   `assigned_to` to the immutable effective actor in `BRAIN_ACTOR_ID`, whether
   the workspace has one member or several. Unrelated edits never change it.
   Explicit assignment uses `--assigned-to <user-id>` and explicit reassignment
-  uses `reassign_task.py <task> <user-id>`; both validate the ID through the
+  uses `brain tasks assign <task> <user-id>`; both validate the ID through the
   selected workspace's portable `.config/users.json`. One-person workspaces
   hide assignment detail, creation/reassignment controls, and filters while
   still filling the ID. Shared workspaces show those surfaces and accept
   `assigned_to=<user-id>` as a list filter.
 - **Short task IDs are the user-facing handle.** Tasks use `T###`
   (e.g. `T17`), habits use `H###` (e.g. `H42`). Issued by
-  [`scripts/next_id.py`](scripts/next_id.py); counters live beside the selected
+  `brain tasks add`; counters live beside the selected
   workspace's CSVs. Scripts require Brain's workspace environment and never
   fall back to a home-directory brain.
   `task_uuid` is the immutable merge identity: new rows and spawned habit
@@ -127,15 +128,16 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 
 ## Operating principles
 
-1. **Never edit CSVs by hand.** Use [scripts/](scripts/) — they keep
-   `defer_count`, `completed_date`, `last_touched`, habit-spawn, and
-   link consistency correct. `last_touched` is auto-bumped by every
-   mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`,
-   `brain habits skip`, `brain tasks complete`, `touch_task.py`,
-   `backlog_task.py`, `set_linear_issue.py`) so chronic-ignore
-   detection and CSV sync have real recency signals to work with; if
-   you ever read-modify-write a row outside those
-   scripts, call `_csvlib.touch_row(row)` before writing.
+1. **Never edit the CSVs by hand.** Every mutation is a `brain`
+   subcommand, and they keep `defer_count`, `completed_date`,
+   `last_touched`, habit-spawn, link consistency, and the day's agenda
+   correct. `last_touched` is bumped by every mutator (`brain tasks add`,
+   `brain tasks defer`, `brain habits defer`, `brain habits skip`,
+   `brain tasks complete`, `brain tasks touch`, `brain backlog park`,
+   `brain tasks set`, `brain tasks assign`) so chronic-ignore detection
+   and CSV sync have real recency signals to work with. There is no
+   supported path for editing a row yourself; if you find an operation
+   with no command, say so rather than reaching for the file.
 2. **Defaults stay empty.** `energy_level` and `context` default
    empty. Fill them in only when obvious from the task itself, OR
    when an assistant decision (what to work on, structure day, fit
@@ -202,9 +204,9 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
      <id>` (tasks and habits) mutates the CSV *and* syncs the agenda in
      the same command. So does the tasks view's mark-complete.
    - **The mutator scripts delegate to the same code.**
-     `defer_task.py`, `defer_habit.py`, `touch_task.py`, and
-     `backlog_task.py` each call
-     [scripts/update_agenda_on_mutation.py](scripts/update_agenda_on_mutation.py)
+     `brain tasks defer`, `brain habits defer`, `brain tasks touch`, and
+     `brain backlog park` each call
+     `brain tasks sync-agenda`
      at the end of a successful mutation, which shells out to
      `brain tasks sync-agenda`.
    - **Anything else you mutate by hand:** run
@@ -252,17 +254,15 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    exists for a date it must stay current. **Do not open the PDF
    automatically** — only open it when the user explicitly asks
    (e.g. "open the agenda", "show me the PDF", "let me see it").
-   Run, in order:
+   Run:
 
-       rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-       PYTHONPATH="$BRAIN_ROOT/.agents/skills/todo/scripts" python3 -c "
-       from pathlib import Path
-       from update_agenda_on_mutation import _render_ready_markdown
-       src = Path('/tmp/<TARGET_DATE>.md')
-       Path('/tmp/<TARGET_DATE>.render.md').write_text(_render_ready_markdown(src.read_text()))
-       "
-       markdown-to-pdf /tmp/<TARGET_DATE>.render.md --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
-       rm -f /tmp/<TARGET_DATE>.render.md
+       brain tasks agenda-pdf [--date <TARGET_DATE>]
+
+   That is the whole recipe. It strips HTML comments from a copy before
+   rendering (the renderer has no concept of HTML, so an unstripped
+   comment prints as literal text), tears down the previous PDF so the
+   versioned-collision fallback can't kick in, and writes
+   `$AGENDA_DIR/agenda-<TARGET_DATE>.pdf`.
 
    Then **verify the page count**:
 
@@ -297,7 +297,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
      `markdown-to-pdf` is a bespoke line renderer with no concept
      of HTML — it has no comment-stripping logic at all, so an
      HTML comment on a source line (most commonly
-     `bake_triage_appendix.py`'s idempotency marker,
+     `brain tasks agenda-appendix`'s idempotency marker,
      `## Appendix <!-- brain:optional-content -->`, once the
      appendix has been baked in) shows up as **literal visible
      text** on the printed page instead of disappearing the way
@@ -1111,22 +1111,16 @@ contract:
 ### Phase 9 — Generate PDF + verify 2-page cap
 
 ```
-rm -f $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
-PYTHONPATH="$BRAIN_ROOT/.agents/skills/todo/scripts" python3 -c "
-from pathlib import Path
-from update_agenda_on_mutation import _render_ready_markdown
-src = Path('/tmp/<TARGET_DATE>.md')
-Path('/tmp/<TARGET_DATE>.render.md').write_text(_render_ready_markdown(src.read_text()))
-"
-markdown-to-pdf /tmp/<TARGET_DATE>.render.md \
-    --out $AGENDA_DIR/agenda-<TARGET_DATE>.pdf --agenda
-rm -f /tmp/<TARGET_DATE>.render.md
-python3 -c "from pypdf import PdfReader; print(len(PdfReader('/agenda-<TARGET_DATE>.pdf').pages))"
+brain tasks agenda-pdf --date <TARGET_DATE>
+python3 -c "from pypdf import PdfReader; print(len(PdfReader('$AGENDA_DIR/agenda-<TARGET_DATE>.pdf').pages))"
 ```
 
-See the "comment-stripping step is required" implementation note
-under operating principle 8 above for why `markdown-to-pdf` is
-never handed `/tmp/<TARGET_DATE>.md` directly.
+`brain tasks agenda-pdf` owns the whole render: it strips HTML comments
+from a copy first, tears down the previous PDF so the versioned-collision
+fallback can't kick in, and writes `$AGENDA_DIR/agenda-<TARGET_DATE>.pdf`.
+See the "comment-stripping step is required" implementation note under
+operating principle 8 above for why the renderer is never handed
+`/tmp/<TARGET_DATE>.md` directly.
 
 If body exceeds 2 pages: never pass `--font-shrink` — work the
 "2-page body cap" escalation in operating principle 8 instead
@@ -1258,30 +1252,30 @@ load-bearing ones:
   user's head.
 - **`/todo done|defer|add|remove|list`** covers the usual CRUD. After resolving any
   links or confirmation needed for removal, `/todo remove` must execute
-  [scripts/remove_task.py](scripts/remove_task.py) so deletion crosses the
+  `brain tasks remove` so deletion crosses the
   config-aware task-store guard. Never delete a CSV row directly.
   Removing a **habit** additionally requires `--habit`, because deleting a habit
   row destroys the entire recurring chain including every future occurrence. The
   script refuses a habit needle without that flag, so only an explicit "retire
   this habit" request may pass it — confirm with the user first, and prefer
-  [scripts/defer_habit.py](scripts/defer_habit.py) when they only want the next
+  `brain habits defer` when they only want the next
   occurrence pushed out. See [Habits are never cleanup fodder](#habits-are-never-cleanup-fodder).
 - **`/todo chronic`** — list chronically-ignored tasks (the same set
   that `/triage` Step 7 sweeps). Backed by
-  [scripts/find_chronic_ignored.py](scripts/find_chronic_ignored.py).
+  `brain tasks chronic`.
   Useful for ad-hoc deadwood inspection without running a full
   triage pass.
 - **`/todo touch <task>`** — bump `last_touched` to today without
   changing anything else. Use when the user wants to explicitly
   acknowledge a stale task ("yes I still care, leave it") so it
   won't reappear in chronic-ignore for another 21 days. Backed by
-  [scripts/touch_task.py](scripts/touch_task.py).
+  `brain tasks touch`.
 - **`/todo backlog <task>`** — park a task indefinitely (see
   [Backlog](#backlog)). Backed by
-  [scripts/backlog_task.py](scripts/backlog_task.py). `--restore` brings
+  `brain backlog park`. `brain backlog restore` brings
   one back to active.
 - **`/todo restore <task>`** — pull a task out of the backlog
-  (`backlog_task.py <task> --restore`); set a fresh `due_date`/`priority`
+  (`brain backlog restore <task>`); set a fresh `due_date`/`priority`
   after.
 - **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
   `/second-brain reindex` runs for tasks.
@@ -1326,8 +1320,8 @@ automation and garbage collection.
 
 See [references/sync-rules.md](references/sync-rules.md). Both this
 skill and `/second-brain` execute the same rules via
-[scripts/apply_sync_rules.py](scripts/apply_sync_rules.py) +
-[scripts/cleanup_done_habits.py](scripts/cleanup_done_habits.py).
+`brain tasks lint` +
+`brain habits cleanup`.
 
 **Never ask the user whether to run `/todo reindex` — just run it when
 you believe it's necessary.** Reindex is a safe, idempotent
@@ -1335,7 +1329,7 @@ reconciliation (apply rules + cleanup), not a destructive op, so it
 needs no confirmation. Run it without asking whenever the system
 signals it's needed — most commonly when a mutator path prints a
 `run /todo reindex to refresh` reminder (e.g. after `brain tasks complete`
-or `defer_task.py` on a project-linked task), or any time you've made
+or `brain tasks defer` on a project-linked task), or any time you've made
 changes that could leave the task↔project link, habit table, or
 automation-rule state stale. Report what reindex did in passing; don't
 gate it behind a question. (This is an explicit standing instruction
@@ -1349,11 +1343,11 @@ integer that makes the result **strictly after today**. A
 "Monday-weekly" habit stays on Mondays even if you complete it
 Tuesday — and a stale habit (e.g. 8 weeks old) lands on the next
 future Monday, not in the past. Math is done by
-[scripts/next_habit_occurrence.py](scripts/next_habit_occurrence.py)
+`brain tasks complete`
 — LLMs are bad at calendar arithmetic, always use the script.
 
 Completed habits stay in habits.csv for 7 days then get pruned by
-`cleanup_done_habits.py` during sync. Managed completed occurrences use this
+`brain habits cleanup` during sync. Managed completed occurrences use this
 same retention rule only while managed triage habits are enabled. Cleanup does
 not perform the feature-off purge; the transactional Brain reconciler owns
 that coupled config/data change. That's your audit trail.
@@ -1370,15 +1364,15 @@ silently stops existing.
 The rules, in force for every flow in this skill and for `/triage`:
 
 - **Only `status=done` habit rows are ever removed automatically**, and only by
-  `cleanup_done_habits.py` after its 7-day retention window. A
+  `brain habits cleanup` after its 7-day retention window. A
   `not_started` habit row is never removed automatically, at any age.
-- **Never route a habit through a task-cleanup script.** `remove_task.py`
+- **Never route a habit through a task-cleanup command.** `brain tasks remove`
   refuses a habit needle unless given `--habit`;
-  `backlog_task.py` refuses habits outright. Do not work around either.
+  `brain backlog park` refuses habits outright. Do not work around either.
 - **Retiring a habit is an explicit user decision**, never inferred from the row
   being old. Ask, and only then pass `--habit`.
 - **To get a past-due habit out of the way, move it, don't kill it**: `brain
-  habits skip` (cadence-aware) or `defer_habit.py` push the occurrence forward
+  habits skip` (cadence-aware) or `brain habits defer` push the occurrence forward
   and keep the chain alive. Prefer these in every case where a task would have
   been dropped.
 - **A lapsed chain is repaired, not recreated.** If every row for a habit is
@@ -1412,9 +1406,9 @@ The rules the command encodes:
   cadence) → defer the `due_date` to that day, never marking it done.
   Must be strictly after today.
 
-This is distinct from [`defer_habit.py`](scripts/defer_habit.py), which
+This is distinct from `brain habits defer`, which
 skips a **whole recurrence interval** (a weekly habit jumps to next
-week). `brain habits skip` is the "not today" lever; `defer_habit.py` is
+week). `brain habits skip` is the "not today" lever; `brain habits defer` is
 the "not this cycle" lever.
 
 Like `brain tasks complete`, `brain habits skip` mutates `habits.csv`
@@ -1459,15 +1453,15 @@ User phrasings to recognize:
 - "break this into 3 thirty-minute blocks"
 - "create '<task>' as five 30-min chunks due Friday"
 
-Route these to [`add_task.py`](scripts/add_task.py) with the
+Route these to `brain tasks add` with the
 `--chunks N` and `--duration M` flags. The script handles the
 naming, ID issuance, sequential `blocked_by`, and inheritance.
 
-### Chunked-task invariants (enforced by `add_task.py --chunks`)
+### Chunked-task invariants (enforced by `brain tasks add --chunks`)
 
 - **Naming:** `<base> (i/N)` for i in 1..N. The `(i/N)` parenthesized
   fraction at the end of the name is the canonical chunk marker —
-  scripts parse it via [`_csvlib.parse_chunk_name`](scripts/_csvlib.py).
+  brain parses it natively; nothing needs to re-derive it.
   Never use a different format (e.g. `<base> [i of N]`); the
   detection logic only recognizes `(i/N)` at end-of-name.
 - **Same `due_date`** across all chunks. The deadline is for the
@@ -1531,11 +1525,11 @@ in the Suggested order in its place.
 
 ### Defer cascade
 
-`defer_task.py` is chunk-aware. When the deferred row is part of a
+`brain tasks defer` is chunk-aware. When the deferred row is part of a
 chunk family, later chunks whose `due_date` would otherwise become
 earlier than the deferred chunk's new date are **automatically
 pushed forward** to preserve the family order. This is handled by
-[`_csvlib.cascade_chunk_dates_forward`](scripts/_csvlib.py).
+`brain tasks defer`, which cascades the family itself.
 
 Rules:
 
@@ -1584,7 +1578,7 @@ that), just parked. It's the pressure-release valve for the chronic-defer
 problem: instead of a task slipping week after week and nagging every
 triage, it goes to the backlog and goes quiet.
 
-**Semantics (enforced by [scripts/backlog_task.py](scripts/backlog_task.py)):**
+**Semantics (enforced by `brain backlog park`):**
 a `status = backlog` task has its `due_date` and `start_date` **cleared**
 (a parked task has no schedule; `hard_deadline` and `waiting_since` are
 cleared too), is stamped with `backlogged_date = today`, and is **hidden
@@ -1603,21 +1597,21 @@ surfaced by the at-risk or chronic-ignore scans. It resurfaces only in the
   rather than deferring a fifth time. (This is a personal-assistant
   trigger; see that section.)
 
-**Restoring:** `/todo restore <task>` (or `backlog_task.py <task>
---restore`) flips it back to `not_started` and clears `backlogged_date`;
+**Restoring:** `/todo restore <task>` (or `brain backlog restore <task>`)
+flips it back to `not_started` and clears `backlogged_date`;
 set a fresh `due_date`/`priority` afterward. The monthly backlog-review is
 the main path back (see `/triage`).
 
 **Implicit revive = silent dedupe.** If you re-create a task by hand after
 parking the original (an active task whose `created_date` is later than the
 backlog task's `backlogged_date`, same name), the monthly triage's
-[scripts/dedupe_backlog.py](scripts/dedupe_backlog.py) treats your manual
+`brain backlog dedupe` treats your manual
 re-creation as the intended revive and **silently deletes the now-duplicate
 backlog row** — no prompt, no report.
 
 **Auto-purge at 6 months (silent).** A backlog task whose `backlogged_date`
 is **more than 6 months ago** (≥6 months + 1 day) is **deleted outright**
-by [scripts/purge_old_backlog.py](scripts/purge_old_backlog.py), which
+by `brain backlog purge`, which
 `/triage` runs every pass. This is deliberately silent: **never warn the
 user a backlog item is nearing deletion, and never tell them which items
 were deleted.** Six months parked = forgotten = fine to forget forever.
@@ -1655,8 +1649,8 @@ tracker workflow — see the `todo:linear` extension point below.
 
 Tasks can carry an optional link to an external issue tracker in the
 `linear_issue` column, managed by the local-only scripts
-[`set_linear_issue.py`](scripts/set_linear_issue.py) and
-[`list_linked_tasks.py`](scripts/list_linked_tasks.py). Core treats this as
+`brain tasks set` and
+`brain tasks linked`. Core treats this as
 inert metadata: an empty `linear_issue` is always fine, and nothing here talks
 to any external service.
 
@@ -1698,7 +1692,7 @@ Offer the user help proactively when:
   Don't silently recommend it as the next action — a stale top
   candidate is itself a signal worth pausing on.
 - **5+ chronic-ignore hits at once** (run
-  `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py" --count`
+  `brain tasks chronic --count`
   to check) → suggest `/triage daily`; the chronic-ignore sweep
   (Step 7) is the right pass for clearing a backlog of deadwood.
 
@@ -1707,6 +1701,6 @@ Offer the user help proactively when:
 - Read [commands.md](references/commands.md) for the full command map.
 - Read [task-project-link.md](references/task-project-link.md) for
   anything touching projects.
-- Run `apply_sync_rules.py` (dry-run) before mutating to see what
+- Run `brain tasks lint` (dry-run) before mutating to see what
   state the system is in.
 - Ask the user. This is their task system.

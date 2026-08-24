@@ -11,10 +11,12 @@
 pub mod access;
 pub mod actor;
 pub mod agent;
+pub mod clean;
 pub mod cli;
 pub mod command;
 pub mod config;
 pub mod confirm;
+pub mod contacts;
 pub mod entry;
 pub mod env;
 pub mod logging;

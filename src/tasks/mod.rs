@@ -10,19 +10,26 @@
 
 pub mod add;
 pub(crate) mod agenda;
+pub(crate) mod backlog;
 pub mod cli;
 pub mod complete;
 pub mod doctor;
+pub(crate) mod habits;
 pub mod identity;
+pub(crate) mod mutate;
 pub mod plain;
 pub mod render;
 pub mod revive;
+pub(crate) mod rules;
+pub(crate) mod scan;
 pub mod schema;
 pub mod selector;
 pub mod set;
 pub mod shortcuts;
 pub mod skip;
 pub(crate) mod store_lock;
+pub(crate) mod streak;
 pub mod task;
 pub mod triage_habits;
+pub(crate) mod triage_state;
 pub mod view;

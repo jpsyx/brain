@@ -80,6 +80,60 @@ pub enum Command {
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
     Search(SearchArgs),
 
+    /// Delete one task. Deleting a **habit** destroys its whole recurring
+    /// chain, so that needs the explicit `--habit` opt-in — which is what keeps
+    /// a task-cleanup pass structurally unable to reach one.
+    #[command(aliases = ["rm", "drop"])]
+    Remove(RemoveArgs),
+
+    /// Push a task's due date out, with the defer penalty: `defer_count`
+    /// climbs, the `mit` tag is shed, and a `p0` drops to `p1`. A task that is
+    /// waiting or blocked defers for free, as does `--no-count`.
+    Defer(DeferArgs),
+
+    /// Bump a task or habit's `last_touched` to today and change nothing else
+    /// — the "yes, I still care, leave it" acknowledgement.
+    Touch(TouchArgs),
+
+    /// Assign a task or habit to another portable workspace member.
+    Assign(AssignArgs),
+
+    /// Count consecutive days on which a named thing happened, and record or
+    /// forget one. Deliberately generic: brain stores the dates and counts the
+    /// run; what the name means is entirely yours.
+    Streak(StreakArgs),
+
+    /// Render the day's agenda to a printable PDF in `agenda_dir`, stripping
+    /// HTML comments first (the renderer has no concept of HTML, so an
+    /// unstripped comment prints as visible text).
+    #[command(name = "agenda-pdf")]
+    AgendaPdf(AgendaPdfArgs),
+
+    /// Check the task automation rules over both CSVs and the task ↔ project
+    /// links, and with `--fix` apply everything that can be applied
+    /// mechanically. What the check reports is exactly what the fix would do.
+    Lint(LintArgs),
+
+    /// List chronically-ignored tasks: not done, deadline imminent or absent,
+    /// and stale, stuck in progress, or captured-and-forgotten. The deadwood
+    /// sweep triage runs, as deterministic calendar maths rather than prose.
+    Chronic(ScanArgs),
+
+    /// List tasks stuck in `waiting` longer than the threshold — paused on
+    /// someone else for long enough that chasing is the right move. A row with
+    /// no `waiting_since` is surfaced regardless.
+    #[command(name = "stale-waiting", alias = "waiting")]
+    StaleWaiting(WaitingArgs),
+
+    /// List tasks carrying an external issue-tracker link. Brain never contacts
+    /// the tracker; this is the read a caller reconciles from.
+    Linked(LinkedArgs),
+
+    /// Bake caller-supplied markdown into the day's agenda as one generic
+    /// appendix section. Re-running replaces it rather than duplicating.
+    #[command(name = "agenda-appendix")]
+    AgendaAppendix(AgendaAppendixArgs),
+
     /// Re-sync the day's agenda markdown after a task/habit mutation: drop the
     /// id from the MIT callout / Suggested order / Cut order and re-derive
     /// Today's habits + Completed today from the CSVs, leaving every other
@@ -200,6 +254,126 @@ pub struct SetArgs {
 pub struct CompleteArgs {
     /// Task or habit ID: t123, T123, 123 (assumed task), h43, H43.
     pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct StreakArgs {
+    /// The streak's name: letters, digits, `-` and `_`.
+    pub name: String,
+
+    #[command(subcommand)]
+    pub action: Option<StreakAction>,
+
+    /// The day to count to. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum StreakAction {
+    /// Report the streak. The default with no subcommand.
+    Status,
+    /// Record the day. Idempotent.
+    Mark,
+    /// Forget the day. Idempotent.
+    Unmark,
+}
+
+#[derive(Args, Debug)]
+pub struct AgendaPdfArgs {
+    /// The agenda's date. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct LintArgs {
+    /// Apply the corrections instead of only reporting them.
+    #[arg(long)]
+    pub fix: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct ScanArgs {
+    /// Emit one JSON object per hit instead of a table.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Print only the number of hits.
+    #[arg(long)]
+    pub count: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct WaitingArgs {
+    #[command(flatten)]
+    pub scan: ScanArgs,
+
+    /// Days waiting before a row is flagged.
+    #[arg(long, default_value_t = 7)]
+    pub threshold: i64,
+}
+
+#[derive(Args, Debug)]
+pub struct LinkedArgs {
+    #[command(flatten)]
+    pub scan: ScanArgs,
+
+    /// Only rows whose status is not `done`.
+    #[arg(long)]
+    pub open_only: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct AgendaAppendixArgs {
+    /// Markdown file whose contents become the appendix.
+    #[arg(long, value_name = "PATH")]
+    pub content: std::path::PathBuf,
+
+    /// The agenda's date. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct RemoveArgs {
+    /// Task or habit ID: t123, T123, 123, h43, H43, or a unique name fragment.
+    pub id: String,
+
+    /// Required to remove a habit, and refused for a task.
+    #[arg(long)]
+    pub habit: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DeferArgs {
+    /// Task ID: t123, T123, 123, or a unique name fragment.
+    pub id: String,
+
+    /// `+Nd` to push N days past its current due date, or an absolute
+    /// `YYYY-MM-DD`.
+    pub when: String,
+
+    /// Defer without the penalty, for a push that genuinely is not the user's
+    /// slip. Applied automatically when the task is `waiting` or `blocked_by`
+    /// another task.
+    #[arg(long)]
+    pub no_count: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct TouchArgs {
+    /// Task or habit ID, or a unique name fragment.
+    pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct AssignArgs {
+    /// Task or habit ID, or a unique name fragment.
+    pub id: String,
+
+    /// Portable workspace user ID (lower-case kebab).
+    pub user: String,
 }
 
 /// What happened to the mutated row, which decides whether the actionable

@@ -12,14 +12,14 @@ looking people up and keeping that book clean. It is a sibling of
 contact lookups) and shares its brain-mutation conventions.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
-default `~/brain`) and `<brain-root>/.agents/skills/contacts/scripts/contacts.py` is
+default `~/brain`). `brain contacts` is
 this skill's CLI as installed by `brain skills sync`.
 
 > **Non-negotiables for every contacts request (read before answering):**
 > 1. **Handle it through this skill — never freelance.** Do the lookup
->    with `contacts.py` (`find`/`get`/`list`), *not* by `cat`/`grep`/
+>    with `brain contacts` (`find`/`get`/`list`), *not* by `cat`/`grep`/
 >    hand-reading `contacts.csv`, and reach any configured fallback only
->    via the documented path (`contacts.py notion`), *not* by a raw guess
+>    via the documented path (`brain contacts fallback`), *not* by a raw guess
 >    against another tool. The CLI is the only sanctioned path.
 > 2. **Every lookup answer is a markdown table** — see
 >    [Presenting lookup results](#presenting-lookup-results--always-a-table).
@@ -27,7 +27,7 @@ this skill's CLI as installed by `brain skills sync`.
 >    phone number. Prose-only replies are a bug.
 >
 > If you catch yourself about to answer a contacts question without
-> having run `contacts.py`, stop and restart through the CLI.
+> having run `brain contacts`, stop and restart through the CLI.
 
 ## Storage
 
@@ -44,7 +44,7 @@ The contacts book lives at `<brain>/resources/contacts/`:
 All mutations go through the **deterministic CLI**, never by hand:
 
 ```
-python3 "$BRAIN_ROOT/.agents/skills/contacts/scripts/contacts.py" <cmd>
+brain contacts <cmd>
 ```
 
 Columns: `id, name, job, company, email, phone, preferred_comms,
@@ -59,13 +59,13 @@ automatically).
 
 | Intent | Command |
 |---|---|
-| Add a contact | `contacts.py add --name "Patrick Doe" --job Accountant --email p@x.com --phone "+1 555 123 4567" --preferred-comms email --address "12 Main St" --tags "service-provider;finance" --notes "..."` |
-| Edit a contact | `contacts.py edit <id-or-name> --phone "..."` (only passed fields change; `last_updated` bumped) |
-| Delete a contact | `contacts.py delete <id-or-name>` |
-| Search | `contacts.py find "<text>"` (all fields) or `--field job` to restrict |
-| List | `contacts.py list [--tag family] [--job plumber] [--pretty]` |
-| Show one | `contacts.py get <id-or-name>` |
-| Fallback info | `contacts.py notion` |
+| Add a contact | `brain contacts add --name "Patrick Doe" --job Accountant --email p@x.com --phone "+1 555 123 4567" --preferred-comms email --address "12 Main St" --tags "service-provider;finance" --notes "..."` |
+| Edit a contact | `brain contacts edit <id-or-name> --phone "..."` (only passed fields change; `last_updated` bumped) |
+| Delete a contact | `brain contacts delete <id-or-name>` |
+| Search | `brain contacts find "<text>"` (all fields) or `--field job` to restrict |
+| List | `brain contacts list [--tag family] [--job plumber] [--pretty]` |
+| Show one | `brain contacts get <id-or-name>` |
+| Fallback info | `brain contacts fallback` |
 
 `--name` is required on `add`. `edit`/`delete`/`get` accept either the
 `id` (`C003`) or a name; an ambiguous name errors and lists candidates
@@ -79,10 +79,10 @@ the affected record as JSON. **Confirm before `delete`**, and before an
 Support both, using `find`:
 
 - **By name** — "What is Patrick's address?", "Give me Maria's number"
-  → `contacts.py find "patrick"`, then read the requested field.
+  → `brain contacts find "patrick"`, then read the requested field.
 - **By role / other field** — "Who is my accountant?", "What's my
   plumber's number?", "Who do we use for X?"
-  → `contacts.py find accountant --field job` (or search all fields).
+  → `brain contacts find accountant --field job` (or search all fields).
   The `job` column is the key for role lookups.
 
 `find` matches case-insensitive substrings across name, job, company,
@@ -96,7 +96,7 @@ name **or** by role):
 
 1. **Check memories first** — if a `[[...]]` memory already holds the
    answer, use it.
-2. **Search the local CSV** — `contacts.py find …`. This is the source
+2. **Search the local CSV** — `brain contacts find …`. This is the source
    of truth and always wins.
 
 <!-- brain:ext contacts:fallback -->
@@ -170,10 +170,10 @@ Adding / editing / deleting a contact is a brain change: end the
 response with the
 [additions table](../second-brain/SKILL.md#always-end-with-an-additions-table)
 (path `<brain>/resources/contacts/contacts.csv`) and run the
-[cleanup script](../second-brain/SKILL.md#end-of-session-clean-up-tool-byproducts):
+[byproduct cleanup](../second-brain/SKILL.md#end-of-session-clean-up-tool-byproducts):
 
 ```
-bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"
+brain clean
 ```
 
 No `brain reindex` run is needed — the contacts CSV is a standalone book, not

@@ -10,7 +10,7 @@ Run via:
 - `/todo reindex` — applies all rules to tasks.csv + habits.csv.
 - `/second-brain reindex` — same, plus projects + zotero. See
   `../second-brain/SKILL.md`.
-- `python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/apply_sync_rules.py" [--fix]`
+- `brain tasks lint [--fix]`
   — dry-run by default; pass `--fix` to write corrections.
 
 ## Derived (computed on read; not stored)
@@ -37,28 +37,28 @@ Run via:
 4d. **`is_chronic_ignore`** — `(is_stale OR is_stuck_in_progress OR
     is_captured_forgotten)` AND `NOT past_due` AND (`due_date == ''`
     OR `due_date > today + 14`). The set surfaced by
-    [`scripts/find_chronic_ignored.py`](../scripts/find_chronic_ignored.py)
+    `brain tasks chronic`
     and swept in `/triage` Step 7. Past-due rows are excluded
     because they're handled in Steps 1–4; rows due in the next
     14 days are excluded because they're handled in Step 6.
 
-## Mutations (apply_sync_rules.py with `--fix`)
+## Mutations (`brain tasks lint --fix`)
 
 5. **`completed_date` auto-set** — when `status == 'done'` and
    `completed_date` is empty, set to today.
 6. **`defer_count` default** — empty → `0`.
-7. **Habit cleanup** — see [cleanup_done_habits.py](../scripts/cleanup_done_habits.py).
+7. **Habit cleanup** — see `brain habits cleanup`.
    Drop habits.csv rows where `status == 'done'` AND
    `completed_date <= today - 7d`.
 7a. **`last_touched` column + backfill** — if the
     column is missing it is added; rows whose `last_touched` is empty
     are backfilled from `created_date` (fallback: today). Migration
     rule that runs on every `--fix` invocation; idempotent after the
-    initial add. Mutators (`add_task.py`, `defer_task.py`,
-    `defer_habit.py`, `brain habits skip`, `brain tasks complete`,
-    `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`) keep
+    initial add. Mutators (`brain tasks add`, `brain tasks defer`,
+    `brain habits defer`, `brain habits skip`, `brain tasks complete`,
+    `brain tasks touch`, `brain backlog park`, `brain tasks set`) keep
     the column fresh by calling `_csvlib.touch_row()` on every row
-    mutation; `apply_sync_rules.py --fix` does the same for rows it
+    mutation; `brain tasks lint --fix` does the same for rows it
     repairs.
 8. **Habit spawn on completion** — handled by `brain tasks complete`,
    not the sync. When a habits.csv row flips to `done`, a new row is
