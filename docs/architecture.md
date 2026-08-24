@@ -1100,6 +1100,13 @@ the active journal. Every journaled failure is resume-only because remote
 publication can complete before its step record becomes durable. The backup
 remains machine-local and retained for forensic or coordinated recovery.
 
+### `contacts/` and `clean.rs`
+`contacts/` is the workspace's local contacts book: `model` (the CSV and id
+allocation), `find` (staged resolution and search), `render` (the table). It is
+keyed on an explicit root, so each workspace has its own book. `clean.rs` is the
+byproduct sweep behind `brain clean` — a closed pattern list, a walk that never
+enters `.git` or the agent registries, and a pure report.
+
 ### `tasks/`
 Everything specific to the **tasks main view**, ported from the old `tasks`
 crate under one namespace: `identity` (immutable UUIDs and deterministic
@@ -1110,7 +1117,13 @@ assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
 task/habit completion), `agenda` (the section-preserving agenda-markdown sync
-that every completion runs), `triage_habits` (stable managed definitions,
+that every completion runs), `mutate` (remove/defer/touch/backlog/assign, plus
+the chunk-family cascade), `backlog` (the review listing and the two silent
+maintenance passes), `scan` (the chronic / stale-waiting / tracker-linked
+reads), `rules` (the task automation lint and the task ↔ project link),
+`habits` (habit defer and completed-occurrence retention), `streak` (named day
+streaks), `triage_state` (whether this month's monthly pass has happened),
+`triage_habits` (stable managed definitions,
 marker-based mutation policy, complete purge, and durable grouped
 replacement/recovery split into orchestration, artifact, and journal modules),
 `doctor` (health check), `plain` (`--no-tui` printer),

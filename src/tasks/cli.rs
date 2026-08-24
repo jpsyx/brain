@@ -98,6 +98,22 @@ pub enum Command {
     /// Assign a task or habit to another portable workspace member.
     Assign(AssignArgs),
 
+    /// Count consecutive days on which a named thing happened, and record or
+    /// forget one. Deliberately generic: brain stores the dates and counts the
+    /// run; what the name means is entirely yours.
+    Streak(StreakArgs),
+
+    /// Render the day's agenda to a printable PDF in `agenda_dir`, stripping
+    /// HTML comments first (the renderer has no concept of HTML, so an
+    /// unstripped comment prints as visible text).
+    #[command(name = "agenda-pdf")]
+    AgendaPdf(AgendaPdfArgs),
+
+    /// Check the task automation rules over both CSVs and the task ↔ project
+    /// links, and with `--fix` apply everything that can be applied
+    /// mechanically. What the check reports is exactly what the fix would do.
+    Lint(LintArgs),
+
     /// List chronically-ignored tasks: not done, deadline imminent or absent,
     /// and stale, stuck in progress, or captured-and-forgotten. The deadwood
     /// sweep triage runs, as deterministic calendar maths rather than prose.
@@ -238,6 +254,43 @@ pub struct SetArgs {
 pub struct CompleteArgs {
     /// Task or habit ID: t123, T123, 123 (assumed task), h43, H43.
     pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct StreakArgs {
+    /// The streak's name: letters, digits, `-` and `_`.
+    pub name: String,
+
+    #[command(subcommand)]
+    pub action: Option<StreakAction>,
+
+    /// The day to count to. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum StreakAction {
+    /// Report the streak. The default with no subcommand.
+    Status,
+    /// Record the day. Idempotent.
+    Mark,
+    /// Forget the day. Idempotent.
+    Unmark,
+}
+
+#[derive(Args, Debug)]
+pub struct AgendaPdfArgs {
+    /// The agenda's date. Defaults to today.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub date: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct LintArgs {
+    /// Apply the corrections instead of only reporting them.
+    #[arg(long)]
+    pub fix: bool,
 }
 
 #[derive(Args, Debug)]

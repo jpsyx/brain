@@ -811,6 +811,19 @@ first move is a failing test that reproduces it, *then* the fix.
   records its argv, so the seam is asserted (`-b <workspace> tasks sync-agenda
   <id> --action <action>`) without running a real sync.
 
+- **The bundled skills' command references** (`tests/bundled_skill_commands.rs`).
+  Every `brain …` command named in any bundled skill is extracted — from code
+  spans and fenced blocks only, so prose like "the brain is a directory" is not
+  mistaken for one — and `--help` is run against each. A skill is an instruction
+  an agent follows literally, so a renamed command has to fail here rather than
+  in someone's session.
+- **The ported task commands** (`tasks/mutate/tests/`, `tasks/backlog/tests.rs`,
+  `tasks/scan/tests.rs`, `tasks/rules/tests.rs`, `tasks/habits/tests.rs`,
+  `contacts/tests.rs`). Each is a pure decision over CSV rows and a fixed date,
+  so the tests are tables in and values out. The boundaries are what they
+  actually assert: which defers carry a penalty, which chunk cascades, what the
+  lint fixes versus only flags, when a parked task counts as superseded.
+
 ## What we deliberately don't test
 
 - **The interactive event loop.** `TuiRuntime` opens `/dev/tty`, toggles raw

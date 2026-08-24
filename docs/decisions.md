@@ -4605,3 +4605,62 @@ injects `Targets` directly. Integration tests, which link the library without
 `cfg(test)` and can spawn the binary, still isolate explicitly — the fixture
 that serves the habits page writes `agenda_markdown_dir` into its own registry —
 and a guard test asserts the two branches stay two branches.
+
+## Why the bundled skills stopped shipping Python
+
+`skills/todo/scripts/` held twenty-two Python scripts and `skills/contacts/`
+one more. They existed for a good reason — an LLM doing calendar arithmetic in
+context gets it wrong, and gets it wrong differently each time — but the shape
+was upside down. The scripts were **brain's own output**: rendered and installed
+by `brain skills sync`, then shelled back into by `brain reindex --tasks`. A
+core command depended on a copy of a skill being installed, and on a `python3`
+being present, to do its own job.
+
+They also could not be tested the way this repo tests things. The rules lived in
+Python with no Rust test able to reach them, so the one guard that mattered —
+that a mutation does what the docs say — was a review obligation rather than a
+test.
+
+Everything deterministic in them is now a `brain` subcommand, and the scripts are
+gone. The rules, scans, and calendar maths are pure functions over CSV rows;
+`brain reindex --tasks` needs nothing but the binary; and each command was
+verified against the real workspace before its script was deleted (`chronic`,
+`stale-waiting`, `linked`, `backlog`, the monthly-triage state, and both dry-run
+passes all returned identical counts, and `tasks chronic --json` was
+byte-identical to what `find_chronic_ignored.py` produced).
+
+Three things came out of the port that were not in the scripts:
+
+- **`brain contacts` is workspace-scoped.** `contacts.py` resolved `~/brain`
+  directly, so on a machine with more than one workspace it read and wrote the
+  wrong book. Nobody noticed because the failure is silent.
+- **`backlog`'s `restore` action works at all.** `backlog_task.py` called the
+  agenda updater with `backlog` and `restore`, which its own argparse rejected,
+  so those agenda updates had silently never run.
+- **`brain tasks streak` replaced a personal artifact with a generic one.**
+  `track_late_work.py` counted consecutive "late work nights" — a concept from a
+  private extension that had no business in core. The primitive underneath (a
+  named set of dates, and the length of the run ending today) is generic, so
+  that is what core keeps. What the name means is the caller's.
+
+A guard test now extracts every `brain …` command named in any bundled skill —
+from code spans only, so prose is not mistaken for a command — and asserts each
+one resolves. The skills are instructions an agent follows literally; a renamed
+command does not fail loudly, it makes the agent improvise, and improvising
+around a task mutation is how a CSV gets edited by hand.
+
+## Why `brain clean` exists
+
+Four bundled skills instructed the reader to run
+`bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"` at the end of any
+session that touched the brain. That file does not exist in this repository and
+never did. Every one of those runs either failed silently or was skipped.
+
+Byproduct cleanup is exactly the kind of thing that should not be a script the
+skill carries: it is deterministic, it needs no judgement, and it is the same on
+every machine. `brain clean` is that command, and its pattern list is
+deliberately **conservative and closed** — every entry is an artifact a tool
+created and can recreate, recognizable by name alone. Deleting a note someone
+wrote is unrecoverable; leaving a stray cache costs nothing. So the list only
+grows for things that are unambiguously regenerable, and a name that merely
+looks generated (`cache.md`, `pipeline.json`) is left alone.

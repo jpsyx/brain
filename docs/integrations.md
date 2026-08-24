@@ -1106,34 +1106,28 @@ wrapper, since a child process can't call a shell function. The output path is
 - **Best-effort.** A converter failure is swallowed (like a failed file-open)
   so a broken toolchain can't tear the shell down.
 
-## Handoff: the bundled `/todo` mutators → `brain tasks sync-agenda`
+## The bundled skills shell out to `brain`, and to nothing else
 
-The bundled `/todo` mutator scripts (`defer_task.py`, `defer_habit.py`,
-`touch_task.py`, `backlog_task.py`) each end a successful CSV mutation by
-calling `scripts/update_agenda_on_mutation.py`, which is now a **thin
-delegator**: it shells back out to the brain binary.
+The `todo`, `triage`, `second-brain`, and `contacts` skills used to ship Python
+that Brain installed and then shelled back into. They no longer ship any: every
+deterministic operation they name is a `brain` subcommand, so the only handoff
+left is the obvious one — an agent running the binary that installed it.
 
-    <brain> [-b $BRAIN_WORKSPACE] tasks sync-agenda <ID> --action <done|defer|touch>
+That closes the inversion. `brain reindex --tasks` used to require a copy of the
+`todo` skill to be installed, and a `python3` to run it, before it could apply
+its own rules; now it needs nothing but itself. And because the skills are
+instructions an agent follows literally, `tests/bundled_skill_commands.rs`
+asserts that every `brain …` command any bundled skill names actually resolves.
 
-The binary is `$BRAIN_BIN` when set, else `brain` on `PATH`; with neither, the
-script logs and skips. `BRAIN_WORKSPACE` names the workspace whose CSVs were
-mutated (these scripts only ever run inside a Brain-launched session, so it is
-set), which keeps a sync from landing on a different workspace's agenda. The
-caller-side actions `backlog` and `restore` map onto `defer` and `touch`.
+Two consequences worth knowing:
 
-The delegation exists so the section-preserving sync has exactly **one**
-implementation. It used to live in Python, where only the script mutators
-reached it — brain's own native completion had no path to it at all and simply
-left the agenda stale, which is what made a freehand agent rewrite the only
-recourse (and dropped whole sections when that rewrite went wrong). The logic
-now lives in `src/tasks/agenda/`, completion runs it in-process, and the
-scripts run the same code through the CLI.
-
-The handoff is best-effort in both directions: the child is run with a 60s
-timeout, a non-zero exit is logged to stderr, and the mutator script always
-exits 0. Python retains only `_render_ready_markdown`, which the agenda-*build*
-flow (not the mutation path) uses to strip HTML comments before rendering a
-fresh printable.
+- **A workspace selector travels with the command.** These skills run inside a
+  Brain-launched session, where `BRAIN_WORKSPACE` is an implicit selector (see
+  above), so a command typed by an agent in a `family` panel acts on `family`.
+  The scripts got this by reading `BRAIN_ROOT`; the commands get it from the
+  same contract, and `-w` overrides both.
+- **Nothing needs `python3` anymore** except the page-count check in the agenda
+  build, which uses `pypdf` and belongs to the agent, not to Brain.
 
 ## Handoff: `osascript` → Finder trash (the "Delete" command)
 

@@ -324,3 +324,10 @@ pub struct TriageStateArgs {
     #[arg(long)]
     pub mark: bool,
 }
+
+#[derive(Args, Debug)]
+pub struct CleanArgs {
+    /// List what would be removed and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}

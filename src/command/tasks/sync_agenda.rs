@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, NaiveDate};
 
 use crate::tasks::agenda::{self, Outcome};
-use crate::tasks::cli::{AgendaAction, AgendaAppendixArgs, SyncAgendaArgs};
+use crate::tasks::cli::{AgendaAction, AgendaAppendixArgs, AgendaPdfArgs, SyncAgendaArgs};
 use crate::theme::Theme;
 
 /// The agenda's date: an explicit `YYYY-MM-DD`, else today.
@@ -70,6 +70,37 @@ pub(super) fn run_appendix(
     eprintln!(
         "{}",
         theme.success(&format!("Baked the appendix into the {date} agenda."))
+    );
+    Ok(())
+}
+
+/// `brain tasks agenda-pdf` — render the day's agenda to its printable.
+///
+/// Unlike the mutation path's regen, this builds one whether or not a PDF
+/// already exists: asking for it *is* the request for a fresh printout.
+pub(super) fn run_pdf(
+    context: &crate::workspace::CommandContext,
+    args: &AgendaPdfArgs,
+) -> Result<()> {
+    let date = parse_date(args.date.as_deref())?;
+    let targets = agenda::resolve_targets(&context.registry_store, &context.workspace, date);
+    let theme = Theme::active();
+    if !targets.markdown.exists() {
+        eprintln!(
+            "{}",
+            theme.muted(&format!("No agenda for {date}; nothing to render."))
+        );
+        return Ok(());
+    }
+    eprintln!(
+        "{}",
+        theme.muted(&format!("Rendering the {date} agenda to a printable…"))
+    );
+    let pdf = agenda::render_pdf(&targets)?;
+    eprintln!(
+        "{} {}",
+        theme.success("Wrote"),
+        theme.value(&pdf.display().to_string())
     );
     Ok(())
 }

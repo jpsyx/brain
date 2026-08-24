@@ -137,6 +137,19 @@ pub fn run(
         crate::logging::log("dispatch backlog");
         return super::backlog::run(args, context);
     }
+    if let Some(Cmd::Clean(args)) = &cli.command {
+        crate::logging::log("dispatch clean");
+        let removals = crate::clean::run(context.workspace.root(), args.dry_run)?;
+        eprint!(
+            "{}",
+            crate::clean::render(&removals, args.dry_run, crate::theme::Theme::active())
+        );
+        return Ok(());
+    }
+    if let Some(Cmd::Contacts(args)) = &cli.command {
+        crate::logging::log("dispatch contacts");
+        return super::contacts::run(args, context);
+    }
     if let Some(Cmd::Triage(args)) = &cli.command {
         crate::logging::log("dispatch triage");
         return super::triage::run(args, context);
@@ -202,6 +215,8 @@ pub fn run(
             | Cmd::Habits(_)
             | Cmd::Backlog(_)
             | Cmd::Triage(_)
+            | Cmd::Contacts(_)
+            | Cmd::Clean(_)
             | Cmd::Check
             | Cmd::Killall
             | Cmd::Reindex(_)

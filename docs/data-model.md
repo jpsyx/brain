@@ -887,6 +887,34 @@ is not a match. The two re-derived sections render as a two-column markdown
 table, cells padded to an even count, and are omitted entirely when nothing
 qualifies.
 
+## Contacts book (`contacts/`, `<brain-root>/resources/contacts/contacts.csv`)
+
+One CSV per workspace, columns in a fixed order: `id`, `name`, `job`, `company`,
+`email`, `phone`, `preferred_comms`, `address`, `tags`, `birthday`, `notes`,
+`created_date`, `last_updated`. Ids are `C###`, assigned as one past the highest
+in the file and **never reused** — reusing a freed id would silently re-point
+anything that referenced the old contact at a different person. Rows are always
+written back in id order, so the file stays diffable and syncs cleanly. `tags`
+is `;`-separated and matched whole, not by fragment. `preferred_comms` accepts
+only `email`, `whatsapp`, or `phone`.
+
+`contacts.config.json` beside it may carry an opaque `notion_fallback` block.
+Core neither parses nor acts on it: `brain contacts fallback` prints it, and what
+the service is, and how to reach it, is the caller's.
+
+## Day streaks (`tasks/streak.rs`, `<brain-root>/tasks/.streaks/<name>.json`)
+
+`{"dates": ["YYYY-MM-DD", …]}` per named streak. The name is restricted to
+letters, digits, `-` and `_` because it is a file name. The *streak* is the
+consecutive run ending at the target day, or at the day before when the target
+itself is unmarked — the caller has not decided about today yet, and yesterday's
+run is still real. Any older gap means broken, and broken is zero.
+
+## Monthly-triage mark (`tasks/triage_state.rs`, `<brain-root>/tasks/.monthly_triage.json`)
+
+`{"last_monthly_triage_month": "YYYY-MM"}`. "Monthly triage" is the first weekly
+triage of a calendar month, so the whole state is which month has had one.
+
 ## Portable access policy (`access/`, `.config/config.json`)
 
 `AccessMode` accepts exactly `unrestricted` and `workspace_only`. It is

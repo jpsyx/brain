@@ -196,6 +196,27 @@ pub(super) fn strip_html_comments(text: &str) -> String {
     out
 }
 
+/// Render the day's agenda to its printable, whatever the PDF's current state.
+///
+/// Asking for a printable *is* the request for a fresh one, so unlike the
+/// mutation path's regen this never skips.
+pub(crate) fn render_pdf(targets: &Targets) -> anyhow::Result<PathBuf> {
+    let markdown = std::fs::read_to_string(&targets.markdown)?;
+    if targets.renderer.is_none() {
+        anyhow::bail!(
+            "markdown-to-pdf is not configured; run `brain env set markdown_to_pdf_path=<path>`"
+        );
+    }
+    if let Some(parent) = targets.pdf.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if run_renderer(targets, &markdown) {
+        Ok(targets.pdf.clone())
+    } else {
+        anyhow::bail!("markdown-to-pdf did not produce {}", targets.pdf.display())
+    }
+}
+
 /// Regenerate the printable **only if one already exists**: a CSV mutation
 /// isn't a request for a fresh printout, but a printout on disk must stay
 /// current. Returns whether a PDF was rebuilt.
@@ -203,6 +224,11 @@ fn regenerate_pdf(targets: &Targets, markdown: &str) -> bool {
     if !targets.pdf.exists() {
         return false;
     }
+    run_renderer(targets, markdown)
+}
+
+/// Feed a comment-stripped copy of `markdown` to the configured renderer.
+fn run_renderer(targets: &Targets, markdown: &str) -> bool {
     let Some(renderer) = &targets.renderer else {
         crate::logging::log(
             "agenda sync: no markdown-to-pdf command configured; skipping PDF regen",

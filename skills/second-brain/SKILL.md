@@ -12,7 +12,8 @@ they're named**.
 
 Throughout, `<brain>` is the user's brain root (`brain config get root`,
 default `~/brain`), and `<brain-root>/.agents/skills/second-brain/` is where
-`brain skills sync` installs this skill (with its `cleanup.sh`); the
+`brain skills sync` installs this skill; byproduct cleanup is the native
+`brain clean` command and the
 lookup/metadata rebuild is the native `brain reindex` command. These
 resolve without hardcoding a personal path. The
 `/contacts` sibling skill owns the local contacts book (see [Contacts](#contacts)).
@@ -497,21 +498,22 @@ macOS Finder metadata (`.DS_Store`) and Python caches
 (`__pycache__/`, `.pytest_cache/`). They pollute `rg` results, bloat
 backups, and clutter `ls`.
 
-**After any task that read from or wrote to `~/brain` — including
-this skill's commands, reindex runs, and ad-hoc edits — run the cleanup
-script before handing control back to the user:**
+**After any task that read from or wrote to the brain — including this
+skill's commands, reindex runs, and ad-hoc edits — clean up before handing
+control back to the user:**
 
 ```
-bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"
+brain clean
 ```
 
 - Safe to run repeatedly; it's a no-op when the brain is already
   clean.
 - Pass `--dry-run` to preview what would be removed.
-- Set `BRAIN_DIR=/some/path` to point it at a non-default brain.
+- Use `-w <workspace>` to clean a workspace other than the selected one.
 
-The cleanup script's pattern list is the source of truth for "what
-counts as a tool byproduct" in `~/brain`. When you discover a new
+`brain clean`'s pattern list is the source of truth for "what counts as a
+tool byproduct". It is deliberately conservative and closed: every entry is
+something a tool created and can recreate, recognizable by name alone. When you discover a new
 artifact type (a new MCP server's session files, a new cache format),
 add the pattern to the script rather than deleting one-off.
 
@@ -655,7 +657,7 @@ status; don't skip them silently.
    rules; see [tasks/SCHEMA.json](~/brain/tasks/SCHEMA.json)
    `derived_columns.is_chronic_ignore`). Quick check:
    ```
-   python3 "$BRAIN_ROOT/.agents/skills/todo/scripts/find_chronic_ignored.py" \
+   brain tasks chronic \
      | jq -c --arg slug "<project-slug>" 'select(.project == $slug)'
    ```
    If every open task hits, surface this to the user **before**
@@ -871,11 +873,11 @@ What the reindex derives:
   - `annotation_count` — count of distinct blockquote blocks and
     `*(ink annotation)*` lines under `## Annotations`.
 - **Tasks** are handled by `/todo`-owned scripts:
-  - [`apply_sync_rules.py --fix`](../todo/scripts/apply_sync_rules.py)
+  - `brain tasks lint`
     sets `completed_date` when missing, defaults `defer_count`,
     flags misplaced habits, warns on sub-task scaffolds in `notes`,
     and validates / repairs the bidirectional task↔project link.
-  - [`cleanup_done_habits.py`](../todo/scripts/cleanup_done_habits.py)
+  - `brain habits cleanup`
     drops habits.csv rows that have been `done` for >7 days.
   - The canonical rule set lives in
     [`../todo/references/sync-rules.md`](../todo/references/sync-rules.md)
@@ -1061,4 +1063,4 @@ top-level directories alongside `projects/`, `areas/`, `resources/`,
 | Updating `.METADATA.json` but forgetting to run reindex | After any `.METADATA.json` edit, run [reindex](#reindex-the-second-brain--second-brain-reindex) so the lookup CSV mirrors the change. |
 | Using non-canonical summary/notes headings (`## AI summary`, `## Executive summary`, `## My take`) | Reindex only recognizes `## Summary` and `## Notes`. Use those exact headings; put any sub-flavoring in H3 sub-sections. |
 | Reaching for `awk`/`sed` to mutate a lookup CSV | Edit `.METADATA.json` and run reindex. For read-only multi-column queries, see [CSV tooling](#csv-tooling--keep-it-simple). |
-| Leaving tool byproducts (`pipeline.json`/`pipeline.sh`, `*.stats.csv*` caches, `.DS_Store`, `__pycache__/`) in the brain after a session | Run `bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"` at the end of any task that touched the brain root. See [End of session: clean up tool byproducts](#end-of-session-clean-up-tool-byproducts). |
+| Leaving tool byproducts (`.DS_Store`, `__pycache__/`, other tool caches) in the brain after a session | Run `brain clean` at the end of any task that touched the brain root. See [End of session: clean up tool byproducts](#end-of-session-clean-up-tool-byproducts). |
