@@ -60,6 +60,16 @@ pub fn launch(
         Some(TasksCommand::SyncAgenda(args)) => {
             return sync_agenda::run(context, &args);
         }
+        Some(TasksCommand::Chronic(args)) => return scan::run_chronic(context, &args),
+        Some(TasksCommand::StaleWaiting(args)) => return scan::run_waiting(context, &args),
+        Some(TasksCommand::Linked(args)) => return scan::run_linked(context, &args),
+        Some(TasksCommand::AgendaAppendix(args)) => {
+            return sync_agenda::run_appendix(context, &args);
+        }
+        Some(TasksCommand::Remove(args)) => return mutate::run_remove(context, &args),
+        Some(TasksCommand::Defer(args)) => return mutate::run_defer(context, &args),
+        Some(TasksCommand::Touch(args)) => return mutate::run_touch(context, &args),
+        Some(TasksCommand::Assign(args)) => return mutate::run_assign(context, &args),
         Some(TasksCommand::Search(args)) => browse::Initial::CustomSearch(args.query.join(" ")),
         Some(TasksCommand::Doctor) => {
             let db_path = context.workspace.paths().state_db();
@@ -175,6 +185,11 @@ fn format_add_result(result: &crate::tasks::add::CreateResult, json: bool) -> Re
 }
 
 mod set;
+
+mod mutate;
+
+mod scan;
+pub(crate) use mutate::run_backlog_move;
 
 mod sync_agenda;
 

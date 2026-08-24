@@ -121,11 +121,25 @@ pub fn run(
             Some(crate::cli::HabitsAction::Skip(_)) => {
                 crate::logging::log("dispatch habits skip");
             }
+            Some(crate::cli::HabitsAction::Defer(_)) => {
+                crate::logging::log("dispatch habits defer");
+            }
+            Some(crate::cli::HabitsAction::Cleanup) => {
+                crate::logging::log("dispatch habits cleanup");
+            }
             Some(crate::cli::HabitsAction::CompleteManagedTriage(_)) => {
                 crate::logging::log("dispatch habits complete-managed-triage");
             }
         }
         return super::server::run_habits(args, context);
+    }
+    if let Some(Cmd::Backlog(args)) = &cli.command {
+        crate::logging::log("dispatch backlog");
+        return super::backlog::run(args, context);
+    }
+    if let Some(Cmd::Triage(args)) = &cli.command {
+        crate::logging::log("dispatch triage");
+        return super::triage::run(args, context);
     }
     if matches!(&cli.command, Some(Cmd::Check)) {
         crate::logging::log("dispatch check");
@@ -186,6 +200,8 @@ pub fn run(
             | Cmd::Server(_)
             | Cmd::Receiver(_)
             | Cmd::Habits(_)
+            | Cmd::Backlog(_)
+            | Cmd::Triage(_)
             | Cmd::Check
             | Cmd::Killall
             | Cmd::Reindex(_)

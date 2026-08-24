@@ -19,6 +19,7 @@
 //! filesystem; [`io`] is the thin best-effort shell that reads/writes the file
 //! and regenerates the PDF.
 
+pub(crate) mod appendix;
 mod derive;
 mod doc;
 pub(crate) mod io;

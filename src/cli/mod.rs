@@ -105,6 +105,15 @@ pub enum Cmd {
     /// a non-daily habit is deferred one day; `--until` defers to a given date).
     Habits(HabitsArgs),
 
+    /// Review the backlog, or park, restore, purge, and dedupe it. Bare
+    /// `brain backlog` lists what is parked, stalest first.
+    Backlog(BacklogArgs),
+
+    /// The deterministic bookkeeping behind triage. Running a triage pass is
+    /// judgement work an agent does; this owns only the state that must
+    /// survive a session ending mid-run.
+    Triage(TriageArgs),
+
     /// Show what would sync (pending local pushes and remote pulls) without
     /// syncing. Read-only: runs `rclone bisync --dry-run` under the hood.
     Check,

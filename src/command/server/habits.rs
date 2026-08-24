@@ -22,6 +22,8 @@ pub fn run_habits(
             skip.until.as_deref(),
             &context.actor,
         ),
+        Some(crate::cli::HabitsAction::Defer(defer)) => run_defer(context, defer),
+        Some(crate::cli::HabitsAction::Cleanup) => run_cleanup(context),
         Some(crate::cli::HabitsAction::CompleteManagedTriage(args)) => {
             crate::tasks::triage_habits::complete_managed_triage_cli(
                 &context.registry_store,
@@ -97,5 +99,54 @@ fn open_habits(context: &crate::workspace::CommandContext) -> Result<()> {
     println!("{}", theme.info(&format!("Opening {target}")));
     crate::logging::log(format!("spawn open {target}"));
     let _ = std::process::Command::new("open").arg(&target).spawn();
+    Ok(())
+}
+
+/// `brain habits defer <id> [--occurrences N]`.
+fn run_defer(
+    context: &crate::workspace::CommandContext,
+    args: &crate::cli::DeferHabitArgs,
+) -> Result<()> {
+    let today = chrono::Local::now().date_naive();
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
+    let targets =
+        crate::tasks::agenda::resolve_targets(&context.registry_store, &context.workspace, today);
+    let (result, _) = crate::tasks::habits::defer::defer_in_root(
+        context.workspace.root(),
+        &targets,
+        &args.id,
+        args.occurrences,
+        today,
+    )?;
+    let theme = crate::theme::Theme::active();
+    eprintln!(
+        "{} {}  {}",
+        theme.success("deferred habit:"),
+        theme.accent(&result.task_id),
+        theme.value(&result.task_name)
+    );
+    eprintln!(
+        "  {} {} → {}  {}",
+        theme.muted("due_date:"),
+        theme.muted(&result.old_due),
+        theme.value(&result.new_due),
+        theme.muted(&format!(
+            "(skipped {} × {} {})",
+            result.occurrences, result.interval, result.unit
+        ))
+    );
+    Ok(())
+}
+
+/// `brain habits cleanup`.
+fn run_cleanup(context: &crate::workspace::CommandContext) -> Result<()> {
+    let today = chrono::Local::now().date_naive();
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
+    let report = crate::tasks::habits::cleanup::run_in_root(
+        context.workspace.root(),
+        today,
+        crate::config::Config::load(&context.workspace).enable_triage_habits,
+    )?;
+    eprint!("{report}");
     Ok(())
 }

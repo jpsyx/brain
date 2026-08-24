@@ -31,6 +31,8 @@ pub enum Invocation {
     Receiver,
     ReceiverStatus,
     Habits,
+    Backlog,
+    Triage,
     Reindex,
     Tasks,
     TasksDoctor,
@@ -84,6 +86,8 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Receiver
         | Invocation::ReceiverStatus
         | Invocation::Habits
+        | Invocation::Backlog
+        | Invocation::Triage
         | Invocation::Reindex
         | Invocation::Tasks
         | Invocation::TasksDoctor
@@ -123,6 +127,8 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::Skills
         | Invocation::Receiver
         | Invocation::Habits
+        | Invocation::Backlog
+        | Invocation::Triage
         | Invocation::Reindex
         | Invocation::Tasks
         | Invocation::Tui => BootstrapPolicy::ReadyWorkspace,
@@ -183,6 +189,8 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             Some(_) => Invocation::Receiver,
         },
         Some(Cmd::Habits(_)) => Invocation::Habits,
+        Some(Cmd::Backlog(_)) => Invocation::Backlog,
+        Some(Cmd::Triage(_)) => Invocation::Triage,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,
         Some(Cmd::Tasks(args)) => {
             if tasks_doctor(&args.rest) {
