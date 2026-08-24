@@ -1,7 +1,7 @@
 ---
 id: BR-13
 title: Durably enqueue receiver jobs at ingress
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [feature, server]
@@ -105,3 +105,7 @@ job.
   lifecycle scenarios, and made receiver child ownership unwind-safe, removing
   full-suite startup contention while keeping replacement fixture lifetimes
   explicit.
+- 2026-08-23 completed in `f04f20a` and `efe5580`, then released as Brain
+  0.73.2. Provider success now follows exact workspace-scoped durable admission;
+  restart-safe deduplication, final authority, capacity, response-loss, and
+  shared-process crash recovery passed the complete release suite.

@@ -11,7 +11,7 @@ milestone: MS-2
 cycle:
 parent:
 github:
-blocked_by: [BR-12, BR-13]
+blocked_by: []
 created: 2026-08-23
 updated: 2026-08-23
 ---
@@ -73,3 +73,5 @@ terminal lifecycle outcome.
 ### Log
 
 - 2026-08-23 created from PROJ-1 planning.
+- 2026-08-23 unblocked after BR-12 and BR-13 shipped the durable model and
+  ingress acceptance boundary. This is the next PROJ-1 implementation task.

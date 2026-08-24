@@ -11,7 +11,7 @@ milestone: MS-4
 cycle:
 parent:
 github:
-blocked_by: [BR-13, BR-14, BR-15, BR-16, BR-17]
+blocked_by: [BR-14, BR-15, BR-16, BR-17]
 created: 2026-08-23
 updated: 2026-08-23
 ---
@@ -75,3 +75,5 @@ done without leaking private message contents.
 ### Log
 
 - 2026-08-23 created from PROJ-1 planning.
+- 2026-08-23 removed completed BR-13 from the cutover prerequisites; BR-14
+  through BR-17 still block the final cutover.

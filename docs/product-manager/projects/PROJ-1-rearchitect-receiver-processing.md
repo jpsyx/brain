@@ -114,3 +114,7 @@ Out of scope:
   receiver conversations, complete durable job states, expiring claims,
   transcript recovery, native session bindings, and automatic schema v6
   migrations are now established. BR-13 is the next ingress cutover step.
+- **2026-08-23: on-track**: BR-13 shipped in Brain 0.73.2. Authenticated SMS
+  and email ingress now commits exact workspace-scoped jobs before provider
+  success, with restart-safe deduplication, atomic capacity, and crash recovery.
+  MS-1 is complete and BR-14 is the next execution step.
