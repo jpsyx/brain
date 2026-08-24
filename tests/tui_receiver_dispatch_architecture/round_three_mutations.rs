@@ -46,9 +46,9 @@ fn neutral_source(implementations: &str) -> String {
     format!(
         "pub trait Safe {{ fn drive(&mut self); }}\n\
          pub trait Unsafe {{ fn drive(&mut self); }}\n\
-         pub struct Worker<'a> {{ controller: &'a mut crate::AgentController }}\n\
+         pub struct Worker<'a> {{ controller: &'a mut crate::agent::controller::AgentController }}\n\
          {implementations}\
-         pub fn inject(controller: &mut crate::AgentController) {{ controller.submit_now(); }}\n"
+         pub fn inject(controller: &mut crate::agent::controller::AgentController) {{ controller.submit_now(); }}\n"
     )
 }
 

@@ -6,11 +6,11 @@ fn inferred_controller_local_retains_its_returned_type() {
         ("lib.rs", "mod neutral;\nmod receiver;\n"),
         (
             "neutral.rs",
-            "pub fn controller(value: &mut crate::AgentController) -> &mut crate::AgentController { value }\n",
+            "pub fn controller(value: &mut crate::agent::controller::AgentController) -> &mut crate::agent::controller::AgentController { value }\n",
         ),
         (
             "receiver.rs",
-            "pub fn dispatch(value: &mut crate::AgentController) { let controller = crate::neutral::controller(value); controller.submit_now(); }\n",
+            "pub fn dispatch(value: &mut crate::agent::controller::AgentController) { let controller = crate::neutral::controller(value); controller.submit_now(); }\n",
         ),
     ]);
 
@@ -73,11 +73,11 @@ fn associated_receiver_tick_call_counts_as_the_durable_consumer() {
     let fixture = rust_fixture(&[
         (
             "lib.rs",
-            "pub struct App;\nimpl App { pub fn tick_receiver(&mut self) {} }\nmod receiver;\n",
+            "mod receiver;\nmod tui { pub struct App; impl App { pub fn tick_receiver(&mut self) {} } }\n",
         ),
         (
             "receiver.rs",
-            "pub fn dispatch(app: &mut crate::App) { crate::App::tick_receiver(app); }\n",
+            "pub fn dispatch(app: &mut crate::tui::App) { crate::tui::App::tick_receiver(app); }\n",
         ),
     ]);
 
@@ -119,10 +119,10 @@ fn trait_dispatch_fixture(selected_trait: &str) -> tempfile::TempDir {
             "neutral.rs",
             "pub trait Safe { fn drive(&mut self); }\n\
              pub trait Unsafe { fn drive(&mut self); }\n\
-             pub struct Worker<'a> { controller: &'a mut crate::AgentController }\n\
+             pub struct Worker<'a> { controller: &'a mut crate::agent::controller::AgentController }\n\
              impl Unsafe for Worker<'_> { fn drive(&mut self) { inject(self.controller); } }\n\
              impl Safe for Worker<'_> { fn drive(&mut self) {} }\n\
-             fn inject(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+             fn inject(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
         ("receiver.rs", &receiver),
     ])

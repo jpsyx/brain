@@ -45,7 +45,7 @@ fn controller_type_aliases_resolve_across_modules() {
         ("lib.rs", "mod aliases;\nmod receiver;\n"),
         (
             "aliases.rs",
-            "pub type Frontend = crate::AgentController;\n",
+            "pub type Frontend = crate::agent::controller::AgentController;\n",
         ),
         (
             "receiver.rs",
@@ -68,7 +68,7 @@ fn qualified_self_ufcs_resolves_the_controller_owner() {
         ("lib.rs", "mod receiver;\n"),
         (
             "receiver.rs",
-            "use crate::AgentController as Frontend;\npub trait Input { fn type_text(&mut self, text: &str); }\npub fn dispatch(controller: &mut Frontend) { <Frontend as Input>::type_text(controller, \"remote\"); }\n",
+            "use crate::agent::controller::AgentController as Frontend;\npub trait Input { fn type_text(&mut self, text: &str); }\npub fn dispatch(controller: &mut Frontend) { <Frontend as Input>::type_text(controller, \"remote\"); }\n",
         ),
     ]);
 
@@ -87,7 +87,7 @@ fn controller_fields_preserve_type_through_member_access() {
         ("lib.rs", "mod receiver;\n"),
         (
             "receiver.rs",
-            "pub struct Run { pub controller: crate::AgentController }\npub fn dispatch(run: &mut Run) { run.controller.submit_now(); }\n",
+            "pub struct Run { pub controller: crate::agent::controller::AgentController }\npub fn dispatch(run: &mut Run) { run.controller.submit_now(); }\n",
         ),
     ]);
 
@@ -106,11 +106,11 @@ fn returned_controller_method_chains_preserve_type() {
         ("lib.rs", "mod neutral;\nmod receiver;\n"),
         (
             "neutral.rs",
-            "pub fn controller(value: &mut crate::AgentController) -> &mut crate::AgentController { value }\n",
+            "pub fn controller(value: &mut crate::agent::controller::AgentController) -> &mut crate::agent::controller::AgentController { value }\n",
         ),
         (
             "receiver.rs",
-            "pub fn dispatch(value: &mut crate::AgentController) { crate::neutral::controller(value).type_text(\"remote\"); }\n",
+            "pub fn dispatch(value: &mut crate::agent::controller::AgentController) { crate::neutral::controller(value).type_text(\"remote\"); }\n",
         ),
     ]);
 
@@ -129,7 +129,7 @@ fn unrelated_same_basename_method_is_not_a_call_edge() {
         ("lib.rs", "mod neutral;\nmod receiver;\n"),
         (
             "neutral.rs",
-            "pub fn drive(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+            "pub fn drive(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
         (
             "receiver.rs",

@@ -54,7 +54,7 @@ fn direct_worker_inherent_dispatch_keeps_its_existing_edge() {
         ("lib.rs", "mod receiver;\nmod worker;\n"),
         (
             "worker.rs",
-            "pub struct Worker<'a> { pub controller: &'a mut crate::AgentController }\n\
+            "pub struct Worker<'a> { pub controller: &'a mut crate::agent::controller::AgentController }\n\
              impl Worker<'_> { pub fn drive(&mut self) { self.controller.submit_now(); } }\n",
         ),
         (
@@ -87,12 +87,12 @@ fn ordinary_alias_fixture(selected_trait: &str) -> tempfile::TempDir {
              pub trait Unsafe { fn drive(&mut self); }\n\
              impl Unsafe for Runner<'_> { fn drive(&mut self) { inject(self.controller); } }\n\
              impl Safe for Runner<'_> { fn drive(&mut self) {} }\n\
-             fn inject(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+             fn inject(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
         ("receiver.rs", &receiver),
         (
             "z_model.rs",
-            "pub struct Worker<'a> { pub controller: &'a mut crate::AgentController }\n\
+            "pub struct Worker<'a> { pub controller: &'a mut crate::agent::controller::AgentController }\n\
              pub type Runner<'a> = Worker<'a>;\n",
         ),
     ])
@@ -112,9 +112,9 @@ fn qself_return_fixture(selected_trait: &str) -> tempfile::TempDir {
             "a_impl.rs",
             "use crate::z_model::{Harmless, Runner};\n\
              pub trait SafeView { fn controller(&mut self) -> &mut Harmless; }\n\
-             pub trait UnsafeView { fn controller(&mut self) -> &mut crate::AgentController; }\n\
+             pub trait UnsafeView { fn controller(&mut self) -> &mut crate::agent::controller::AgentController; }\n\
              impl UnsafeView for Runner<'_> {\n\
-                 fn controller(&mut self) -> &mut crate::AgentController { self.controller }\n\
+                 fn controller(&mut self) -> &mut crate::agent::controller::AgentController { self.controller }\n\
              }\n\
              impl SafeView for Runner<'_> {\n\
                  fn controller(&mut self) -> &mut Harmless { self.harmless }\n\
@@ -126,7 +126,7 @@ fn qself_return_fixture(selected_trait: &str) -> tempfile::TempDir {
             "pub struct Harmless;\n\
              impl Harmless { pub fn submit_now(&mut self) {} }\n\
              pub struct Worker<'a> {\n\
-                 pub controller: &'a mut crate::AgentController,\n\
+                 pub controller: &'a mut crate::agent::controller::AgentController,\n\
                  pub harmless: &'a mut Harmless,\n\
              }\n\
              pub type Runner<'a> = Worker<'a>;\n",

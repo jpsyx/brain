@@ -224,7 +224,11 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
                 self.violations
                     .push("in-memory receiver channel creation".to_owned());
             }
-            self.calls.push(RawCall { exact_target });
+            self.calls.push(RawCall {
+                exact_target: (!owner.server_control_client)
+                    .then_some(exact_target)
+                    .flatten(),
+            });
         }
         syn::visit::visit_expr_call(self, call);
     }
@@ -242,7 +246,11 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
             .canonical
             .as_ref()
             .and_then(|owner| self.scope.method_call_target(owner, &name));
-        self.calls.push(RawCall { exact_target });
+        self.calls.push(RawCall {
+            exact_target: (!owner.server_control_client)
+                .then_some(exact_target)
+                .flatten(),
+        });
         syn::visit::visit_expr_method_call(self, call);
     }
 }

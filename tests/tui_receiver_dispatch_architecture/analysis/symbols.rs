@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use super::super::TypeFact;
 use crate::source::is_exact_cfg_test;
 
+#[path = "symbols/imports.rs"]
+mod imports;
 #[path = "symbols/methods.rs"]
 mod methods;
 
+use imports::{collect_use_tree, expand_reexports};
 use methods::MethodIndex;
 
 #[derive(Clone)]
@@ -17,6 +20,7 @@ struct TypeDefinition {
 #[derive(Default)]
 pub(super) struct Symbols {
     imports: HashMap<String, HashMap<String, Vec<String>>>,
+    reexports: HashMap<String, HashMap<String, Vec<String>>>,
     aliases: HashMap<String, TypeDefinition>,
     fields: HashMap<String, TypeDefinition>,
     returns: HashMap<String, TypeDefinition>,
@@ -80,13 +84,23 @@ impl Symbols {
     }
 
     fn collect_imports(&mut self, items: &[syn::Item], module: &[String]) {
-        let imports = self.imports.entry(module.join("::")).or_default();
         for item in items {
             let syn::Item::Use(item_use) = item else {
                 continue;
             };
             if !is_exact_cfg_test(&item_use.attrs) {
-                collect_use_tree(&item_use.tree, Vec::new(), imports, module);
+                let mut item_imports = HashMap::new();
+                collect_use_tree(&item_use.tree, Vec::new(), &mut item_imports, module);
+                self.imports
+                    .entry(module.join("::"))
+                    .or_default()
+                    .extend(item_imports.clone());
+                if !matches!(item_use.vis, syn::Visibility::Inherited) {
+                    self.reexports
+                        .entry(module.join("::"))
+                        .or_default()
+                        .extend(item_imports);
+                }
             }
         }
     }
@@ -175,17 +189,15 @@ impl Symbols {
         let Some(first) = raw.first() else {
             return Vec::new();
         };
-        if matches!(first.as_str(), "crate" | "std" | "core" | "alloc") {
-            return raw.to_vec();
-        }
-        if first == "self" {
-            return module
+        let resolved = if matches!(first.as_str(), "crate" | "std" | "core" | "alloc") {
+            raw.to_vec()
+        } else if first == "self" {
+            module
                 .iter()
                 .cloned()
                 .chain(raw.iter().skip(1).cloned())
-                .collect();
-        }
-        if first == "super" {
+                .collect()
+        } else if first == "super" {
             let mut resolved = module.to_vec();
             let mut offset = 0;
             while raw.get(offset).is_some_and(|segment| segment == "super") {
@@ -193,20 +205,21 @@ impl Symbols {
                 offset += 1;
             }
             resolved.extend(raw.iter().skip(offset).cloned());
-            return resolved;
-        }
-        if let Some(imported) = self
+            resolved
+        } else if let Some(imported) = self
             .imports
             .get(&module.join("::"))
             .and_then(|imports| imports.get(first))
         {
-            return imported
+            imported
                 .iter()
                 .cloned()
                 .chain(raw.iter().skip(1).cloned())
-                .collect();
-        }
-        module.iter().cloned().chain(raw.iter().cloned()).collect()
+                .collect()
+        } else {
+            module.iter().cloned().chain(raw.iter().cloned()).collect()
+        };
+        expand_reexports(&self.reexports, resolved)
     }
 
     pub(super) fn type_fact(&self, module: &[String], ty: &syn::Type) -> TypeFact {
@@ -238,10 +251,9 @@ impl Symbols {
                     return fact;
                 }
                 let inbound_job = path.path.segments.iter().any(|segment| {
-                    segment.ident == "InboundJob"
-                        || generic_types(segment)
-                            .into_iter()
-                            .any(|ty| self.type_fact_inner(module, ty, resolving).inbound_job)
+                    generic_types(segment)
+                        .into_iter()
+                        .any(|ty| self.type_fact_inner(module, ty, resolving).inbound_job)
                 });
                 fact_for_canonical(canonical, inbound_job)
             }
@@ -308,17 +320,22 @@ pub(super) fn item_is_test(item: &syn::Item) -> bool {
 }
 
 fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
-    let name = canonical.rsplit("::").next().unwrap_or_default().to_owned();
+    let inbound_job = inbound_job || canonical == "crate::server::receiver::job::InboundJob";
+    let agent_controller = canonical == "crate::agent::controller::AgentController";
+    let app = canonical == "crate::tui::App";
+    let brain_panel = canonical == "crate::tui::state::brain::BrainPanelState";
+    let server_control_client = canonical == "crate::server::control::client::ServerClient";
     let unix_listener = canonical == "std::os::unix::net::UnixListener";
     let unix_stream = canonical == "std::os::unix::net::UnixStream";
     let channel_receiver = canonical == "std::sync::mpsc::Receiver";
     let memory_queue = canonical == "std::collections::VecDeque";
     TypeFact {
         canonical: Some(canonical),
-        inbound_job: inbound_job || name == "InboundJob",
-        agent_controller: name == "AgentController",
-        app: name == "App",
-        brain_panel: name == "BrainPanelState",
+        inbound_job,
+        agent_controller,
+        app,
+        brain_panel,
+        server_control_client,
         unix_listener,
         unix_stream,
         channel_receiver,
@@ -340,57 +357,4 @@ fn generic_types(segment: &syn::PathSegment) -> Vec<&syn::Type> {
             Some(ty)
         })
         .collect()
-}
-
-fn collect_use_tree(
-    tree: &syn::UseTree,
-    prefix: Vec<String>,
-    imports: &mut HashMap<String, Vec<String>>,
-    module: &[String],
-) {
-    match tree {
-        syn::UseTree::Path(path) => {
-            let mut prefix = prefix;
-            prefix.push(path.ident.to_string());
-            collect_use_tree(&path.tree, prefix, imports, module);
-        }
-        syn::UseTree::Name(name) => {
-            let mut path = prefix;
-            path.push(name.ident.to_string());
-            imports.insert(name.ident.to_string(), resolve_raw_path(module, &path));
-        }
-        syn::UseTree::Rename(rename) => {
-            let mut path = prefix;
-            path.push(rename.ident.to_string());
-            imports.insert(rename.rename.to_string(), resolve_raw_path(module, &path));
-        }
-        syn::UseTree::Group(group) => {
-            for item in &group.items {
-                collect_use_tree(item, prefix.clone(), imports, module);
-            }
-        }
-        syn::UseTree::Glob(_) => {}
-    }
-}
-
-fn resolve_raw_path(module: &[String], raw: &[String]) -> Vec<String> {
-    match raw.first().map(String::as_str) {
-        Some("crate" | "std" | "core" | "alloc") => raw.to_vec(),
-        Some("self") => module
-            .iter()
-            .cloned()
-            .chain(raw.iter().skip(1).cloned())
-            .collect(),
-        Some("super") => {
-            let mut resolved = module.to_vec();
-            let mut offset = 0;
-            while raw.get(offset).is_some_and(|segment| segment == "super") {
-                resolved.pop();
-                offset += 1;
-            }
-            resolved.extend(raw.iter().skip(offset).cloned());
-            resolved
-        }
-        _ => module.iter().cloned().chain(raw.iter().cloned()).collect(),
-    }
 }

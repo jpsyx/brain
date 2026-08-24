@@ -3804,11 +3804,14 @@ placing the boundary somewhere the sender did not choose.
 The commands are represented as durable jobs, not runtime-only intentions.
 `/new` atomically retires only the exact logical conversation key, creates an
 empty unbound replacement, and moves later unclaimed work in that conversation
-onto it. `/restart` atomically fails only older unclaimed queued or
-pre-acceptance retry rows, then establishes the same fresh boundary. The active
-owned run, later arrivals, and every unrelated actor, channel, conversation,
-and workspace remain unchanged. Retired conversation rows, transcripts, and
-bindings are not deleted, so a mistaken command does not destroy history.
+onto it. `/restart` atomically fails every older unclaimed queued or
+pre-acceptance retry job in the addressed workspace, even when an older job
+belongs to another actor, channel, or conversation, then establishes the fresh
+boundary only for the command's exact conversation. The active owned run,
+later arrivals, and every other workspace remain unchanged. All conversation
+records, transcripts, and bindings remain stored, including the records behind
+unrelated older jobs failed by the workspace-wide queue cut, so a mistaken
+command does not destroy history.
 
 The restart scan and ordinary claim are separate event-loop stages, so their
 database ordering must close the ingress gap between them. The claim uses

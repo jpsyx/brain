@@ -13,6 +13,7 @@ pub(super) struct TypeFact {
     pub(super) agent_controller: bool,
     pub(super) app: bool,
     pub(super) brain_panel: bool,
+    pub(super) server_control_client: bool,
     pub(super) unix_listener: bool,
     pub(super) unix_stream: bool,
     pub(super) channel_receiver: bool,

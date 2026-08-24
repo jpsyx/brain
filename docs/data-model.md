@@ -276,10 +276,12 @@ Receiver controls are durable jobs. An exact claimed `/new` atomically retires
 only its logical conversation key, creates an empty unbound conversation under
 the same provider identity, moves later unclaimed work for that conversation to
 the fresh row, and finishes the command. `/restart` finds the oldest queued
-restart, atomically fails only older unclaimed queued or pre-acceptance retry
-rows, rolls the command's exact conversation, and preserves the active owned
-run plus later work. Retired conversation rows, transcripts, and bindings remain
-stored; unrelated actor, channel, conversation, and workspace tuples are never
+restart and atomically fails every older unclaimed queued or pre-acceptance
+retry job in the addressed workspace, including jobs from other actors,
+channels, or conversations. It rolls only the command's exact conversation and
+preserves the active owned run plus later work. Every conversation record,
+transcript, and binding remains stored, including those belonging to unrelated
+older jobs that the workspace-wide queue cut failed; other workspaces are never
 changed.
 
 After the process-wide startup migration boundary, status uses a separate

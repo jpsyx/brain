@@ -6,6 +6,8 @@ mod analysis;
 mod round_five_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_four_mutations.rs"]
 mod round_four_mutations;
+#[path = "tui_receiver_dispatch_architecture/round_six_mutations.rs"]
+mod round_six_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_three_mutations.rs"]
 mod round_three_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_two_mutations.rs"]
@@ -197,11 +199,11 @@ fn production_graph_preserves_declared_module_identity_for_reachability() {
         ),
         (
             "test_support.rs",
-            "pub fn dispatch(controller: &mut crate::AgentController) { crate::neutral::drive(controller); }\n",
+            "pub fn dispatch(controller: &mut crate::agent::controller::AgentController) { crate::neutral::drive(controller); }\n",
         ),
         (
             "neutral.rs",
-            "pub fn drive(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+            "pub fn drive(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
     ]);
 
@@ -217,11 +219,11 @@ fn undeclared_receiver_orphans_default_to_production() {
         ("lib.rs", "mod interactive;\n"),
         (
             "interactive.rs",
-            "pub fn submit(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+            "pub fn submit(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
         (
             "orphan_receiver.rs",
-            "pub fn dispatch(controller: &mut crate::AgentController) { crate::interactive::submit(controller); }\n",
+            "pub fn dispatch(controller: &mut crate::agent::controller::AgentController) { crate::interactive::submit(controller); }\n",
         ),
     ]);
 
@@ -237,11 +239,11 @@ fn receiver_reachability_follows_calls_into_neutral_helpers() {
         ("lib.rs", "mod neutral;\nmod receiver;\n"),
         (
             "receiver.rs",
-            "pub fn dispatch(controller: &mut crate::AgentController) { crate::neutral::drive(controller); }\n",
+            "pub fn dispatch(controller: &mut crate::agent::controller::AgentController) { crate::neutral::drive(controller); }\n",
         ),
         (
             "neutral.rs",
-            "pub fn drive(controller: &mut crate::AgentController) { controller.submit_now(); controller.type_text(\"remote\"); }\n",
+            "pub fn drive(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); controller.type_text(\"remote\"); }\n",
         ),
     ]);
 
@@ -258,7 +260,7 @@ fn receiver_reachability_resolves_ufcs_and_type_aliases() {
         ("lib.rs", "mod receiver;\n"),
         (
             "receiver.rs",
-            "use crate::AgentController as Frontend;\npub fn dispatch(controller: &mut Frontend) { Frontend::type_text(controller, \"remote\"); }\n",
+            "use crate::agent::controller::AgentController as Frontend;\npub fn dispatch(controller: &mut Frontend) { Frontend::type_text(controller, \"remote\"); }\n",
         ),
     ]);
 
@@ -310,7 +312,7 @@ fn receiver_reachability_rejects_channel_and_memory_queue_consumers() {
         ),
         (
             "neutral.rs",
-            "use std::collections::VecDeque as Buffer;\nuse std::sync::mpsc::Receiver as Channel;\npub struct InboundJob;\npub type Inbox = Channel<InboundJob>;\npub type Jobs = Buffer<InboundJob>;\npub fn consume(inbox: Inbox, mut jobs: Jobs) { let _ = inbox.recv(); let _ = jobs.pop_front(); }\n",
+            "use crate::server::receiver::job::InboundJob;\nuse std::collections::VecDeque as Buffer;\nuse std::sync::mpsc::Receiver as Channel;\npub type Inbox = Channel<InboundJob>;\npub type Jobs = Buffer<InboundJob>;\npub fn consume(inbox: Inbox, mut jobs: Jobs) { let _ = inbox.recv(); let _ = jobs.pop_front(); }\n",
         ),
     ]);
 
@@ -327,11 +329,11 @@ fn ordinary_interactive_and_exact_cfg_test_calls_are_not_receiver_reachable() {
         ("lib.rs", "mod interactive;\n#[cfg(test)] mod hidden;\n"),
         (
             "interactive.rs",
-            "pub fn submit(controller: &mut crate::AgentController) { controller.submit_now(); }\n#[cfg(test)] fn hidden(controller: &mut crate::AgentController) { controller.type_text(\"test\"); }\n",
+            "pub fn submit(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n#[cfg(test)] fn hidden(controller: &mut crate::agent::controller::AgentController) { controller.type_text(\"test\"); }\n",
         ),
         (
             "hidden.rs",
-            "pub fn test_only(controller: &mut crate::AgentController) { controller.submit_now(); }\n",
+            "pub fn test_only(controller: &mut crate::agent::controller::AgentController) { controller.submit_now(); }\n",
         ),
     ]);
 

@@ -1031,13 +1031,15 @@ which explicitly stop and join only their workers, and performs no exit sync.
 observation-driven pure poll transition. `AppServices` owns the injected sync
 adapter that reads clocks, journals, and current process state and launches
 children.
-The sole receiver tick first applies every durable `/restart` control. It then
-continues the one claimed or active run, or claims at most one FIFO job when
-idle; a claimed job passes the sync-freshness gate, and `/new` completes before
-any agent launch. A terminal artifact becomes durable only when one immediate
-state transaction proves that the exact session validated from the artifact is
-still the locked `completed` lifecycle-native registration, persists the exact
-binding, and moves the live owner's launch to `done`. A mismatch, concurrent
+While receiver processing is enabled, the sole receiver tick first scans and
+applies every durable `/restart` control. It always continues the one claimed
+or active run, including after disable, and claims at most one FIFO job only
+when enabled and idle; a claimed job passes the sync-freshness gate, and `/new`
+completes before any agent launch. A terminal artifact becomes durable only
+when one immediate state transaction proves that the exact session validated
+from the artifact is still the locked `completed` lifecycle-native
+registration, persists the exact binding, and moves the live owner's launch to
+`done`. A mismatch, concurrent
 SessionStart rotation, or database error rolls back and leaves the run and
 artifact available for the next tick. There is no second process-local cursor,
 interactive-panel handoff, activity sample, or socket poll.
