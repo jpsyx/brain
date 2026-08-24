@@ -1,8 +1,14 @@
 use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
-use super::{to_i64, validated_owner};
-use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverJobState};
+use super::{
+    load::{load_receiver_conversation, load_receiver_job},
+    to_i64, validated_owner,
+};
+use crate::state::{
+    Db, MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverClaim, ReceiverJobId, ReceiverJobState,
+    ReceiverLaunchFailure, ReceiverLaunchRetryOutcome, ReceiverRunClaim,
+};
 
 impl Db {
     /// Claim the oldest ready job without removing it from durable state.
@@ -12,6 +18,18 @@ impl Db {
         now_unix_ms: u64,
         expires_at_unix_ms: u64,
     ) -> Result<Option<ReceiverClaim>> {
+        Ok(self
+            .claim_next_receiver_run(owner, now_unix_ms, expires_at_unix_ms)?
+            .map(|run| run.claim().clone()))
+    }
+
+    /// Atomically claim and load the oldest ready receiver run.
+    pub fn claim_next_receiver_run(
+        &self,
+        owner: &str,
+        now_unix_ms: u64,
+        expires_at_unix_ms: u64,
+    ) -> Result<Option<ReceiverRunClaim>> {
         let owner = validated_owner(owner)?;
         anyhow::ensure!(
             expires_at_unix_ms > now_unix_ms,
@@ -19,8 +37,11 @@ impl Db {
         );
         let now = to_i64(now_unix_ms, "receiver claim time")?;
         let expires = to_i64(expires_at_unix_ms, "receiver claim expiry")?;
-        let candidate = self
-            .conn
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let candidate = transaction
             .query_row(
                 "SELECT job_id FROM receiver_jobs
                  WHERE workspace_id = ?1
@@ -50,17 +71,13 @@ impl Db {
         let Some(candidate) = candidate else {
             return Ok(None);
         };
-        let changed = self.conn.execute(
+        let changed = transaction.execute(
             "UPDATE receiver_jobs
              SET state = CASE
                    WHEN state = 'queued' THEN 'claimed'
                    ELSE state
                  END,
                  claim_owner = ?3, claim_expires_at_unix_ms = ?4,
-                 retry_at_unix_ms = CASE
-                   WHEN state = 'retrying' THEN NULL
-                   ELSE retry_at_unix_ms
-                 END,
                  updated_at_unix_ms = ?2
              WHERE workspace_id = ?1 AND job_id = ?5
                AND (
@@ -85,11 +102,137 @@ impl Db {
         if changed == 0 {
             return Ok(None);
         }
-        Ok(Some(ReceiverClaim::new(
-            ReceiverJobId::parse(&candidate)?,
-            owner.to_owned(),
-            expires_at_unix_ms,
-        )))
+        let job_id = ReceiverJobId::parse(&candidate)?;
+        let claim = ReceiverClaim::new(job_id, owner.to_owned(), expires_at_unix_ms);
+        let job = load_receiver_job(&transaction, &self.workspace_id, job_id)?
+            .ok_or_else(|| anyhow::anyhow!("claimed receiver job disappeared"))?;
+        let conversation =
+            load_receiver_conversation(&transaction, &self.workspace_id, job.conversation_id())?
+                .ok_or_else(|| anyhow::anyhow!("claimed receiver conversation disappeared"))?;
+        transaction.commit()?;
+        Ok(Some(ReceiverRunClaim::new(claim, job, conversation)))
+    }
+
+    /// Atomically move one exact live launch-eligible owner to `launching`.
+    pub fn prepare_receiver_job_launch(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        let owner = validated_owner(owner)?;
+        let observed = to_i64(observed_at_unix_ms, "receiver launch preparation time")?;
+        Ok(self.conn.execute(
+            "UPDATE receiver_jobs
+             SET state = 'launching', retry_at_unix_ms = NULL,
+                 retry_from_state = NULL, updated_at_unix_ms = ?4
+             WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
+               AND claim_expires_at_unix_ms > ?4
+               AND (
+                 state = 'claimed'
+                 OR (
+                   state = 'retrying' AND retry_at_unix_ms <= ?4
+                   AND retry_from_state IN ('claimed', 'launching')
+                 )
+               )",
+            rusqlite::params![self.workspace_id, job_id.to_string(), owner, observed],
+        )? == 1)
+    }
+
+    /// Record one bounded pre-acceptance launch retry for the exact live owner.
+    pub fn record_receiver_launch_retry(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+        retry_at_unix_ms: u64,
+        failure: ReceiverLaunchFailure,
+    ) -> Result<Option<ReceiverLaunchRetryOutcome>> {
+        let owner = validated_owner(owner)?;
+        anyhow::ensure!(
+            retry_at_unix_ms > observed_at_unix_ms,
+            "receiver launch retry time must follow observation time"
+        );
+        let observed = to_i64(observed_at_unix_ms, "receiver launch failure time")?;
+        let retry_at = to_i64(retry_at_unix_ms, "receiver launch retry time")?;
+        let expected = failure.expected_state();
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let retry_count = transaction
+            .query_row(
+                "SELECT retry_count FROM receiver_jobs
+                 WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
+                   AND claim_expires_at_unix_ms > ?4
+                   AND (
+                     state = ?5
+                     OR (
+                       ?5 = 'claimed' AND state = 'retrying'
+                       AND retry_at_unix_ms <= ?4
+                       AND retry_from_state IN ('claimed', 'launching')
+                     )
+                   )",
+                rusqlite::params![
+                    self.workspace_id,
+                    job_id.to_string(),
+                    owner,
+                    observed,
+                    expected.as_str(),
+                ],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(retry_count) = retry_count else {
+            return Ok(None);
+        };
+        let next_count = retry_count
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("receiver launch retry count is exhausted"))?;
+        let exhausted = next_count >= i64::from(MAX_RECEIVER_LAUNCH_ATTEMPTS);
+        let next_state = if exhausted { "failed" } else { "retrying" };
+        let retry_at = (!exhausted).then_some(retry_at);
+        let retry_from = (!exhausted).then_some(expected.as_str());
+        let changed = transaction.execute(
+            "UPDATE receiver_jobs
+             SET state = ?6, retry_count = ?7, retry_at_unix_ms = ?8,
+                 retry_from_state = ?9, last_error = ?10,
+                 claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                 updated_at_unix_ms = ?4
+             WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
+               AND claim_expires_at_unix_ms > ?4
+               AND (
+                 state = ?5
+                 OR (
+                   ?5 = 'claimed' AND state = 'retrying'
+                   AND retry_at_unix_ms <= ?4
+                   AND retry_from_state IN ('claimed', 'launching')
+                 )
+               )
+               AND retry_count = ?11",
+            rusqlite::params![
+                self.workspace_id,
+                job_id.to_string(),
+                owner,
+                observed,
+                expected.as_str(),
+                next_state,
+                next_count,
+                retry_at,
+                retry_from,
+                failure.as_str(),
+                retry_count,
+            ],
+        )?;
+        if changed != 1 {
+            return Ok(None);
+        }
+        transaction.commit()?;
+        Ok(Some(if exhausted {
+            ReceiverLaunchRetryOutcome::Exhausted
+        } else {
+            ReceiverLaunchRetryOutcome::Scheduled
+        }))
     }
 
     /// Renew an unexpired claim only for its exact owner.
@@ -143,6 +286,7 @@ impl Db {
             self.conn.execute(
                 "UPDATE receiver_jobs
                  SET state = ?5, claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                     retry_at_unix_ms = NULL, retry_from_state = NULL,
                      updated_at_unix_ms = ?4
                  WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                    AND claim_expires_at_unix_ms > ?4 AND state = ?6",
@@ -157,7 +301,10 @@ impl Db {
             )?
         } else {
             self.conn.execute(
-                "UPDATE receiver_jobs SET state = ?5, updated_at_unix_ms = ?4
+                "UPDATE receiver_jobs SET state = ?5,
+                     retry_at_unix_ms = CASE WHEN state = 'retrying' THEN NULL ELSE retry_at_unix_ms END,
+                     retry_from_state = CASE WHEN state = 'retrying' THEN NULL ELSE retry_from_state END,
+                     updated_at_unix_ms = ?4
                  WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                    AND claim_expires_at_unix_ms > ?4 AND state = ?6",
                 rusqlite::params![
@@ -225,7 +372,7 @@ impl Db {
         Ok(self.conn.execute(
             "UPDATE receiver_jobs
              SET state = 'retrying', retry_count = retry_count + 1,
-                 retry_at_unix_ms = ?6, last_error = ?7,
+                 retry_at_unix_ms = ?6, retry_from_state = ?5, last_error = ?7,
                  claim_owner = NULL, claim_expires_at_unix_ms = NULL,
                  updated_at_unix_ms = ?4
              WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3

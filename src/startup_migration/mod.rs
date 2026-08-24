@@ -1,6 +1,7 @@
 //! Automatic, version-directed machine migrations.
 
 mod lifecycle;
+mod receiver_launch;
 mod receiver_model;
 mod version;
 
@@ -13,6 +14,7 @@ use version::Version;
 
 const LIFECYCLE_VERSION: Version = Version::new(0, 71, 0);
 const RECEIVER_MODEL_VERSION: Version = Version::new(0, 72, 0);
+const RECEIVER_LAUNCH_VERSION: Version = Version::new(0, 75, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -21,7 +23,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 2] = [
+const MIGRATIONS: [Migration; 3] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -31,6 +33,11 @@ const MIGRATIONS: [Migration; 2] = [
         introduced: RECEIVER_MODEL_VERSION,
         up: receiver_model::up,
         down: receiver_model::down,
+    },
+    Migration {
+        introduced: RECEIVER_LAUNCH_VERSION,
+        up: receiver_launch::up,
+        down: receiver_launch::down,
     },
 ];
 

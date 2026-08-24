@@ -150,7 +150,7 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
         .expect("load claimed retry")
         .expect("retry remains durable");
     assert_eq!(retrying.state(), ReceiverJobState::Retrying);
-    assert_eq!(retrying.retry_at_unix_ms(), None);
+    assert_eq!(retrying.retry_at_unix_ms(), Some(2_000));
     assert!(
         db.transition_receiver_job(
             accepted.job_id(),
@@ -161,6 +161,11 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
         )
         .expect("resume delivery as live owner")
     );
+    let resumed = db
+        .receiver_job(accepted.job_id())
+        .expect("load resumed delivery")
+        .expect("delivery remains durable");
+    assert_eq!(resumed.retry_at_unix_ms(), None);
 }
 
 #[test]

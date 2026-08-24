@@ -237,8 +237,18 @@ same current inputs after a separate portable-transcript section, bounded to
 transcript, attachment, sender, recipient, and credential contents never enter
 planning diagnostics. Claude, Codex, and OpenCode translate both semantic
 plans with the non-blank initial prompt through their existing launch command.
-This seam does not yet consume the durable queue or create a tab; later BR-14
-tasks own those effects.
+The adjacent ownership seam gives every run a unique remote
+`BRAIN_INSTANCE_ID`, registers a fresh placeholder before spawn or claims the
+exact validated resume session, and never reuses the main TUI instance. Codex
+and OpenCode session-start integrations rotate that remote placeholder to the
+actual native ID. Only an exact locked remote instance whose ID differs from
+the placeholder and whose actor/channel matches the conversation may replace
+the durable binding; that update does not rewrite the portable transcript.
+Controller shutdown always reaches
+the transport even when frontend availability diagnostics fail, while still
+returning that diagnostic to orderly shell teardown. The seam does not yet
+consume the durable queue or create a tab; the next BR-14 task owns those
+effects.
 
 The TUI owns an `AgentController` for each live main or triage panel and calls
 semantic type, immediate submit, busy-turn follow-up, new-session, snapshot,
@@ -492,9 +502,10 @@ The `BrainPanelState` receiver API performs insertion, observation, controller
 access, and removal without touching `ShellState`; therefore background
 operations preserve the current main view, effective tab, panel visibility, and
 keyboard focus.
-Receiver-only storage does not reveal a hidden panel. Task 2 intentionally
-stops at this in-memory integration seam; durable claiming, launch registration,
-and coordinator wiring remain later BR-14 tasks.
+Receiver-only storage does not reveal a hidden panel. Durable FIFO claiming,
+launch registration, and rollback now exist behind narrow `AppServices`
+operations, but the next BR-14 task still owns their tick-to-tab coordinator
+wiring.
 
 ## Shared-server process lifecycle
 
@@ -944,8 +955,10 @@ The automatic 0.72.0 migration reconciles receiver schema v6 in every
 registered workspace that already has a state DB. It does not create an unused
 DB merely because the workspace is registered. Its down operation removes only
 the receiver tables/index and returns an existing DB to v5. Freshly attached
-workspaces receive the same schema on their first `Db::open`, so no manual
-migration command is part of receiver setup.
+workspaces receive the current schema on their first `Db::open`. The automatic
+0.75.0 migration adds schema-v7 launch retry origins to existing receiver jobs;
+its down operation removes only that column and returns the state DB to v6. No
+manual migration command is part of receiver setup.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root

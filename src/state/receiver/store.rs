@@ -3,11 +3,14 @@ use rusqlite::OptionalExtension as _;
 
 use super::{
     ReceiverAcceptance, ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity,
-    ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverSessionBinding,
+    ReceiverJob, ReceiverJobId, ReceiverSessionBinding,
 };
 use crate::state::Db;
 
 mod claim;
+mod load;
+
+use load::{load_receiver_conversation, load_receiver_job};
 
 const QUEUED_JOB_LIMIT: i64 = 64;
 
@@ -136,43 +139,7 @@ impl Db {
 
     /// Load one durable receiver job without changing queue ownership.
     pub fn receiver_job(&self, job_id: ReceiverJobId) -> Result<Option<ReceiverJob>> {
-        let stored = self
-            .conn
-            .query_row(
-                "SELECT conversation_id, inbound_json, state, retry_count,
-                        retry_at_unix_ms, last_error
-                 FROM receiver_jobs WHERE workspace_id = ?1 AND job_id = ?2",
-                rusqlite::params![self.workspace_id, job_id.to_string()],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, Option<i64>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((conversation, inbound_json, state, retry_count, retry_at, last_error)) = stored
-        else {
-            return Ok(None);
-        };
-        let inbound = serde_json::from_str(&inbound_json).context("parse durable receiver job")?;
-        let state = ReceiverJobState::parse(&state)
-            .ok_or_else(|| anyhow::anyhow!("unknown durable receiver job state {state:?}"))?;
-        Ok(Some(ReceiverJob::from_stored(
-            job_id,
-            ReceiverConversationId::parse(&conversation)?,
-            inbound,
-            state,
-            u32::try_from(retry_count).context("receiver retry count is outside u32")?,
-            retry_at
-                .map(|value| from_i64(value, "receiver retry timestamp"))
-                .transpose()?,
-            last_error,
-        )))
+        load_receiver_job(&self.conn, &self.workspace_id, job_id)
     }
 
     /// Load one logical receiver conversation and its portable transcript.
@@ -180,51 +147,7 @@ impl Db {
         &self,
         conversation_id: ReceiverConversationId,
     ) -> Result<Option<ReceiverConversation>> {
-        let stored = self
-            .conn
-            .query_row(
-                "SELECT workspace_id, user_id, channel, conversation_key,
-                        transcript_markdown, agent_kind, agent_session_id
-                 FROM receiver_conversations
-                 WHERE workspace_id = ?1 AND conversation_id = ?2",
-                rusqlite::params![self.workspace_id, conversation_id.to_string()],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((workspace, user, channel, key, transcript, agent, native_session)) = stored
-        else {
-            return Ok(None);
-        };
-        let identity = ReceiverConversationIdentity::from_stored_parts(
-            crate::workspace::WorkspaceId::parse(&workspace)?,
-            crate::users::UserId::parse(&user)?,
-            parse_channel(&channel)?,
-            key,
-        );
-        let binding = match (agent, native_session) {
-            (Some(agent), Some(native_session)) => Some(ReceiverSessionBinding::new(
-                parse_agent_kind(&agent)?,
-                native_session,
-            )?),
-            (None, None) => None,
-            _ => return Err(anyhow::anyhow!("incomplete receiver session binding")),
-        };
-        Ok(Some(ReceiverConversation::from_stored(
-            conversation_id,
-            identity,
-            transcript,
-            binding,
-        )))
+        load_receiver_conversation(&self.conn, &self.workspace_id, conversation_id)
     }
 
     /// Atomically replace the portable transcript and current native binding.
@@ -255,6 +178,69 @@ impl Db {
                 to_i64(observed_at_unix_ms, "conversation update timestamp")?,
             ],
         )? == 1)
+    }
+
+    /// Replace only the native binding after an exact remote instance rotates.
+    pub fn replace_receiver_binding_from_instance(
+        &self,
+        conversation_id: ReceiverConversationId,
+        instance: &str,
+        placeholder: &crate::agent::AgentSession,
+        scope: &crate::agent::SessionScope,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        let instance = validated_owner(instance)?;
+        anyhow::ensure!(
+            scope.workspace_id().to_string() == self.workspace_id,
+            "receiver session scope belongs to another workspace"
+        );
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let native_session = transaction
+            .query_row(
+                "SELECT agent_session_id FROM brain_sessions
+                 WHERE brain_instance_id = ?1 AND locked_pid IS NOT NULL
+                   AND agent_kind = ?2 AND workspace_id = ?3
+                   AND actor_id = ?4 AND channel = ?5",
+                rusqlite::params![
+                    instance,
+                    scope.agent_kind().as_str(),
+                    scope.workspace_id().to_string(),
+                    scope.actor().user_id().as_str(),
+                    scope.actor().channel().as_str(),
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(native_session) = native_session else {
+            return Ok(false);
+        };
+        if native_session == placeholder.as_str() {
+            return Ok(false);
+        }
+        let native_session = crate::agent::AgentSession::new(native_session)?;
+        let changed = transaction.execute(
+            "UPDATE receiver_conversations
+             SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+               AND user_id = ?6 AND channel = ?7",
+            rusqlite::params![
+                self.workspace_id,
+                conversation_id.to_string(),
+                scope.agent_kind().as_str(),
+                native_session.as_str(),
+                to_i64(observed_at_unix_ms, "receiver binding observation time")?,
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
+            ],
+        )?;
+        if changed == 1 {
+            transaction.commit()?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn validate_receiver_scope(
@@ -295,27 +281,6 @@ fn channel_str(channel: crate::server::receiver::Channel) -> &'static str {
     }
 }
 
-fn parse_channel(value: &str) -> Result<crate::server::receiver::Channel> {
-    match value {
-        "sms" => Ok(crate::server::receiver::Channel::Sms),
-        "email" => Ok(crate::server::receiver::Channel::Email),
-        _ => Err(anyhow::anyhow!("unknown receiver channel {value:?}")),
-    }
-}
-
-fn parse_agent_kind(value: &str) -> Result<crate::agent::AgentKind> {
-    match value {
-        "claude" => Ok(crate::agent::AgentKind::Claude),
-        "codex" => Ok(crate::agent::AgentKind::Codex),
-        "opencode" => Ok(crate::agent::AgentKind::OpenCode),
-        _ => Err(anyhow::anyhow!("unknown receiver frontend {value:?}")),
-    }
-}
-
 pub(super) fn to_i64(value: u64, name: &str) -> Result<i64> {
     i64::try_from(value).with_context(|| format!("{name} is outside SQLite integer range"))
-}
-
-fn from_i64(value: i64, name: &str) -> Result<u64> {
-    u64::try_from(value).with_context(|| format!("{name} cannot be negative"))
 }

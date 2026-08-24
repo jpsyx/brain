@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-struct WorkspaceState {
-    path: PathBuf,
-    workspace_id: String,
-    local_user_id: String,
+pub(super) struct WorkspaceState {
+    pub(super) path: PathBuf,
+    pub(super) workspace_id: String,
+    pub(super) local_user_id: String,
 }
 
 pub(super) fn up(home: &Path) -> Result<()> {
@@ -28,7 +28,7 @@ pub(super) fn down(home: &Path) -> Result<()> {
     Ok(())
 }
 
-fn workspace_states(home: &Path) -> Vec<WorkspaceState> {
+pub(super) fn workspace_states(home: &Path) -> Vec<WorkspaceState> {
     let store = crate::workspace::RegistryStore::real();
     if !store.path().exists() {
         return Vec::new();

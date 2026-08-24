@@ -1008,10 +1008,19 @@ The stored lifecycle is `queued`, `claimed`, `launching`, `accepted`,
 A claim stores a non-blank owner and millisecond expiry without deleting its
 job. Only the live exact owner may renew or transition it. After expiry,
 queued work becomes claimed by the new owner. A due retry keeps `retrying`,
-clears its consumed retry schedule, and lets the live owner transition to the
-phase being retried. A progressed launching through delivering job keeps its
+retains its retry schedule and origin until a phase-specific compare-and-swap
+consumes them, and lets the live owner transition to the phase being retried.
+The FIFO claim transaction refuses another job while any workspace job has a
+live lease and returns the immutable job plus logical conversation without
+deleting either row. Launch preparation accepts only the exact unexpired owner
+of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
+then atomically moves it to `launching`. A progressed launching through delivering job keeps its
 state, retry count, retry schedule, and last error while only the lease is
-replaced. This preserves the evidence a later recovery policy needs. Failed
+replaced. Pre-acceptance planning, registration, allocation, and spawn failures
+release the lease and record only a stable content-free reason. Two retries are
+scheduled; the third failed launch leaves the durable job terminally `failed`.
+Retries originating at `accepted`, `processing`, or delivery phases cannot be
+prepared as another launch. This preserves the evidence a later recovery policy needs. Failed
 and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
@@ -1022,7 +1031,11 @@ maintained Brain-owned markdown transcript plus an optional paired
 the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
-replaced atomically with an explicit observed-at millisecond timestamp.
+replaced atomically with an explicit observed-at millisecond timestamp. After a
+fresh Codex or OpenCode launch, a separate binding-only mutation reads the
+exact locked remote instance. It rejects the Brain placeholder and writes only
+the actual native ID installed by the lifecycle bridge when its actor/channel
+also matches the conversation, leaving the portable transcript bytes untouched.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
@@ -1032,13 +1045,16 @@ section, and the accepted attachment references. A resumed plan carries only
 the current message and attachment references. The planner owns no tab,
 durable claim, binding update, or coordinator state.
 
-State schema v6 creates both receiver tables and their ready-work index in one
-transaction. Every DB open reconciles the tables for new or partially repaired
-workspaces. The automatic 0.72.0 machine migration applies that reconciliation
-to every existing registered workspace state DB without creating an otherwise
-unused DB. A newly attached workspace receives v6 on its first ordinary DB
-open. The down operation transactionally removes the receiver schema and
-returns a v6 DB to v5.
+State schema v6 created both receiver tables and their ready-work index in one
+transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
+nonterminal phases. Every DB open reconciles the tables for new or partially
+repaired workspaces. The automatic 0.72.0 machine migration applies the table
+reconciliation to every existing registered workspace state DB without
+creating an otherwise unused DB. The 0.75.0 migration upgrades those existing
+tables to v7; its down operation removes only the retry-origin column and
+returns the DB to v6. A newly attached workspace receives v7 on its first
+ordinary DB open. The older v6 down operation still transactionally removes
+the receiver schema and returns a v6 DB to v5.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the
@@ -1118,14 +1134,19 @@ kind-specific metadata, and controller, while `ShellState` owns the active
 Receiver metadata is a separate variant containing the durable `ReceiverJobId`
 plus remote instance identity; it is never represented as a configured skill.
 The single counter spans both kinds and never reuses an ID after removal.
+Each receiver launch also owns a unique `receiver-run-<uuid>`
+`BRAIN_INSTANCE_ID`, never the main TUI instance. A fresh launch registers a
+unique placeholder before spawning; a resume launch claims only its exact
+validated native session. An armed registration guard releases that exact
+remote owner on early return, while the main interactive lineage is untouched.
 
 Main, skill-session, and receiver-run values are `AgentController` instances,
 not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,
 and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down every controller before releasing
-the session-store lock. The in-memory receiver tab seam is not yet wired to the
-durable consumer in this task.
+the session-store lock. The in-memory receiver tab and durable launch seams are
+not yet joined by the tick coordinator in this task.
 
 ## Skill sessions (`skill_session/`, `skill_sessions` env)
 

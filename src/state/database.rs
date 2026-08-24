@@ -216,7 +216,7 @@ impl Db {
                  PRAGMA user_version = 5;",
             )?;
         }
-        super::receiver::schema::up(&self.conn, version < 6)?;
+        super::receiver::schema::up(&self.conn, version)?;
         Ok(())
     }
 

@@ -5,6 +5,50 @@ use uuid::Uuid;
 
 use super::{ReceiverConversationIdentity, ReceiverJobState};
 
+/// Maximum pre-acceptance process-launch attempts for one durable job.
+pub const MAX_RECEIVER_LAUNCH_ATTEMPTS: u32 = 3;
+
+/// Stable, content-free reason one receiver process failed before acceptance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverLaunchFailure {
+    Planning,
+    Registration,
+    Allocation,
+    Spawn,
+}
+
+impl ReceiverLaunchFailure {
+    pub const ALL: [Self; 4] = [
+        Self::Planning,
+        Self::Registration,
+        Self::Allocation,
+        Self::Spawn,
+    ];
+
+    pub(super) const fn expected_state(self) -> ReceiverJobState {
+        match self {
+            Self::Planning | Self::Registration => ReceiverJobState::Claimed,
+            Self::Allocation | Self::Spawn => ReceiverJobState::Launching,
+        }
+    }
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Planning => "launch-planning",
+            Self::Registration => "launch-registration",
+            Self::Allocation => "launch-allocation",
+            Self::Spawn => "launch-spawn",
+        }
+    }
+}
+
+/// Durable result of recording one pre-acceptance launch failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverLaunchRetryOutcome {
+    Scheduled,
+    Exhausted,
+}
+
 /// Immutable identifier for one workspace-scoped receiver job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobId(Uuid);
@@ -179,7 +223,15 @@ pub struct ReceiverJob {
     state: ReceiverJobState,
     retry_count: u32,
     retry_at_unix_ms: Option<u64>,
+    retry_from_state: Option<ReceiverJobState>,
     last_error: Option<String>,
+}
+
+pub(super) struct ReceiverRetryMetadata {
+    pub(super) count: u32,
+    pub(super) at_unix_ms: Option<u64>,
+    pub(super) from_state: Option<ReceiverJobState>,
+    pub(super) last_error: Option<String>,
 }
 
 impl ReceiverJob {
@@ -188,18 +240,17 @@ impl ReceiverJob {
         conversation_id: ReceiverConversationId,
         inbound: crate::server::receiver::InboundJob,
         state: ReceiverJobState,
-        retry_count: u32,
-        retry_at_unix_ms: Option<u64>,
-        last_error: Option<String>,
+        retry: ReceiverRetryMetadata,
     ) -> Self {
         Self {
             id,
             conversation_id,
             inbound,
             state,
-            retry_count,
-            retry_at_unix_ms,
-            last_error,
+            retry_count: retry.count,
+            retry_at_unix_ms: retry.at_unix_ms,
+            retry_from_state: retry.from_state,
+            last_error: retry.last_error,
         }
     }
 
@@ -234,8 +285,50 @@ impl ReceiverJob {
     }
 
     #[must_use]
+    pub const fn retry_from_state(&self) -> Option<ReceiverJobState> {
+        self.retry_from_state
+    }
+
+    #[must_use]
     pub fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
+    }
+}
+
+/// One live FIFO claim with the immutable job and logical conversation it owns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverRunClaim {
+    claim: ReceiverClaim,
+    job: ReceiverJob,
+    conversation: ReceiverConversation,
+}
+
+impl ReceiverRunClaim {
+    pub(super) const fn new(
+        claim: ReceiverClaim,
+        job: ReceiverJob,
+        conversation: ReceiverConversation,
+    ) -> Self {
+        Self {
+            claim,
+            job,
+            conversation,
+        }
+    }
+
+    #[must_use]
+    pub const fn claim(&self) -> &ReceiverClaim {
+        &self.claim
+    }
+
+    #[must_use]
+    pub const fn job(&self) -> &ReceiverJob {
+        &self.job
+    }
+
+    #[must_use]
+    pub const fn conversation(&self) -> &ReceiverConversation {
+        &self.conversation
     }
 }
 

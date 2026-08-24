@@ -41,6 +41,17 @@ fn state_schema_version(path: &Path) -> i64 {
         .expect("state schema version")
 }
 
+fn column_exists(path: &Path, table: &str, column: &str) -> bool {
+    let connection = rusqlite::Connection::open(path).expect("state database");
+    let mut statement = connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .expect("table columns");
+    statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("query table columns")
+        .any(|name| name.expect("column name") == column)
+}
+
 #[test]
 fn receiver_migration_defers_until_legacy_registry_bootstrap_finishes() {
     let fixture = Fixture::new();
@@ -104,7 +115,7 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         let path = fixture.state_db(workspace_id);
         assert!(table_exists(&path, "receiver_conversations"));
         assert!(table_exists(&path, "receiver_jobs"));
-        assert_eq!(state_schema_version(&path), 6);
+        assert_eq!(state_schema_version(&path), 7);
     }
 
     let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
@@ -120,6 +131,41 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         String::from_utf8_lossy(&second.stderr)
     );
     assert!(table_exists(&family, "receiver_jobs"));
+}
+
+#[test]
+fn explicit_down_migration_removes_only_the_receiver_launch_retry_origin() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let up = fixture.run(&["server", "status"]);
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        "0.75.0",
+        "--to-version",
+        "0.74.4",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        assert!(table_exists(&path, "receiver_jobs"));
+        assert!(!column_exists(&path, "receiver_jobs", "retry_from_state"));
+        assert_eq!(state_schema_version(&path), 6);
+    }
 }
 
 #[test]

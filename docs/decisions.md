@@ -2685,12 +2685,29 @@ separate section. Resume omits the transcript entirely. The plan contains no
 tab, durable claim, or binding mutation, which keeps frontend translation
 behind `AgentController` and leaves later BR-14 runtime effects to their owners.
 
+Receiver launch ownership is isolated from the interactive shell. Every remote
+run gets a unique instance ID and either claims the exact validated resume
+session or registers a fresh placeholder before process launch. The existing
+lifecycle bridge is the authority that rotates a Codex/OpenCode placeholder to
+the actual native ID; Brain refuses to persist the placeholder and performs a
+binding-only conversation update so portable transcript history cannot be
+lost. An armed registration guard releases the exact remote owner on early
+return without touching the main instance.
+
+Launch retries stop at the pre-acceptance boundary. The exact live owner alone
+may move `claimed`, or a due retry originating in `claimed`/`launching`, to
+`launching`. Planning, registration, tab allocation, and spawn failures stop
+the controller, release the remote owner, and durably schedule at most two more
+attempts using a stable content-free reason; the third failure marks the job
+failed without deleting it. Reclaimed `accepted`, `processing`, answer, and
+delivery work stays unlaunched until BR-16 defines its recovery policy.
+
 An open agent PTY is not proof that work is active: brain opens an idle panel
 before the startup daily-triage modal. The receiver therefore tracks submitted
 turns separately and lets the session-stop bridge clear that state. Queued receiver work
 can replace an idle panel immediately, but never interrupts a submitted local
 turn. A receiver launch is committed only after PTY creation succeeds; failure
-keeps the message queued and applies a retry backoff.
+keeps the durable message and applies the bounded pre-acceptance retry policy.
 
 SMS allowlist comparison uses the provider's exact E.164 sender form. Brain
 preserves the leading `+` as string data instead of interpreting it as a JSON

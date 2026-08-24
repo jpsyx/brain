@@ -314,6 +314,25 @@ fn shutdown_delegates_once_to_the_transport() {
 }
 
 #[test]
+fn shutdown_stops_the_transport_even_when_frontend_availability_fails() {
+    let (mut controller, recording, _, _) = controller();
+    controller.frontend = Box::new(RecordingFrontend {
+        recording: recording.clone(),
+        available: false,
+    });
+
+    let error = controller
+        .shutdown()
+        .expect_err("report unavailable frontend after shutdown");
+
+    assert_eq!(recording.events(), vec![Event::Shutdown]);
+    assert_eq!(
+        error,
+        AgentError::Frontend("compatibility probe failed".to_owned())
+    );
+}
+
+#[test]
 fn queueing_rejects_empty_text_before_calling_the_frontend_or_transport() {
     let (mut controller, recording, _, _) = controller();
 

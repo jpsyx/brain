@@ -117,9 +117,10 @@ dependable paths.)
 
 The same strip and slot order can hold a distinct background receiver-run tab.
 Receiver insertion never selects that tab, reveals a hidden panel, changes the
-main view, or moves keyboard focus. Task 2 provides this in-memory ownership
-seam only; the later BR-14 durable coordinator is still responsible for
-creating production receiver runs and closing them at terminal outcomes.
+main view, or moves keyboard focus. Durable FIFO claim, isolated native-session
+ownership, and bounded pre-acceptance rollback are also defined. The next BR-14
+coordinator task is still responsible for joining those seams to create
+production receiver runs and close them at terminal outcomes.
 
 Every skill session is **ephemeral**: never recorded in the session DB, never
 resumed. Because a run can involve back-and-forth with you, "the agent stopped

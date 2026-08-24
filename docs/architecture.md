@@ -175,10 +175,10 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
-| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v6 schema; `store.rs` owns acceptance, reads, and transcript/session binding; `store/claim.rs` owns leases, transitions, and retry state |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v7 schema; `store.rs` owns acceptance and binding mutations; `store/load.rs` owns typed row decoding; `store/claim.rs` owns FIFO leases, launch CAS, transitions, and bounded retry state |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{decision,effect,planning,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `planning.rs` turns one durable job/conversation into a conservative frontend-neutral launch plan; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
+| Live receiver runtime | `tui/receiver/{decision,effect,planning,runtime,session,failure}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `planning.rs` turns one durable job/conversation into a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -205,15 +205,19 @@ Each workspace state DB now contains the durable receiver foundation. An
 authenticated `InboundJob` can be inserted with its logical conversation in
 one transaction, then claimed in FIFO order with an expiring owner lease
 without deleting the row. Explicit state and retry metadata survive database
-reopen. Conversation rows store Brain-owned markdown plus the current
+reopen, and one workspace can have at most one unexpired receiver owner. The
+narrow `AppServices` launch surface atomically claims and loads the immutable
+job/conversation pair, moves only an exact live launch-eligible owner to
+`launching`, and records content-free bounded pre-acceptance retries.
+Conversation rows store Brain-owned markdown plus the current
 frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
 `tui::receiver::planning` treats that binding only as a candidate. It asks the
 selected `AgentController` to validate the native history, requires the
 injected exact-session claim to succeed, and otherwise returns a fresh plan
 with a UTF-8-safe recovery prompt capped at 64 KiB. The durable consumer and
-isolated-tab coordinator have not adopted this seam yet; later BR-14 tasks own
-that runtime wiring.
+isolated-tab coordinator have not adopted these launch operations yet; the
+next BR-14 task owns that runtime wiring.
 
 Authenticated provider ingress now uses this foundation as its acceptance
 boundary. After final workspace and lease authority revalidation, the shared
@@ -1495,7 +1499,9 @@ model is scoped lock + recency behind `agent::session::SessionStore`
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. `receiver/` separately owns durable logical
 conversations, immutable inbound jobs, explicit lifecycle and retry state,
-expiring owner leases, transcript/native-session bindings, and schema v6.
+expiring owner leases, transcript/native-session bindings, and schema v7.
+Schema v7 adds the retry origin required to distinguish pre-acceptance launch
+retries from progressed recovery work.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 

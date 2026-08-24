@@ -21,3 +21,29 @@ fn receiver_schema_enforces_conversation_foreign_keys() {
             .is_err()
     );
 }
+
+#[test]
+fn v6_upgrade_repairs_a_missing_receiver_jobs_table_before_advancing() {
+    let db = Db::open_in_memory().expect("receiver state");
+    db.conn
+        .execute_batch("DROP TABLE receiver_jobs; PRAGMA user_version = 6;")
+        .expect("seed partial v6 schema");
+
+    super::super::schema::up(&db.conn, 6).expect("repair and upgrade receiver schema");
+
+    let version: i64 = db
+        .conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("state schema version");
+    let retry_origin_columns: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs')
+             WHERE name = 'retry_from_state'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("receiver retry-origin column count");
+    assert_eq!(version, 7);
+    assert_eq!(retry_origin_columns, 1);
+}

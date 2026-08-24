@@ -11,7 +11,10 @@ mod tests;
 
 pub use identity::{EmailLineage, EmailLineageError, ReceiverConversationIdentity};
 pub use job_state::ReceiverJobState;
+use model::ReceiverRetryMetadata;
 pub use model::{
-    ReceiverAcceptance, ReceiverClaim, ReceiverConversation, ReceiverConversationId, ReceiverJob,
-    ReceiverJobId, ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
+    MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance, ReceiverClaim, ReceiverConversation,
+    ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverLaunchFailure,
+    ReceiverLaunchRetryOutcome, ReceiverRunClaim, ReceiverSessionBinding,
+    ReceiverSessionBindingError, ReceiverSessionPlan,
 };

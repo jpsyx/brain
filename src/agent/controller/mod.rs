@@ -256,12 +256,13 @@ impl AgentController {
 
     /// Shut down the active child through its transport.
     pub fn shutdown(&mut self) -> Result<(), AgentError> {
-        self.frontend.ensure_available()?;
-        if !self.shutdown {
-            self.transport.shutdown();
-            self.shutdown = true;
+        if self.shutdown {
+            return Ok(());
         }
-        Ok(())
+        let availability = self.frontend.ensure_available();
+        self.transport.shutdown();
+        self.shutdown = true;
+        availability
     }
 
     /// The selected frontend kind.

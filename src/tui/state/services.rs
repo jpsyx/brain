@@ -72,6 +72,64 @@ impl AppServices {
         SessionStore::release(&self.db, instance)
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn claim_receiver_run(
+        &self,
+        owner: &str,
+        now_unix_ms: u64,
+        expires_at_unix_ms: u64,
+    ) -> Result<Option<crate::state::ReceiverRunClaim>> {
+        self.db
+            .claim_next_receiver_run(owner, now_unix_ms, expires_at_unix_ms)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn prepare_receiver_launch(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_receiver_launch_retry(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+        retry_at_unix_ms: u64,
+        failure: crate::state::ReceiverLaunchFailure,
+    ) -> Result<Option<crate::state::ReceiverLaunchRetryOutcome>> {
+        self.db.record_receiver_launch_retry(
+            job_id,
+            owner,
+            observed_at_unix_ms,
+            retry_at_unix_ms,
+            failure,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn replace_receiver_binding_from_instance(
+        &self,
+        conversation_id: crate::state::ReceiverConversationId,
+        instance: &str,
+        placeholder: &AgentSession,
+        scope: &SessionScope,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db.replace_receiver_binding_from_instance(
+            conversation_id,
+            instance,
+            placeholder,
+            scope,
+            observed_at_unix_ms,
+        )
+    }
+
     #[must_use]
     pub(crate) fn monotonic_now(&self) -> std::time::Instant {
         self.receiver_sync_runtime.monotonic_now()

@@ -38,6 +38,13 @@ mod recovery {
     include!("tests/recovery.rs");
 }
 
+mod launch {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/launch.rs");
+}
+
 mod schema {
     use super::support::*;
     use super::*;
