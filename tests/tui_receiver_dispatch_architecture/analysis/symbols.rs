@@ -1,20 +1,23 @@
 use std::collections::{HashMap, HashSet};
 
-use super::super::TypeFact;
 use crate::source::is_exact_cfg_test;
 
 #[path = "symbols/imports.rs"]
 mod imports;
 #[path = "symbols/methods.rs"]
 mod methods;
+#[path = "symbols/types.rs"]
+mod types;
 
 use imports::ImportIndex;
+pub(super) use imports::LexicalScope;
 use methods::MethodIndex;
 
 #[derive(Clone)]
 struct TypeDefinition {
     module: Vec<String>,
     ty: syn::Type,
+    lexical: LexicalScope,
 }
 
 #[derive(Default)]
@@ -28,6 +31,22 @@ pub(super) struct Symbols {
 }
 
 impl Symbols {
+    pub(super) fn lexical_scope(generics: &[&syn::Generics]) -> LexicalScope {
+        LexicalScope::from_generics(generics)
+    }
+
+    pub(super) fn push_block_scope(
+        lexical: &mut LexicalScope,
+        block: &syn::Block,
+        module: &[String],
+    ) {
+        lexical.push_block(block, module);
+    }
+
+    pub(super) fn pop_block_scope(lexical: &mut LexicalScope) {
+        lexical.pop_block();
+    }
+
     pub(super) fn collect_declarations(&mut self, items: &[syn::Item], module: &[String]) {
         self.collect_imports(items, module);
         for item in items {
@@ -48,6 +67,7 @@ impl Symbols {
                         TypeDefinition {
                             module: module.to_vec(),
                             ty: (*item_type.ty).clone(),
+                            lexical: LexicalScope::from_generics(&[&item_type.generics]),
                         },
                     );
                 }
@@ -67,6 +87,7 @@ impl Symbols {
                         format!("{}::{}", module.join("::"), function.sig.ident),
                         module,
                         &function.sig.output,
+                        LexicalScope::from_generics(&[&function.sig.generics]),
                     );
                 }
                 syn::Item::Impl(item_impl) => self.collect_impl(item_impl, module),
@@ -88,33 +109,46 @@ impl Symbols {
     }
 
     fn collect_impl(&mut self, item_impl: &syn::ItemImpl, module: &[String]) {
-        let Some(owner) = self.type_fact(module, &item_impl.self_ty).canonical else {
+        let impl_lexical = LexicalScope::from_generics(&[&item_impl.generics]);
+        let Some(owner) = self
+            .type_fact_scoped(module, &item_impl.self_ty, &impl_lexical)
+            .canonical
+        else {
             return;
         };
         let trait_name = item_impl
             .trait_
             .as_ref()
-            .map(|(_, path, _)| self.resolve_path(module, path));
+            .map(|(_, path, _)| self.resolve_path_scoped(module, path, &impl_lexical));
         for item in &item_impl.items {
             let syn::ImplItem::Fn(method) = item else {
                 continue;
             };
             if !is_exact_cfg_test(&method.attrs) {
+                let method_lexical =
+                    LexicalScope::from_generics(&[&item_impl.generics, &method.sig.generics]);
                 let target = self.methods.register(
                     &owner,
                     trait_name.as_deref(),
                     &method.sig.ident.to_string(),
                 );
-                if self.is_refresh_capability(&owner, trait_name.as_deref(), method, module) {
+                if self.is_refresh_capability(
+                    &owner,
+                    trait_name.as_deref(),
+                    method,
+                    module,
+                    &method_lexical,
+                ) {
                     self.control_capabilities.insert(target.clone());
                 }
-                self.collect_return(target, module, &method.sig.output);
+                self.collect_return(target, module, &method.sig.output, method_lexical);
             }
         }
     }
 
     fn collect_fields(&mut self, item_struct: &syn::ItemStruct, module: &[String]) {
         let owner = format!("{}::{}", module.join("::"), item_struct.ident);
+        let lexical = LexicalScope::from_generics(&[&item_struct.generics]);
         for (index, field) in item_struct.fields.iter().enumerate() {
             let member = field
                 .ident
@@ -125,12 +159,19 @@ impl Symbols {
                 TypeDefinition {
                     module: module.to_vec(),
                     ty: field.ty.clone(),
+                    lexical: lexical.clone(),
                 },
             );
         }
     }
 
-    fn collect_return(&mut self, id: String, module: &[String], output: &syn::ReturnType) {
+    fn collect_return(
+        &mut self,
+        id: String,
+        module: &[String],
+        output: &syn::ReturnType,
+        lexical: LexicalScope,
+    ) {
         let syn::ReturnType::Type(_, ty) = output else {
             return;
         };
@@ -139,27 +180,35 @@ impl Symbols {
             TypeDefinition {
                 module: module.to_vec(),
                 ty: (**ty).clone(),
+                lexical,
             },
         );
     }
 
-    pub(super) fn resolve_path(&self, module: &[String], path: &syn::Path) -> String {
-        self.resolve_segments(
+    pub(super) fn resolve_path_scoped(
+        &self,
+        module: &[String],
+        path: &syn::Path,
+        lexical: &LexicalScope,
+    ) -> String {
+        self.resolve_segments_scoped(
             module,
             &path
                 .segments
                 .iter()
                 .map(|segment| segment.ident.to_string())
                 .collect::<Vec<_>>(),
+            lexical,
         )
         .join("::")
     }
 
-    pub(super) fn qself_trait(
+    pub(super) fn qself_trait_scoped(
         &self,
         module: &[String],
         path: &syn::Path,
         position: usize,
+        lexical: &LexicalScope,
     ) -> Option<String> {
         let segments = path
             .segments
@@ -167,76 +216,31 @@ impl Symbols {
             .take(position)
             .map(|segment| segment.ident.to_string())
             .collect::<Vec<_>>();
-        (!segments.is_empty()).then(|| self.resolve_segments(module, &segments).join("::"))
+        (!segments.is_empty()).then(|| {
+            self.resolve_segments_scoped(module, &segments, lexical)
+                .join("::")
+        })
     }
 
-    fn resolve_segments(&self, module: &[String], raw: &[String]) -> Vec<String> {
-        self.imports.resolve(module, raw)
-    }
-
-    pub(super) fn type_fact(&self, module: &[String], ty: &syn::Type) -> TypeFact {
-        self.type_fact_inner(module, ty, &mut Vec::new())
-    }
-
-    fn type_fact_inner(
+    fn resolve_segments_scoped(
         &self,
         module: &[String],
-        ty: &syn::Type,
-        resolving: &mut Vec<String>,
-    ) -> TypeFact {
-        match ty {
-            syn::Type::Reference(reference) => {
-                self.type_fact_inner(module, &reference.elem, resolving)
-            }
-            syn::Type::Paren(parenthesized) => {
-                self.type_fact_inner(module, &parenthesized.elem, resolving)
-            }
-            syn::Type::Group(group) => self.type_fact_inner(module, &group.elem, resolving),
-            syn::Type::Path(path) => {
-                let canonical = self.resolve_path(module, &path.path);
-                if let Some(alias) = self.aliases.get(&canonical)
-                    && !resolving.contains(&canonical)
-                {
-                    resolving.push(canonical);
-                    let fact = self.type_fact_inner(&alias.module, &alias.ty, resolving);
-                    resolving.pop();
-                    return fact;
-                }
-                let inbound_job = path.path.segments.iter().any(|segment| {
-                    generic_types(segment)
-                        .into_iter()
-                        .any(|ty| self.type_fact_inner(module, ty, resolving).inbound_job)
-                });
-                fact_for_canonical(canonical, inbound_job)
-            }
-            _ => TypeFact::default(),
-        }
+        raw: &[String],
+        lexical: &LexicalScope,
+    ) -> Vec<String> {
+        self.imports.resolve_scoped(module, raw, lexical)
     }
 
-    pub(super) fn field_fact(&self, owner: &TypeFact, member: &syn::Member) -> TypeFact {
-        let Some(owner) = &owner.canonical else {
-            return TypeFact::default();
-        };
-        let member = match member {
-            syn::Member::Named(name) => name.to_string(),
-            syn::Member::Unnamed(index) => index.index.to_string(),
-        };
-        self.definition_fact(self.fields.get(&format!("{owner}::{member}")))
-    }
-
-    pub(super) fn return_fact(&self, target: &str) -> TypeFact {
-        self.definition_fact(self.returns.get(target))
-    }
-
-    pub(super) fn method_call_target(
+    pub(super) fn method_call_target_scoped(
         &self,
         module: &[String],
         owner: &str,
         method: &str,
+        lexical: &LexicalScope,
     ) -> Option<String> {
         let module = module.join("::");
-        self.methods
-            .resolve(owner, method, &module, self.imports.named(&module))
+        let visible = self.imports.visible_named(&module, lexical);
+        self.methods.resolve(owner, method, &module, Some(&visible))
     }
 
     pub(super) fn is_control_capability(&self, target: &str) -> bool {
@@ -249,6 +253,7 @@ impl Symbols {
         trait_name: Option<&str>,
         method: &syn::ImplItemFn,
         module: &[String],
+        lexical: &LexicalScope,
     ) -> bool {
         const CLIENT: &str = "crate::server::control::client::ServerClient";
         const GENERATION: &str = "crate::server::lifecycle::state::ServerGeneration";
@@ -267,18 +272,13 @@ impl Symbols {
                 let syn::FnArg::Typed(argument) = input else {
                     return None;
                 };
-                self.type_fact(module, &argument.ty).canonical
+                self.type_fact_scoped(module, &argument.ty, lexical)
+                    .canonical
             })
             .collect::<Vec<_>>();
         receiver_is_shared
             && typed == [GENERATION.to_owned(), WORKSPACE.to_owned()]
             && method.sig.inputs.len() == 3
-    }
-
-    fn definition_fact(&self, definition: Option<&TypeDefinition>) -> TypeFact {
-        definition.map_or_else(TypeFact::default, |definition| {
-            self.type_fact(&definition.module, &definition.ty)
-        })
     }
 }
 
@@ -305,46 +305,4 @@ pub(super) fn item_is_test(item: &syn::Item) -> bool {
         syn::Item::Use(item) => is_exact_cfg_test(&item.attrs),
         _ => false,
     }
-}
-
-fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
-    let unresolved_glob = canonical.starts_with("<ambiguous-glob>::");
-    let inbound_job = inbound_job || canonical == "crate::server::receiver::job::InboundJob";
-    let agent_controller = canonical == "crate::agent::controller::AgentController";
-    let app = canonical == "crate::tui::App";
-    let brain_panel = canonical == "crate::tui::state::brain::BrainPanelState";
-    let server_control_client = canonical == "crate::server::control::client::ServerClient";
-    let unix_listener = canonical == "std::os::unix::net::UnixListener";
-    let unix_stream = canonical == "std::os::unix::net::UnixStream";
-    let channel_receiver = canonical == "std::sync::mpsc::Receiver";
-    let memory_queue = canonical == "std::collections::VecDeque";
-    TypeFact {
-        canonical: Some(canonical),
-        unresolved_glob,
-        inbound_job,
-        agent_controller,
-        app,
-        brain_panel,
-        server_control_client,
-        unix_listener,
-        unix_stream,
-        channel_receiver,
-        memory_queue,
-    }
-}
-
-fn generic_types(segment: &syn::PathSegment) -> Vec<&syn::Type> {
-    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return Vec::new();
-    };
-    arguments
-        .args
-        .iter()
-        .filter_map(|argument| {
-            let syn::GenericArgument::Type(ty) = argument else {
-                return None;
-            };
-            Some(ty)
-        })
-        .collect()
 }

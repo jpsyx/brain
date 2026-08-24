@@ -5,6 +5,10 @@ use collect::{CollectedUse, collect_use_tree, is_exported, item_declaration, res
 
 #[path = "imports/collect.rs"]
 mod collect;
+#[path = "imports/lexical.rs"]
+mod lexical;
+
+pub(crate) use lexical::LexicalScope;
 
 type ModuleSymbols = HashMap<String, HashSet<String>>;
 type NamedImports = HashMap<String, HashMap<String, Vec<String>>>;
@@ -65,7 +69,12 @@ impl ImportIndex {
         }
     }
 
-    pub(super) fn resolve(&self, module: &[String], raw: &[String]) -> Vec<String> {
+    pub(super) fn resolve_scoped(
+        &self,
+        module: &[String],
+        raw: &[String],
+        lexical: &LexicalScope,
+    ) -> Vec<String> {
         let Some(first) = raw.first() else {
             return Vec::new();
         };
@@ -80,6 +89,20 @@ impl ImportIndex {
                 .collect()
         } else if first == "super" {
             resolve_super(module, raw)
+        } else if let Some(depth) = lexical.declaration_depth(first) {
+            local_path(&module_key, depth, raw)
+        } else if self
+            .declared
+            .get(&module_key)
+            .is_some_and(|symbols| symbols.contains(first))
+        {
+            module.iter().cloned().chain(raw.iter().cloned()).collect()
+        } else if let Some(imported) = lexical.named(first) {
+            imported
+                .iter()
+                .cloned()
+                .chain(raw.iter().skip(1).cloned())
+                .collect()
         } else if let Some(imported) = self
             .named
             .get(&module_key)
@@ -90,35 +113,50 @@ impl ImportIndex {
                 .cloned()
                 .chain(raw.iter().skip(1).cloned())
                 .collect()
-        } else if self
-            .declared
-            .get(&module_key)
-            .is_some_and(|symbols| symbols.contains(first))
-        {
-            module.iter().cloned().chain(raw.iter().cloned()).collect()
         } else {
-            match self.glob_resolution(&module_key, first) {
+            let lexical_resolution = lexical
+                .glob_layers()
+                .map(|sources| self.glob_resolution_from(sources, first))
+                .find(|resolution| !matches!(resolution, Resolution::Missing))
+                .unwrap_or(Resolution::Missing);
+            match lexical_resolution {
                 Resolution::Unique(path) => path
                     .into_iter()
                     .chain(raw.iter().skip(1).cloned())
                     .collect(),
                 Resolution::Ambiguous => ambiguous_path(&module_key, first, raw),
-                Resolution::Missing
-                    if self
-                        .globs
-                        .get(&module_key)
-                        .is_some_and(|globs| !globs.is_empty()) =>
-                {
-                    ambiguous_path(&module_key, first, raw)
-                }
-                Resolution::Missing => module.iter().cloned().chain(raw.iter().cloned()).collect(),
+                Resolution::Missing => match self.glob_resolution(&module_key, first) {
+                    Resolution::Unique(path) => path
+                        .into_iter()
+                        .chain(raw.iter().skip(1).cloned())
+                        .collect(),
+                    Resolution::Ambiguous => ambiguous_path(&module_key, first, raw),
+                    Resolution::Missing
+                        if lexical.has_globs()
+                            || self
+                                .globs
+                                .get(&module_key)
+                                .is_some_and(|globs| !globs.is_empty()) =>
+                    {
+                        ambiguous_path(&module_key, first, raw)
+                    }
+                    Resolution::Missing => {
+                        module.iter().cloned().chain(raw.iter().cloned()).collect()
+                    }
+                },
             }
         };
         self.canonicalize(resolved)
     }
 
-    pub(super) fn named(&self, module: &str) -> Option<&HashMap<String, Vec<String>>> {
-        self.named.get(module)
+    pub(super) fn visible_named(
+        &self,
+        module: &str,
+        lexical: &LexicalScope,
+    ) -> HashMap<String, Vec<String>> {
+        let mut visible = self.named.get(module).cloned().unwrap_or_default();
+        lexical.extend_named(&mut visible);
+        visible
     }
 
     fn canonicalize(&self, mut resolved: Vec<String>) -> Vec<String> {
@@ -161,8 +199,16 @@ impl ImportIndex {
     }
 
     fn glob_resolution(&self, module: &str, name: &str) -> Resolution {
+        self.glob_resolution_from(self.globs.get(module).into_iter().flatten(), name)
+    }
+
+    fn glob_resolution_from<'a>(
+        &self,
+        sources: impl IntoIterator<Item = &'a Vec<String>>,
+        name: &str,
+    ) -> Resolution {
         let mut candidates = BTreeSet::new();
-        for source in self.globs.get(module).into_iter().flatten() {
+        for source in sources {
             self.collect_from_glob(source, name, &mut HashSet::new(), &mut candidates);
         }
         Resolution::from_candidates(candidates)
@@ -326,4 +372,15 @@ fn ambiguous_path(module: &str, name: &str, suffix: &[String]) -> Vec<String> {
 fn is_ambiguous(path: &[String]) -> bool {
     path.first()
         .is_some_and(|segment| segment == "<ambiguous-glob>")
+}
+
+fn local_path(module: &str, depth: usize, raw: &[String]) -> Vec<String> {
+    vec![
+        "<lexical-type>".to_owned(),
+        module.to_owned(),
+        depth.to_string(),
+    ]
+    .into_iter()
+    .chain(raw.iter().cloned())
+    .collect()
 }
