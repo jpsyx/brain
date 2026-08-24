@@ -269,15 +269,16 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
    section grows as the day progresses and is reference-only,
    so letting it spill is fine. If the agenda body (MITs,
    Suggested order, Cut order, Today's habits) itself runs
-   past page 2, re-run the conversion with `--font-shrink 1`,
-   then `--font-shrink 2`, and so on (1 pt at a time) until
-   the body fits on 2 pages. Always tear down the previous
-   PDF with `rm -f` between attempts so the versioned-collision
+   past page 2, trim content — never shrink the font — per the
+   "2-page body cap" priority order in operating principle 8
+   (habit cell names → suggested-order names → MIT names →
+   split the habits table), then regenerate. Always tear down
+   the previous PDF with `rm -f` so the versioned-collision
    fallback doesn't kick in, and always regenerate `.render.md`
    fresh from the current `/tmp/<TARGET_DATE>.md` before each
-   attempt — the first pass already deleted it, and re-using a
-   stale copy would carry a possibly-outdated snapshot into
-   the retry.
+   attempt — the first pass already deleted it, and each trim
+   pass just changed the source content, so a stale copy would
+   carry an outdated snapshot into the retry.
 
 <!-- brain:ext todo:agenda-after-build -->
 
@@ -285,7 +286,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
 
        /usr/bin/open $AGENDA_DIR/agenda-<TARGET_DATE>.pdf
 
-   Six implementation notes, all load-bearing — do not
+   Five implementation notes, all load-bearing — do not
    substitute aliases or drop the flags:
 
    - **The comment-stripping step is required, not optional.**
@@ -327,19 +328,14 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
      default. `--no-table-borders` and `--compact-tables` still
      work individually for non-agenda docs that want one but
      not the other.
-   - **`--font-shrink` is the escalation lever, not the
-     default.** Only add it when the first pass exceeds 2 pages.
-     `--font-shrink 1` reduces every text style's fontSize and
-     leading by 1 pt globally (still per-document — the default
-     stays at the standard sizes for every other PDF flow).
-     Increment by 1 pt at a time so the shrink is no harsher
-     than necessary. For a typical extended-schedule agenda you
-     should converge at `--font-shrink 1` or `--font-shrink 2`.
-     If you find yourself past `--font-shrink 3` and still
-     spilling, **stop shrinking and trim instead** per the
-     "2-page hard cap" priority list — abbreviating habit names
-     and Suggested-order names buys page space without making
-     the printout uncomfortable to read.
+   - **Never pass `--font-shrink`.** It's tempting as a quick fit
+     lever when the body overflows 2 pages, but it shrinks the
+     same points regardless of typeface, and body text renders
+     in a serif face (Charter on macOS) tuned for print at
+     standard size — shrunk two or three points, a serif reads
+     markedly worse than the same shrink would on a sans face.
+     Trim content instead, per the "2-page body cap" priority
+     order above: it costs page space, not legibility.
    - **Use `/usr/bin/open`, not bare `open`** when the user does
      ask to open the PDF. The user has an `open` autoload
      function that fails to resolve in non-interactive shells;
@@ -1118,10 +1114,10 @@ See the "comment-stripping step is required" implementation note
 under operating principle 8 above for why `markdown-to-pdf` is
 never handed `/tmp/<TARGET_DATE>.md` directly.
 
-If body exceeds 2 pages: escalate `--font-shrink 1`, then `2`,
-then `3`. If still spilling at `--font-shrink 3`, trim names per
-the priority list in operating principle 8 (habit cell names →
-suggested-order names → MIT names → split the habits table).
+If body exceeds 2 pages: never pass `--font-shrink` — trim names
+per the "2-page body cap" priority list in operating principle 8
+instead (habit cell names → suggested-order names → MIT names →
+split the habits table), then regenerate.
 
 ### Phase 10 — Work-hours cutoff (optional)
 
