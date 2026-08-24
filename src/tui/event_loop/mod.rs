@@ -9,3 +9,6 @@ mod setup;
 
 pub(super) use run::event_loop;
 pub(crate) use setup::run_tui;
+
+#[cfg(test)]
+pub(crate) use run::update_application;

@@ -54,7 +54,7 @@ Every live main or ephemeral-tab session sits behind an `AgentController`.
 Keyboard, receiver, render, scroll, completion, and close paths call semantic
 operations on that facade; only the Claude, Codex, and OpenCode adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
-explicitly shuts down both controllers before their transports are dropped.
+explicitly shuts down all controllers before their transports are dropped.
 
 **Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
 turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes

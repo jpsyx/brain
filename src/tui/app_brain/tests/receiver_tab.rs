@@ -1,5 +1,7 @@
 use super::*;
 
+use crossterm::event::{Event, KeyEvent, KeyModifiers};
+
 use crate::main_view::MainView;
 use crate::skill_session::SkillSessionKey;
 use crate::state::ReceiverJobId;
@@ -192,4 +194,37 @@ fn interleaved_receiver_tabs_use_the_same_order_for_strip_slots_and_cycles() {
     assert_eq!(app.effective_brain_tab(), BrainTab::Session(receiver));
     assert!(app.select_brain_tab_slot(3));
     assert_eq!(app.effective_brain_tab(), BrainTab::Session(second_skill));
+}
+
+#[test]
+fn ctrl_x_on_a_receiver_tab_leaves_that_run_intact() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let (main, _) = recording_controller(&app, true, "main");
+    app.brain.install_main(main);
+    let receiver_recording = TransportRecording::default();
+    receiver_recording.set_alive(true);
+    let controller = receiver_controller(&app, &receiver_recording);
+    let receiver = app
+        .brain
+        .add_receiver_run(
+            receiver_job_id("416432be-1f80-4c14-a1cd-a67990cba013"),
+            "Receiver · SMS".to_owned(),
+            "receiver-instance".to_owned(),
+            controller,
+        )
+        .expect("receiver tab");
+    assert!(app.select_brain_tab(BrainTab::Session(receiver)));
+
+    let quit = crate::tui::event_loop::update_application(
+        &mut app,
+        &Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+    );
+
+    assert!(!quit);
+    assert_eq!(app.effective_brain_tab(), BrainTab::Session(receiver));
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert!(app.brain.receiver_run_controller(receiver).is_some());
+    assert_eq!(receiver_recording.shutdowns(), 0);
 }

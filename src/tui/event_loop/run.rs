@@ -66,7 +66,7 @@ fn classify_application_event(event: &Event) -> ApplicationEvent {
     }
 }
 
-fn update_application(app: &mut App, event: &Event) -> bool {
+pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     let k = match classify_application_event(event) {
         ApplicationEvent::Ignore => return false,
         ApplicationEvent::Mouse(mouse) => {
