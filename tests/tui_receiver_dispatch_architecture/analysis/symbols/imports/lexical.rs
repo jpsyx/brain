@@ -6,8 +6,15 @@ use super::collect::{CollectedUse, collect_use_tree};
 #[derive(Clone, Default)]
 struct LexicalLayer {
     declarations: HashSet<String>,
+    aliases: HashMap<String, LexicalAlias>,
     named: HashMap<String, Vec<String>>,
     globs: Vec<Vec<String>>,
+}
+
+#[derive(Clone)]
+struct LexicalAlias {
+    target: syn::Type,
+    type_parameters: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -44,8 +51,11 @@ impl LexicalScope {
             if item_is_test(item) {
                 continue;
             }
-            if let Some(declaration) = type_declaration(item) {
-                layer.declarations.insert(declaration);
+            if let Some((declaration, alias)) = type_declaration(item) {
+                layer.declarations.insert(declaration.clone());
+                if let Some(alias) = alias {
+                    layer.aliases.insert(declaration, alias);
+                }
             }
             let syn::Item::Use(item_use) = item else {
                 continue;
@@ -68,6 +78,32 @@ impl LexicalScope {
             .enumerate()
             .rev()
             .find_map(|(depth, layer)| layer.declarations.contains(name).then_some(depth))
+    }
+
+    pub(in super::super) fn alias_definition(
+        &self,
+        name: &str,
+    ) -> Option<(String, syn::Type, Vec<String>, Self)> {
+        let (depth, layer) = self
+            .layers
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, layer)| layer.declarations.contains(name))?;
+        let alias = layer.aliases.get(name)?;
+        let mut definition_scope = Self {
+            layers: self.layers[..=depth].to_vec(),
+        };
+        definition_scope.layers.push(LexicalLayer {
+            declarations: alias.type_parameters.iter().cloned().collect(),
+            ..LexicalLayer::default()
+        });
+        Some((
+            format!("<lexical-alias>::{depth}::{name}"),
+            alias.target.clone(),
+            alias.type_parameters.clone(),
+            definition_scope,
+        ))
     }
 
     pub(super) fn named(&self, name: &str) -> Option<&Vec<String>> {
@@ -96,15 +132,25 @@ impl LexicalScope {
     }
 }
 
-fn type_declaration(item: &syn::Item) -> Option<String> {
+fn type_declaration(item: &syn::Item) -> Option<(String, Option<LexicalAlias>)> {
     match item {
-        syn::Item::Enum(item) => Some(item.ident.to_string()),
-        syn::Item::Mod(item) => Some(item.ident.to_string()),
-        syn::Item::Struct(item) => Some(item.ident.to_string()),
-        syn::Item::Trait(item) => Some(item.ident.to_string()),
-        syn::Item::TraitAlias(item) => Some(item.ident.to_string()),
-        syn::Item::Type(item) => Some(item.ident.to_string()),
-        syn::Item::Union(item) => Some(item.ident.to_string()),
+        syn::Item::Enum(item) => Some((item.ident.to_string(), None)),
+        syn::Item::Mod(item) => Some((item.ident.to_string(), None)),
+        syn::Item::Struct(item) => Some((item.ident.to_string(), None)),
+        syn::Item::Trait(item) => Some((item.ident.to_string(), None)),
+        syn::Item::TraitAlias(item) => Some((item.ident.to_string(), None)),
+        syn::Item::Type(item) => Some((
+            item.ident.to_string(),
+            Some(LexicalAlias {
+                target: (*item.ty).clone(),
+                type_parameters: item
+                    .generics
+                    .type_params()
+                    .map(|parameter| parameter.ident.to_string())
+                    .collect(),
+            }),
+        )),
+        syn::Item::Union(item) => Some((item.ident.to_string(), None)),
         _ => None,
     }
 }

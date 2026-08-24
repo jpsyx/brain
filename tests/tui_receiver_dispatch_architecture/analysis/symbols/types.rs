@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::super::super::TypeFact;
 use super::{LexicalScope, Symbols, TypeDefinition};
 
@@ -8,7 +10,7 @@ impl Symbols {
         ty: &syn::Type,
         lexical: &LexicalScope,
     ) -> TypeFact {
-        self.type_fact_inner(module, ty, lexical, &mut Vec::new())
+        self.type_fact_inner(module, ty, lexical, &mut Vec::new(), &HashMap::new())
     }
 
     fn type_fact_inner(
@@ -17,31 +19,83 @@ impl Symbols {
         ty: &syn::Type,
         lexical: &LexicalScope,
         resolving: &mut Vec<String>,
+        type_parameters: &HashMap<String, TypeFact>,
     ) -> TypeFact {
         match ty {
             syn::Type::Reference(reference) => {
-                self.type_fact_inner(module, &reference.elem, lexical, resolving)
+                self.type_fact_inner(module, &reference.elem, lexical, resolving, type_parameters)
             }
-            syn::Type::Paren(parenthesized) => {
-                self.type_fact_inner(module, &parenthesized.elem, lexical, resolving)
-            }
+            syn::Type::Paren(parenthesized) => self.type_fact_inner(
+                module,
+                &parenthesized.elem,
+                lexical,
+                resolving,
+                type_parameters,
+            ),
             syn::Type::Group(group) => {
-                self.type_fact_inner(module, &group.elem, lexical, resolving)
+                self.type_fact_inner(module, &group.elem, lexical, resolving, type_parameters)
             }
             syn::Type::Path(path) => {
+                if let Some(fact) = type_parameter_fact(path, type_parameters) {
+                    return fact;
+                }
+                if let Some((key, target, parameters, definition_scope)) =
+                    lexical_alias(path, lexical)
+                {
+                    if resolving.contains(&key) {
+                        return fact_for_canonical(key, false);
+                    }
+                    let arguments = path
+                        .path
+                        .segments
+                        .last()
+                        .map(generic_types)
+                        .unwrap_or_default();
+                    let bindings = parameters
+                        .into_iter()
+                        .zip(arguments)
+                        .map(|(parameter, argument)| {
+                            (
+                                parameter,
+                                self.type_fact_inner(
+                                    module,
+                                    argument,
+                                    lexical,
+                                    resolving,
+                                    type_parameters,
+                                ),
+                            )
+                        })
+                        .collect();
+                    resolving.push(key);
+                    let fact = self.type_fact_inner(
+                        module,
+                        &target,
+                        &definition_scope,
+                        resolving,
+                        &bindings,
+                    );
+                    resolving.pop();
+                    return fact;
+                }
                 let canonical = self.resolve_path_scoped(module, &path.path, lexical);
                 if let Some(alias) = self.aliases.get(&canonical)
                     && !resolving.contains(&canonical)
                 {
                     resolving.push(canonical);
-                    let fact =
-                        self.type_fact_inner(&alias.module, &alias.ty, &alias.lexical, resolving);
+                    let fact = self.type_fact_inner(
+                        &alias.module,
+                        &alias.ty,
+                        &alias.lexical,
+                        resolving,
+                        &HashMap::new(),
+                    );
                     resolving.pop();
                     return fact;
                 }
                 let inbound_job = path.path.segments.iter().any(|segment| {
                     generic_types(segment).into_iter().any(|ty| {
-                        self.type_fact_inner(module, ty, lexical, resolving)
+                        self.type_fact_inner(module, ty, lexical, resolving, type_parameters)
                             .inbound_job
                     })
                 });
@@ -71,6 +125,28 @@ impl Symbols {
             self.type_fact_scoped(&definition.module, &definition.ty, &definition.lexical)
         })
     }
+}
+
+fn type_parameter_fact(
+    path: &syn::TypePath,
+    type_parameters: &HashMap<String, TypeFact>,
+) -> Option<TypeFact> {
+    if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
+        return None;
+    }
+    type_parameters
+        .get(&path.path.segments[0].ident.to_string())
+        .cloned()
+}
+
+fn lexical_alias(
+    path: &syn::TypePath,
+    lexical: &LexicalScope,
+) -> Option<(String, syn::Type, Vec<String>, LexicalScope)> {
+    if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
+        return None;
+    }
+    lexical.alias_definition(&path.path.segments[0].ident.to_string())
 }
 
 fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
