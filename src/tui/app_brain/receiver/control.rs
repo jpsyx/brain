@@ -53,7 +53,9 @@ impl App {
                     &crate::server::reply::new_session_notice(channel_label(job.inbound().channel))
                         .text,
                 );
-                self.claim_receiver_run();
+                if self.receiver.is_enabled() {
+                    self.claim_receiver_run();
+                }
             }
             Ok(false) => {}
             Err(error) => {

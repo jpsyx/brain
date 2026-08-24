@@ -1740,6 +1740,13 @@ outcome. Receiver insertion,
 completion, and removal preserve the active main view, tab, panel visibility,
 and keyboard focus. `tui/receiver/policy.rs` retains pure retry and input-lock
 policy below the receiver facade.
+The idle claim transaction holds SQLite's immediate writer reservation while
+it checks for a queued exact `/restart`. A ready restart refuses the ordinary
+claim so the next control scan can apply its cut. Ingress that commits after
+the claim instead sees an already active owner, which the restart deliberately
+preserves. An already claimed `/new` may finish after intent is disabled, but
+its fresh boundary returns to idle and cannot claim following work until intent
+is enabled again.
 The queue architecture guard canonicalizes raw identifiers before resolving
 `InboundJob` names and aliases. Its files are scanned independently, so the
 declared-item/export invariant rejects every visible renamed re-export of a

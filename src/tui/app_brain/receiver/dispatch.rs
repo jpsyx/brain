@@ -32,6 +32,8 @@ impl App {
         let receiver_enabled = self.receiver.is_enabled();
         if receiver_enabled {
             self.apply_receiver_restarts();
+            #[cfg(test)]
+            self.receiver.run_after_restart_scan_hook();
         }
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),

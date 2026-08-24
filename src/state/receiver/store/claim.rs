@@ -10,6 +10,10 @@ use crate::state::{
     ReceiverLaunchFailure, ReceiverLaunchRetryOutcome, ReceiverRunClaim,
 };
 
+mod restart;
+
+use restart::has_ready_restart;
+
 impl Db {
     /// Claim the oldest ready job without removing it from durable state.
     pub fn claim_next_receiver_job(
@@ -41,6 +45,9 @@ impl Db {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
+        if has_ready_restart(&transaction, &self.workspace_id)? {
+            return Ok(None);
+        }
         let candidate = transaction
             .query_row(
                 "SELECT job_id FROM receiver_jobs

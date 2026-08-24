@@ -110,6 +110,8 @@ pub(crate) struct ReceiverRuntime {
     retry_at: Option<Instant>,
     sync_gate: Option<ReceiverSyncGate>,
     durable_run: DurableReceiverRun,
+    #[cfg(test)]
+    after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
 }
 
 impl ReceiverRuntime {
@@ -140,6 +142,20 @@ impl ReceiverRuntime {
             retry_at: None,
             sync_gate: None,
             durable_run: DurableReceiverRun::Idle,
+            #[cfg(test)]
+            after_restart_scan_hook: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_after_restart_scan_hook(&mut self, hook: Box<dyn FnOnce()>) {
+        self.after_restart_scan_hook = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_after_restart_scan_hook(&mut self) {
+        if let Some(hook) = self.after_restart_scan_hook.take() {
+            hook();
         }
     }
 

@@ -1053,6 +1053,12 @@ moves `launching` directly to `done` because BR-15 has not yet added accepted or
 processing proof. Losing exact ownership forbids every durable lifecycle,
 reply, session, and job mutation. A reclaimed progressed state is left unchanged
 for BR-16 rather than launched again.
+Before choosing that FIFO row, the same immediate claim transaction parses
+queued unclaimed jobs for an exact `/restart`. If one committed first, no
+ordinary row is claimed; if ingress commits only after the claim transaction,
+the new control preserves that legitimately active owner. Completing an exact
+claimed `/new` while intent is disabled still rolls its conversation, but it
+does not claim the following job from the new boundary.
 
 **Conversation continuity.** Each conversation stores the continuously
 maintained Brain-owned markdown transcript plus an optional paired

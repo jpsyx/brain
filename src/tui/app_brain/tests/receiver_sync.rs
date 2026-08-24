@@ -4,7 +4,7 @@ use super::*;
 use crate::state::{ReceiverConversationIdentity, ReceiverJobState};
 
 #[derive(Clone)]
-struct TestReceiverSyncRuntime {
+pub(super) struct TestReceiverSyncRuntime {
     state: Arc<Mutex<TestReceiverSyncState>>,
 }
 
@@ -19,7 +19,7 @@ struct TestReceiverSyncState {
 }
 
 impl TestReceiverSyncRuntime {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             state: Arc::new(Mutex::new(TestReceiverSyncState {
                 monotonic: std::time::Instant::now(),
@@ -42,6 +42,13 @@ impl TestReceiverSyncRuntime {
 
     fn unix_ms(&self) -> u64 {
         u64::try_from(self.state.lock().unwrap().utc.timestamp_millis()).unwrap()
+    }
+
+    pub(super) fn finish_pull(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.journal_id = Some(state.journal_id.unwrap_or_default() + 1);
+        drop(state);
+        self.advance(std::time::Duration::from_millis(250));
     }
 }
 
@@ -88,7 +95,7 @@ impl crate::tui::app_sync::ReceiverSyncRuntime for TestReceiverSyncRuntime {
     }
 }
 
-fn configure_receiver_sync(app: &App) {
+pub(super) fn configure_receiver_sync(app: &App) {
     let selected_name = app.context.workspace().name().clone();
     app.context
         .command()

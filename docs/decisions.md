@@ -4037,6 +4037,16 @@ owned run, later arrivals, and every unrelated actor, channel, conversation,
 and workspace remain unchanged. Retired conversation rows, transcripts, and
 bindings are not deleted, so a mistaken command does not destroy history.
 
+The restart scan and ordinary claim are separate event-loop stages, so their
+database ordering must close the ingress gap between them. The claim uses
+`BEGIN IMMEDIATE` and checks queued exact restart controls before selecting a
+FIFO candidate. SQLite therefore produces two valid orders: ingress commits
+first and the claim refuses, or the claim commits first and later ingress
+preserves that legitimately active job. There is no order in which a restart
+is visible yet older backlog becomes newly active. A claimed `/new` is likewise
+allowed to finish after disable, but its success path rechecks intent before
+claiming anything from the fresh conversation.
+
 ## Email markdown is rendered by a parser we did not write
 
 SMS and email are opposite problems. A phone renders nothing, so markdown is

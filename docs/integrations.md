@@ -1116,6 +1116,12 @@ an agent. Neither command enters a PTY or the main panel.
 Both acknowledge their own sender through `reply_to_job`,
 which addresses the job's own recipients rather than whatever reply state is
 live. A dropped job is not the message currently in flight.
+The idle claim transaction repeats the exact restart check while holding its
+SQLite immediate writer reservation. A restart committed before that boundary
+blocks the ordinary claim; a restart committed afterward cannot retroactively
+replace the already active owner. If intent is disabled while a claimed `/new`
+waits on freshness, the command still completes and acknowledges its sender,
+but following work stays queued until re-enable.
 
 Every outbound email carries both parts of the Resend payload: `text` is the
 agent's markdown verbatim, and `html` is that markdown rendered by

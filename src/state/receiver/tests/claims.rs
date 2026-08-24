@@ -49,6 +49,42 @@ fn receiver_claim_selects_the_oldest_ready_job() {
 }
 
 #[test]
+fn a_queued_restart_prevents_an_older_job_from_being_claimed() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let older = receiver_job(Some("older-before-restart"), 100);
+    let mut restart = receiver_job(Some("restart-control"), 200);
+    restart.prompt = " /ReStArT\n".to_owned();
+    let older_acceptance = db
+        .accept_receiver_job(&older, &identity)
+        .expect("accept older backlog");
+    let restart_acceptance = db
+        .accept_receiver_job(&restart, &identity)
+        .expect("accept restart control");
+
+    assert!(
+        db.claim_next_receiver_run("remote-owner", 1_000, 1_100)
+            .expect("make atomic restart-or-claim decision")
+            .is_none(),
+        "a ready restart must be processed before ordinary backlog can be claimed"
+    );
+    assert_eq!(
+        db.receiver_job(older_acceptance.job_id())
+            .unwrap()
+            .unwrap()
+            .state(),
+        ReceiverJobState::Queued
+    );
+    assert_eq!(
+        db.receiver_job(restart_acceptance.job_id())
+            .unwrap()
+            .unwrap()
+            .state(),
+        ReceiverJobState::Queued
+    );
+}
+
+#[test]
 fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
     let db = Db::open_in_memory().expect("receiver state");
     let job = receiver_job(None, 100);
