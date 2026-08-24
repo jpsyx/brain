@@ -1023,6 +1023,14 @@ the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp.
+The BR-14 launch planner treats a same-frontend pair as a candidate rather than
+proof: the selected adapter must still find its native history and the caller's
+exact-session claim must succeed. Every uncertain outcome selects a fresh
+session supplied by the caller. That fresh plan carries a 64 KiB maximum recovery
+prompt with the newest UTF-8-safe transcript suffix, a distinct current-message
+section, and the accepted attachment references. A resumed plan carries only
+the current message and attachment references. The planner owns no tab,
+durable claim, binding update, or coordinator state.
 
 State schema v6 creates both receiver tables and their ready-work index in one
 transaction. Every DB open reconciles the tables for new or partially repaired

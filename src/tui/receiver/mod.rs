@@ -2,12 +2,16 @@
 
 mod decision;
 mod effect;
+#[allow(dead_code)]
+pub(crate) mod planning;
 pub(crate) mod policy;
 mod queue;
 mod runtime;
 
 #[cfg(test)]
 mod decision_tests;
+#[cfg(test)]
+mod planning_tests;
 #[cfg(test)]
 mod runtime_tests;
 

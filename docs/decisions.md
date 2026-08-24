@@ -2672,6 +2672,19 @@ one bounded background worker. This preserves provider ordering and prevents a
 slow Twilio or Resend request from freezing keyboard input or delaying
 `Ctrl+Q`.
 
+Native receiver continuity fails closed because a stored opaque binding is a
+hint, not proof that frontend history still exists or is available to this
+run. The BR-14 launch planner therefore requires the binding's frontend to
+match, validates it through `AgentController`, and accepts it only after the
+caller's exact-session claim succeeds. Missing, corrupt, incompatible, or
+unclaimable history starts fresh from Brain's portable transcript. That
+recovery prompt is capped at 64 KiB and preserves the newest UTF-8-safe
+transcript suffix because recent turns are the most useful recovery context;
+the current authenticated message and attachment references remain in a
+separate section. Resume omits the transcript entirely. The plan contains no
+tab, durable claim, or binding mutation, which keeps frontend translation
+behind `AgentController` and leaves later BR-14 runtime effects to their owners.
+
 An open agent PTY is not proof that work is active: brain opens an idle panel
 before the startup daily-triage modal. The receiver therefore tracks submitted
 turns separately and lets the session-stop bridge clear that state. Queued receiver work

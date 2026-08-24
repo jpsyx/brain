@@ -178,7 +178,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v6 schema; `store.rs` owns acceptance, reads, and transcript/session binding; `store/claim.rs` owns leases, transitions, and retry state |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` coordinates recurring feature boundaries; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver-local runtime state; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{decision,effect,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
+| Live receiver runtime | `tui/receiver/{decision,effect,planning,runtime}.rs` | `decision.rs` makes pure, ordered stage decisions from receiver-local facts; `effect.rs` names typed work that crosses into the App; `planning.rs` turns one durable job/conversation into a conservative frontend-neutral launch plan; `runtime/tick.rs` snapshots state and materializes one-shot claims; `receiver/queue.rs` alone owns the 64-entry `VecDeque`, staged-admission tokens, and FIFO head commits. The App executor retains controller, filesystem, provider delivery, process, task-reload, and sync effects. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -208,6 +208,12 @@ without deleting the row. Explicit state and retry metadata survive database
 reopen. Conversation rows store Brain-owned markdown plus the current
 frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
+`tui::receiver::planning` treats that binding only as a candidate. It asks the
+selected `AgentController` to validate the native history, requires the
+injected exact-session claim to succeed, and otherwise returns a fresh plan
+with a UTF-8-safe recovery prompt capped at 64 KiB. The durable consumer and
+isolated-tab coordinator have not adopted this seam yet; later BR-14 tasks own
+that runtime wiring.
 
 Authenticated provider ingress now uses this foundation as its acceptance
 boundary. After final workspace and lease authority revalidation, the shared
@@ -1283,8 +1289,10 @@ structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
 narrow shell entry exports, and module wiring. Receiver
 representation is private to `receiver/runtime.rs` and its focused child
-modules. `receiver/decision.rs` maps independent facts onto the fixed tick
-stages, while `receiver/effect.rs` carries only the data each App mediator
+modules. `receiver/planning.rs` owns the frontend-neutral durable job plus
+conversation to `SessionPlan` and initial-prompt decision without owning tab,
+claim, or coordinator state. `receiver/decision.rs` maps independent facts
+onto the fixed tick stages, while `receiver/effect.rs` carries only the data each App mediator
 effect needs. App coordinators execute those effects and feed semantic outcomes back
 through completion, dispatch, diagnostic, and freshness-gate operations rather
 than mutating receiver fields. The runtime

@@ -17,6 +17,8 @@ struct FrontendContract {
     new_session: &'static [u8],
     fresh_command: &'static str,
     resume_command: &'static str,
+    fresh_prompt_command: &'static str,
+    resume_prompt_command: &'static str,
     completion: CompletionStrategy,
     receiver_resume: Option<bool>,
 }
@@ -50,6 +52,8 @@ fn frontend_contracts() -> [FrontendContract; 3] {
             new_session: b"/new\r",
             fresh_command: "claude-contract --session-id 'fresh-1'",
             resume_command: "claude-contract --resume 'resume-1'",
+            fresh_prompt_command: "claude-contract --session-id 'fresh-1' -- 'receiver prompt'",
+            resume_prompt_command: "claude-contract --resume 'resume-1' -- 'receiver prompt'",
             completion: CompletionStrategy::Hook,
             receiver_resume: Some(true),
         },
@@ -64,6 +68,8 @@ fn frontend_contracts() -> [FrontendContract; 3] {
             new_session: b"/new\t",
             fresh_command: "codex-contract --dangerously-bypass-hook-trust",
             resume_command: "codex-contract --dangerously-bypass-hook-trust resume 'resume-1'",
+            fresh_prompt_command: "codex-contract --dangerously-bypass-hook-trust -- 'receiver prompt'",
+            resume_prompt_command: "codex-contract --dangerously-bypass-hook-trust resume 'resume-1' -- 'receiver prompt'",
             completion: CompletionStrategy::Hook,
             receiver_resume: Some(false),
         },
@@ -78,10 +84,43 @@ fn frontend_contracts() -> [FrontendContract; 3] {
             new_session: b"/new\r",
             fresh_command: "opencode-contract --agent brain",
             resume_command: "opencode-contract --agent brain --session 'resume-1'",
+            fresh_prompt_command: "opencode-contract --agent brain --prompt 'receiver prompt'",
+            resume_prompt_command: "opencode-contract --agent brain --session 'resume-1' --prompt 'receiver prompt'",
             completion: CompletionStrategy::Hook,
             receiver_resume: None,
         },
     ]
+}
+
+#[test]
+fn receiver_launch_adapter_contract_translates_both_plans_with_an_initial_prompt() {
+    for case in frontend_contracts() {
+        let frontend = (case.frontend)(case.configured_value);
+        let fresh = request(
+            SessionPlan::fresh(AgentSession::new("fresh-1").expect("fresh session")),
+            Some("receiver prompt"),
+        );
+        let resume = request(
+            SessionPlan::resume(AgentSession::new("resume-1").expect("resume session")),
+            Some("receiver prompt"),
+        );
+
+        assert_eq!(
+            frontend.launch_spec(&fresh).expect("fresh launch").command,
+            case.fresh_prompt_command,
+            "{} fresh receiver launch",
+            case.label,
+        );
+        assert_eq!(
+            frontend
+                .launch_spec(&resume)
+                .expect("resume launch")
+                .command,
+            case.resume_prompt_command,
+            "{} resumed receiver launch",
+            case.label,
+        );
+    }
 }
 
 fn configured_command_context() -> (tempfile::TempDir, CommandContext) {

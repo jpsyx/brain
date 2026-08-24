@@ -89,11 +89,11 @@ impl ReceiverSessionBinding {
         }
     }
 
-    pub(super) const fn frontend(&self) -> crate::agent::AgentKind {
+    pub(crate) const fn frontend(&self) -> crate::agent::AgentKind {
         self.frontend
     }
 
-    pub(super) fn native_session_id(&self) -> &str {
+    pub(crate) fn native_session_id(&self) -> &str {
         &self.native_session_id
     }
 }

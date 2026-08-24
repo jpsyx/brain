@@ -224,6 +224,22 @@ response identity. A validation or identity error therefore cannot strand a
 free session as claimed. If the later transport launch fails, Brain releases
 the instance claim and clears the response identity for the attempted
 interactive or receiver launch.
+
+The isolated receiver-run path now has a frontend-neutral planning seam before
+its later tab/coordinator wiring. A matching durable conversation binding is
+offered only to the selected `AgentController`; `Resume(session_id)` is chosen
+only when the adapter confirms that native history and an injected exact-session
+claim succeeds. Missing history, a frontend change, a probe error, or a failed
+claim produces `Fresh(session_id)`. Resumed launches carry only the current
+authenticated message and attachment references. Fresh launches carry those
+same current inputs after a separate portable-transcript section, bounded to
+64 KiB while retaining the newest UTF-8-safe transcript suffix. Prompt,
+transcript, attachment, sender, recipient, and credential contents never enter
+planning diagnostics. Claude, Codex, and OpenCode translate both semantic
+plans with the non-blank initial prompt through their existing launch command.
+This seam does not yet consume the durable queue or create a tab; later BR-14
+tasks own those effects.
+
 The TUI owns an `AgentController` for each live main or triage panel and calls
 semantic type, immediate submit, busy-turn follow-up, new-session, snapshot,
 completion, resume, and shutdown operations. The
