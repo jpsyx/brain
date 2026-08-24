@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::super::TypeFact;
 use crate::source::is_exact_cfg_test;
@@ -8,7 +8,7 @@ mod imports;
 #[path = "symbols/methods.rs"]
 mod methods;
 
-use imports::{collect_use_tree, expand_reexports};
+use imports::ImportIndex;
 use methods::MethodIndex;
 
 #[derive(Clone)]
@@ -19,12 +19,12 @@ struct TypeDefinition {
 
 #[derive(Default)]
 pub(super) struct Symbols {
-    imports: HashMap<String, HashMap<String, Vec<String>>>,
-    reexports: HashMap<String, HashMap<String, Vec<String>>>,
+    imports: ImportIndex,
     aliases: HashMap<String, TypeDefinition>,
     fields: HashMap<String, TypeDefinition>,
     returns: HashMap<String, TypeDefinition>,
     methods: MethodIndex,
+    control_capabilities: HashSet<String>,
 }
 
 impl Symbols {
@@ -84,25 +84,7 @@ impl Symbols {
     }
 
     fn collect_imports(&mut self, items: &[syn::Item], module: &[String]) {
-        for item in items {
-            let syn::Item::Use(item_use) = item else {
-                continue;
-            };
-            if !is_exact_cfg_test(&item_use.attrs) {
-                let mut item_imports = HashMap::new();
-                collect_use_tree(&item_use.tree, Vec::new(), &mut item_imports, module);
-                self.imports
-                    .entry(module.join("::"))
-                    .or_default()
-                    .extend(item_imports.clone());
-                if !matches!(item_use.vis, syn::Visibility::Inherited) {
-                    self.reexports
-                        .entry(module.join("::"))
-                        .or_default()
-                        .extend(item_imports);
-                }
-            }
-        }
+        self.imports.collect(items, module);
     }
 
     fn collect_impl(&mut self, item_impl: &syn::ItemImpl, module: &[String]) {
@@ -123,6 +105,9 @@ impl Symbols {
                     trait_name.as_deref(),
                     &method.sig.ident.to_string(),
                 );
+                if self.is_refresh_capability(&owner, trait_name.as_deref(), method, module) {
+                    self.control_capabilities.insert(target.clone());
+                }
                 self.collect_return(target, module, &method.sig.output);
             }
         }
@@ -186,40 +171,7 @@ impl Symbols {
     }
 
     fn resolve_segments(&self, module: &[String], raw: &[String]) -> Vec<String> {
-        let Some(first) = raw.first() else {
-            return Vec::new();
-        };
-        let resolved = if matches!(first.as_str(), "crate" | "std" | "core" | "alloc") {
-            raw.to_vec()
-        } else if first == "self" {
-            module
-                .iter()
-                .cloned()
-                .chain(raw.iter().skip(1).cloned())
-                .collect()
-        } else if first == "super" {
-            let mut resolved = module.to_vec();
-            let mut offset = 0;
-            while raw.get(offset).is_some_and(|segment| segment == "super") {
-                resolved.pop();
-                offset += 1;
-            }
-            resolved.extend(raw.iter().skip(offset).cloned());
-            resolved
-        } else if let Some(imported) = self
-            .imports
-            .get(&module.join("::"))
-            .and_then(|imports| imports.get(first))
-        {
-            imported
-                .iter()
-                .cloned()
-                .chain(raw.iter().skip(1).cloned())
-                .collect()
-        } else {
-            module.iter().cloned().chain(raw.iter().cloned()).collect()
-        };
-        expand_reexports(&self.reexports, resolved)
+        self.imports.resolve(module, raw)
     }
 
     pub(super) fn type_fact(&self, module: &[String], ty: &syn::Type) -> TypeFact {
@@ -284,7 +236,43 @@ impl Symbols {
     ) -> Option<String> {
         let module = module.join("::");
         self.methods
-            .resolve(owner, method, &module, self.imports.get(&module))
+            .resolve(owner, method, &module, self.imports.named(&module))
+    }
+
+    pub(super) fn is_control_capability(&self, target: &str) -> bool {
+        self.control_capabilities.contains(target)
+    }
+
+    fn is_refresh_capability(
+        &self,
+        owner: &str,
+        trait_name: Option<&str>,
+        method: &syn::ImplItemFn,
+        module: &[String],
+    ) -> bool {
+        const CLIENT: &str = "crate::server::control::client::ServerClient";
+        const GENERATION: &str = "crate::server::lifecycle::state::ServerGeneration";
+        const WORKSPACE: &str = "crate::workspace::id::WorkspaceId";
+        if owner != CLIENT
+            || trait_name.is_some()
+            || method.sig.ident != "refresh_enabled_generation"
+        {
+            return false;
+        }
+        let mut inputs = method.sig.inputs.iter();
+        let receiver_is_shared = matches!(inputs.next(), Some(syn::FnArg::Receiver(receiver))
+            if receiver.reference.is_some() && receiver.mutability.is_none());
+        let typed = inputs
+            .filter_map(|input| {
+                let syn::FnArg::Typed(argument) = input else {
+                    return None;
+                };
+                self.type_fact(module, &argument.ty).canonical
+            })
+            .collect::<Vec<_>>();
+        receiver_is_shared
+            && typed == [GENERATION.to_owned(), WORKSPACE.to_owned()]
+            && method.sig.inputs.len() == 3
     }
 
     fn definition_fact(&self, definition: Option<&TypeDefinition>) -> TypeFact {
@@ -320,6 +308,7 @@ pub(super) fn item_is_test(item: &syn::Item) -> bool {
 }
 
 fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
+    let unresolved_glob = canonical.starts_with("<ambiguous-glob>::");
     let inbound_job = inbound_job || canonical == "crate::server::receiver::job::InboundJob";
     let agent_controller = canonical == "crate::agent::controller::AgentController";
     let app = canonical == "crate::tui::App";
@@ -331,6 +320,7 @@ fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
     let memory_queue = canonical == "std::collections::VecDeque";
     TypeFact {
         canonical: Some(canonical),
+        unresolved_glob,
         inbound_job,
         agent_controller,
         app,

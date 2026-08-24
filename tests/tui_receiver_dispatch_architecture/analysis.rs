@@ -9,6 +9,7 @@ use collect::collect_program;
 #[derive(Clone, Debug, Default)]
 pub(super) struct TypeFact {
     pub(super) canonical: Option<String>,
+    pub(super) unresolved_glob: bool,
     pub(super) inbound_job: bool,
     pub(super) agent_controller: bool,
     pub(super) app: bool,
@@ -104,6 +105,9 @@ pub(super) fn is_receiver_tick_call(owner: &TypeFact, method: &str) -> bool {
 }
 
 pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
+    if owner.unresolved_glob {
+        return Some("unresolved glob-owned type operation");
+    }
     if owner.agent_controller {
         return match method {
             "type_text" => Some("interactive AgentController type_text"),

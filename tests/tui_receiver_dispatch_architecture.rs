@@ -6,6 +6,8 @@ mod analysis;
 mod round_five_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_four_mutations.rs"]
 mod round_four_mutations;
+#[path = "tui_receiver_dispatch_architecture/round_seven_mutations.rs"]
+mod round_seven_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_six_mutations.rs"]
 mod round_six_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_three_mutations.rs"]

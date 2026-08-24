@@ -68,6 +68,22 @@ impl<'symbols> Scope<'symbols> {
         self.symbols.method_call_target(&self.module, owner, method)
     }
 
+    pub(super) fn receiver_reachable_target(
+        &self,
+        owner: &TypeFact,
+        target: Option<String>,
+    ) -> Option<String> {
+        if owner.server_control_client
+            && target
+                .as_deref()
+                .is_some_and(|target| self.symbols.is_control_capability(target))
+        {
+            None
+        } else {
+            target
+        }
+    }
+
     pub(super) fn is_inbound_channel_creation(&self, canonical: &str, path: &syn::Path) -> bool {
         matches!(
             canonical.rsplit("::").next(),
