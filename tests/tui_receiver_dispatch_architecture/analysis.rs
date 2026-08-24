@@ -98,6 +98,10 @@ pub(super) fn receiver_owned_module(module: &[String]) -> bool {
     })
 }
 
+pub(super) fn is_receiver_tick_call(owner: &TypeFact, method: &str) -> bool {
+    owner.app && method == "tick_receiver"
+}
+
 pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
     if owner.agent_controller {
         return match method {

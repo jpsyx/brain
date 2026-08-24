@@ -259,8 +259,8 @@ access modes, and the OpenCode lifecycle plugin are active. Coordinated
 task-schema activation is available only through explicit workspace migration.
 The shared process control protocol, live TUI leases,
 heartbeats, crash recovery, final-TUI shutdown, opaque-ingress routing,
-authentication, actor resolution, exact TUI forwarding, and delivery are
-active.
+authentication, actor resolution, durable job admission, TUI durable dispatch,
+and delivery are active.
 `workspace_only` is easy-to-bypass prompt guidance plus capability filtering,
 not a security or isolation boundary. It reduces accidents and naive leakage
 among trusted users; adversarial or sensitive workloads require an external
@@ -1028,9 +1028,14 @@ which explicitly stop and join only their workers, and performs no exit sync.
 observation-driven pure poll transition. `AppServices` owns the injected sync
 adapter that reads clocks, journals, and current process state and launches
 children.
-The sole receiver tick first continues any pending or active durable run, then
-applies durable `/restart` and `/new` controls, the sync-freshness gate, and at
-most one FIFO claim. There is no second process-local cursor, interactive-panel
+The sole receiver tick first applies every durable `/restart` control. It then
+continues the one claimed or active run, or claims at most one FIFO job when
+idle; a claimed job passes the sync-freshness gate, and `/new` completes before
+any agent launch. A terminal artifact becomes durable only when one immediate
+state transaction proves the locked lifecycle-native registration, persists
+the exact binding, and moves the live owner's launch to `done`; a mismatch or
+database error rolls back and leaves the run and artifact available for the
+next tick. There is no second process-local cursor, interactive-panel
 handoff, activity sample, or socket poll.
 `tui/app_sync.rs` passes freshness observations into the runtime and owns the
 cross-feature sync launch, task reload, footer, and warning effects at the exact queued-job

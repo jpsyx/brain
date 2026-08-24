@@ -8,7 +8,10 @@ mod scope;
 #[path = "symbols.rs"]
 mod symbols;
 
-use super::{FunctionNode, Program, RawCall, TypeFact, classify_operation, receiver_owned_module};
+use super::{
+    FunctionNode, Program, RawCall, TypeFact, classify_operation, is_receiver_tick_call,
+    receiver_owned_module,
+};
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
 use scope::Scope;
 use symbols::{Symbols, item_is_test, method_target};
@@ -173,14 +176,17 @@ struct BodyVisitor<'scope, 'symbols> {
 
 impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
     fn visit_local(&mut self, local: &'ast syn::Local) {
-        if let syn::Pat::Type(pattern) = &local.pat {
-            bind_pattern(
-                &pattern.pat,
-                self.scope.type_fact(&pattern.ty),
-                &mut self.variables,
-            );
-        }
+        let fact = match &local.pat {
+            syn::Pat::Type(pattern) => Some(self.scope.type_fact(&pattern.ty)),
+            _ => local
+                .init
+                .as_ref()
+                .map(|initialization| self.expression_fact(&initialization.expr)),
+        };
         syn::visit::visit_local(self, local);
+        if let Some(fact) = fact {
+            bind_pattern(&local.pat, fact, &mut self.variables);
+        }
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
@@ -194,6 +200,9 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
                 .ident
                 .to_string();
             let owner = self.scope.call_owner_fact(target);
+            if is_receiver_tick_call(&owner, &name) {
+                self.receiver_tick_calls += 1;
+            }
             if let Some(violation) = classify_operation(&owner, &name) {
                 self.violations.push(violation.to_owned());
             } else if owner
@@ -219,17 +228,17 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         let name = call.method.to_string();
-        if name == "tick_receiver" {
+        let owner = self.expression_fact(&call.receiver);
+        if is_receiver_tick_call(&owner, &name) {
             self.receiver_tick_calls += 1;
         }
-        let owner = self.expression_fact(&call.receiver);
         if let Some(violation) = classify_operation(&owner, &name) {
             self.violations.push(violation.to_owned());
         }
         let exact_target = owner
             .canonical
             .as_ref()
-            .map(|owner| format!("{owner}::{name}"));
+            .and_then(|owner| self.scope.method_call_target(owner, &name));
         self.calls.push(RawCall { exact_target });
         syn::visit::visit_expr_method_call(self, call);
     }
@@ -263,9 +272,11 @@ impl BodyVisitor<'_, '_> {
                 owner
                     .canonical
                     .as_ref()
-                    .map_or_else(TypeFact::default, |owner| {
-                        self.scope.return_fact(&format!("{owner}::{}", call.method))
+                    .and_then(|owner| {
+                        self.scope
+                            .method_call_target(owner, &call.method.to_string())
                     })
+                    .map_or_else(TypeFact::default, |target| self.scope.return_fact(&target))
             }
             _ => TypeFact::default(),
         }

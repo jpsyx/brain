@@ -3,6 +3,11 @@ use std::collections::HashMap;
 use super::super::TypeFact;
 use crate::source::is_exact_cfg_test;
 
+#[path = "symbols/methods.rs"]
+mod methods;
+
+use methods::MethodIndex;
+
 #[derive(Clone)]
 struct TypeDefinition {
     module: Vec<String>,
@@ -15,6 +20,7 @@ pub(super) struct Symbols {
     aliases: HashMap<String, TypeDefinition>,
     fields: HashMap<String, TypeDefinition>,
     returns: HashMap<String, TypeDefinition>,
+    methods: MethodIndex,
 }
 
 impl Symbols {
@@ -80,11 +86,12 @@ impl Symbols {
                 continue;
             };
             if !is_exact_cfg_test(&method.attrs) {
-                self.collect_return(
-                    method_target(&owner, trait_name.as_deref(), &method.sig.ident.to_string()),
-                    module,
-                    &method.sig.output,
+                let target = self.methods.register(
+                    &owner,
+                    trait_name.as_deref(),
+                    &method.sig.ident.to_string(),
                 );
+                self.collect_return(target, module, &method.sig.output);
             }
         }
     }
@@ -239,6 +246,17 @@ impl Symbols {
         self.definition_fact(self.returns.get(target))
     }
 
+    pub(super) fn method_call_target(
+        &self,
+        module: &[String],
+        owner: &str,
+        method: &str,
+    ) -> Option<String> {
+        let module = module.join("::");
+        self.methods
+            .resolve(owner, method, &module, self.imports.get(&module))
+    }
+
     fn definition_fact(&self, definition: Option<&TypeDefinition>) -> TypeFact {
         definition.map_or_else(TypeFact::default, |definition| {
             self.type_fact(&definition.module, &definition.ty)
@@ -254,10 +272,7 @@ impl Symbols {
 }
 
 pub(super) fn method_target(owner: &str, trait_name: Option<&str>, method: &str) -> String {
-    trait_name.map_or_else(
-        || format!("{owner}::{method}"),
-        |trait_name| format!("<{owner} as {trait_name}>::{method}"),
-    )
+    methods::method_target(owner, trait_name, method)
 }
 
 pub(super) fn item_is_test(item: &syn::Item) -> bool {

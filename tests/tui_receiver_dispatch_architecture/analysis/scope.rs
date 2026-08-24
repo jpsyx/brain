@@ -64,6 +64,10 @@ impl<'symbols> Scope<'symbols> {
         self.symbols.return_fact(target)
     }
 
+    pub(super) fn method_call_target(&self, owner: &str, method: &str) -> Option<String> {
+        self.symbols.method_call_target(&self.module, owner, method)
+    }
+
     pub(super) fn is_inbound_channel_creation(&self, canonical: &str, path: &syn::Path) -> bool {
         matches!(
             canonical.rsplit("::").next(),

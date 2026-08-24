@@ -1578,8 +1578,11 @@ brain-root lookup.
   record. Success removes the active journal but keeps
   the backup.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
-  authenticated actor resolution, exact TUI job forwarding, and response
-  delivery are now active.
+  authenticated actor resolution, durable job admission, TUI durable dispatch,
+  and response delivery are now active. Receiver completion proves and stores
+  its exact lifecycle-native binding in the same immediate transaction that
+  moves the live launch to `done`; rollback retains the active run and artifact
+  for a later tick, and cleanup begins only after that transaction commits.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.
