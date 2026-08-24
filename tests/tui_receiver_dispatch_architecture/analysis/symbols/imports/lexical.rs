@@ -14,7 +14,13 @@ struct LexicalLayer {
 #[derive(Clone)]
 struct LexicalAlias {
     target: syn::Type,
-    type_parameters: Vec<String>,
+    type_parameters: Vec<LexicalTypeParameter>,
+}
+
+#[derive(Clone)]
+pub(crate) struct LexicalTypeParameter {
+    pub(crate) name: String,
+    pub(crate) default: Option<syn::Type>,
 }
 
 #[derive(Clone, Default)]
@@ -83,7 +89,7 @@ impl LexicalScope {
     pub(in super::super) fn alias_definition(
         &self,
         name: &str,
-    ) -> Option<(String, syn::Type, Vec<String>, Self)> {
+    ) -> Option<(String, syn::Type, Vec<LexicalTypeParameter>, Self)> {
         let (depth, layer) = self
             .layers
             .iter()
@@ -95,7 +101,11 @@ impl LexicalScope {
             layers: self.layers[..=depth].to_vec(),
         };
         definition_scope.layers.push(LexicalLayer {
-            declarations: alias.type_parameters.iter().cloned().collect(),
+            declarations: alias
+                .type_parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect(),
             ..LexicalLayer::default()
         });
         Some((
@@ -146,7 +156,10 @@ fn type_declaration(item: &syn::Item) -> Option<(String, Option<LexicalAlias>)> 
                 type_parameters: item
                     .generics
                     .type_params()
-                    .map(|parameter| parameter.ident.to_string())
+                    .map(|parameter| LexicalTypeParameter {
+                        name: parameter.ident.to_string(),
+                        default: parameter.default.clone(),
+                    })
                     .collect(),
             }),
         )),

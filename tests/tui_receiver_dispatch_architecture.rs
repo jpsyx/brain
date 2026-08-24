@@ -14,6 +14,8 @@ mod round_nine_mutations;
 mod round_seven_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_six_mutations.rs"]
 mod round_six_mutations;
+#[path = "tui_receiver_dispatch_architecture/round_ten_mutations.rs"]
+mod round_ten_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_three_mutations.rs"]
 mod round_three_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_two_mutations.rs"]

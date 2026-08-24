@@ -1,7 +1,14 @@
 use std::collections::HashMap;
 
 use super::super::super::TypeFact;
-use super::{LexicalScope, Symbols, TypeDefinition};
+use super::{LexicalScope, LexicalTypeParameter, Symbols, TypeDefinition};
+
+struct AliasExpansion<'a> {
+    module: &'a [String],
+    use_scope: &'a LexicalScope,
+    definition_scope: &'a LexicalScope,
+    outer_bindings: &'a HashMap<String, TypeFact>,
+}
 
 impl Symbols {
     pub(in super::super) fn type_fact_scoped(
@@ -45,29 +52,24 @@ impl Symbols {
                     if resolving.contains(&key) {
                         return fact_for_canonical(key, false);
                     }
+                    resolving.push(key);
                     let arguments = path
                         .path
                         .segments
                         .last()
                         .map(generic_types)
                         .unwrap_or_default();
-                    let bindings = parameters
-                        .into_iter()
-                        .zip(arguments)
-                        .map(|(parameter, argument)| {
-                            (
-                                parameter,
-                                self.type_fact_inner(
-                                    module,
-                                    argument,
-                                    lexical,
-                                    resolving,
-                                    type_parameters,
-                                ),
-                            )
-                        })
-                        .collect();
-                    resolving.push(key);
+                    let bindings = self.lexical_alias_bindings(
+                        &parameters,
+                        &arguments,
+                        resolving,
+                        &AliasExpansion {
+                            module,
+                            use_scope: lexical,
+                            definition_scope: &definition_scope,
+                            outer_bindings: type_parameters,
+                        },
+                    );
                     let fact = self.type_fact_inner(
                         module,
                         &target,
@@ -103,6 +105,42 @@ impl Symbols {
             }
             _ => TypeFact::default(),
         }
+    }
+
+    fn lexical_alias_bindings(
+        &self,
+        parameters: &[LexicalTypeParameter],
+        arguments: &[&syn::Type],
+        resolving: &mut Vec<String>,
+        expansion: &AliasExpansion<'_>,
+    ) -> HashMap<String, TypeFact> {
+        let mut arguments = arguments.iter();
+        let mut bindings = HashMap::new();
+        for parameter in parameters {
+            let fact = if let Some(argument) = arguments.next() {
+                Some(self.type_fact_inner(
+                    expansion.module,
+                    argument,
+                    expansion.use_scope,
+                    resolving,
+                    expansion.outer_bindings,
+                ))
+            } else {
+                parameter.default.as_ref().map(|default| {
+                    self.type_fact_inner(
+                        expansion.module,
+                        default,
+                        expansion.definition_scope,
+                        resolving,
+                        &bindings,
+                    )
+                })
+            };
+            if let Some(fact) = fact {
+                bindings.insert(parameter.name.clone(), fact);
+            }
+        }
+        bindings
     }
 
     pub(in super::super) fn field_fact(&self, owner: &TypeFact, member: &syn::Member) -> TypeFact {
@@ -142,7 +180,7 @@ fn type_parameter_fact(
 fn lexical_alias(
     path: &syn::TypePath,
     lexical: &LexicalScope,
-) -> Option<(String, syn::Type, Vec<String>, LexicalScope)> {
+) -> Option<(String, syn::Type, Vec<LexicalTypeParameter>, LexicalScope)> {
     if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
         return None;
     }

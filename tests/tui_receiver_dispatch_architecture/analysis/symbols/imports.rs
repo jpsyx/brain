@@ -8,7 +8,7 @@ mod collect;
 #[path = "imports/lexical.rs"]
 mod lexical;
 
-pub(crate) use lexical::LexicalScope;
+pub(crate) use lexical::{LexicalScope, LexicalTypeParameter};
 
 type ModuleSymbols = HashMap<String, HashSet<String>>;
 type NamedImports = HashMap<String, HashMap<String, Vec<String>>>;
