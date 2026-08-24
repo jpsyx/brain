@@ -6,7 +6,7 @@ use std::path::Path;
 
 use collect::collect_program;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct TypeFact {
     pub(super) canonical: Option<String>,
     pub(super) unresolved_glob: bool,

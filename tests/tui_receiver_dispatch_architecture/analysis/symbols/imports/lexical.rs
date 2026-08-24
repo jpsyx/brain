@@ -14,13 +14,7 @@ struct LexicalLayer {
 #[derive(Clone)]
 struct LexicalAlias {
     target: syn::Type,
-    type_parameters: Vec<LexicalTypeParameter>,
-}
-
-#[derive(Clone)]
-pub(crate) struct LexicalTypeParameter {
-    pub(crate) name: String,
-    pub(crate) default: Option<syn::Type>,
+    parameters: Vec<syn::GenericParam>,
 }
 
 #[derive(Clone, Default)]
@@ -89,7 +83,7 @@ impl LexicalScope {
     pub(in super::super) fn alias_definition(
         &self,
         name: &str,
-    ) -> Option<(String, syn::Type, Vec<LexicalTypeParameter>, Self)> {
+    ) -> Option<(String, syn::Type, Vec<syn::GenericParam>, Self)> {
         let (depth, layer) = self
             .layers
             .iter()
@@ -102,16 +96,21 @@ impl LexicalScope {
         };
         definition_scope.layers.push(LexicalLayer {
             declarations: alias
-                .type_parameters
+                .parameters
                 .iter()
-                .map(|parameter| parameter.name.clone())
+                .filter_map(|parameter| {
+                    let syn::GenericParam::Type(parameter) = parameter else {
+                        return None;
+                    };
+                    Some(parameter.ident.to_string())
+                })
                 .collect(),
             ..LexicalLayer::default()
         });
         Some((
             format!("<lexical-alias>::{depth}::{name}"),
             alias.target.clone(),
-            alias.type_parameters.clone(),
+            alias.parameters.clone(),
             definition_scope,
         ))
     }
@@ -153,14 +152,7 @@ fn type_declaration(item: &syn::Item) -> Option<(String, Option<LexicalAlias>)> 
             item.ident.to_string(),
             Some(LexicalAlias {
                 target: (*item.ty).clone(),
-                type_parameters: item
-                    .generics
-                    .type_params()
-                    .map(|parameter| LexicalTypeParameter {
-                        name: parameter.ident.to_string(),
-                        default: parameter.default.clone(),
-                    })
-                    .collect(),
+                parameters: item.generics.params.iter().cloned().collect(),
             }),
         )),
         syn::Item::Union(item) => Some((item.ident.to_string(), None)),

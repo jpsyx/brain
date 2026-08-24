@@ -10,7 +10,7 @@ mod methods;
 mod types;
 
 use imports::ImportIndex;
-pub(super) use imports::{LexicalScope, LexicalTypeParameter};
+pub(super) use imports::LexicalScope;
 use methods::MethodIndex;
 
 #[derive(Clone)]

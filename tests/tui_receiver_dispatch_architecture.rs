@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 mod analysis;
 #[path = "tui_receiver_dispatch_architecture/round_eight_mutations.rs"]
 mod round_eight_mutations;
+#[path = "tui_receiver_dispatch_architecture/round_eleven_mutations.rs"]
+mod round_eleven_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_five_mutations.rs"]
 mod round_five_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_four_mutations.rs"]
