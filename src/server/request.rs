@@ -32,8 +32,12 @@ pub(in crate::server) fn respond(
         } => match resolve_local_workspace_route(control, ingress, capability, now) {
             Ok(workspace) => match read_local_action_body(request) {
                 Ok(body) => {
-                    let (status, json) =
-                        routes::habits::done(workspace.context(), &body).response();
+                    let (status, json) = routes::habits::done(
+                        workspace.registry_store(),
+                        workspace.context(),
+                        &body,
+                    )
+                    .response();
                     http::Response::json(status, json)
                 }
                 Err(error) => error.response(),

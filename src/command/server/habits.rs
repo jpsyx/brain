@@ -9,10 +9,14 @@ pub fn run_habits(
     match &args.action {
         None => open_habits(context),
         Some(crate::cli::HabitsAction::Kill) => kill_habits(context),
-        Some(crate::cli::HabitsAction::Revive(revive)) => {
-            crate::tasks::revive::run(&context.workspace, &revive.query.join(" "), &context.actor)
-        }
+        Some(crate::cli::HabitsAction::Revive(revive)) => crate::tasks::revive::run(
+            &context.registry_store,
+            &context.workspace,
+            &revive.query.join(" "),
+            &context.actor,
+        ),
         Some(crate::cli::HabitsAction::Skip(skip)) => crate::tasks::skip::run(
+            &context.registry_store,
             &context.workspace,
             &skip.id,
             skip.until.as_deref(),
@@ -20,6 +24,7 @@ pub fn run_habits(
         ),
         Some(crate::cli::HabitsAction::CompleteManagedTriage(args)) => {
             crate::tasks::triage_habits::complete_managed_triage_cli(
+                &context.registry_store,
                 &context.workspace,
                 args.kind.into(),
             )

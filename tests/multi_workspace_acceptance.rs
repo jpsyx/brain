@@ -74,6 +74,7 @@ fn personal_and_family_workspaces_complete_the_multitenant_lifecycle() {
     );
     assert_eq!(
         complete_managed_triage(
+            &scenario.store,
             &scenario.family,
             ManagedTriageKind::Daily,
             family_config.enable_triage_habits,

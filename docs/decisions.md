@@ -4549,3 +4549,59 @@ between machines.
 The trap it removes is worth stating plainly for whoever writes the next test:
 **any test that runs a mutating tasks command through the binary must isolate
 `agenda_markdown_dir` first.** `HOME` and `XDG_CONFIG_HOME` do not cover it.
+
+## Why *every* mutation path syncs the agenda, not just completion
+
+BR-19 wired completion. That left `brain habits skip`, `complete-managed-triage`
+(and the daily-triage nudge's Skip button), the habits browser page's done
+button, `brain tasks add`, and `brain tasks set` still writing CSVs and walking
+away — the same defect, one command over. A rule that holds for one mutation and
+not its neighbours is not a rule; it is a coincidence the next contributor will
+break. So the seam is now a standing obligation: **a function that writes
+`tasks.csv` or `habits.csv` ends by syncing the agenda.**
+
+What each mutation *means* for the plan is a separate, deliberate decision, and
+it is not always "drop the row":
+
+- **Completion-shaped mutations drop it and add it to the snapshot.** A daily
+  `skip` counts here: cadence-aware skip marks a daily habit done and respawns
+  it, so it is a completion wearing a different name.
+- **A defer only drops it.** Nothing was finished, so nothing joins Completed
+  today.
+- **An ordinary field edit changes nothing about the plan.** Renaming a task or
+  adding a note is not a statement that it left today, so `set` refreshes the
+  CSV-derived snapshots and leaves the authored order alone. The two edits that
+  *do* say it left — `--status done` and a `--due` on another day — are read off
+  the same `SetPlan` the write already computed, so the decision cannot drift
+  from what was written.
+- **A creation cannot touch the plan at all.** Only the agenda's author decides
+  what is on today's list; a new row just makes the snapshots stale, so `add`
+  refreshes those.
+- **`revive` provably cannot change today**, because the occurrence it spawns is
+  dated strictly after today and the row it revives was completed earlier. It
+  still calls the sync — the rule is the rule — and the sync's no-op path costs
+  a file read. The test asserts the no-op, so the reasoning stays checked.
+
+To make this reachable everywhere, the agenda targets are resolved from
+`(RegistryStore, WorkspaceContext)` rather than a `CommandContext`. The HTTP
+habits route holds a verified workspace and its registry but no command context,
+and it is a first-class mutation surface; keying on the command context would
+have quietly excluded exactly the path a user is most likely to be looking at
+while the agenda is open.
+
+## Why `cfg(test)` moves the agenda directory somewhere that cannot exist
+
+`agenda_markdown_dir` defaults to `/tmp`, a machine-shared path that `HOME` and
+`XDG_CONFIG_HOME` isolation does not redirect. Three separate times while this
+work was being written, a test resolved that fallback and rewrote the
+developer's own agenda for today from a two-row fixture CSV — the exact
+corruption the feature exists to prevent, produced by the feature.
+
+Explicit isolation per test suite was not enough, because the failure is silent
+and the next mutation path added is one nobody remembers to isolate. So the
+default itself is now unreachable from a unit test: under `cfg(test)` the
+fallback is a path that cannot exist, and any test that needs a real agenda
+injects `Targets` directly. Integration tests, which link the library without
+`cfg(test)` and can spawn the binary, still isolate explicitly — the fixture
+that serves the habits page writes `agenda_markdown_dir` into its own registry —
+and a guard test asserts the two branches stay two branches.

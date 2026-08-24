@@ -50,6 +50,7 @@ pub struct SkipResult {
 
 /// CLI runner for `brain habits skip <id|fuzzy> [--until YYYY-MM-DD]`.
 pub fn run(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     raw_id: &str,
     until: Option<&str>,
@@ -60,9 +61,31 @@ pub fn run(
     protect_managed_skip(workspace, raw_id)?;
     let today = Local::now().date_naive();
     let until = until.map(parse_until).transpose()?;
-    let result = skip_in_root_with_today(workspace.root(), raw_id, until, today)?;
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    let (result, _) = skip_in_root_and_sync(workspace.root(), &targets, raw_id, until, today)?;
     print_result(&result);
     Ok(())
+}
+
+/// Skip, then re-sync the day's agenda the skip just invalidated.
+///
+/// A daily skip *is* a completion (done + respawn), so it drops the row from
+/// the plan and lands it in the completed snapshot; every other cadence is a
+/// one-day defer, which only drops it.
+pub(crate) fn skip_in_root_and_sync(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    raw_id: &str,
+    until: Option<NaiveDate>,
+    today: NaiveDate,
+) -> Result<(SkipResult, crate::tasks::agenda::Outcome)> {
+    let result = skip_in_root_with_today(root, raw_id, until, today)?;
+    let action = match result.kind {
+        SkipKind::MarkedDone => crate::tasks::agenda::Action::Done,
+        SkipKind::Deferred => crate::tasks::agenda::Action::Defer,
+    };
+    let outcome = crate::tasks::agenda::sync_targets(targets, &result.task_id, action, today);
+    Ok((result, outcome))
 }
 
 fn protect_managed_skip(
@@ -251,6 +274,7 @@ mod tests {
     fn command_runner_requires_explicit_workspace_and_actor_contexts() {
         fn accepts_runner(
             _: fn(
+                &crate::workspace::RegistryStore,
                 &crate::workspace::WorkspaceContext,
                 &str,
                 Option<&str>,

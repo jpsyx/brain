@@ -167,6 +167,7 @@ fn id_number(id: &str) -> u32 {
 
 /// CLI runner for `brain habits revive|fix <query>`.
 pub fn run(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     query: &str,
     _actor: &crate::actor::ActorContext,
@@ -185,11 +186,13 @@ pub fn run(
             );
         }
         [only] => {
-            print_outcome(&revive_named_in_workspace(workspace, only, today, enabled)?);
+            print_outcome(&revive_named_in_workspace(
+                store, workspace, only, today, enabled,
+            )?);
         }
         names => {
             if let Some(chosen) = prompt_selection(names)? {
-                let outcome = revive_named_in_workspace(workspace, &chosen, today, enabled)?;
+                let outcome = revive_named_in_workspace(store, workspace, &chosen, today, enabled)?;
                 print_outcome(&outcome);
             }
         }
@@ -198,6 +201,7 @@ pub fn run(
 }
 
 fn revive_named_in_workspace(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     name: &str,
     today: NaiveDate,
@@ -205,7 +209,30 @@ fn revive_named_in_workspace(
 ) -> Result<ReviveOutcome> {
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     protect_managed_revival(workspace.root(), name, enabled)?;
-    revive_named_in_root(workspace.root(), name, today)
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    Ok(revive_named_in_root_and_sync(workspace.root(), &targets, name, today)?.0)
+}
+
+/// Revive, then re-sync the agenda. A revival spawns an occurrence and can
+/// change what is due today, so the CSV-derived snapshots are refreshed; the
+/// authored plan is left alone.
+pub(crate) fn revive_named_in_root_and_sync(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    name: &str,
+    today: NaiveDate,
+) -> Result<(ReviveOutcome, crate::tasks::agenda::Outcome)> {
+    let outcome = revive_named_in_root(root, name, today)?;
+    let synced = match outcome {
+        ReviveOutcome::Revived { .. } => crate::tasks::agenda::sync_targets(
+            targets,
+            "",
+            crate::tasks::agenda::Action::Touch,
+            today,
+        ),
+        _ => crate::tasks::agenda::Outcome::Unchanged,
+    };
+    Ok((outcome, synced))
 }
 
 fn protect_managed_revival(root: &Path, name: &str, enabled: bool) -> Result<()> {

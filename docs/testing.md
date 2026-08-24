@@ -794,12 +794,18 @@ first move is a failing test that reproduces it, *then* the fix.
   can read exactly what the renderer was fed. `tests/agenda_sync_cli.rs` drives
   the real binary end-to-end.
 
-  **Isolate `agenda_markdown_dir` in any test that runs a mutating tasks command
-  through the binary.** It defaults to the machine's real `/tmp`, which `HOME`
-  and `XDG_CONFIG_HOME` do not redirect, so a test that skips this rewrites the
-  developer's own agenda for today from its fixture CSVs. Do it with the binary
-  (`brain env set agenda_markdown_dir=<tempdir>`) after the workspace is ready;
-  `tests/verbose_cli.rs::isolate_agenda_dir` is the pattern.
+  **Unit tests are protected structurally**: under `cfg(test)` the
+  `agenda_markdown_dir` fallback is a path that cannot exist, so a unit test can
+  never resolve the machine's real `/tmp` and rewrite the developer's own agenda
+  for today. `agenda::tests::defaults` guards that.
+
+  **Integration tests must isolate it themselves**, because they link the
+  library without `cfg(test)` and may spawn the binary. `HOME` and
+  `XDG_CONFIG_HOME` do not redirect `/tmp`. Two patterns:
+  `tests/verbose_cli.rs::isolate_agenda_dir` runs `brain env set
+  agenda_markdown_dir=<tempdir>` once the workspace is ready, and
+  `tests/habits_workspace_routing/support.rs::agenda_env` writes the value
+  straight into the fixture's registry records.
 - **The `/todo` mutator → binary delegation**
   (`tests/todo_script_mutators.rs`). `BRAIN_BIN` points at a shell script that
   records its argv, so the seam is asserted (`-b <workspace> tasks sync-agenda

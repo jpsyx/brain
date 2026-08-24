@@ -55,7 +55,7 @@ fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
         .unwrap();
     let actor = actor(&workspace);
 
-    let skip = brain::tasks::skip::run(&workspace, &daily.id, None, &actor).unwrap_err();
+    let skip = brain::tasks::skip::run(&test_store(workspace.root()), &workspace, &daily.id, None, &actor).unwrap_err();
     assert!(format!("{skip:#}").contains("cannot be skipped manually"));
     assert_eq!(std::fs::read(&habits_path).unwrap(), before);
 
@@ -68,7 +68,7 @@ fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
     );
     std::fs::write(&habits_path, lapsed).unwrap();
     let before_revive = std::fs::read(&habits_path).unwrap();
-    let revive = brain::tasks::revive::run(&workspace, "Morning Triage", &actor).unwrap_err();
+    let revive = brain::tasks::revive::run(&test_store(workspace.root()), &workspace, "Morning Triage", &actor).unwrap_err();
     assert!(format!("{revive:#}").contains("cannot be revived manually"));
     assert_eq!(std::fs::read(&habits_path).unwrap(), before_revive);
 }

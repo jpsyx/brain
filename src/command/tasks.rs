@@ -46,6 +46,7 @@ pub fn launch(
                 chunks: args.chunks,
             };
             let result = crate::tasks::add::create_in_workspace(
+                &context.registry_store,
                 &context.workspace,
                 &context.actor,
                 &request,
@@ -54,7 +55,7 @@ pub fn launch(
             return Ok(());
         }
         Some(TasksCommand::Set(args)) => {
-            return set::run(&context.workspace, *args);
+            return set::run(&context.registry_store, &context.workspace, *args);
         }
         Some(TasksCommand::SyncAgenda(args)) => {
             return sync_agenda::run(context, &args);

@@ -1156,7 +1156,10 @@ renumber, chunk swap), `derive` rebuilds the CSV-derived snapshot sections, and
 `sync` composes them into one `sync_markdown(text, id, action, snapshot, today)`.
 `io` is the thin shell: it resolves the day's targets from `agenda_markdown_dir`,
 `agenda_dir`, and `markdown_to_pdf_path`, reads and writes the file, and
-regenerates the printable only when one already exists. Every failure there is
+regenerates the printable only when one already exists. Resolution is keyed on
+`(RegistryStore, WorkspaceContext)` rather than a `CommandContext`, so the HTTP
+habits route — a real mutation surface holding a verified workspace and its
+registry, but no command context — can sync like every other path. Every failure there is
 logged and swallowed — the CSVs are committed before the sync runs, so the
 agenda can never fail a completion. `complete::complete_and_sync_agenda` is the
 one native entry point (CLI and tasks view alike);

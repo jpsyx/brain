@@ -12,6 +12,7 @@ const SET_FIELDS: [(&str, &str); 6] = [
 ];
 
 pub(super) fn run(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     args: crate::tasks::cli::SetArgs,
 ) -> Result<()> {
@@ -30,7 +31,7 @@ pub(super) fn run(
     if edit.is_empty() {
         prompt_for_field(&mut edit, &args.id)?;
     }
-    let plan = crate::tasks::set::set_in_workspace(workspace, &args.id, &edit)?;
+    let plan = crate::tasks::set::set_in_workspace(store, workspace, &args.id, &edit)?;
     if args.json {
         println!("{}", serde_json::to_string(&SetReport::from(&plan))?);
     } else {

@@ -41,6 +41,22 @@ pub(super) struct ServerFixture {
     child: Child,
 }
 
+/// Point the agenda sync at the fixture's own tree.
+///
+/// `agenda_markdown_dir` defaults to the machine-shared `/tmp`, which a
+/// temporary `HOME` does not redirect — so a habit completed through the
+/// served page would rewrite the developer's real agenda for today.
+pub(super) fn agenda_env(home: &std::path::Path) -> Map<String, serde_json::Value> {
+    let dir = home.join("agenda");
+    std::fs::create_dir_all(&dir).expect("fixture agenda dir");
+    let mut env = Map::new();
+    env.insert(
+        "agenda_markdown_dir".to_owned(),
+        serde_json::Value::String(dir.display().to_string()),
+    );
+    env
+}
+
 impl ServerFixture {
     pub(super) fn new(family_manifest_id: &str) -> Self {
         let home = tempfile::tempdir().expect("temporary home");
@@ -63,7 +79,7 @@ impl ServerFixture {
                         aliases: BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: true,
-                        env: Map::new(),
+                        env: agenda_env(home.path()),
                     },
                 ),
                 (
@@ -74,7 +90,7 @@ impl ServerFixture {
                         aliases: BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: true,
-                        env: Map::new(),
+                        env: agenda_env(home.path()),
                     },
                 ),
             ]),
