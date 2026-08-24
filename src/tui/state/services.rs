@@ -169,25 +169,15 @@ impl AppServices {
         )
     }
 
-    pub(crate) fn transition_receiver_job(
+    pub(crate) fn complete_receiver_job_with_binding(
         &self,
         job_id: crate::state::ReceiverJobId,
         owner: &str,
-        expected: crate::state::ReceiverJobState,
-        next: crate::state::ReceiverJobState,
-        observed_at_unix_ms: u64,
-    ) -> Result<bool> {
-        self.db
-            .transition_receiver_job(job_id, owner, expected, next, observed_at_unix_ms)
-    }
-
-    pub(crate) fn replace_receiver_binding_from_instance(
-        &self,
         registration: &crate::state::ReceiverSessionAttribution,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
         self.db
-            .replace_receiver_binding_from_instance(registration, observed_at_unix_ms)
+            .complete_receiver_job_with_binding(job_id, owner, registration, observed_at_unix_ms)
     }
 
     #[must_use]

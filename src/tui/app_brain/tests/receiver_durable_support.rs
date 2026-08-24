@@ -131,22 +131,58 @@ pub(super) fn publish_valid_completion(app: &App, message: &str) -> std::path::P
         active.attribution.scope(),
     )
     .expect("mark exact receiver session completed");
+    write_completion_artifact(
+        app,
+        &active.attribution,
+        active.attribution.registered_session(),
+        message,
+    )
+}
+
+pub(super) fn publish_valid_rotated_completion(
+    app: &App,
+    native_session_id: &str,
+    message: &str,
+) -> std::path::PathBuf {
+    let active = app
+        .receiver
+        .active_durable_run()
+        .expect("active receiver run");
+    let native_session = AgentSession::new(native_session_id).expect("rotated native session");
+    rusqlite::Connection::open(app.context.state_db_path())
+        .expect("lifecycle fixture connection")
+        .execute(
+            "UPDATE brain_sessions SET agent_session_id = ?1 WHERE brain_instance_id = ?2",
+            rusqlite::params![native_session.as_str(), active.attribution.instance()],
+        )
+        .expect("simulate lifecycle native rotation");
+    SessionStore::mark_completed(&app.services, &native_session, active.attribution.scope())
+        .expect("mark rotated receiver session completed");
+    write_completion_artifact(app, &active.attribution, &native_session, message)
+}
+
+fn write_completion_artifact(
+    app: &App,
+    attribution: &crate::state::ReceiverSessionAttribution,
+    session: &AgentSession,
+    message: &str,
+) -> std::path::PathBuf {
     let path = app
         .context
         .workspace()
         .paths()
         .responses_dir()
-        .join(format!("{}.json", active.attribution.instance()));
+        .join(format!("{}.json", attribution.instance()));
     std::fs::create_dir_all(path.parent().unwrap()).expect("response directory");
     std::fs::write(
         &path,
         serde_json::json!({
-            "session_id": active.attribution.registered_session().as_str(),
-            "response_id": active.attribution.instance(),
-            "frontend": active.attribution.scope().agent_kind().as_str(),
-            "workspace_id": active.attribution.scope().workspace_id().to_string(),
-            "actor_id": active.attribution.scope().actor().user_id().as_str(),
-            "channel": active.attribution.scope().actor().channel().as_str(),
+            "session_id": session.as_str(),
+            "response_id": attribution.instance(),
+            "frontend": attribution.scope().agent_kind().as_str(),
+            "workspace_id": attribution.scope().workspace_id().to_string(),
+            "actor_id": attribution.scope().actor().user_id().as_str(),
+            "channel": attribution.scope().actor().channel().as_str(),
             "completion_status": "completed",
             "message": message,
         })

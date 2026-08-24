@@ -1051,9 +1051,13 @@ cleanup, including across a later re-enable. Later arrivals remain `queued` and
 unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A valid completion currently
 moves `launching` directly to `done` because BR-15 has not yet added accepted or
-processing proof. Losing exact ownership forbids every durable lifecycle,
-reply, session, and job mutation. A reclaimed progressed state is left unchanged
-for BR-16 rather than launched again.
+processing proof. That terminal compare-and-swap shares one immediate
+transaction with exact lifecycle-native binding proof and persistence. A
+binding mismatch or storage error rolls the whole attempt back, so the run
+remains `launching` with its claim, registration, tab, and completion artifact
+available for another tick. Losing exact ownership forbids every durable
+lifecycle, reply, session, and job mutation. A reclaimed progressed state is
+left unchanged for BR-16 rather than launched again.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.
@@ -1070,16 +1074,18 @@ maintained Brain-owned markdown transcript plus an optional paired
 the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
-replaced atomically with an explicit observed-at millisecond timestamp. After a
-fresh launch, a separate binding-only mutation reads the exact locked remote
+replaced atomically with an explicit observed-at millisecond timestamp. At
+terminal completion after a fresh launch, the job transition and binding-only
+mutation share one immediate transaction that reads the exact locked remote
 instance. It verifies the durable registration's workspace, logical
 conversation, frontend, actor, channel, instance, and original registered ID.
 Claude may report that Brain-supplied ID as its native session ID, so equality
 is accepted only for Claude with the exact locked lifecycle evidence. Codex and
 OpenCode must rotate their placeholder to a distinct lifecycle-reported native
-ID. Placeholders without that frontend-specific proof are rejected. The update
-writes only the native ID to the conversation binding and leaves the portable
-transcript bytes untouched.
+ID. Placeholders without that frontend-specific proof are rejected. The
+transaction writes only the native ID to the conversation binding, leaves the
+portable transcript bytes untouched, and makes `done` visible only after both
+writes can commit.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh

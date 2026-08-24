@@ -1,7 +1,7 @@
 //! Renewal and terminal handling for one launched receiver process.
 
 use crate::agent::{AgentSession, CompletionStatus, SessionStore};
-use crate::state::{ReceiverJobState, ReceiverLaunchFailure};
+use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
 use crate::tui::receiver::ActiveReceiverRun;
 
@@ -46,7 +46,7 @@ impl App {
 
         let path = self.receiver_completion_path(active.attribution.instance());
         if let Some(completion) = self.exact_receiver_completion(&active, &path) {
-            self.finish_completed_receiver_run(&active, &completion.message, &path, now);
+            self.finish_completed_receiver_run(active, &completion.message, &path, now);
         } else if observation.exited {
             self.retry_exited_receiver_run(&active, &path, now);
         } else {
@@ -86,31 +86,30 @@ impl App {
 
     fn finish_completed_receiver_run(
         &mut self,
-        active: &ActiveReceiverRun,
+        active: ActiveReceiverRun,
         message: &str,
         path: &std::path::Path,
         now: u64,
     ) {
-        let transitioned = self.services.transition_receiver_job(
+        let completed = self.services.complete_receiver_job_with_binding(
             active.claim.job().id(),
             active.claim.claim().owner(),
-            ReceiverJobState::Launching,
-            ReceiverJobState::Done,
+            &active.attribution,
             now,
         );
-        if !matches!(transitioned, Ok(true)) {
-            if let Err(error) = transitioned {
-                crate::logging::log(format!("receiver terminal transition failed: {error:#}"));
+        match completed {
+            Ok(true) => {}
+            Ok(false) => {
+                self.receiver
+                    .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
+                return;
             }
-            self.stop_locally_after_lost_receiver_ownership(active);
-            return;
-        }
-
-        if let Err(error) = self
-            .services
-            .replace_receiver_binding_from_instance(&active.attribution, now)
-        {
-            crate::logging::log(format!("receiver native binding update failed: {error:#}"));
+            Err(error) => {
+                crate::logging::log(format!("receiver completion commit failed: {error:#}"));
+                self.receiver
+                    .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
+                return;
+            }
         }
         if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
             let _ = self
@@ -125,7 +124,7 @@ impl App {
         if let Err(error) = self.services.release_receiver_session(&active.attribution) {
             crate::logging::log(format!("receiver session release failed: {error:#}"));
         }
-        self.remove_exact_receiver_tab(active);
+        self.remove_exact_receiver_tab(&active);
         let _ = std::fs::remove_file(path);
         crate::logging::log(format!(
             "receiver run completed channel={:?}",

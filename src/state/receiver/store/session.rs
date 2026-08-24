@@ -173,85 +173,16 @@ impl Db {
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
         self.validate_receiver_session_scope(registration.conversation_id(), registration.scope())?;
-        let scope = registration.scope();
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        let native_session = transaction
-            .query_row(
-                "SELECT active.agent_session_id
-                 FROM receiver_session_registrations AS registration
-                 JOIN brain_sessions AS active
-                   ON active.brain_instance_id = registration.brain_instance_id
-                  AND active.agent_kind = registration.agent_kind
-                  AND active.workspace_id = registration.workspace_id
-                  AND active.actor_id = registration.actor_id
-                  AND active.channel = registration.channel
-                  AND active.locked_pid IS NOT NULL
-                 WHERE registration.workspace_id = ?1
-                   AND registration.conversation_id = ?2
-                   AND registration.agent_kind = ?3
-                   AND registration.actor_id = ?4
-                   AND registration.channel = ?5
-                   AND registration.brain_instance_id = ?6
-                   AND registration.registered_session_id = ?7",
-                rusqlite::params![
-                    self.workspace_id,
-                    registration.conversation_id().to_string(),
-                    scope.agent_kind().as_str(),
-                    scope.actor().user_id().as_str(),
-                    scope.actor().channel().as_str(),
-                    registration.instance(),
-                    registration.registered_session().as_str(),
-                ],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        let Some(native_session) = native_session else {
-            return Ok(false);
-        };
-        if native_session == registration.registered_session().as_str()
-            && scope.agent_kind() != crate::agent::AgentKind::Claude
-        {
-            return Ok(false);
-        }
-        let native_session = AgentSession::new(native_session)?;
-        let registration_changed = transaction.execute(
-            "UPDATE receiver_session_registrations SET actual_session_id = ?8
-             WHERE workspace_id = ?1 AND conversation_id = ?2
-               AND agent_kind = ?3 AND actor_id = ?4 AND channel = ?5
-               AND brain_instance_id = ?6 AND registered_session_id = ?7",
-            rusqlite::params![
-                self.workspace_id,
-                registration.conversation_id().to_string(),
-                scope.agent_kind().as_str(),
-                scope.actor().user_id().as_str(),
-                scope.actor().channel().as_str(),
-                registration.instance(),
-                registration.registered_session().as_str(),
-                native_session.as_str(),
-            ],
-        )?;
-        if registration_changed != 1 {
-            return Ok(false);
-        }
-        let conversation_changed = transaction.execute(
-            "UPDATE receiver_conversations
-             SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
-             WHERE workspace_id = ?1 AND conversation_id = ?2
-               AND user_id = ?6 AND channel = ?7",
-            rusqlite::params![
-                self.workspace_id,
-                registration.conversation_id().to_string(),
-                scope.agent_kind().as_str(),
-                native_session.as_str(),
-                to_i64(observed_at_unix_ms, "receiver binding observation time")?,
-                scope.actor().user_id().as_str(),
-                scope.actor().channel().as_str(),
-            ],
-        )?;
-        if conversation_changed != 1 {
+        if !replace_receiver_binding_in_transaction(
+            &transaction,
+            &self.workspace_id,
+            registration,
+            observed_at_unix_ms,
+        )? {
             return Ok(false);
         }
         transaction.commit()?;
@@ -287,6 +218,92 @@ impl Db {
         );
         Ok(())
     }
+}
+
+pub(super) fn replace_receiver_binding_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    registration: &ReceiverSessionAttribution,
+    observed_at_unix_ms: u64,
+) -> Result<bool> {
+    let scope = registration.scope();
+    let native_session = transaction
+        .query_row(
+            "SELECT active.agent_session_id
+                 FROM receiver_session_registrations AS registration
+                 JOIN brain_sessions AS active
+                   ON active.brain_instance_id = registration.brain_instance_id
+                  AND active.agent_kind = registration.agent_kind
+                  AND active.workspace_id = registration.workspace_id
+                  AND active.actor_id = registration.actor_id
+                  AND active.channel = registration.channel
+                  AND active.locked_pid IS NOT NULL
+                 WHERE registration.workspace_id = ?1
+                   AND registration.conversation_id = ?2
+                   AND registration.agent_kind = ?3
+                   AND registration.actor_id = ?4
+                   AND registration.channel = ?5
+                   AND registration.brain_instance_id = ?6
+                   AND registration.registered_session_id = ?7",
+            rusqlite::params![
+                workspace_id,
+                registration.conversation_id().to_string(),
+                scope.agent_kind().as_str(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
+                registration.instance(),
+                registration.registered_session().as_str(),
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(native_session) = native_session else {
+        return Ok(false);
+    };
+    if native_session == registration.registered_session().as_str()
+        && scope.agent_kind() != crate::agent::AgentKind::Claude
+    {
+        return Ok(false);
+    }
+    let native_session = AgentSession::new(native_session)?;
+    let registration_changed = transaction.execute(
+        "UPDATE receiver_session_registrations SET actual_session_id = ?8
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+               AND agent_kind = ?3 AND actor_id = ?4 AND channel = ?5
+               AND brain_instance_id = ?6 AND registered_session_id = ?7",
+        rusqlite::params![
+            workspace_id,
+            registration.conversation_id().to_string(),
+            scope.agent_kind().as_str(),
+            scope.actor().user_id().as_str(),
+            scope.actor().channel().as_str(),
+            registration.instance(),
+            registration.registered_session().as_str(),
+            native_session.as_str(),
+        ],
+    )?;
+    if registration_changed != 1 {
+        return Ok(false);
+    }
+    let conversation_changed = transaction.execute(
+        "UPDATE receiver_conversations
+             SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+               AND user_id = ?6 AND channel = ?7",
+        rusqlite::params![
+            workspace_id,
+            registration.conversation_id().to_string(),
+            scope.agent_kind().as_str(),
+            native_session.as_str(),
+            to_i64(observed_at_unix_ms, "receiver binding observation time")?,
+            scope.actor().user_id().as_str(),
+            scope.actor().channel().as_str(),
+        ],
+    )?;
+    if conversation_changed != 1 {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn insert_registration(

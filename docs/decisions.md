@@ -2458,6 +2458,16 @@ frontend changes or its native evidence is unavailable, the next session starts
 fresh from that transcript. The transcript is recovery input, not a reason to
 discard a healthy same-frontend session.
 
+A fresh run's native binding and terminal job state are one durability unit.
+The exact registration, locked lifecycle-native ID, conversation binding, and
+live-owner `launching` to `done` compare-and-swap therefore commit in one
+immediate transaction. Treating binding failure as best-effort after `done`
+would delete the registration and artifact needed to repair a transient error
+or valid mismatch. Instead, any mismatch or database error rolls back the
+whole attempt and the event loop retains the active run for another tick.
+Replies, session release, and tab cleanup begin only after that transaction
+commits. This does not add BR-15 phase proof or BR-16/BR-17 recovery policy.
+
 The same durability principle applies to jobs. A claim records expiring owner
 authority on the row instead of popping it. On crash, queued work becomes
 claimed. Due-retry work keeps `retrying` while its consumed schedule clears, so

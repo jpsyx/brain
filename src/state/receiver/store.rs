@@ -8,6 +8,7 @@ use super::{
 use crate::state::Db;
 
 mod claim;
+mod completion;
 mod control;
 mod load;
 mod session;

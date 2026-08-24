@@ -61,6 +61,7 @@ mod opencode_launch;
 mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
+mod receiver_durable_binding_completion;
 mod receiver_durable_control_race;
 mod receiver_durable_control_sync;
 mod receiver_durable_controls;

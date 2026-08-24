@@ -1,4 +1,4 @@
-use super::receiver_durable_support::publish_valid_completion;
+use super::receiver_durable_support::publish_valid_rotated_completion;
 use super::*;
 
 use crate::state::{ReceiverConversationIdentity, ReceiverJobState};
@@ -83,7 +83,11 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
         .expect("accept durable receiver job");
 
     app.tick_receiver();
-    let response_path = publish_valid_completion(&app, "provider boundary response");
+    let response_path = publish_valid_rotated_completion(
+        &app,
+        "opencode-provider-native",
+        "provider boundary response",
+    );
 
     app.tick_receiver();
     crate::server::delivery::wait_for_background_delivery();
