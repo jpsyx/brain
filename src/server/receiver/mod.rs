@@ -1,4 +1,4 @@
-//! Authenticated inbound jobs and the bounded live-TUI forwarding boundary.
+//! Authenticated inbound jobs and the durable admission and dispatch boundary.
 
 mod attachments;
 mod control;

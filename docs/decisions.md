@@ -681,19 +681,17 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
-## Why the completion bridge reads a Claude transcript when needed
+## Historical: why the completion bridge learned to read a Claude transcript
 
-The final response the user receives over SMS/email exists only if the
-session-stop bridge writes the response artifact, and there is no independent backstop
-for a still-alive panel: `App::close_brain`'s PTY-scrape fallback runs only
-after the agent process exits, which never happens for brain's persistent
-Claude session. So the hook is the single trigger, and it must not depend on a
-single optional field. `last_assistant_message` is a Claude Code convenience
-field: whenever a frontend build, mode, or turn shape omits it (a turn that
-ends on a tool call with no trailing text, a schema change, an older/other
-build), keying on it alone makes the hook a silent no-op and the user gets only
-the two-minute "still processing" notice with no final answer. The hook
-therefore resolves the final message defensively — prefer
+The former warm-panel receiver depended on the session-stop bridge to publish
+its final response artifact. Its PTY-scrape fallback ran only after process
+exit, which a persistent Claude panel normally did not reach, and a missing
+hook response left only the former processing notice. That made the hook the
+single completion trigger and exposed the risk of depending on one optional
+field.
+
+The surviving lifecycle bridge still resolves the final message defensively:
+prefer
 `last_assistant_message` when present and non-empty, else parse the last
 assistant text message from the Stop payload's `transcript_path` JSONL
 (`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text",…}]}}`),
@@ -3704,14 +3702,14 @@ text with block boundaries as line breaks, and caps the result at 16 KiB with
 an explicit truncation notice. A plain-text part, when present, is still
 preferred and passed through verbatim.
 
-## Why every outbound email reply goes through one seam
+## Why every outbound receiver email reply goes through one seam
 
-Three sites delivered email (the processing notice, the final response, and the
-post-teardown fallback), and all three guarded on a non-empty recipient list
-with no `else`. An empty list is the worst outcome this channel has: the user
-gets nothing, which is indistinguishable from the agent never finishing, and
-nothing in the log says why. `App::send_email_reply` is now the only path, and
-it logs the drop with the two configuration fixes that resolve it.
+Isolated completion and durable control replies enter `App::reply_to_job` with
+the exact immutable accepted job. That seam derives recipients only from the
+acceptance-time trusted response context, logs an empty recipient set with the
+configuration remedies, and otherwise queues the bounded background provider
+send. An empty list cannot disappear silently, and no later registry or user
+change can substitute a different response identity.
 
 ## The receiver's own address is not a secret it should hide from its owner
 
@@ -3847,10 +3845,9 @@ Models trained to format helpfully will occasionally emit `## Today` and
 guarantee lives in `server/reply/plain_text/`, a pure pass every outbound SMS
 goes through, and the skill's instruction is the optimization on top of it.
 
-Placing it inside `reply::sms` rather than at the three delivery call sites is
-what makes it total: the final response, the fallback PTY-scrape response, and
-any future SMS body all shape through one function, so no path can be added
-that quietly posts raw markdown. Stripping precedes the length check for the
+Placing it inside `reply::sms` rather than inside the provider transport keeps
+the isolated receiver reply and any future SMS body on one shaping boundary,
+so no delivery path can quietly post raw markdown. Stripping precedes the length check for the
 same reason it exists — four asterisks that render as nothing must not be what
 pushes a 480-character answer into a truncated one.
 

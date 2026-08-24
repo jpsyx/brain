@@ -781,9 +781,10 @@ Which session to run is decided by the **lock + recency** model in
    intersection, and the configured receiving address that is excluded from it,
    are reduced to bare addresses first, so a display-name `from`, `to`, or
    `resend_from_email` can neither strip the thread of recipients nor defeat
-   the self-echo guard. Every outbound email reply passes through one seam
-   (`App::send_email_reply`), which logs an empty recipient set instead of
-   dropping the reply silently. Claude, Codex, and OpenCode
+   the self-echo guard. Isolated completion and control delivery pass the exact
+   immutable accepted job through `App::reply_to_job`, which derives trusted
+   recipients, logs an empty set instead of dropping silently, and queues the
+   bounded background provider send. Claude, Codex, and OpenCode
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.

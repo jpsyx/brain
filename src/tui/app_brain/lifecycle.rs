@@ -1,4 +1,4 @@
-//! Main-panel shutdown, completion fallback, ticking, and reload lifecycle.
+//! Main-panel shutdown, ticking, and reload lifecycle.
 
 use crate::tui::App;
 use crate::tui::modal_state::FlashKind;
