@@ -96,3 +96,12 @@ job.
   revocation, unavailable routing, and the 64-job queued capacity through
   deterministic focused and composed HTTP tests. The release test and Clippy
   gates pass.
+- 2026-08-23 corrected the verified-unavailable Email race by deferring a
+  discard without releasing its in-flight provider reservation and returning
+  503 until pending acceptance resolves. Receiver admission now also refreshes
+  SQLite's busy timeout after database setup so sequential lock waits share the
+  one absolute handoff deadline.
+- 2026-08-23 serialized the receiver real-process fixtures, bounded the
+  lifecycle scenarios, and made receiver child ownership unwind-safe, removing
+  full-suite startup contention while keeping replacement fixture lifetimes
+  explicit.

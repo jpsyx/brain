@@ -2605,7 +2605,10 @@ precedes queued-capacity rejection. Process memory excludes only an in-flight
 duplicate, which is unavailable rather than prematurely acknowledged. A known unavailable Resend ingress is
 still resolved before credentials; only that routed workspace's signing secret
 is then loaded to verify the event. A verified unavailable Resend ID is retained
-as a permanent discard, so later TUI availability cannot replay it. This
+as a permanent discard, so later TUI availability cannot replay it. When the
+same ID is already in flight, the verified path records a deferred discard,
+leaves the reservation owned by the pending acceptance, and returns 503. The
+pending completion promotes the deferred discard before a later retry. This
 1024-entry set is bounded discard memory, not durable-success authority, a
 queue, a replay worker, or a headless path.
 Persisted disable remains authoritative before live refresh: its failed route
@@ -2644,15 +2647,17 @@ still be live before that handler phase can begin. After provider work, Brain
 reserves the final five seconds exclusively for the HTTP response and caps the
 durable admission at two seconds. One absolute handoff deadline is installed
 as SQLite's busy timeout before WAL configuration or schema reconciliation,
-then covers lock waiting and the acceptance transaction. The deadline is
+then freshly recomputed and rebound after open before acceptance lock waiting.
+The deadline is
 checked after commit, so successful progress cannot consume a renewed timeout.
 One shared compile-time timing
 invariant prevents these bounds from drifting apart. The curl reader stops
 after one over-limit proof byte and reaps the child before returning a typed
 502. Resend receives HTTP success only for verified unavailable, ignored, and
 permanent discard outcomes so discarded webhooks cannot be replayed into a
-later live TUI; signature failures remain authentication failures, while 500
-and 502 remain provider-visible failures. Accepted email jobs
+later live TUI. An exact in-flight unavailable duplicate receives 503 until
+its deferred discard is promoted; signature failures remain authentication
+failures, while 500 and 502 remain provider-visible failures. Accepted email jobs
 retain stable Resend email and attachment identifiers, and delayed dispatch
 refreshes signed download access using freshly loaded workspace credentials.
 Processing and final replies preserve accepted subject and message lineage

@@ -255,13 +255,22 @@ fn unavailable_email_response(
     };
     match receiver::http::verify_unavailable_email(request, body, &config) {
         Ok(provider_id) => {
-            receiver::dispatch::remember_verified_unavailable_email(workspace_id, provider_id);
-            unavailable_receiver_response(receiver::Channel::Email)
+            let acknowledge =
+                receiver::dispatch::remember_verified_unavailable_email(workspace_id, provider_id);
+            verified_unavailable_email_response(acknowledge)
         }
         Err(error) => http::Response::text(
             provider_http_status(error.status(), false, receiver::Channel::Email),
             error.to_string(),
         ),
+    }
+}
+
+pub(super) fn verified_unavailable_email_response(acknowledge: bool) -> http::Response {
+    if acknowledge {
+        unavailable_receiver_response(receiver::Channel::Email)
+    } else {
+        http::Response::empty(503)
     }
 }
 

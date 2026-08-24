@@ -167,6 +167,34 @@ fn concurrent_admission_cannot_overbook_the_last_queued_slot() {
 }
 
 #[test]
+fn receiver_acceptance_rebinds_lock_wait_after_database_open() {
+    let temporary = tempfile::tempdir().expect("temporary receiver state");
+    let path = temporary.path().join("state.db");
+    let db = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("open receiver state with the default lock budget");
+    let writer = rusqlite::Connection::open(&path).expect("open competing writer");
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold receiver write lock");
+    db.rebind_receiver_ingress_busy_timeout(std::time::Duration::from_millis(20))
+        .expect("rebind acceptance lock budget");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+
+    let started = std::time::Instant::now();
+    let result = db.accept_receiver_job(&receiver_job(None, 100), &identity);
+
+    assert!(result.is_err(), "locked acceptance unexpectedly succeeded");
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "receiver acceptance inherited the stale pre-open lock budget"
+    );
+}
+
+#[test]
 fn receiver_database_rejects_an_inbound_job_from_another_workspace() {
     let db = Db::open_in_memory().expect("receiver state");
     let other_workspace = crate::workspace::WorkspaceId::parse(

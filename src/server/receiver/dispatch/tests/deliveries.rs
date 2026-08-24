@@ -1,6 +1,9 @@
 use std::sync::{Arc, Barrier, Mutex};
 
-use super::super::deliveries::{ProviderDeliveries, ProviderKey, forward_provider_delivery};
+use super::super::deliveries::{
+    DELIVERIES, ProviderDeliveries, ProviderKey, forward_provider_delivery,
+    provider_delivery_was_discarded, remember_verified_unavailable_email,
+};
 use crate::server::receiver::Channel;
 use crate::workspace::WorkspaceId;
 
@@ -101,6 +104,44 @@ fn in_flight_duplicate_is_not_acknowledged_before_first_handoff_finishes() {
     release.wait();
     worker.join().unwrap().unwrap();
     forward_provider_delivery(&deliveries, &key, || Ok(())).unwrap();
+}
+
+#[test]
+fn verified_unavailable_email_is_retained_when_in_flight_acceptance_fails() {
+    let key = key(
+        PERSONAL_ID,
+        Channel::Email,
+        "verified-unavailable-during-acceptance",
+    );
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let worker_key = key.clone();
+    let worker_entered = Arc::clone(&entered);
+    let worker_release = Arc::clone(&release);
+    let worker = std::thread::spawn(move || {
+        forward_provider_delivery(&DELIVERIES, &worker_key, || {
+            worker_entered.wait();
+            worker_release.wait();
+            anyhow::bail!("durable acceptance lost workspace authority")
+        })
+    });
+    entered.wait();
+
+    let acknowledge_unavailable = remember_verified_unavailable_email(key.0, key.2.clone());
+    let duplicate_while_pending = forward_provider_delivery(&DELIVERIES, &key, || Ok(()));
+    release.wait();
+    let original = worker.join().unwrap();
+
+    assert!(original.is_err());
+    assert!(
+        !acknowledge_unavailable,
+        "verified duplicate was acknowledged before in-flight acceptance resolved"
+    );
+    assert!(duplicate_while_pending.is_err());
+    assert!(
+        provider_delivery_was_discarded(key.0, key.1, &key.2),
+        "verified unavailable Email was replayable after in-flight acceptance failed"
+    );
 }
 
 #[test]

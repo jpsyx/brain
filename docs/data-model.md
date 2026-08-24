@@ -225,8 +225,9 @@ unregister, expiry, or replacement during provider work therefore cannot
 enqueue, including when a persisted disable's live-refresh notification is
 lost. It also derives one absolute handoff deadline,
 capped at two seconds and before the separately reserved response window. The
-remaining duration is installed before SQLite configuration or migration, then
-carried through lock waiting and the acceptance transaction.
+remaining duration is installed before SQLite configuration or migration,
+then refreshed and rebound after the database opens so the acceptance
+transaction cannot inherit time already spent configuring or migrating.
 A registration replay or enablement refresh
 computes its next revision before changing expiry, enablement, or registration
 state; revision overflow rejects the complete transition without extending or
@@ -238,7 +239,10 @@ registry record for signature verification and bounded in-memory provider-ID
 deduplication. It never constructs `WorkspaceContext`, loads portable users, or
 opens the state DB or job socket. A verified unavailable ID is a permanent
 discard in the 1024-key workspace/channel set, not a queued job or durable
-replay item.
+replay item. If that exact ID is already being admitted, the verified discard
+is deferred without releasing the in-flight reservation and receives 503 until
+the pending acceptance resolves. Resolution moves the deferred ID into the
+discard set before a later retry can receive success.
 The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.

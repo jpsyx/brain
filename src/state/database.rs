@@ -21,6 +21,14 @@ impl Db {
         )
     }
 
+    pub(crate) fn rebind_receiver_ingress_busy_timeout(
+        &self,
+        busy_timeout: std::time::Duration,
+    ) -> Result<()> {
+        self.conn.busy_timeout(busy_timeout)?;
+        Ok(())
+    }
+
     /// Open or create a state DB at an explicit path.
     pub fn open_path(path: &Path) -> Result<Self> {
         Self::open_path_with_legacy_identity(path, "legacy-workspace", "legacy-user")

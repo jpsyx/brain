@@ -1012,7 +1012,9 @@ bounded provider-ID coordinator keyed by workspace, channel, and provider ID.
 It excludes simultaneous duplicates while the first request is in flight but
 does not remember successful durable SMS or Email acceptance; every later
 retry rechecks the workspace DB. A signature-verified unavailable Resend ID is
-retained as a permanent discard in a separate 1024-key set. Known unavailable ingress is
+retained as a permanent discard in a separate 1024-key set. If that exact ID is
+already in flight, Brain defers the discard, preserves the reservation, and
+returns 503 until the pending acceptance resolves. Known unavailable ingress is
 resolved before selecting that exact workspace's signing credential, and no
 root, user, prompt, or job socket is opened for this verification. A later live
 replay is rejected before Receiving API access. Persisted disable uses this
@@ -1021,16 +1023,18 @@ route ticket, reserves five seconds for
 the response, derives one handoff deadline capped at two seconds and at that
 response cutoff, then revalidates the exact generation, authority incarnation,
 enabled state, and live lease immediately before durable admission. SQLite
-configuration, reconciliation, lock waiting, and transaction work use that
-remaining duration, and the deadline is rechecked after commit; continuous
-progress cannot renew it.
+configuration and reconciliation use that remaining duration. Dispatch then
+refreshes and rebinds the remainder before acceptance lock waiting, and the
+deadline is rechecked after commit; continuous progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
 proof byte beyond the cap, before JSON parsing. Verified unavailable, ignored,
 and permanent discarded Resend events return provider success and remain
-outside the queue; invalid signatures remain authentication failures, and
-internal 500/502 outcomes remain failures rather than provider success. Delayed email
-dispatch refreshes signed attachment access from stable provider IDs, and
+outside the queue. The one exception is an exact in-flight unavailable
+duplicate, which receives 503 until pending acceptance resolves; invalid
+signatures remain authentication failures, and
+internal 500/502 outcomes remain failures rather than provider success.
+Delayed email dispatch refreshes signed attachment access from stable provider IDs, and
 processing plus final replies preserve the original subject and message
 lineage without widening recipients. Receiving-API rejection or malformed
 provider JSON returns 502.

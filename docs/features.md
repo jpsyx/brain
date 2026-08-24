@@ -1412,8 +1412,10 @@ frames are capped at 1 MiB. The durable ingress queue accepts at most 64
 consume queued capacity.
 Each Resend received-email or attachment-metadata response is also capped at
 1 MiB and ten seconds. Unavailable, ignored, and permanent discarded Resend
-events receive HTTP success; invalid signatures remain authentication errors.
-Receiving API failures return 502.
+events receive HTTP success, except that an exact in-flight unavailable
+duplicate receives 503 until the pending admission resolves and remembers its
+deferred discard. Invalid signatures remain authentication errors. Receiving
+API failures return 502.
 Email addresses are matched as bare addresses, so the usual
 `Display Name <someone@example.com>` header form authenticates normally and
 still reaches the reply thread. An email with no plain-text part is reduced
@@ -1422,7 +1424,8 @@ an explicit truncation notice before it is typed into the brain panel.
 Accepted provider IDs are deduplicated durably inside their exact workspace
 and channel before queued-capacity rejection, including after shared-process
 restart. Process memory excludes only simultaneous duplicates and remembers
-verified unavailable Email discards; it is not acceptance authority. SMS
+verified unavailable Email discards; an unavailable duplicate is deferred
+without releasing its in-flight reservation. It is not acceptance authority. SMS
 numbers use exact E.164 matching, including the leading `+` and country code. A malformed configured
 SMS number produces a persistent yellow warning in the TUI status line. The
 former generic `/webhooks/capture` route has been removed.

@@ -21,13 +21,21 @@ pub(in crate::server) fn provider_delivery_was_discarded(
 pub(in crate::server) fn remember_verified_unavailable_email(
     workspace_id: crate::workspace::WorkspaceId,
     provider_id: String,
-) {
+) -> bool {
     let key = (workspace_id, super::super::Channel::Email, provider_id);
     let mut deliveries = DELIVERIES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if deliveries.begin(key.clone()).started() {
-        deliveries.finish(&key, true);
+    match deliveries.begin(key.clone()) {
+        ProviderReservation::Started => {
+            deliveries.finish(&key, true);
+            true
+        }
+        ProviderReservation::InFlight => {
+            deliveries.deferred_discards.insert(key);
+            false
+        }
+        ProviderReservation::Duplicate => true,
     }
 }
 
@@ -58,6 +66,7 @@ pub(super) fn forward_provider_delivery(
 #[derive(Default)]
 pub(super) struct ProviderDeliveries {
     pending: std::collections::HashSet<ProviderKey>,
+    deferred_discards: std::collections::HashSet<ProviderKey>,
     discarded_order: std::collections::VecDeque<ProviderKey>,
     discarded: std::collections::HashSet<ProviderKey>,
 }
@@ -80,6 +89,7 @@ impl ProviderDeliveries {
     pub(super) fn finish(&mut self, key: &ProviderKey, remember_discard: bool) {
         const RECENT_PROVIDER_IDS: usize = 1024;
         self.pending.remove(key);
+        let remember_discard = remember_discard || self.deferred_discards.remove(key);
         if !remember_discard || !self.discarded.insert(key.clone()) {
             return;
         }
@@ -100,6 +110,7 @@ pub(super) enum ProviderReservation {
 }
 
 impl ProviderReservation {
+    #[cfg(test)]
     pub(super) const fn started(self) -> bool {
         matches!(self, Self::Started)
     }

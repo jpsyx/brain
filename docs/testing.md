@@ -438,6 +438,11 @@ first move is a failing test that reproduces it, *then* the fix.
 - **Receiver admission and workspace isolation.**
   `tests/receiver_workspace_isolation.rs` uses focused fixture and model
   support modules with deadline-bounded polling and no fixed sleeps. It drives
+  both real-process fixture types through one shared permit so full-suite load
+  cannot stampede optimized server startup. A test that replaces a fixture
+  first drops its orderly-shutdown predecessor. Each directly spawned child is
+  owned by an unwind-safe guard that kills and reaps it if startup polling or
+  later fixture construction fails. The suite drives
   signed SMS through the real shared process into the exact UUID-scoped
   durable queue and proves HTTP success cannot precede the committed row. A
   second real-process fixture registers two live workspaces with distinct
@@ -465,7 +470,10 @@ first move is a failing test that reproduces it, *then* the fix.
   revocation boundary separately from provider-ID coordination: in-flight
   duplicates are unavailable, every later successful SMS/Email retry re-enters
   durable acceptance, and only verified-unavailable Email is retained in the
-  bounded workspace/channel discard set. Store tests prove durable provider
+  bounded workspace/channel discard set. A barrier test verifies that an
+  unavailable duplicate defers its discard, returns retry instead of success,
+  preserves the in-flight reservation, and becomes remembered when the pending
+  acceptance resolves. Store tests prove durable provider
   deduplication returns the original row before queued-capacity rejection.
   Barrier-driven dispatch tests disable
   exact live authority after actor resolution and prove revalidation prevents
@@ -550,6 +558,8 @@ first move is a failing test that reproduces it, *then* the fix.
   before startup registration and proves the bounded handshake elects and
   registers with the replacement. All external process observation uses bounded
   condition polling.
+  Process-launching scenarios share a two-scenario RAII permit so concurrent
+  optimized server startups remain bounded under full-suite load.
   `server/lifecycle/watchdog.rs` injects expiry and bootstrap instants directly,
   so a crashed final lease remains live immediately before TTL, requests
   shutdown exactly at TTL, and leaves an empty table without a timing sleep.

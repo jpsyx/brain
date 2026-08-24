@@ -228,6 +228,7 @@ fn repeated_resend_discard_outcomes_ack_without_enqueue_or_retry() {
     fixture.socket.poll_jobs(fixture.workspace.id(), &mut queue);
     assert!(queue.is_empty());
     fixture.shutdown();
+    drop(fixture);
 
     let mut fixture = SharedReceiverFixture::start_with_anchor();
     fixture.unregister_target();

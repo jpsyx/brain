@@ -1559,13 +1559,15 @@ consumer, or agent launcher.
   the repeated persisted-intent and exact-TTL admission checks, and
   `dispatch/pipeline.rs` owns the durable acceptance call. Verified unavailable
   Resend IDs enter discard memory before any state DB is opened, so later
-  availability cannot replay them into a TUI;
+  availability cannot replay them into a TUI. An exact in-flight ID records a
+  deferred discard and receives 503 until the pending acceptance resolves;
   `admission.rs` linearizes cancellable exact-lease admission with revocation,
   while `dispatch/tests/late_revocation.rs` exercises the production pipeline's
   synchronized final admission boundary and `dispatch/tests/deliveries.rs`
   covers provider-ID state; the receiver-specific DB open installs the short
-  absolute handoff remainder before configuration, migration, lock waiting,
-  and acceptance; `job.rs` defines
+  absolute handoff remainder before configuration and migration, then dispatch
+  refreshes and rebinds that remainder before acceptance lock waiting;
+  `job.rs` defines
   the immutable serialized `InboundJob`; `control.rs` is the pure reading of a
   message as a `/new` or `/restart` command plus the queue cut a restart makes;
   `unavailable.rs` owns the one-response,
@@ -1661,7 +1663,9 @@ queued capacity. Failed-storage, full, disabled, and missing targets receive
 one channel-specific unavailable response and create no new row. Successful
 provider IDs are authoritative in SQLite, not process memory; memory only excludes
 simultaneous requests and retains up to 1024 verified-unavailable Email
-discards. Immediately before durable admission, dispatch reserves the final five seconds
+discards. A verified unavailable duplicate of an in-flight ID receives 503
+until the pending admission resolves and promotes its deferred discard.
+Immediately before durable admission, dispatch reserves the final five seconds
 for the HTTP response and derives one handoff deadline capped at two seconds
 and at the start of that response reserve. It revalidates the retained
 generation, authority revision, receiver enablement, and live lease under the
@@ -1681,9 +1685,10 @@ let a raced disable enqueue. Only after that filesystem IO does the combined
 commit operation acquire control, sample the monotonic clock inside the lock,
 revalidate exact live authority, and perform the admission CAS before unlock.
 It then installs the exact remaining duration before SQLite WAL configuration
-or schema reconciliation and carries it through lock waiting and the acceptance
-transaction. The deadline is checked again after commit before provider
-success. Provider and database IO never run while the control mutex is held.
+or schema reconciliation. After the database opens, dispatch recomputes and
+rebinds the remainder before acceptance lock waiting. The deadline is checked
+again after commit before provider success. Provider and database IO never run
+while the control mutex is held.
 
 Queued inbound work is never allowed to interrupt an active agent turn.
 `tui/receiver/decision.rs` orders the pure dispatch stages, and

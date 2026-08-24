@@ -1,6 +1,6 @@
 use super::{
     ReceiverFailureLog, habits_done_path, habits_url, provider_http_status, receiver_failure_log,
-    session_done_path, url,
+    session_done_path, url, verified_unavailable_email_response,
 };
 
 const FAMILY_ID: &str = "e806258e-491a-436d-9db4-a5ca9903e0d4";
@@ -95,4 +95,19 @@ fn resend_discard_outcomes_acknowledge_provider_success() {
         provider_http_status(502, false, crate::server::receiver::Channel::Email),
         502
     );
+}
+
+#[test]
+fn in_flight_verified_unavailable_email_retries_until_discard_is_ready() {
+    let mut retry = Vec::new();
+    verified_unavailable_email_response(false)
+        .write_to(&mut retry)
+        .expect("write retry response");
+    let mut acknowledge = Vec::new();
+    verified_unavailable_email_response(true)
+        .write_to(&mut acknowledge)
+        .expect("write acknowledged response");
+
+    assert!(retry.starts_with(b"HTTP/1.1 503 Service Unavailable"));
+    assert!(acknowledge.starts_with(b"HTTP/1.1 200 OK"));
 }

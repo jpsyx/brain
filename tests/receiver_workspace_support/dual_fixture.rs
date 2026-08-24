@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::process::Child;
 use std::time::{Duration, Instant};
 
 use brain::server::receiver::InboundJob;
@@ -8,7 +7,7 @@ use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::provider_request::{FAMILY_PHONE, PERSONAL_PHONE, PUBLIC_URL, post, signed_sms};
-use super::{FAMILY_ID, PERSONAL_ID, durable_jobs, poll_until};
+use super::{FAMILY_ID, PERSONAL_ID, ProcessFixtureProcess, durable_jobs, poll_until};
 
 pub struct DualWorkspaceReceiverFixture {
     home: tempfile::TempDir,
@@ -23,7 +22,7 @@ pub struct DualWorkspaceReceiverFixture {
     client: brain::server::control::ServerClient,
     personal_heartbeat: Option<brain::server::control::HeartbeatWorker>,
     family_heartbeat: Option<brain::server::control::HeartbeatWorker>,
-    child: Child,
+    process: ProcessFixtureProcess,
     port: u16,
     personal_registered: bool,
     family_registered: bool,
@@ -79,7 +78,7 @@ impl DualWorkspaceReceiverFixture {
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
             .unwrap()
             .unwrap();
-        let child = spawn_server(&home, generation);
+        let process = ProcessFixtureProcess::spawn(&home, generation);
         let handoff = election.handoff();
         let client = brain::server::control::ServerClient::new(paths);
         let record = poll_value(Instant::now() + Duration::from_secs(3), || {
@@ -102,7 +101,7 @@ impl DualWorkspaceReceiverFixture {
             client,
             personal_heartbeat: Some(personal_heartbeat),
             family_heartbeat: Some(family_heartbeat),
-            child,
+            process,
             port: record.port,
             personal_registered: true,
             family_registered: true,
@@ -256,7 +255,7 @@ impl DualWorkspaceReceiverFixture {
 
     pub fn wait_for_server_exit(&mut self) {
         poll_until(Instant::now() + Duration::from_secs(3), || {
-            self.child.try_wait().ok().flatten().is_some()
+            self.process.has_exited()
         });
     }
 
@@ -294,10 +293,7 @@ impl Drop for DualWorkspaceReceiverFixture {
                 let _ = heartbeat.shutdown();
             }
         }
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
+        self.process.terminate();
         let _ = self.home.path();
     }
 }
@@ -365,4 +361,4 @@ fn save_user(workspace: &WorkspaceContext, user_id: &str) {
 
 mod server;
 
-use server::{poll_value, register, spawn_server};
+use server::{poll_value, register};

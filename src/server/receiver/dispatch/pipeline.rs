@@ -238,6 +238,8 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             let identity = conversation_identity(job);
             let remaining = handoff_deadline.ensure_open()?;
             let db = crate::state::Db::open_for_receiver_ingress(workspace.context(), remaining)?;
+            let remaining = handoff_deadline.ensure_open()?;
+            db.rebind_receiver_ingress_busy_timeout(remaining)?;
             db.accept_receiver_job(job, &identity)?;
             handoff_deadline.ensure_open()?;
             Ok(())

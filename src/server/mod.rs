@@ -85,7 +85,7 @@ pub(in crate::server) use request::respond;
 #[cfg(test)]
 use request::{
     ReceiverFailureLog, provider_http_status, receiver_failure_log,
-    resolve_workspace_route_with_loader,
+    resolve_workspace_route_with_loader, verified_unavailable_email_response,
 };
 
 #[cfg(test)]

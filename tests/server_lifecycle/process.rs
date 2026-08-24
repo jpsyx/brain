@@ -6,7 +6,7 @@ use std::os::unix::net::UnixListener;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use super::support::{LiveTui, RunningServer, wait_for};
+use super::support::{LiveTui, PROCESS_FIXTURE_PERMITS, RunningServer, wait_for};
 
 #[test]
 fn connect_or_elect_reuses_an_existing_generation() {
@@ -31,6 +31,7 @@ fn elected_starter_exit_after_token_removal_retries_within_original_deadline() {
 fn elected_starter_exit_retries(remove_token: bool) {
     use std::os::unix::fs::PermissionsExt as _;
 
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
     let home = tempfile::tempdir().expect("temporary server home");
     let paths = ServerPaths::from_home(home.path());
     let wrapper = home.path().join("elected-starter");
@@ -179,6 +180,7 @@ fn termination_signal_runs_generation_guarded_cleanup() {
 
 #[test]
 fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
     let home = tempfile::tempdir().expect("temporary server home");
     let paths = ServerPaths::from_home(home.path());
     let generation = ServerGeneration::new();
@@ -243,6 +245,7 @@ fn signal_after_publication_in_the_startup_window_cleans_all_artifacts() {
 
 #[test]
 fn bind_failure_before_publication_cleans_early_artifacts() {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
     let home = tempfile::tempdir().expect("temporary server home");
     let paths = ServerPaths::from_home(home.path());
     let occupied = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("occupy loopback port");

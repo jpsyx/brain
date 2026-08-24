@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Write as _};
 use std::net::TcpStream;
-use std::process::Child;
 use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -12,7 +11,7 @@ use super::provider_request::{
     PERSONAL_EMAIL, PERSONAL_PHONE, PUBLIC_URL, post, post_without_response, signed_email_event,
     signed_received_email_event, signed_sms,
 };
-use super::{FAMILY_ID, PERSONAL_ID, poll_until};
+use super::{FAMILY_ID, PERSONAL_ID, ProcessFixtureProcess, poll_until};
 
 #[path = "fixture_support.rs"]
 mod fixture_support;
@@ -29,7 +28,7 @@ pub struct SharedReceiverFixture {
     heartbeat: Option<brain::server::control::HeartbeatWorker>,
     target_registered: bool,
     anchor: Option<AnchorLease>,
-    child: Child,
+    process: ProcessFixtureProcess,
     pub port: u16,
 }
 
@@ -123,7 +122,7 @@ impl SharedReceiverFixture {
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
             .unwrap()
             .unwrap();
-        let child = spawn_server(&home, generation);
+        let process = ProcessFixtureProcess::spawn(&home, generation);
         let handoff = election.handoff();
         let client = brain::server::control::ServerClient::with_launch_context(
             paths,
@@ -161,7 +160,7 @@ impl SharedReceiverFixture {
             heartbeat: Some(heartbeat),
             target_registered: true,
             anchor,
-            child,
+            process,
             port: record.port,
         }
     }
@@ -275,10 +274,9 @@ impl SharedReceiverFixture {
 
     pub fn crash_and_recover_server(&mut self) {
         assert!(self.anchor.is_none(), "crash fixture must have one lease");
-        self.child
-            .kill()
-            .expect("terminate shared receiver process");
-        self.child.wait().expect("reap crashed receiver process");
+        self.process
+            .kill_and_wait()
+            .expect("terminate and reap shared receiver process");
         let heartbeat = self.heartbeat.as_ref().expect("target heartbeat");
         let generation = poll_value(Instant::now() + Duration::from_secs(8), || {
             heartbeat.poll().find_map(|event| match event {
@@ -403,10 +401,7 @@ impl Drop for SharedReceiverFixture {
             let mut heartbeat = anchor.heartbeat;
             let _ = heartbeat.shutdown();
         }
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
+        self.process.terminate();
         let _ = self.home.path();
     }
 }

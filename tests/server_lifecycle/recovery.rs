@@ -2,7 +2,9 @@ use brain::server::control::{HeartbeatClock, HeartbeatEvent, HeartbeatWorker, Re
 use brain::server::lifecycle::{ProcessRecord, ServerDecision};
 use std::sync::{Arc, Barrier, Mutex, mpsc::Receiver};
 
-use super::support::{LiveTui, RunningServer, prepare_workspace_registry, wait_for};
+use super::support::{
+    LiveTui, PROCESS_FIXTURE_PERMITS, RunningServer, prepare_workspace_registry, wait_for,
+};
 
 #[test]
 fn published_elected_child_is_reaped_for_heartbeat_recovery_with_token_retained() {
@@ -25,6 +27,7 @@ fn cleanup_failure_after_publication_keeps_waiter_for_removed_token_recovery() {
 }
 
 fn cleanup_failure_after_publication_keeps_waiter_for_recovery(remove_token: bool) {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
     let home = tempfile::tempdir().expect("temporary server home");
     prepare_workspace_registry(home.path());
     let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
@@ -92,6 +95,7 @@ fn cleanup_failure_after_publication_keeps_waiter_for_recovery(remove_token: boo
 }
 
 fn published_elected_child_is_reaped_for_heartbeat_recovery(remove_token: bool) {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
     let home = tempfile::tempdir().expect("temporary server home");
     prepare_workspace_registry(home.path());
     let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());

@@ -4,6 +4,75 @@ use brain::workspace::{WorkspaceId, WorkspaceName};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+const PROCESS_FIXTURE_LIMIT: usize = 2;
+
+pub(super) static PROCESS_FIXTURE_PERMITS: ProcessFixturePermits =
+    ProcessFixturePermits::new(PROCESS_FIXTURE_LIMIT);
+
+pub(super) struct ProcessFixturePermits {
+    limit: usize,
+    active: std::sync::Mutex<usize>,
+    available: std::sync::Condvar,
+}
+
+impl ProcessFixturePermits {
+    pub(super) const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            active: std::sync::Mutex::new(0),
+            available: std::sync::Condvar::new(),
+        }
+    }
+
+    pub(super) fn acquire(&self) -> ProcessFixturePermit<'_> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *active == self.limit {
+            active = self
+                .available
+                .wait(active)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *active += 1;
+        drop(active);
+        ProcessFixturePermit { permits: self }
+    }
+
+    pub(super) fn try_acquire(&self) -> Option<ProcessFixturePermit<'_>> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *active == self.limit {
+            drop(active);
+            None
+        } else {
+            *active += 1;
+            drop(active);
+            Some(ProcessFixturePermit { permits: self })
+        }
+    }
+}
+
+pub(super) struct ProcessFixturePermit<'a> {
+    permits: &'a ProcessFixturePermits,
+}
+
+impl Drop for ProcessFixturePermit<'_> {
+    fn drop(&mut self) {
+        let mut active = self
+            .permits
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *active = active.checked_sub(1).expect("fixture permit is active");
+        drop(active);
+        self.permits.available.notify_one();
+    }
+}
+
 pub(super) struct LiveTui {
     workspace_id: WorkspaceId,
     canonical_name: WorkspaceName,
@@ -66,6 +135,7 @@ impl LiveTui {
 
 pub(super) struct RunningServer {
     pub(super) child: Child,
+    _process_permit: ProcessFixturePermit<'static>,
     home: tempfile::TempDir,
     pub(super) paths: ServerPaths,
     pub(super) client: ServerClient,
@@ -74,6 +144,7 @@ pub(super) struct RunningServer {
 
 impl RunningServer {
     pub(super) fn start() -> Self {
+        let process_permit = PROCESS_FIXTURE_PERMITS.acquire();
         let home = tempfile::tempdir().expect("temporary server home");
         prepare_workspace_registry(home.path());
         let paths = ServerPaths::from_home(home.path());
@@ -108,6 +179,7 @@ impl RunningServer {
         handoff.cleanup().expect("finish election handoff");
         Self {
             child,
+            _process_permit: process_permit,
             home,
             paths,
             client,

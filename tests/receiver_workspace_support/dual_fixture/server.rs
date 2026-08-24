@@ -1,28 +1,6 @@
-use std::process::{Child, Command, Stdio};
 use std::time::Instant;
 
 use brain::workspace::WorkspaceContext;
-
-pub(super) fn spawn_server(
-    home: &tempfile::TempDir,
-    generation: brain::server::lifecycle::ServerGeneration,
-) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_brain"))
-        .args([
-            "server",
-            "run",
-            "--generation",
-            &generation.to_string(),
-            "--port",
-            "0",
-        ])
-        .env("HOME", home.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap()
-}
 
 pub(super) fn register(
     client: &brain::server::control::ServerClient,
