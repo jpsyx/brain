@@ -193,6 +193,27 @@ fn durable_fixture_with_prompt(
     transcript: &str,
     prompt: &str,
 ) -> (ReceiverJob, ReceiverConversation) {
+    durable_fixture_with_input(
+        kind,
+        binding_kind,
+        transcript,
+        prompt,
+        vec![AttachmentRef {
+            url: "https://attachments.example.test/photo".to_owned(),
+            provider_id: Some("media-1".to_owned()),
+            content_type: Some("image/png".to_owned()),
+            filename: Some("photo.png".to_owned()),
+        }],
+    )
+}
+
+fn durable_fixture_with_input(
+    kind: AgentKind,
+    binding_kind: BindingKind,
+    transcript: &str,
+    prompt: &str,
+    attachments: Vec<AttachmentRef>,
+) -> (ReceiverJob, ReceiverConversation) {
     let db = Db::open_in_memory().expect("receiver state");
     let actor = receiver_actor();
     let inbound = InboundJob {
@@ -202,12 +223,7 @@ fn durable_fixture_with_prompt(
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
         prompt: prompt.to_owned(),
-        attachments: vec![AttachmentRef {
-            url: "https://attachments.example.test/photo".to_owned(),
-            provider_id: Some("media-1".to_owned()),
-            content_type: Some("image/png".to_owned()),
-            filename: Some("photo.png".to_owned()),
-        }],
+        attachments,
         received_at_unix_ms: 100,
         provider_id: Some("provider-1".to_owned()),
         thread_participants: vec!["+12125550100".to_owned()],
@@ -427,5 +443,44 @@ fn receiver_launch_recovery_prompt_preserves_attachments_when_message_is_oversiz
         assert!(prompt.contains("provider_id=\"media-1\""));
         assert!(prompt.contains("content_type=\"image/png\""));
         assert!(prompt.contains("filename=\"photo.png\""));
+    }
+}
+
+#[test]
+fn receiver_launch_recovery_prompt_bounds_oversized_attachment_metadata() {
+    let oversized_filename = format!(
+        "oversized-{}-end.png",
+        "attachment-é🙂".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
+    );
+
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Missing);
+        let (job, conversation) = durable_fixture_with_input(
+            kind,
+            BindingKind::Absent,
+            "portable context",
+            CURRENT_PROMPT,
+            vec![AttachmentRef {
+                url: "https://attachments.example.test/oversized".to_owned(),
+                provider_id: Some("media-oversized".to_owned()),
+                content_type: Some("image/png".to_owned()),
+                filename: Some(oversized_filename.clone()),
+            }],
+        );
+        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+            Ok(true)
+        });
+        let prompt = plan.initial_prompt();
+
+        assert!(
+            prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES,
+            "{}",
+            kind.label()
+        );
+        assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
+        assert!(prompt.contains("\n\nAttachment references:\n"));
+        assert!(prompt.contains("source=\"https://attachments.example.test/oversized\""));
+        assert!(prompt.contains("[Attachment references truncated]"));
+        assert!(!prompt.contains("-end.png"));
     }
 }

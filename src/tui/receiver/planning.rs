@@ -13,6 +13,7 @@ const CURRENT_MESSAGE_HEADING: &str = "\n\n## Current authenticated message\n";
 const EMPTY_TRANSCRIPT: &str = "(no prior portable transcript)";
 const OMITTED_TRANSCRIPT: &str = "[Earlier portable transcript omitted]\n";
 const TRUNCATED_MESSAGE: &str = "\n[Current authenticated message truncated]";
+const TRUNCATED_ATTACHMENTS: &str = "\n[Attachment references truncated]";
 
 pub(crate) struct ReceiverLaunchPlan {
     session_plan: SessionPlan,
@@ -94,10 +95,15 @@ fn json_string(value: Option<&str>) -> String {
 }
 
 fn recovery_prompt(transcript: &str, message_body: &str, attachment_references: &str) -> String {
-    let fixed_bytes = RECOVERY_INTRO.len()
-        + TRANSCRIPT_HEADING.len()
-        + CURRENT_MESSAGE_HEADING.len()
-        + attachment_references.len();
+    let heading_bytes =
+        RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len() + CURRENT_MESSAGE_HEADING.len();
+    let attachment_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(heading_bytes);
+    let attachment_references = bounded_prefix(
+        attachment_references,
+        attachment_budget,
+        TRUNCATED_ATTACHMENTS,
+    );
+    let fixed_bytes = heading_bytes + attachment_references.len();
     let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(fixed_bytes);
     let transcript_reserve = if transcript.is_empty() {
         EMPTY_TRANSCRIPT.len()
