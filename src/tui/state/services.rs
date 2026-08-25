@@ -195,6 +195,7 @@ impl AppServices {
     pub(crate) fn complete_receiver_job_with_binding(
         &self,
         job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
         owner: &str,
         registration: &crate::state::ReceiverSessionAttribution,
         completed_session: &crate::agent::AgentSession,
@@ -202,9 +203,11 @@ impl AppServices {
     ) -> Result<bool> {
         self.db.complete_receiver_job_with_binding(
             job_id,
+            token,
             owner,
             registration,
             completed_session,
+            observed_at_unix_ms,
             observed_at_unix_ms,
         )
     }

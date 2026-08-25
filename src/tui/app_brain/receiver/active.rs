@@ -103,6 +103,7 @@ impl App {
     ) {
         let completed = self.services.complete_receiver_job_with_binding(
             active.claim.job().id(),
+            active.claim.job().token(),
             active.claim.claim().owner(),
             &active.attribution,
             completed_session,
