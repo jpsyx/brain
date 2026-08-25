@@ -71,6 +71,8 @@ mod receiver_durable_controls;
 mod receiver_durable_launch;
 mod receiver_durable_lifecycle;
 mod receiver_durable_resume_completion;
+mod receiver_durable_slow_boundaries;
+mod receiver_durable_slow_launch_effects;
 mod receiver_durable_support;
 mod receiver_sync;
 mod receiver_tab;

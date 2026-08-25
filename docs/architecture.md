@@ -178,7 +178,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v8 schema; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/claim.rs` owns FIFO leases, launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim rollback; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker and exact generation coordinator; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, planning, registration, launch, and background tab insertion; `attachment_dispatch.rs` owns nonblocking staging-result decisions and fresh-owner retry; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker and exact generation coordinator; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `launch.rs` owns planning, validation, registration, and launch preparation; `launch_effects.rs` owns controller spawn and background-tab allocation; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -226,10 +226,13 @@ selected `AgentController` to validate the native history, requires the
 injected exact-session claim to succeed, and otherwise returns a fresh plan
 with a UTF-8-safe recovery prompt capped at 64 KiB. The isolated-tab coordinator
 uses these operations from the one recurring `App::tick_receiver` call.
-`app_brain/receiver/dispatch.rs` owns claim, freshness, planning, registration,
-launch, and background insertion; `attachment_dispatch.rs` owns nonblocking
-staging-result decisions and fresh-owner retry; `active.rs` owns exact-claim
-renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation;
+`app_brain/receiver/dispatch.rs` owns claim, freshness, and durable controls;
+`launch.rs` owns planning, validation, registration, and launch preparation;
+`launch_effects.rs` owns controller spawn and background insertion; and
+`ownership.rs` owns the semantic fresh-clock exact-owner gates used after slow
+effects and before retry mutation. `attachment_dispatch.rs` owns nonblocking
+staging-result decisions; `active.rs` owns exact-claim renewal and terminal
+cleanup; `artifact.rs` owns content-free exact completion correlation;
 and `reply.rs` preserves immutable provider delivery. No receiver branch injects
 the main panel.
 
@@ -1036,6 +1039,13 @@ staging runs outside the event-loop thread; each pending tick renews the exact
 claim, and a result is usable only after a fresh clock read and exact-owner
 renewal. Generation mismatches, lost or expired ownership, and disabled intent
 discard the result and clean any local files without advancing the job.
+The later capability-plan, frontend-probe, resume-validation, registration,
+spawn, and tab-allocation boundaries use the same semantic owner gate: each
+effect is followed by a new injected-clock observation and exact renewal before
+the next effect can begin. Failure cleanup completes before the coordinator
+samples the observation supplied to the exact-owner retry CAS. Losing or
+expiring the claim therefore permits local resource cleanup but no durable job
+or retry mutation.
 While receiver processing is enabled, the sole receiver tick first scans and
 applies every durable `/restart` control. It always continues the one claimed
 or active run, including after disable, and claims at most one FIFO job only
@@ -1765,7 +1775,8 @@ palette. The common receiver prompt classifies task-capture requests as task
 creation instead of immediate execution, unless the sender explicitly asks for
 both. A verified completion launches an immediate push. Failed PTY launches
 release the exact registration and claim, shut down the new controller once,
-and record a durable pre-acceptance retry without changing the main panel. Every
+and record a durable pre-acceptance retry with a clock observation sampled
+after cleanup, without changing the main panel. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;

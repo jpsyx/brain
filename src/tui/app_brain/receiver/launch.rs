@@ -1,0 +1,335 @@
+//! Claim-authorized planning and session registration before process launch.
+
+use std::sync::Arc;
+
+use crate::agent::{AgentController, HookMetadata, LaunchRequest, SessionPlan};
+use crate::pty_pane::PtyPane;
+use crate::state::ReceiverLaunchFailure;
+use crate::tui::App;
+use crate::tui::receiver::attachments::PreparedReceiverAttachments;
+use crate::tui::receiver::{
+    ClaimedReceiverRun, DurableReceiverRun, ReceiverSessionRegistration, cleanup_receiver_launch,
+};
+use crate::tui::state::AppServices;
+
+use super::attachment_dispatch::localize_attachment_references;
+
+#[cfg(not(test))]
+fn receiver_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+    Box::new(PtyPane::new(24, 80))
+}
+
+#[cfg(test)]
+fn receiver_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+    app.brain
+        .take_receiver_transport()
+        .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
+}
+
+fn cleanup_unregistered(controller: &mut AgentController) {
+    let _ = cleanup_receiver_launch(
+        None::<ReceiverSessionRegistration<'_, AppServices>>,
+        controller,
+    );
+}
+
+impl App {
+    pub(super) fn launch_claimed_receiver_run_with_attachments(
+        &mut self,
+        claimed: ClaimedReceiverRun,
+        staged_attachments: PreparedReceiverAttachments,
+    ) {
+        let staged_attachment_work = !staged_attachments.staged().is_empty();
+        let capability_plan = self.launch_capability_plan();
+        #[cfg(test)]
+        self.receiver.run_launch_boundary_hook(
+            crate::tui::receiver::ReceiverLaunchBoundary::CapabilityPlanning,
+        );
+        match self.authorize_receiver_owner_now(&claimed.claim) {
+            Ok(Some(_)) => {}
+            Ok(None) => return,
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver post-capability claim validation failed: {error:#}"
+                ));
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+        }
+        let capability_plan = match capability_plan {
+            Ok(plan) => plan,
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver launch capability planning failed: {error:#}"
+                ));
+                let _ =
+                    self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
+                return;
+            }
+        };
+
+        let transport = receiver_transport(self);
+        let actor = claimed.claim.job().inbound().actor.clone();
+        let mut controller = self.controller_for_transport(actor.clone(), transport);
+        let availability = controller.ensure_available();
+        #[cfg(test)]
+        self.receiver.run_launch_boundary_hook(
+            crate::tui::receiver::ReceiverLaunchBoundary::AvailabilityProbe,
+        );
+        match self.authorize_receiver_owner_now(&claimed.claim) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                cleanup_unregistered(&mut controller);
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver post-availability claim validation failed: {error:#}"
+                ));
+                cleanup_unregistered(&mut controller);
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+        }
+        if let Err(error) = availability {
+            crate::logging::log(format!("receiver frontend unavailable: {error}"));
+            cleanup_unregistered(&mut controller);
+            let _ = self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
+            return;
+        }
+
+        let pid = i32::try_from(std::process::id()).unwrap_or(0);
+        let scope = crate::agent::SessionScope::new(
+            self.context.agent_kind(),
+            self.context.workspace().id(),
+            actor.clone(),
+        );
+        let mut resume_registration = None;
+        let mut resume_owner_block = None;
+        let mut resume_registration_failed = false;
+        #[cfg(test)]
+        let receiver = &mut self.receiver;
+        let services = &self.services;
+        let plan = crate::tui::receiver::planning::plan_receiver_launch(
+            &controller,
+            claimed.claim.job(),
+            claimed.claim.conversation(),
+            claimed.remote.placeholder().clone(),
+            |session| {
+                #[cfg(test)]
+                receiver.run_launch_boundary_hook(
+                    crate::tui::receiver::ReceiverLaunchBoundary::ResumeValidation,
+                );
+                match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {
+                        resume_owner_block = Some(super::ownership::ReceiverOwnerBlock::Lost);
+                        return Ok(false);
+                    }
+                    Err(error) => {
+                        crate::logging::log(format!(
+                            "receiver post-resume-validation claim check failed: {error:#}"
+                        ));
+                        resume_owner_block = Some(super::ownership::ReceiverOwnerBlock::Deferred);
+                        return Ok(false);
+                    }
+                }
+                let registration = ReceiverSessionRegistration::claim_resume(
+                    services,
+                    claimed.claim.job().conversation_id(),
+                    &claimed.remote,
+                    session,
+                    pid,
+                    &scope,
+                );
+                #[cfg(test)]
+                receiver.run_launch_boundary_hook(
+                    crate::tui::receiver::ReceiverLaunchBoundary::Registration,
+                );
+                let registration = match registration {
+                    Ok(registration) => registration,
+                    Err(error) => {
+                        crate::logging::log(format!(
+                            "receiver resume registration failed: {error:#}"
+                        ));
+                        resume_registration_failed = true;
+                        return Ok(false);
+                    }
+                };
+                let was_claimed = registration.is_some();
+                resume_registration = registration;
+                Ok(was_claimed)
+            },
+        );
+        if let Some(block) = resume_owner_block {
+            cleanup_unregistered(&mut controller);
+            if matches!(block, super::ownership::ReceiverOwnerBlock::Deferred) {
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+            }
+            return;
+        }
+        if resume_registration_failed {
+            cleanup_unregistered(&mut controller);
+            let _ =
+                self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Registration);
+            return;
+        }
+
+        let registration = if matches!(plan.session_plan(), SessionPlan::Fresh(_)) {
+            let registration = ReceiverSessionRegistration::register_fresh(
+                &self.services,
+                claimed.claim.job().conversation_id(),
+                &claimed.remote,
+                pid,
+                &scope,
+            );
+            #[cfg(test)]
+            self.receiver.run_launch_boundary_hook(
+                crate::tui::receiver::ReceiverLaunchBoundary::Registration,
+            );
+            match self.authorize_receiver_owner_now(&claimed.claim) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    cleanup_unregistered(&mut controller);
+                    return;
+                }
+                Err(error) => {
+                    crate::logging::log(format!(
+                        "receiver post-registration claim validation failed: {error:#}"
+                    ));
+                    cleanup_unregistered(&mut controller);
+                    self.receiver
+                        .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                    return;
+                }
+            }
+            match registration {
+                Ok(registration) => registration,
+                Err(error) => {
+                    crate::logging::log(format!("receiver session registration failed: {error:#}"));
+                    cleanup_unregistered(&mut controller);
+                    let _ = self.retry_receiver_owner_now(
+                        &claimed.claim,
+                        ReceiverLaunchFailure::Registration,
+                    );
+                    return;
+                }
+            }
+        } else {
+            let Some(registration) = resume_registration else {
+                cleanup_unregistered(&mut controller);
+                let _ = self
+                    .retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Registration);
+                return;
+            };
+            registration
+        };
+
+        let owner = match self.authorize_receiver_owner_now(&claimed.claim) {
+            Ok(Some(owner)) if self.receiver.is_enabled() || !staged_attachment_work => owner,
+            Ok(Some(_)) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+            Ok(None) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver pre-launch claim validation failed: {error:#}"
+                ));
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+        };
+        match self.services.prepare_receiver_launch(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            owner.observed_at_unix_ms(),
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!("receiver launch preparation failed: {error:#}"));
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
+            }
+        }
+
+        let Some(initial_prompt) =
+            localize_attachment_references(plan.initial_prompt(), staged_attachments.staged())
+        else {
+            crate::logging::log("receiver attachment prompt preparation failed");
+            let _ = cleanup_receiver_launch(Some(registration), &mut controller);
+            let _ = self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
+            return;
+        };
+        let hooks = self.receiver_hook_metadata(&claimed, pid);
+        let mut request = LaunchRequest::from_trusted_context(
+            Arc::clone(&self.context.command().workspace),
+            actor,
+            plan.session_plan().clone(),
+            Some(initial_prompt),
+            self.context.access_mode(),
+        );
+        if let Some(capability_plan) = capability_plan {
+            request = request.with_capability_plan(capability_plan);
+        }
+        request = request.with_hook_metadata(hooks);
+        super::launch_effects::ReceiverLaunchEffects::new(
+            &mut self.brain,
+            &mut self.receiver,
+            &self.services,
+        )
+        .spawn(
+            claimed,
+            staged_attachments,
+            registration,
+            controller,
+            &request,
+        );
+    }
+
+    fn receiver_hook_metadata(&self, claimed: &ClaimedReceiverRun, pid: i32) -> HookMetadata {
+        HookMetadata::new(vec![
+            (
+                "BRAIN_INSTANCE_ID".to_owned(),
+                claimed.remote.instance().to_owned(),
+            ),
+            ("BRAIN_PID".to_owned(), pid.to_string()),
+            (
+                "BRAIN_STATE_DB".to_owned(),
+                self.context.state_db_path().display().to_string(),
+            ),
+            (
+                "BRAIN_RESPONSE_ID".to_owned(),
+                claimed.remote.instance().to_owned(),
+            ),
+            (
+                "BRAIN_RESPONSE_DIR".to_owned(),
+                self.context
+                    .workspace()
+                    .paths()
+                    .responses_dir()
+                    .display()
+                    .to_string(),
+            ),
+        ])
+    }
+}

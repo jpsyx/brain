@@ -258,6 +258,16 @@ non-blank initial prompt through their existing launch command. A refresh,
 download, cardinality, path, or size failure returns the exact claim to its
 bounded pre-acceptance retry without launching an agent or changing the active
 view, tab, or focus.
+Capability planning, frontend availability, native resume validation,
+registration, process spawn, and tab allocation can each outlive a lease.
+Immediately after every such boundary, the coordinator reads the injected
+clock again and renews the exact durable owner before proceeding. A lost or
+expired owner cleans only the local controller, tab, registration, and staged
+files created by that attempt. It cannot launch a later effect or mutate the
+job's lifecycle or retry state. When a boundary fails under the exact owner,
+cleanup finishes first; the coordinator then takes a new clock observation
+immediately before the retry CAS. This keeps retry timestamps and lease checks
+independent of slow cleanup.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
@@ -1086,9 +1096,10 @@ continues to renew and manage an existing pending or active run. It renews an
 already claimed job before a pending freshness pull and otherwise does no new
 claim work while a receiver tab is active. When ready, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
-plans through the selected `AgentController`, prepares launch through the exact
-claim, registers a unique remote instance, and spawns a new controller and PTY
-for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
+plans through the selected `AgentController`, and reauthorizes that exact claim
+after each potentially slow capability, validation, registration, spawn, and
+allocation boundary. It then registers a unique remote instance and spawns a
+new controller and PTY for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
 background without selecting it or changing view, visibility, or focus. No
 receiver path types into, submits through, or otherwise injects the main panel.
 The tab collection rejects and shuts down a second simultaneous receiver
@@ -1106,7 +1117,10 @@ controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
 the active view or focus. Spawn failure and child exit without valid completion
 perform explicit registration cleanup and durable pre-acceptance retry. Lost
-claim ownership permits local tab cleanup only. Progressed stale states are not rerun before
+claim ownership permits local cleanup only, with no lifecycle or retry
+mutation. Retry failure paths finish controller, tab, registration, artifact,
+and staged-file cleanup before taking the fresh clock observation used by the
+exact-owner CAS. Progressed stale states are not rerun before
 BR-16 defines their recovery policy.
 BR-15 still owns exact accepted/progress observations, and BR-17 still owns
 atomic answer persistence plus delivery-only retry. BR-18 retains final

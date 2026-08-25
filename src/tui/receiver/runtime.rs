@@ -8,6 +8,17 @@ mod sync;
 
 pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiverLaunchBoundary {
+    CapabilityPlanning,
+    AvailabilityProbe,
+    ResumeValidation,
+    Registration,
+    Spawn,
+    Allocation,
+}
+
 struct ReceiverSyncGate {
     seen_journal_id: Option<i64>,
     launched_at: Instant,
@@ -25,6 +36,8 @@ pub(crate) struct ReceiverRuntime {
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     after_completion_validation_hook: Option<Box<dyn FnOnce()>>,
+    #[cfg(test)]
+    launch_boundary_hooks: Vec<(ReceiverLaunchBoundary, Box<dyn FnOnce()>)>,
 }
 
 impl ReceiverRuntime {
@@ -39,6 +52,8 @@ impl ReceiverRuntime {
             after_restart_scan_hook: None,
             #[cfg(test)]
             after_completion_validation_hook: None,
+            #[cfg(test)]
+            launch_boundary_hooks: Vec::new(),
         }
     }
 
@@ -64,6 +79,28 @@ impl ReceiverRuntime {
         if let Some(hook) = self.after_completion_validation_hook.take() {
             hook();
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_launch_boundary_hook(
+        &mut self,
+        boundary: ReceiverLaunchBoundary,
+        hook: Box<dyn FnOnce()>,
+    ) {
+        self.launch_boundary_hooks.push((boundary, hook));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_launch_boundary_hook(&mut self, boundary: ReceiverLaunchBoundary) {
+        let Some(index) = self
+            .launch_boundary_hooks
+            .iter()
+            .position(|(candidate, _)| *candidate == boundary)
+        else {
+            return;
+        };
+        let (_, hook) = self.launch_boundary_hooks.remove(index);
+        hook();
     }
 
     pub(crate) fn take_durable_run(&mut self) -> DurableReceiverRun {

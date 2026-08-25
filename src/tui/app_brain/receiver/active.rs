@@ -6,7 +6,7 @@ use crate::tui::App;
 use crate::tui::receiver::ActiveReceiverRun;
 
 use super::artifact::{CompletionExpectation, read_exact_completion};
-use super::dispatch::{CLAIM_LIFETIME_MS, RETRY_DELAY_MS};
+use super::dispatch::CLAIM_LIFETIME_MS;
 
 impl App {
     pub(super) fn tick_active_receiver_run(&mut self, active: ActiveReceiverRun) {
@@ -56,7 +56,7 @@ impl App {
                 now,
             );
         } else if observation.exited {
-            self.retry_exited_receiver_run(&active, &path, now);
+            self.retry_exited_receiver_run(&active, &path);
         } else {
             self.receiver
                 .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
@@ -143,24 +143,13 @@ impl App {
         self.reload_after_brain();
     }
 
-    fn retry_exited_receiver_run(
-        &mut self,
-        active: &ActiveReceiverRun,
-        path: &std::path::Path,
-        now: u64,
-    ) {
+    fn retry_exited_receiver_run(&mut self, active: &ActiveReceiverRun, path: &std::path::Path) {
         if let Err(error) = self.services.release_receiver_session(&active.attribution) {
             crate::logging::log(format!("receiver session cleanup failed: {error:#}"));
         }
         self.remove_exact_receiver_tab(active);
         let _ = std::fs::remove_file(path);
-        match self.services.record_receiver_launch_retry(
-            active.claim.job().id(),
-            active.claim.claim().owner(),
-            now,
-            now.saturating_add(RETRY_DELAY_MS),
-            ReceiverLaunchFailure::Spawn,
-        ) {
+        match self.retry_receiver_owner_now(&active.claim, ReceiverLaunchFailure::Spawn) {
             Ok(Some(_)) => {}
             Ok(None) => crate::logging::log("receiver exited after claim ownership was lost"),
             Err(error) => {

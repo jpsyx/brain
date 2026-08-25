@@ -1,34 +1,45 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+#[cfg(test)]
+use anyhow::anyhow;
 
 use crate::agent::AgentController;
-use crate::state::{ReceiverLaunchFailure, ReceiverLaunchRetryOutcome, ReceiverRunClaim};
+#[cfg(test)]
+use crate::state::ReceiverLaunchRetryOutcome;
 use crate::tui::receiver::{ReceiverSessionRegistration, ReceiverSessionStore};
-use crate::tui::state::AppServices;
 
-pub(crate) fn rollback_receiver_launch<Store: ReceiverSessionStore>(
-    services: &AppServices,
-    claimed: &ReceiverRunClaim,
+pub(crate) fn cleanup_receiver_launch<Store: ReceiverSessionStore>(
     registration: Option<ReceiverSessionRegistration<'_, Store>>,
     controller: &mut AgentController,
-    failure: ReceiverLaunchFailure,
-    observed_at_unix_ms: u64,
-    retry_at_unix_ms: u64,
+) -> Result<()> {
+    let controller_error = controller.shutdown().err();
+    let session_error = registration
+        .map(ReceiverSessionRegistration::cleanup)
+        .and_then(Result::err);
+
+    match (controller_error, session_error) {
+        (Some(controller_error), Some(session_error)) => Err(anyhow::Error::new(controller_error)
+            .context(format!(
+                "receiver session cleanup also failed: {session_error:#}"
+            ))),
+        (Some(controller_error), None) => Err(anyhow::Error::new(controller_error)),
+        (None, Some(session_error)) => Err(session_error),
+        (None, None) => Ok(()),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn rollback_receiver_launch<Store: ReceiverSessionStore>(
+    registration: Option<ReceiverSessionRegistration<'_, Store>>,
+    controller: &mut AgentController,
+    retry: impl FnOnce() -> Result<Option<ReceiverLaunchRetryOutcome>>,
 ) -> Result<ReceiverLaunchRetryOutcome> {
     let controller_error = controller.shutdown().err();
     let session_error = registration
         .map(ReceiverSessionRegistration::cleanup)
         .and_then(Result::err);
-    let retry_result = services
-        .record_receiver_launch_retry(
-            claimed.job().id(),
-            claimed.claim().owner(),
-            observed_at_unix_ms,
-            retry_at_unix_ms,
-            failure,
-        )
-        .and_then(|outcome| {
-            outcome.ok_or_else(|| anyhow!("receiver launch claim ownership was lost"))
-        });
+    let retry_result = retry().and_then(|outcome| {
+        outcome.ok_or_else(|| anyhow!("receiver launch claim ownership was lost"))
+    });
 
     if let Some(controller_error) = controller_error {
         let mut error = anyhow::Error::new(controller_error);

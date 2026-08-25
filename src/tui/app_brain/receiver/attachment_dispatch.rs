@@ -41,7 +41,7 @@ impl App {
             now.saturating_add(CLAIM_LIFETIME_MS),
         ) {
             Ok(true) if self.receiver.is_enabled() || !staged_attachment_work => {
-                self.launch_claimed_receiver_run_with_attachments(claimed, attachments, now);
+                self.launch_claimed_receiver_run_with_attachments(claimed, attachments);
             }
             Ok(true) => {
                 self.receiver

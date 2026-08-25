@@ -260,15 +260,15 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
             Box::new(ShutdownTransport(Arc::clone(&shutdowns))),
         );
 
-        let outcome = rollback_receiver_launch(
-            &services,
-            &claimed,
-            Some(registration),
-            &mut controller,
-            failure,
-            1_020,
-            2_000,
-        )
+        let outcome = rollback_receiver_launch(Some(registration), &mut controller, || {
+            services.record_receiver_launch_retry(
+                claimed.job().id(),
+                claimed.claim().owner(),
+                1_020,
+                2_000,
+                failure,
+            )
+        })
         .expect("roll back receiver launch");
 
         assert_eq!(outcome, ReceiverLaunchRetryOutcome::Scheduled);

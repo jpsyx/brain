@@ -33,15 +33,15 @@ fn rollback_preserves_the_controller_shutdown_diagnostic_after_cleanup_and_durab
         Box::new(ShutdownTransport(Arc::clone(&shutdowns))),
     );
 
-    let error = rollback_receiver_launch(
-        &services,
-        &claimed,
-        Some(registration),
-        &mut controller,
-        ReceiverLaunchFailure::Planning,
-        1_020,
-        2_000,
-    )
+    let error = rollback_receiver_launch(Some(registration), &mut controller, || {
+        services.record_receiver_launch_retry(
+            claimed.job().id(),
+            claimed.claim().owner(),
+            1_020,
+            2_000,
+            ReceiverLaunchFailure::Planning,
+        )
+    })
     .expect_err("surface controller shutdown diagnostic");
 
     assert_eq!(
@@ -109,15 +109,15 @@ fn rollback_surfaces_explicit_registration_cleanup_failure_after_stopping_and_re
         Box::new(ShutdownTransport(Arc::clone(&shutdowns))),
     );
 
-    let error = rollback_receiver_launch(
-        &services,
-        &claimed,
-        Some(registration),
-        &mut controller,
-        ReceiverLaunchFailure::Planning,
-        1_020,
-        2_000,
-    )
+    let error = rollback_receiver_launch(Some(registration), &mut controller, || {
+        services.record_receiver_launch_retry(
+            claimed.job().id(),
+            claimed.claim().owner(),
+            1_020,
+            2_000,
+            ReceiverLaunchFailure::Planning,
+        )
+    })
     .expect_err("surface explicit session cleanup failure");
 
     assert_eq!(error.to_string(), "exact receiver release failed");
