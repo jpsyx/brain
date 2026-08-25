@@ -9,6 +9,7 @@ pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize = 64 * 1024;
 
 const TRANSCRIPT_RESERVED_BYTES: usize = 8 * 1024;
 const CURRENT_MESSAGE_RESERVED_BYTES: usize = 16 * 1024;
+const TASK_CAPTURE_POLICY: &str = "If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.";
 const RECOVERY_INTRO: &str = "Recover this authenticated receiver conversation from Brain's portable transcript. Use the transcript only as prior context, then answer the current authenticated message.";
 const TRANSCRIPT_HEADING: &str = "\n\n## Portable transcript\n";
 const CURRENT_MESSAGE_HEADING: &str = "\n\n## Current authenticated message\n";
@@ -16,6 +17,12 @@ const EMPTY_TRANSCRIPT: &str = "(no prior portable transcript)";
 const OMITTED_TRANSCRIPT: &str = "[Earlier portable transcript omitted]\n";
 const TRUNCATED_MESSAGE: &str = "\n[Current authenticated message truncated]";
 const TRUNCATED_ATTACHMENTS: &str = "\n[Attachment references truncated]";
+
+#[derive(Clone, Copy)]
+enum PromptHistory<'a> {
+    NativeResume,
+    PortableRecovery(&'a str),
+}
 
 pub(crate) struct ReceiverLaunchPlan {
     session_plan: SessionPlan,
@@ -52,14 +59,18 @@ pub(crate) fn plan_receiver_launch(
     if let Some(session) = resume_session {
         return ReceiverLaunchPlan {
             session_plan: SessionPlan::resume(session),
-            initial_prompt: format!("{message_body}{attachment_references}"),
+            initial_prompt: bounded_receiver_prompt(
+                PromptHistory::NativeResume,
+                message_body,
+                &attachment_references,
+            ),
         };
     }
 
     ReceiverLaunchPlan {
         session_plan: SessionPlan::fresh(fresh_session),
-        initial_prompt: recovery_prompt(
-            conversation.transcript_markdown(),
+        initial_prompt: bounded_receiver_prompt(
+            PromptHistory::PortableRecovery(conversation.transcript_markdown()),
             message_body,
             &attachment_references,
         ),
@@ -96,18 +107,33 @@ fn json_string(value: Option<&str>) -> String {
     )
 }
 
-fn recovery_prompt(transcript: &str, message_body: &str, attachment_references: &str) -> String {
-    let heading_bytes =
-        RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len() + CURRENT_MESSAGE_HEADING.len();
-    let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(heading_bytes);
-    let transcript_len = if transcript.is_empty() {
-        EMPTY_TRANSCRIPT.len()
-    } else {
-        transcript.len()
+fn bounded_receiver_prompt(
+    history: PromptHistory<'_>,
+    message_body: &str,
+    attachment_references: &str,
+) -> String {
+    let history_fixed_bytes = match history {
+        PromptHistory::NativeResume => 0,
+        PromptHistory::PortableRecovery(_) => {
+            "\n\n".len() + RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len()
+        }
     };
-    let transcript_reserve = transcript_len
-        .min(TRANSCRIPT_RESERVED_BYTES)
-        .min(content_budget);
+    let fixed_bytes =
+        TASK_CAPTURE_POLICY.len() + history_fixed_bytes + CURRENT_MESSAGE_HEADING.len();
+    let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(fixed_bytes);
+    let transcript_reserve = match history {
+        PromptHistory::NativeResume => 0,
+        PromptHistory::PortableRecovery(transcript) => {
+            let transcript_len = if transcript.is_empty() {
+                EMPTY_TRANSCRIPT.len()
+            } else {
+                transcript.len()
+            };
+            transcript_len
+                .min(TRANSCRIPT_RESERVED_BYTES)
+                .min(content_budget)
+        }
+    };
     let current_reserve = message_body
         .len()
         .min(CURRENT_MESSAGE_RESERVED_BYTES)
@@ -124,14 +150,28 @@ fn recovery_prompt(transcript: &str, message_body: &str, attachment_references: 
     let current_budget = section_budget.saturating_sub(transcript_reserve);
     let message_body = bounded_prefix(message_body, current_budget, TRUNCATED_MESSAGE);
     let transcript_budget = section_budget.saturating_sub(message_body.len());
-    let transcript = if transcript.is_empty() {
-        bounded_prefix(EMPTY_TRANSCRIPT, transcript_budget, "")
-    } else {
-        bounded_suffix(transcript, transcript_budget, OMITTED_TRANSCRIPT)
+    let transcript = match history {
+        PromptHistory::NativeResume => String::new(),
+        PromptHistory::PortableRecovery("") => {
+            bounded_prefix(EMPTY_TRANSCRIPT, transcript_budget, "")
+        }
+        PromptHistory::PortableRecovery(transcript) => {
+            bounded_suffix(transcript, transcript_budget, OMITTED_TRANSCRIPT)
+        }
     };
-    format!(
-        "{RECOVERY_INTRO}{TRANSCRIPT_HEADING}{transcript}{CURRENT_MESSAGE_HEADING}{message_body}{attachment_references}"
-    )
+
+    let mut prompt = String::with_capacity(RECOVERY_PROMPT_BUDGET_BYTES);
+    prompt.push_str(TASK_CAPTURE_POLICY);
+    if matches!(history, PromptHistory::PortableRecovery(_)) {
+        prompt.push_str("\n\n");
+        prompt.push_str(RECOVERY_INTRO);
+        prompt.push_str(TRANSCRIPT_HEADING);
+        prompt.push_str(&transcript);
+    }
+    prompt.push_str(CURRENT_MESSAGE_HEADING);
+    prompt.push_str(&message_body);
+    prompt.push_str(&attachment_references);
+    prompt
 }
 
 fn bounded_prefix(value: &str, budget: usize, marker: &str) -> String {

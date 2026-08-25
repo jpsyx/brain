@@ -19,7 +19,12 @@ use super::planning::{RECOVERY_PROMPT_BUDGET_BYTES, plan_receiver_launch};
 
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 const CURRENT_PROMPT: &str = "Review the attached photo and remember its subject.";
+const TASK_CAPTURE_POLICY: &str = "If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.";
 const RESUME_PROMPT: &str = concat!(
+    "If the message asks to add, create, capture, remember, or track a task, ",
+    "create it in Brain's task system; do not perform the task now unless the ",
+    "sender explicitly asks you to.",
+    "\n\n## Current authenticated message\n",
     "Review the attached photo and remember its subject.",
     "\n\nAttachment references:\n",
     "- source=\"https://attachments.example.test/photo\", ",
@@ -40,7 +45,7 @@ enum ClaimOutcome {
     Error,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum BindingKind {
     Matching,
     OtherFrontend,
@@ -377,7 +382,13 @@ fn receiver_launch_planning_is_conservative_for_every_frontend() {
                     kind.label(),
                 );
                 assert!(
-                    plan.initial_prompt().contains(RESUME_PROMPT),
+                    plan.initial_prompt().contains(TASK_CAPTURE_POLICY),
+                    "{} for {} must retain the shared task-capture policy",
+                    case.name,
+                    kind.label(),
+                );
+                assert!(
+                    plan.initial_prompt().contains(CURRENT_PROMPT),
                     "{} for {} must retain the current job",
                     case.name,
                     kind.label(),
@@ -411,7 +422,9 @@ fn receiver_launch_recovery_prompt_is_utf8_safe_bounded_and_keeps_newest_context
         assert!(!prompt.contains("oldest-context"));
         assert!(prompt.contains("newest-context-📌"));
         assert!(prompt.contains("## Current authenticated message\n"));
-        assert!(prompt.contains(RESUME_PROMPT));
+        assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
+        assert!(prompt.contains(CURRENT_PROMPT));
+        assert!(prompt.contains("source=\"https://attachments.example.test/photo\""));
     }
 }
 
@@ -575,6 +588,7 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
             "{}",
             kind.label()
         );
+        assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
         assert!(transcript_section.starts_with("[Earlier portable transcript omitted]\n"));
         assert!(transcript_section.ends_with("newest-context"));
         assert!(!transcript_section.contains("oldest-context"));
@@ -585,5 +599,81 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
         );
         assert!(current_section.contains("[Attachment references truncated]"));
         assert!(!current_section.contains("https://attachments.example.test/oversized-255"));
+    }
+}
+
+#[test]
+fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Exists);
+        for binding in [BindingKind::Matching, BindingKind::Absent] {
+            let (job, conversation) = durable_fixture(kind, binding, "portable transcript context");
+            let plan =
+                plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+                    Ok(true)
+                });
+
+            assert_eq!(
+                plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count(),
+                1,
+                "{} with {binding:?}",
+                kind.label(),
+            );
+            assert!(plan.initial_prompt().starts_with(TASK_CAPTURE_POLICY));
+        }
+    }
+}
+
+#[test]
+fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
+    let message = format!(
+        "authenticated-message-start-{}-authenticated-message-end",
+        "current-é🙂-".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
+    );
+    let attachments: Vec<_> = (0..256)
+        .map(|index| AttachmentRef {
+            url: format!("https://attachments.example.test/resume-{index:03}"),
+            provider_id: Some(format!("provider-{index:03}")),
+            content_type: Some("application/octet-stream".to_owned()),
+            filename: Some(format!(
+                "resume-{index:03}-{}.bin",
+                "attachment-é🙂".repeat(128)
+            )),
+        })
+        .collect();
+
+    for kind in AgentKind::ALL {
+        let controller = controller(kind, ProbeOutcome::Exists);
+        let (job, conversation) = durable_fixture_with_input(
+            kind,
+            BindingKind::Matching,
+            "portable transcript must not enter a resumed prompt",
+            &message,
+            attachments.clone(),
+        );
+        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+            Ok(true)
+        });
+        let prompt = plan.initial_prompt();
+
+        assert_eq!(
+            plan.session_plan(),
+            &SessionPlan::resume(AgentSession::new("native-session").expect("native session"))
+        );
+        assert!(
+            prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES,
+            "{}",
+            kind.label()
+        );
+        assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
+        assert!(prompt.contains("## Current authenticated message\n"));
+        assert!(prompt.contains("authenticated-message-start-"));
+        assert!(prompt.contains("[Current authenticated message truncated]"));
+        assert!(prompt.contains("Attachment references:\n"));
+        assert!(prompt.contains("source=\"https://attachments.example.test/resume-000\""));
+        assert!(prompt.contains("[Attachment references truncated]"));
+        assert!(!prompt.contains("https://attachments.example.test/resume-255"));
+        assert!(!prompt.contains("portable transcript must not enter a resumed prompt"));
+        assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
     }
 }
