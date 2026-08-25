@@ -18,6 +18,92 @@ fn job_tokens_in_id_order(db: &Db) -> Vec<String> {
         .expect("collect migrated tokens")
 }
 
+fn optional_job_tokens_in_id_order(db: &Db) -> Vec<(String, Option<String>)> {
+    db.conn
+        .prepare("SELECT job_id, job_token FROM receiver_jobs ORDER BY job_id")
+        .expect("prepare partial token query")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query partial tokens")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("collect partial tokens")
+}
+
+fn receiver_jobs_sql(db: &Db) -> String {
+    db.conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'receiver_jobs'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("receiver jobs schema")
+}
+
+#[test]
+fn repeated_token_exhaustion_rolls_back_v8_reconciliation() {
+    let db = Db::open_in_memory().expect("receiver state");
+    accept_jobs_with_ids(
+        &db,
+        &[
+            (
+                "exhaustion-first",
+                "10000000-0000-4000-8000-000000000001",
+            ),
+            (
+                "exhaustion-second",
+                "20000000-0000-4000-8000-000000000002",
+            ),
+            (
+                "exhaustion-reserved",
+                "30000000-0000-4000-8000-000000000003",
+            ),
+        ],
+    );
+    stage_v8_receiver_jobs(&db);
+    let reserved = ReceiverJobToken::parse("40000000-0000-4000-8000-000000000004")
+        .expect("reserved partial token");
+    db.conn
+        .execute_batch(&format!(
+            "ALTER TABLE receiver_jobs ADD COLUMN job_token TEXT;
+             UPDATE receiver_jobs SET job_token = '{reserved}'
+             WHERE job_id = '30000000-0000-4000-8000-000000000003';"
+        ))
+        .expect("stage one reserved token");
+    let replacement = ReceiverJobToken::parse("50000000-0000-4000-8000-000000000005")
+        .expect("first replacement token");
+    let before_schema = receiver_jobs_sql(&db);
+    let before_tokens = optional_job_tokens_in_id_order(&db);
+    let before_version: i64 = db
+        .conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("partial schema version");
+    let mut generated = 0_usize;
+
+    let error = super::super::schema::up_with_token_factory(&db.conn, 8, || {
+        generated += 1;
+        assert!(
+            generated <= 4,
+            "token factory exceeded the expected finite allocation budget"
+        );
+        if generated == 1 { replacement } else { reserved }
+    })
+    .expect_err("repeating token generation must exhaust its allocation budget");
+
+    assert_eq!(generated, 4);
+    assert_eq!(
+        error.to_string(),
+        "receiver job token allocation exhausted for job \
+         20000000-0000-4000-8000-000000000002 after 3 attempts"
+    );
+    assert_eq!(receiver_jobs_sql(&db), before_schema);
+    assert_eq!(optional_job_tokens_in_id_order(&db), before_tokens);
+    assert_eq!(
+        db.conn
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .expect("rolled-back schema version"),
+        before_version
+    );
+}
+
 #[test]
 fn v8_upgrade_retries_a_colliding_token_candidate() {
     let db = Db::open_in_memory().expect("receiver state");

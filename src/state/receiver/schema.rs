@@ -259,12 +259,19 @@ fn populate_job_tokens(
         {
             continue;
         }
-        let token = loop {
-            let candidate = next_token().to_string();
-            if unavailable.insert(candidate.clone()) {
-                break candidate;
-            }
-        };
+        // Cover every reserved value once, plus one slot for a fresh candidate.
+        let attempt_limit = unavailable.len().saturating_add(1);
+        let token = (0..attempt_limit)
+            .find_map(|_| {
+                let candidate = next_token().to_string();
+                unavailable.insert(candidate.clone()).then_some(candidate)
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "receiver job token allocation exhausted for job {job_id} after \
+                     {attempt_limit} attempts"
+                )
+            })?;
         connection.execute(
             "UPDATE receiver_jobs SET job_token = ?1 WHERE job_id = ?2",
             rusqlite::params![token, job_id],

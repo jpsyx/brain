@@ -2425,6 +2425,21 @@ durable and unclaimed. The tab collection also rejects and shuts down a second
 simultaneous receiver controller without changing the user selected view, tab,
 panel visibility, or focus.
 
+## Why receiver token reconciliation uses a row-scaled retry budget
+
+Schema v9 reconciliation may need to replace missing or duplicate opaque job
+tokens while preserving every unique persisted value. An unbounded generator
+retry can hold automatic pre-dispatch migration forever, while one fixed budget
+for the whole table would reject valid state stores merely because they contain
+many rows. Brain therefore gives each replacement one attempt per currently
+reserved unique token plus one slot for a fresh candidate. This covers every
+real collision once and still terminates a repeating or degraded generator.
+
+Allocation and table reconstruction remain inside one schema transaction. If
+the row-scaled budget is exhausted, reconciliation returns a stable diagnostic
+and rolls back provisional token assignments, schema changes, and the version
+stamp together.
+
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
 admission protocol, and their execution policy. The remaining `jobs.sock`

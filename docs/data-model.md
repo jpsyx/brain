@@ -1092,8 +1092,11 @@ correlation identity created at durable ingress. It never replaces the public jo
 ID or authorizes a mutation. During v8 and partial-v9 reconciliation, token
 allocation visits rows in `job_id` order and reserves every earlier token. A
 repeated random candidate is retried, while a later duplicate persisted token
-is replaced and the lowest-job-ID row keeps the original value. The database
-handle itself is pinned to one
+is replaced and the lowest-job-ID row keeps the original value. Each
+replacement permits one candidate per currently reserved unique token plus one
+fresh-candidate slot. Exhaustion returns a stable error and rolls back the
+whole schema transaction, including any earlier provisional token assignment.
+The database handle itself is pinned to one
 workspace UUID and rejects an inbound job or conversation identity from any
 other workspace. A conversation identity is the composite
 `(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
