@@ -3,16 +3,20 @@ use std::path::Path;
 
 use syn::visit::Visit;
 
+#[path = "collect/patterns.rs"]
+mod patterns;
 #[path = "scope.rs"]
 mod scope;
 #[path = "symbols.rs"]
 mod symbols;
 
 use super::{
-    FunctionNode, Program, RawCall, TypeFact, classify_operation, is_global_inbound_consumer,
-    is_receiver_tick_call, receiver_owned_module,
+    FunctionNode, Program, RawCall, TypeFact, classify_into_iteration, classify_operation,
+    is_global_inbound_consumer, is_into_iterator_dispatch, is_receiver_tick_call,
+    receiver_owned_module,
 };
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
+use patterns::{bind_pattern, closure_parameter_fact};
 use scope::Scope;
 use symbols::{LexicalScope, Symbols, item_is_test, method_target};
 
@@ -168,16 +172,13 @@ fn collect_function(
     };
     visitor.visit_block(block);
     program.receiver_tick_calls += visitor.receiver_tick_calls;
-    program.functions.insert(
-        id.clone(),
-        FunctionNode {
-            id,
-            receiver_owned: audited_orphan || receiver_owned_module(&scope.module),
-            calls: visitor.calls,
-            violations: visitor.violations,
-            global_consumer_violations: visitor.global_consumer_violations,
-        },
-    );
+    program.merge_function(FunctionNode {
+        id,
+        receiver_owned: audited_orphan || receiver_owned_module(&scope.module),
+        calls: visitor.calls,
+        violations: visitor.violations,
+        global_consumer_violations: visitor.global_consumer_violations,
+    });
 }
 
 struct BodyVisitor<'scope, 'symbols> {
@@ -258,6 +259,14 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
                 self.violations
                     .push("in-memory receiver channel creation".to_owned());
             }
+            if is_into_iterator_dispatch(&owner, &name)
+                && let Some(iterated) = call.args.first()
+            {
+                let iterated = self.expression_fact(iterated);
+                if let Some(violation) = classify_into_iteration(&iterated) {
+                    self.record_global_operation(violation);
+                }
+            }
             self.calls.push(RawCall {
                 exact_target: self.scope.receiver_reachable_target(&owner, exact_target),
             });
@@ -274,6 +283,11 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
         if let Some(violation) = classify_operation(&owner, &name) {
             self.record_operation(&owner, &name, violation);
         }
+        if name == "into_iter"
+            && let Some(violation) = classify_into_iteration(&owner)
+        {
+            self.record_global_operation(violation);
+        }
         let exact_target = owner.canonical.as_ref().and_then(|owner| {
             self.scope
                 .method_call_target_scoped(owner, &name, &self.lexical)
@@ -282,6 +296,30 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
             exact_target: self.scope.receiver_reachable_target(&owner, exact_target),
         });
         syn::visit::visit_expr_method_call(self, call);
+    }
+
+    fn visit_expr_for_loop(&mut self, expression: &'ast syn::ExprForLoop) {
+        let owner = self.expression_fact(&expression.expr);
+        if let Some(violation) = classify_into_iteration(&owner) {
+            self.record_global_operation(violation);
+        }
+        syn::visit::visit_expr_for_loop(self, expression);
+    }
+
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        let mut variables = HashMap::new();
+        for input in &closure.inputs {
+            bind_pattern(
+                input,
+                closure_parameter_fact(self.scope, &self.lexical, input),
+                &mut variables,
+            );
+        }
+        self.variables.push(variables);
+        syn::visit::visit_expr_closure(self, closure);
+        self.variables
+            .pop()
+            .expect("a closure variable scope is active");
     }
 }
 
@@ -293,6 +331,11 @@ impl BodyVisitor<'_, '_> {
         }
     }
 
+    fn record_global_operation(&mut self, violation: &str) {
+        self.violations.push(violation.to_owned());
+        self.global_consumer_violations.push(violation.to_owned());
+    }
+
     fn expression_fact(&self, expression: &syn::Expr) -> TypeFact {
         match expression {
             syn::Expr::Path(path) if path.path.segments.len() == 1 => self
@@ -302,7 +345,11 @@ impl BodyVisitor<'_, '_> {
                 .find_map(|variables| variables.get(&path.path.segments[0].ident.to_string()))
                 .cloned()
                 .unwrap_or_default(),
-            syn::Expr::Reference(reference) => self.expression_fact(&reference.expr),
+            syn::Expr::Reference(reference) => {
+                let mut fact = self.expression_fact(&reference.expr);
+                fact.borrowed = true;
+                fact
+            }
             syn::Expr::Paren(parenthesized) => self.expression_fact(&parenthesized.expr),
             syn::Expr::Group(group) => self.expression_fact(&group.expr),
             syn::Expr::Field(field) => {
@@ -333,22 +380,5 @@ impl BodyVisitor<'_, '_> {
             }
             _ => TypeFact::default(),
         }
-    }
-}
-
-fn bind_pattern(pattern: &syn::Pat, fact: TypeFact, variables: &mut HashMap<String, TypeFact>) {
-    match pattern {
-        syn::Pat::Ident(identifier) => {
-            variables.insert(identifier.ident.to_string(), fact);
-        }
-        syn::Pat::Type(typed) => bind_pattern(&typed.pat, fact, variables),
-        syn::Pat::Reference(reference) => bind_pattern(&reference.pat, fact, variables),
-        syn::Pat::Paren(parenthesized) => bind_pattern(&parenthesized.pat, fact, variables),
-        syn::Pat::Tuple(tuple) => {
-            for item in &tuple.elems {
-                bind_pattern(item, fact.clone(), variables);
-            }
-        }
-        _ => {}
     }
 }

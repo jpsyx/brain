@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.76.23"
+version = "0.76.24"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."

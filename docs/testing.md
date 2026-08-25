@@ -657,22 +657,32 @@ first move is a failing test that reproduces it, *then* the fix.
   ambiguous targets retain the fail-closed glob fact.
   Qualified-self calls retain both type and trait identity in call targets,
   implementation nodes, and return facts, so two traits sharing one method
-  name cannot overwrite one another. Ordinary method dispatch resolves a trait
-  only when its exact canonical identity is visible through the local module,
-  a named import, or the nearest finite module or block glob export graph.
+  name cannot overwrite one another. Non-test `cfg` alternatives that produce
+  the same exact function or method node union every possible production call
+  edge and violation independent of source order; exact `cfg(test)` items stay
+  excluded. Ordinary method dispatch resolves a trait only when its exact
+  canonical identity is visible through the local module, a named import, or
+  the nearest finite module or block glob export graph.
   Local declarations shadow glob traits, and colliding glob traits do not
-  create a guessed implementation edge. The receiver-reachable graph rejects
+  create a guessed implementation edge. Typed closure parameters receive their
+  own lexical variable facts, including nested, `move`, and returned closures;
+  an inner closure shadows outer bindings. The receiver-reachable graph rejects
   main-panel operations, activity sampling, and Unix socket accepts and reads,
   including reads before job decoding. A separate semantic pass rejects
   canonical typed `InboundJob` channel or queue consumption in every declared
   or orphan production module, independent of receiver-like module names or
-  call reachability; unrelated channel and socket operations remain outside
-  that global rule. The guard also counts exactly one production receiver tick
-  call. Mutation fixtures cover unconditional test-looking modules, true test
-  scopes, neutral-name orphans, indirect interactive helpers, cross-module
-  aliases, qualified-self UFCS, same-named trait implementations in both source
-  orders, module and block glob trait visibility, controller fields and return
-  chains, Unix sockets, channels, and queues. Negative fixtures prove a
+  call reachability. Receiver `iter`, `try_iter`, `into_iter`, and `for`
+  iteration consume messages. Owned `VecDeque` `into_iter` and `for` iteration
+  consume the queue, while borrowed `VecDeque` iteration and inspection remain
+  harmless; unrelated channel and socket operations remain outside that global
+  rule. The guard also counts exactly one production receiver tick call.
+  Mutation fixtures cover unconditional test-looking modules, true test scopes,
+  non-test platform alternatives in both source orders, neutral-name orphans,
+  indirect interactive helpers, typed nested and returned closures,
+  cross-module aliases, qualified-self UFCS, same-named trait implementations
+  in both source orders, module and block glob trait visibility, controller
+  fields and return chains, Unix sockets, channels, queues, and consuming
+  iteration. Negative fixtures prove a
   qualified safe trait call cannot inherit its peer's forbidden edge, local or
   ambiguous glob traits cannot select a forbidden peer, unrelated channel and
   socket types stay harmless, and unrelated same-name methods and ordinary

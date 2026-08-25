@@ -9,6 +9,7 @@ use collect::collect_program;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct TypeFact {
     pub(super) canonical: Option<String>,
+    pub(super) borrowed: bool,
     pub(super) unresolved_glob: bool,
     pub(super) inbound_job: bool,
     pub(super) agent_controller: bool,
@@ -39,6 +40,21 @@ pub(super) struct FunctionNode {
 pub(super) struct Program {
     pub(super) functions: HashMap<String, FunctionNode>,
     pub(super) receiver_tick_calls: usize,
+}
+
+impl Program {
+    pub(super) fn merge_function(&mut self, mut node: FunctionNode) {
+        let Some(existing) = self.functions.get_mut(&node.id) else {
+            self.functions.insert(node.id.clone(), node);
+            return;
+        };
+        existing.receiver_owned |= node.receiver_owned;
+        existing.calls.append(&mut node.calls);
+        existing.violations.append(&mut node.violations);
+        existing
+            .global_consumer_violations
+            .append(&mut node.global_consumer_violations);
+    }
 }
 
 pub(super) fn receiver_violations(root: &Path) -> Vec<String> {
@@ -159,11 +175,34 @@ pub(super) fn is_global_inbound_consumer(owner: &TypeFact, method: &str) -> bool
 fn is_inbound_channel_consumer(owner: &TypeFact, method: &str) -> bool {
     owner.channel_receiver
         && owner.inbound_job
-        && matches!(method, "recv" | "try_recv" | "recv_timeout")
+        && matches!(
+            method,
+            "recv" | "try_recv" | "recv_timeout" | "iter" | "try_iter"
+        )
 }
 
 fn is_inbound_queue_consumer(owner: &TypeFact, method: &str) -> bool {
     owner.memory_queue
         && owner.inbound_job
         && matches!(method, "pop_front" | "pop_back" | "remove" | "drain")
+}
+
+pub(super) fn classify_into_iteration(owner: &TypeFact) -> Option<&'static str> {
+    if owner.channel_receiver && owner.inbound_job {
+        return Some("in-memory receiver channel consume");
+    }
+    if owner.memory_queue && owner.inbound_job && !owner.borrowed {
+        return Some("in-memory receiver queue consume");
+    }
+    None
+}
+
+pub(super) fn is_into_iterator_dispatch(owner: &TypeFact, method: &str) -> bool {
+    method == "into_iter"
+        && (owner.channel_receiver
+            || owner.memory_queue
+            || matches!(
+                owner.canonical.as_deref(),
+                Some("std::iter::IntoIterator" | "core::iter::IntoIterator")
+            ))
 }

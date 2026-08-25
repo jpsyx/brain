@@ -39,7 +39,15 @@ impl Symbols {
     ) -> TypeFact {
         match ty {
             syn::Type::Reference(reference) => {
-                self.type_fact_inner(module, &reference.elem, lexical, resolving, type_parameters)
+                let mut fact = self.type_fact_inner(
+                    module,
+                    &reference.elem,
+                    lexical,
+                    resolving,
+                    type_parameters,
+                );
+                fact.borrowed = true;
+                fact
             }
             syn::Type::Paren(parenthesized) => self.type_fact_inner(
                 module,
@@ -288,6 +296,7 @@ fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
     let memory_queue = canonical == "std::collections::VecDeque";
     TypeFact {
         canonical: Some(canonical),
+        borrowed: false,
         unresolved_glob,
         inbound_job,
         agent_controller,
