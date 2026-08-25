@@ -15,7 +15,15 @@ fn managed_triage_rows_can_be_completed_by_hand() {
         .unwrap();
     let actor = actor(&workspace);
 
-    brain::tasks::complete::run(&workspace, &daily.id, &actor).unwrap();
+    // The CSV-only entry point: this test is about the managed chain, not the
+    // agenda the ordinary native path also syncs.
+    brain::tasks::complete::complete_in_workspace_without_agenda_sync(
+        &workspace,
+        &daily.id,
+        chrono::Local::now().date_naive(),
+        &actor,
+    )
+    .unwrap();
 
     let managed: Vec<_> = load_habits(&habits_path)
         .unwrap()
@@ -47,7 +55,7 @@ fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
         .unwrap();
     let actor = actor(&workspace);
 
-    let skip = brain::tasks::skip::run(&workspace, &daily.id, None, &actor).unwrap_err();
+    let skip = brain::tasks::skip::run(&test_store(workspace.root()), &workspace, &daily.id, None, &actor).unwrap_err();
     assert!(format!("{skip:#}").contains("cannot be skipped manually"));
     assert_eq!(std::fs::read(&habits_path).unwrap(), before);
 
@@ -60,7 +68,7 @@ fn public_habit_mutators_reject_managed_triage_rows_while_enabled() {
     );
     std::fs::write(&habits_path, lapsed).unwrap();
     let before_revive = std::fs::read(&habits_path).unwrap();
-    let revive = brain::tasks::revive::run(&workspace, "Morning Triage", &actor).unwrap_err();
+    let revive = brain::tasks::revive::run(&test_store(workspace.root()), &workspace, "Morning Triage", &actor).unwrap_err();
     assert!(format!("{revive:#}").contains("cannot be revived manually"));
     assert_eq!(std::fs::read(&habits_path).unwrap(), before_revive);
 }
@@ -122,8 +130,8 @@ fn bundled_skills_gate_only_managed_habit_mutation_when_feature_is_disabled() {
 
     for contract in [
         "brain --workspace \"$BRAIN_WORKSPACE\" config get enable_triage_habits",
-        "--complete-managed-triage daily",
-        "--complete-managed-triage weekly",
+        "brain habits complete-managed-triage daily",
+        "brain habits complete-managed-triage weekly",
         "still run the full manual triage workflow",
         "send the background completion signal whether managed habits are enabled or disabled",
     ] {

@@ -26,6 +26,16 @@ pub enum HabitsAction {
     /// for either cadence (never marking done).
     Skip(SkipArgs),
 
+    /// Skip a habit's next occurrence by advancing its due date one recurrence
+    /// interval (or N). Nothing is marked done and no penalty is recorded — a
+    /// habit's recurrence is its deferral mechanism.
+    Defer(DeferHabitArgs),
+
+    /// Sweep completed habit occurrences older than a week, so `habits.csv`
+    /// does not grow forever. Managed triage rows are never swept: removing one
+    /// is a transactional decision (`brain config set enable_triage_habits`).
+    Cleanup,
+
     /// Complete Brain's protected daily or weekly managed triage occurrence
     /// deterministically: mark today's occurrence done and spawn the next, the
     /// exact mutation the daily-triage modal's Skip button performs. No agent,
@@ -234,4 +244,90 @@ mod tests {
         assert!(skip.contains("Must be strictly after today"));
         assert!(skip.contains("never marks it done"));
     }
+}
+
+#[derive(Args, Debug)]
+pub struct BacklogArgs {
+    #[command(subcommand)]
+    pub action: Option<BacklogAction>,
+
+    /// Emit the review listing as JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BacklogAction {
+    /// Park a task indefinitely: status `backlog`, schedule cleared, hidden
+    /// from every active view until the monthly review.
+    Park(BacklogMoveArgs),
+
+    /// Bring a parked task back to `not_started`. It comes back without a due
+    /// date; set one next.
+    Restore(BacklogMoveArgs),
+
+    /// Delete tasks parked for more than six months. Silent by design — a task
+    /// forgotten for half a year is fine to forget forever — but it leaves a
+    /// breadcrumb in any project the task belonged to.
+    Purge(BacklogMaintenanceArgs),
+
+    /// Delete parked tasks an active task has already superseded: a
+    /// near-identical twin created *after* the parking date, meaning the user
+    /// re-created it by hand. Silent by design.
+    Dedupe(BacklogMaintenanceArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct BacklogMoveArgs {
+    /// Task ID, or a unique name fragment.
+    pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct BacklogMaintenanceArgs {
+    /// Report what would be deleted and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Print a JSON summary of what was deleted (otherwise silent).
+    #[arg(long)]
+    pub report: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct DeferHabitArgs {
+    /// Habit ID (`H43`, `43`) or a unique name fragment.
+    pub id: String,
+
+    /// How many occurrences to skip.
+    #[arg(long, default_value_t = 1)]
+    pub occurrences: u32,
+}
+
+#[derive(Args, Debug)]
+pub struct TriageArgs {
+    #[command(subcommand)]
+    pub action: TriageAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TriageAction {
+    /// Report whether today's weekly triage is also this month's monthly one.
+    /// "Monthly triage" is the first weekly pass of a calendar month, so this
+    /// is one bit of state, not a separate command.
+    State(TriageStateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TriageStateArgs {
+    /// Record this month as having had its monthly pass.
+    #[arg(long)]
+    pub mark: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct CleanArgs {
+    /// List what would be removed and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
 }

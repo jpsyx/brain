@@ -1276,6 +1276,29 @@ wrapper, since a child process can't call a shell function. The output path is
 - **Best-effort.** A converter failure is swallowed (like a failed file-open)
   so a broken toolchain can't tear the shell down.
 
+## The bundled skills shell out to `brain`, and to nothing else
+
+The `todo`, `triage`, `second-brain`, and `contacts` skills used to ship Python
+that Brain installed and then shelled back into. They no longer ship any: every
+deterministic operation they name is a `brain` subcommand, so the only handoff
+left is the obvious one — an agent running the binary that installed it.
+
+That closes the inversion. `brain reindex --tasks` used to require a copy of the
+`todo` skill to be installed, and a `python3` to run it, before it could apply
+its own rules; now it needs nothing but itself. And because the skills are
+instructions an agent follows literally, `tests/bundled_skill_commands.rs`
+asserts that every `brain …` command any bundled skill names actually resolves.
+
+Two consequences worth knowing:
+
+- **A workspace selector travels with the command.** These skills run inside a
+  Brain-launched session, where `BRAIN_WORKSPACE` is an implicit selector (see
+  above), so a command typed by an agent in a `family` panel acts on `family`.
+  The scripts got this by reading `BRAIN_ROOT`; the commands get it from the
+  same contract, and `-w` overrides both.
+- **Nothing needs `python3` anymore** except the page-count check in the agenda
+  build, which uses `pypdf` and belongs to the agent, not to Brain.
+
 ## Handoff: `osascript` → Finder trash (the "Delete" command)
 
 The "Delete" command (palette row / `Ctrl-D` on any entry) moves the

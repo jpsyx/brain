@@ -18,15 +18,8 @@ fn local_actor(root: &std::path::Path) -> crate::actor::ActorContext {
 }
 
 #[test]
-fn command_runner_requires_explicit_workspace_and_actor_contexts() {
-    fn accepts_runner(
-        _: fn(
-            &crate::workspace::WorkspaceContext,
-            &str,
-            &crate::actor::ActorContext,
-        ) -> anyhow::Result<()>,
-    ) {
-    }
+fn command_runner_requires_an_explicit_command_context() {
+    fn accepts_runner(_: fn(&crate::workspace::CommandContext, &str) -> anyhow::Result<()>) {}
     accepts_runner(super::run);
 }
 

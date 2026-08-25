@@ -4249,3 +4249,228 @@ not render is unmarked, so the worst outcome of a lost marker is a leftover that
 stays, never a user's skill that is deleted. The same asymmetry rules the
 frontend sweep, which removes only symlinks that point into `.agents/skills` at
 a target that no longer exists.
+
+## Why native completion syncs the agenda instead of leaving it stale
+
+The day's agenda markdown is a snapshot of the CSVs. Every *script* mutator
+(`defer_task.py`, `touch_task.py`, …) had always re-synced it; brain's own
+native completion never did. Nothing in `brain tasks complete` or the tasks
+view's mark-complete touched the file, so the only documented way for a
+completion to reach the agenda was `/todo`'s operating principle 7 telling an
+agent to notice and rewrite `/tmp/<today>.md` by hand — a freehand rewrite of a
+file whose other sections the agent had no reason to reproduce exactly. That is
+how a live agenda lost its title, load line, MIT callout, and suggested order
+in one edit.
+
+The alternative was to make the staleness *official*: let a native completion
+change nothing and wait for the next agenda build to re-derive everything. It
+is simpler, and it is what `brain habits skip` still does. It was rejected
+because the agenda is not a report you regenerate on demand — the user works
+off it, and prints it, for the whole day. A completion that visibly leaves a
+done task sitting in "Suggested order" trains the user to distrust the file,
+and "the next build will fix it" can be hours away.
+
+So completion syncs, under three constraints that make the sync safe to run on
+every mutation:
+
+- **It only rewrites what it owns.** The MIT callout, Suggested order, Cut
+  order, Today's habits, and Completed today. The document is parsed into a
+  preamble plus `## ` sections and reassembled; anything else, including
+  sections brain has never heard of, comes back byte-for-byte. This is the
+  property the freehand rewrite could not offer.
+- **It is best-effort, never a gate.** The CSVs are already written when the
+  sync runs. A missing agenda, an unreadable file, or a broken PDF renderer is
+  logged and swallowed. A mutation that succeeded must not be reported as
+  failed because a downstream snapshot could not be refreshed.
+- **It is idempotent, and silent when there is nothing to do.** Re-running on
+  an accurate agenda writes nothing and regenerates nothing, so callers can
+  fire it after every mutation without thinking about it.
+
+## Why the agenda sync moved into the binary and Python delegates to it
+
+The task-mutation sync existed in Python and needed to exist in Rust. Keeping
+both was the obvious cheap answer and the wrong one: two implementations of
+"which lines may I delete from a file the user is reading" drift, and the
+drift is invisible until it eats a section.
+
+The logic moved to Rust (`src/tasks/agenda/`) rather than Rust shelling out to
+the Python, because the sync is now on brain's own completion path. Depending on
+a bundled skill script being installed, and on a `python3`, for a guarantee the
+binary makes about its own mutation, inverts the dependency: the skill is
+brain's output, not its runtime. In Rust the decision is also a pure function
+over parsed markdown and CSV rows, which is where this repo tests things.
+
+`brain tasks sync-agenda` then exposes it, and
+`update_agenda_on_mutation.py` became a thin delegator that calls it. The
+scripts keep their existing best-effort contract (60s timeout, log and exit 0),
+and they gain the configured `agenda_markdown_dir` instead of a hardcoded
+`/tmp`. The script's caller-side `backlog` / `restore` actions — which the old
+argparse rejected outright, so `backlog_task.py`'s agenda updates had silently
+never run — map onto `defer` and `touch`.
+
+## Why the agenda markdown's directory is a declared env variable
+
+`/tmp/<date>.md` is where the agenda lives, and hardcoding it seemed harmless
+until a test proved otherwise: an integration test that runs the real binary
+against a temporary workspace, with `HOME` and `XDG_CONFIG_HOME` isolated,
+still resolved the *machine's* `/tmp` — and rewrote the developer's real agenda
+for today from the fixture's two-row CSV. That is the exact corruption this work
+was fixing, reproduced by the fix.
+
+`agenda_markdown_dir` (brain env, default `/tmp`) makes the location declarable,
+so a test can point it at a temporary directory and an end-to-end test can prove
+the wiring without touching anything real. It is env rather than portable config
+for the usual reason (see config.md): `/tmp` is a fact about one filesystem. Its
+sibling `agenda_dir`, which holds the printable, stays portable config, because
+where you file something you print is a preference that should follow you
+between machines.
+
+The trap it removes is worth stating plainly for whoever writes the next test:
+**any test that runs a mutating tasks command through the binary must isolate
+`agenda_markdown_dir` first.** `HOME` and `XDG_CONFIG_HOME` do not cover it.
+
+## Why *every* mutation path syncs the agenda, not just completion
+
+BR-19 wired completion. That left `brain habits skip`, `complete-managed-triage`
+(and the daily-triage nudge's Skip button), the habits browser page's done
+button, `brain tasks add`, and `brain tasks set` still writing CSVs and walking
+away — the same defect, one command over. A rule that holds for one mutation and
+not its neighbours is not a rule; it is a coincidence the next contributor will
+break. So the seam is now a standing obligation: **a function that writes
+`tasks.csv` or `habits.csv` ends by syncing the agenda.**
+
+What each mutation *means* for the plan is a separate, deliberate decision, and
+it is not always "drop the row":
+
+- **Completion-shaped mutations drop it and add it to the snapshot.** A daily
+  `skip` counts here: cadence-aware skip marks a daily habit done and respawns
+  it, so it is a completion wearing a different name.
+- **A defer only drops it.** Nothing was finished, so nothing joins Completed
+  today.
+- **An ordinary field edit changes nothing about the plan.** Renaming a task or
+  adding a note is not a statement that it left today, so `set` refreshes the
+  CSV-derived snapshots and leaves the authored order alone. The two edits that
+  *do* say it left — `--status done` and a `--due` on another day — are read off
+  the same `SetPlan` the write already computed, so the decision cannot drift
+  from what was written.
+- **A creation cannot touch the plan at all.** Only the agenda's author decides
+  what is on today's list; a new row just makes the snapshots stale, so `add`
+  refreshes those.
+- **`revive` provably cannot change today**, because the occurrence it spawns is
+  dated strictly after today and the row it revives was completed earlier. It
+  still calls the sync — the rule is the rule — and the sync's no-op path costs
+  a file read. The test asserts the no-op, so the reasoning stays checked.
+
+To make this reachable everywhere, the agenda targets are resolved from
+`(RegistryStore, WorkspaceContext)` rather than a `CommandContext`. The HTTP
+habits route holds a verified workspace and its registry but no command context,
+and it is a first-class mutation surface; keying on the command context would
+have quietly excluded exactly the path a user is most likely to be looking at
+while the agenda is open.
+
+## Why `cfg(test)` moves the agenda directory somewhere that cannot exist
+
+`agenda_markdown_dir` defaults to `/tmp`, a machine-shared path that `HOME` and
+`XDG_CONFIG_HOME` isolation does not redirect. Three separate times while this
+work was being written, a test resolved that fallback and rewrote the
+developer's own agenda for today from a two-row fixture CSV — the exact
+corruption the feature exists to prevent, produced by the feature.
+
+Explicit isolation per test suite was not enough, because the failure is silent
+and the next mutation path added is one nobody remembers to isolate. So the
+default itself is now unreachable from a unit test: under `cfg(test)` the
+fallback is a path that cannot exist, and any test that needs a real agenda
+injects `Targets` directly. Integration tests, which link the library without
+`cfg(test)` and can spawn the binary, still isolate explicitly — the fixture
+that serves the habits page writes `agenda_markdown_dir` into its own registry —
+and a guard test asserts the two branches stay two branches.
+
+## Why the bundled skills stopped shipping Python
+
+`skills/todo/scripts/` held twenty-two Python scripts and `skills/contacts/`
+one more. They existed for a good reason — an LLM doing calendar arithmetic in
+context gets it wrong, and gets it wrong differently each time — but the shape
+was upside down. The scripts were **brain's own output**: rendered and installed
+by `brain skills sync`, then shelled back into by `brain reindex --tasks`. A
+core command depended on a copy of a skill being installed, and on a `python3`
+being present, to do its own job.
+
+They also could not be tested the way this repo tests things. The rules lived in
+Python with no Rust test able to reach them, so the one guard that mattered —
+that a mutation does what the docs say — was a review obligation rather than a
+test.
+
+Everything deterministic in them is now a `brain` subcommand, and the scripts are
+gone. The rules, scans, and calendar maths are pure functions over CSV rows;
+`brain reindex --tasks` needs nothing but the binary; and each command was
+verified against the real workspace before its script was deleted (`chronic`,
+`stale-waiting`, `linked`, `backlog`, the monthly-triage state, and both dry-run
+passes all returned identical counts, and `tasks chronic --json` was
+byte-identical to what `find_chronic_ignored.py` produced).
+
+Three things came out of the port that were not in the scripts:
+
+- **`brain contacts` is workspace-scoped.** `contacts.py` resolved `~/brain`
+  directly, so on a machine with more than one workspace it read and wrote the
+  wrong book. Nobody noticed because the failure is silent.
+- **`backlog`'s `restore` action works at all.** `backlog_task.py` called the
+  agenda updater with `backlog` and `restore`, which its own argparse rejected,
+  so those agenda updates had silently never run.
+- **`brain tasks streak` replaced a personal artifact with a generic one.**
+  `track_late_work.py` counted consecutive "late work nights" — a concept from a
+  private extension that had no business in core. The primitive underneath (a
+  named set of dates, and the length of the run ending today) is generic, so
+  that is what core keeps. What the name means is the caller's.
+
+A guard test now extracts every `brain …` command named in any bundled skill —
+from code spans only, so prose is not mistaken for a command — and asserts each
+one resolves. The skills are instructions an agent follows literally; a renamed
+command does not fail loudly, it makes the agent improvise, and improvising
+around a task mutation is how a CSV gets edited by hand.
+
+## Why `brain clean` exists
+
+Four bundled skills instructed the reader to run
+`bash "$BRAIN_ROOT/.agents/skills/second-brain/cleanup.sh"` at the end of any
+session that touched the brain. That file does not exist in this repository and
+never did. Every one of those runs either failed silently or was skipped.
+
+Byproduct cleanup is exactly the kind of thing that should not be a script the
+skill carries: it is deterministic, it needs no judgement, and it is the same on
+every machine. `brain clean` is that command, and its pattern list is
+deliberately **conservative and closed** — every entry is an artifact a tool
+created and can recreate, recognizable by name alone. Deleting a note someone
+wrote is unrecoverable; leaving a stray cache costs nothing. So the list only
+grows for things that are unambiguously regenerable, and a name that merely
+looks generated (`cache.md`, `pipeline.json`) is left alone.
+
+## Why `brain project` exists, and where it stops
+
+The `second-brain` skill's project flows were prose instructions to hand-write a
+JSON file with a fixed field set, hand-move a folder, and remember to reindex
+afterwards. Every one of those is mechanical, and every one of them has been got
+wrong: a `name` that no longer matches its folder, a `directory` still pointing
+at `projects/` after an archive, a status typo that nothing downstream catches,
+a lookup CSV that silently stopped mirroring the tree.
+
+So `brain project` owns the record-keeping: `new` writes the scaffold, `set`
+validates and writes one field at a time, `archive` moves the folder *and*
+repoints the record, and each of them rebuilds `projects-lookup.csv` before
+reporting. A `.METADATA.json` the lookup does not know about is the most common
+way this tree drifts from itself, so the reindex is not a step a caller can
+forget — it is part of the mutation.
+
+**The line is judgement, and it is drawn deliberately.** Which namespace a
+project belongs to, what its outcome slug should be, whether the reusable
+material has been harvested, whether it is really done — none of that is here,
+and none of it should be. The skill still walks the user through those, and the
+safety checks before marking a project `done` are still a conversation. What
+changed is that once a decision is made, executing it is one command that cannot
+half-apply.
+
+`brain project show` is the one addition that is not a straight port. Archiving
+used to include a `jq` pipeline over `brain tasks chronic` to answer "did every
+open task under this project go quiet?" — a real question, asked in a form
+nobody would type twice. It is now a field: `died_quietly`. It blocks nothing;
+it exists so archiving a project that *stopped* is a decision rather than a way
+of papering over rot.

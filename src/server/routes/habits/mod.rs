@@ -72,9 +72,37 @@ fn parse_task_id(body: &str) -> Result<String, DoneOutcome> {
     Ok(task_id.to_owned())
 }
 
-/// Mark a habit done through brain's native completion path.
+/// Mark a habit done through brain's native completion path, then re-sync the
+/// day's agenda the completion just invalidated.
+///
+/// The browser page is a first-class mutation surface, so it owes the agenda
+/// the same guarantee `brain tasks complete` gives.
 #[must_use]
-pub fn done(workspace: &crate::workspace::WorkspaceContext, body: &str) -> DoneOutcome {
+pub fn done(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+    body: &str,
+) -> DoneOutcome {
+    let today = Local::now().date_naive();
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    complete_and_sync_in_root(
+        workspace.root(),
+        &workspace.paths().task_store_lock(),
+        &targets,
+        body,
+        today,
+    )
+}
+
+/// The tested core of [`done`], with the day's targets injected.
+#[must_use]
+pub(crate) fn complete_and_sync_in_root(
+    root: &std::path::Path,
+    lock_path: &std::path::Path,
+    targets: &crate::tasks::agenda::Targets,
+    body: &str,
+    today: chrono::NaiveDate,
+) -> DoneOutcome {
     let raw_id = match parse_task_id(body) {
         Ok(id) => id,
         Err(bad) => return bad,
@@ -83,21 +111,22 @@ pub fn done(workspace: &crate::workspace::WorkspaceContext, body: &str) -> DoneO
         Ok(id) => id,
         Err(e) => return DoneOutcome::BadRequest(e.to_string()),
     };
-    let lock_path = workspace.paths().task_store_lock();
-    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire_path(&lock_path) {
+    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire_path(lock_path) {
         Ok(owner) => owner,
         Err(error) => return DoneOutcome::Failed(error.to_string()),
     };
-    match complete_in_root_with_owner_and_today(
-        workspace.root(),
-        &lock_path,
-        &owner,
-        &id,
-        Local::now().date_naive(),
-    ) {
-        Ok(result) => DoneOutcome::Done {
-            next_due: result.next_due,
-        },
+    match complete_in_root_with_owner_and_today(root, lock_path, &owner, &id, today) {
+        Ok(result) => {
+            crate::tasks::agenda::sync_targets(
+                targets,
+                &result.task_id,
+                crate::tasks::agenda::Action::Done,
+                today,
+            );
+            DoneOutcome::Done {
+                next_due: result.next_due,
+            }
+        }
         Err(e) => DoneOutcome::Failed(e.to_string()),
     }
 }
@@ -105,6 +134,14 @@ pub fn done(workspace: &crate::workspace::WorkspaceContext, body: &str) -> DoneO
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A registry store bound to a path that does not exist: env reads fall
+    /// back to their defaults, which is all these tests need.
+    fn test_store() -> crate::workspace::RegistryStore {
+        crate::workspace::RegistryStore::from_path(std::path::PathBuf::from(
+            "/nonexistent/brain-test/env.json",
+        ))
+    }
 
     #[test]
     fn parse_task_id_accepts_a_valid_body() {
@@ -202,7 +239,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(&workspace, r#"{"task_id":"H1"}"#);
+        let outcome = done(&test_store(), &workspace, r#"{"task_id":"H1"}"#);
 
         assert_eq!(
             outcome,
@@ -252,7 +289,11 @@ mod tests {
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let request = std::thread::spawn(move || {
             done_tx
-                .send(done(&request_workspace, r#"{"task_id":"H1"}"#))
+                .send(done(
+                    &test_store(),
+                    &request_workspace,
+                    r#"{"task_id":"H1"}"#,
+                ))
                 .unwrap();
         });
 
@@ -311,7 +352,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(&workspace, r#"{"task_id":"H7"}"#);
+        let outcome = done(&test_store(), &workspace, r#"{"task_id":"H7"}"#);
 
         assert_eq!(
             outcome,
@@ -363,7 +404,7 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = done(&workspace, r#"{"task_id":"H404"}"#);
+        let outcome = done(&test_store(), &workspace, r#"{"task_id":"H404"}"#);
 
         assert!(matches!(outcome, DoneOutcome::Failed(_)));
         assert_eq!(std::fs::read(habits_path).unwrap(), before);

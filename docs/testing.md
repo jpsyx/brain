@@ -858,6 +858,44 @@ first move is a failing test that reproduces it, *then* the fix.
   spawn a tiny real PTY running `seq`; this is the one place we let a child
   process in because it is deterministic and sub-second.
 
+- **The agenda sync** (`tasks/agenda/tests/`, `tests/agenda_sync_cli.rs`). The
+  decision is pure — `sync_markdown` over agenda text, CSV rows, and a fixed
+  date — so the section-preservation guarantee is asserted as whole-document
+  equality, not substring probes. The filesystem shell is tested against a
+  `Targets` struct built from a `tempfile::tempdir()`, including PDF regen
+  through a stub `markdown-to-pdf` that copies its input to `--out` so the test
+  can read exactly what the renderer was fed. `tests/agenda_sync_cli.rs` drives
+  the real binary end-to-end.
+
+  **Unit tests are protected structurally**: under `cfg(test)` the
+  `agenda_markdown_dir` fallback is a path that cannot exist, so a unit test can
+  never resolve the machine's real `/tmp` and rewrite the developer's own agenda
+  for today. `agenda::tests::defaults` guards that.
+
+  **Integration tests must isolate it themselves**, because they link the
+  library without `cfg(test)` and may spawn the binary. `HOME` and
+  `XDG_CONFIG_HOME` do not redirect `/tmp`. Two patterns:
+  `tests/verbose_cli.rs::isolate_agenda_dir` runs `brain env set
+  agenda_markdown_dir=<tempdir>` once the workspace is ready, and
+  `tests/habits_workspace_routing/support.rs::agenda_env` writes the value
+  straight into the fixture's registry records.
+- **The bundled skills ship no executable code** (`skills::embed`). A skill
+  carrying a script would be a second implementation nobody can test from here,
+  so the bundle asserts no `.py`/`.sh`/`.js`/`.rb` file reaches it.
+
+- **The bundled skills' command references** (`tests/bundled_skill_commands.rs`).
+  Every `brain …` command named in any bundled skill is extracted — from code
+  spans and fenced blocks only, so prose like "the brain is a directory" is not
+  mistaken for one — and `--help` is run against each. A skill is an instruction
+  an agent follows literally, so a renamed command has to fail here rather than
+  in someone's session.
+- **The ported task commands** (`tasks/mutate/tests/`, `tasks/backlog/tests.rs`,
+  `tasks/scan/tests.rs`, `tasks/rules/tests.rs`, `tasks/habits/tests.rs`,
+  `contacts/tests.rs`). Each is a pure decision over CSV rows and a fixed date,
+  so the tests are tables in and values out. The boundaries are what they
+  actually assert: which defers carry a penalty, which chunk cascades, what the
+  lint fixes versus only flags, when a parked task counts as superseded.
+
 ## What we deliberately don't test
 
 - **The interactive event loop.** `TuiRuntime` opens `/dev/tty`, toggles raw

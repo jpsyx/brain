@@ -20,7 +20,7 @@ no emojis. Multi-value cells use `|` separator. Dates in ISO 8601
 `(i/N)` (e.g. `Draft whitepaper (2/5)`) are time-boxed chunks of a
 single logical task. The trailing `(i/N)` fraction is the canonical
 chunk marker and is parsed by
-[`_csvlib.parse_chunk_name`](../scripts/_csvlib.py) and by the
+brain natively and by the
 native `brain tasks complete` path to migrate the `mit` tag forward
 when a chunk completes. See
 [SKILL.md "Chunked tasks"](../SKILL.md#chunked-tasks)
@@ -42,7 +42,7 @@ value users type and the value command locators accept:
 - **Tasks** (`tasks.csv`): `T1`, `T2`, `T3`, … (prefix `T`)
 - **Habits** (`habits.csv`): `H1`, `H2`, `H3`, … (prefix `H`)
 
-Issued by [`scripts/next_id.py`](../scripts/next_id.py) and never reused.
+Issued by `brain tasks add` and never reused.
 Counters live beside each selected workspace's CSVs. Deterministic sync
 reconciliation may change a display ID without changing `task_uuid`. Each
 habit occurrence spawned on `done` gets both a fresh `H###` and a fresh UUID.
@@ -78,8 +78,8 @@ the user can reference rows in follow-ups** ("done T42", "defer 17 +3d").
 | 18 | `defer_count` | int | Starts at 0. Increments on every defer. `>=3` triggers triage warning. |
 | 19 | `created_date` | date | Auto-set on insert. |
 | 20 | `completed_date` | date \| empty | Auto-set when `status` flips to `done`. |
-| 21 | `last_touched` | date | Auto-bumped to today by every row mutator (`add_task.py`, `defer_task.py`, `defer_habit.py`, `brain habits skip`, `brain tasks complete`, `touch_task.py`, `backlog_task.py`, `set_linear_issue.py`, and `apply_sync_rules.py --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
-| 24 | `backlogged_date` | date \| empty | Set by `backlog_task.py` when a task enters `status=backlog`; cleared on restore. Drives the 6-month auto-purge (`purge_old_backlog.py`) and the monthly backlog-review. |
+| 21 | `last_touched` | date | Auto-bumped to today by every row mutator (`brain tasks add`, `brain tasks defer`, `brain habits defer`, `brain habits skip`, `brain tasks complete`, `brain tasks touch`, `brain backlog park`, `brain tasks set`, and `brain tasks lint --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
+| 24 | `backlogged_date` | date \| empty | Set by `brain backlog park` when a task enters `status=backlog`; cleared on restore. Drives the 6-month auto-purge (`brain backlog purge`) and the monthly backlog-review. |
 | 25 | `system_key` | string \| empty | Stable identity for a Brain-managed definition. Ordinary rows leave it blank; habit recurrence retains it. |
 
 ## habits.csv columns
@@ -114,7 +114,7 @@ Computed on read. See [sync-rules.md](sync-rules.md).
 - `is_backlogged` = `status == 'backlog'` (parked indefinitely; no `due_date`/`start_date`; `backlogged_date` set; auto-deleted >6mo)
 - `is_stuck_in_progress` = `status == 'in_progress' AND (today - last_touched) >= 14`
 - `is_captured_forgotten` = `(today - created_date) >= 60 AND status == 'not_started' AND notes == '' AND estimated_duration == '' AND project == ''`
-- `is_chronic_ignore` = `(is_stale OR is_stuck_in_progress OR is_captured_forgotten) AND NOT past_due AND (due_date == '' OR due_date > today + 14)` — the set surfaced by [`scripts/find_chronic_ignored.py`](../scripts/find_chronic_ignored.py) and swept in `/triage` Step 7.
+- `is_chronic_ignore` = `(is_stale OR is_stuck_in_progress OR is_captured_forgotten) AND NOT past_due AND (due_date == '' OR due_date > today + 14)` — the set surfaced by `brain tasks chronic` and swept in `/triage` Step 7.
 
 ## Estimated-duration thresholds
 
@@ -145,7 +145,7 @@ For provenance. The initial dump on 2026-06-08 mapped:
 - `Assignee` was mapped into the portable `assigned_to` field during writer migration.
 - `task_id` was originally generated as UUID4 and later migrated to short
   IDs (`T1..Tn` for tasks, `H1..Hn` for habits) on 2026-06-08 via
-  `scripts/next_id.py`. Counters live beside the selected workspace's CSVs.
+  `brain tasks add`. Counters live beside the selected workspace's CSVs.
 - `defer_count = 0`, `completed_date = ''`, project/energy/context/start/blocked_by all empty.
 - `estimated_duration` was inferred from notes when a duration hint
   was present (e.g. "Likely duration: 30 mins" → 30); empty otherwise.

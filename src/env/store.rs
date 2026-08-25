@@ -8,7 +8,14 @@ use serde_json::{Map, Value};
 /// unreadable registry yields an empty map — a broken env never blocks startup.
 #[must_use]
 pub(crate) fn load_global_map(command: &crate::workspace::CommandContext) -> Map<String, Value> {
-    crate::workspace::RegistryStore::load_from(command.registry_store.path())
+    load_global_map_from(&command.registry_store)
+}
+
+/// [`load_global_map`] from an explicit store, for callers that hold a
+/// registry and a workspace but no `CommandContext` (the HTTP routes).
+#[must_use]
+pub(crate) fn load_global_map_from(store: &crate::workspace::RegistryStore) -> Map<String, Value> {
+    crate::workspace::RegistryStore::load_from(store.path())
         .map(|registry| registry.env)
         .unwrap_or_default()
 }
@@ -36,14 +43,22 @@ pub(super) fn save_global_map(
 /// an empty map — a broken env never blocks startup.
 #[must_use]
 pub(crate) fn load_map(command: &crate::workspace::CommandContext) -> Map<String, Value> {
-    let Ok(registry) = crate::workspace::RegistryStore::load_from(command.registry_store.path())
-    else {
+    load_map_for(&command.registry_store, &command.workspace)
+}
+
+/// [`load_map`] from an explicit store and workspace.
+#[must_use]
+pub(crate) fn load_map_for(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+) -> Map<String, Value> {
+    let Ok(registry) = crate::workspace::RegistryStore::load_from(store.path()) else {
         return Map::new();
     };
-    let Ok(selected) = registry.select(Some(command.workspace.name().as_str())) else {
+    let Ok(selected) = registry.select(Some(workspace.name().as_str())) else {
         return Map::new();
     };
-    if selected.record().workspace_id != command.workspace.id() {
+    if selected.record().workspace_id != workspace.id() {
         return Map::new();
     }
     let mut map = selected.record().env.clone();

@@ -38,6 +38,31 @@ fn write_env(
     .expect("env json");
 }
 
+/// Point the agenda sync at a throwaway directory.
+///
+/// `agenda_markdown_dir` defaults to the real, machine-global `/tmp`, so any
+/// test that runs a mutating tasks command through the binary MUST isolate it
+/// first or it will rewrite the developer's own agenda for today.
+fn isolate_agenda_dir(home: &std::path::Path, config: &std::path::Path, dir: &std::path::Path) {
+    std::fs::create_dir_all(dir).expect("agenda dir");
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", config)
+        .env("NO_COLOR", "1")
+        .args([
+            "env",
+            "set",
+            &format!("agenda_markdown_dir={}", dir.display()),
+        ])
+        .output()
+        .expect("set agenda_markdown_dir");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn make_ready(home: &std::path::Path, config: &std::path::Path) {
     let output = Command::new(env!("CARGO_BIN_EXE_brain"))
         .env("HOME", home)
@@ -171,6 +196,8 @@ fn verbose_complete_logs_the_root_id_and_csv_mutation() {
     fake_markdown_to_pdf(&markdown_to_pdf);
     write_env(&config, &markdown_to_pdf, Some(&brain));
     make_ready(&home, &config);
+    let agenda_dir = temp.path().join("agenda");
+    isolate_agenda_dir(&home, &config, &agenda_dir);
 
     std::fs::write(
         tasks_dir.join("tasks.csv"),

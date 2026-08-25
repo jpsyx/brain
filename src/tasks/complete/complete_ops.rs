@@ -276,7 +276,7 @@ pub(super) fn max_existing_id(rows: &[Row], prefix: char) -> u32 {
         .unwrap_or(0)
 }
 
-pub(super) fn next_due(due: &str, interval: u32, unit: &str, today: NaiveDate) -> Result<String> {
+pub(crate) fn next_due(due: &str, interval: u32, unit: &str, today: NaiveDate) -> Result<String> {
     let mut date = parse_date(due)
         .ok_or_else(|| anyhow!("habit due_date is required to spawn the next occurrence"))?;
     let interval = interval.max(1);
@@ -324,7 +324,7 @@ pub(super) fn last_day_of_month(year: i32, month: u32) -> Result<u32> {
         .day())
 }
 
-pub(super) fn parse_date(value: &str) -> Option<NaiveDate> {
+pub(crate) fn parse_date(value: &str) -> Option<NaiveDate> {
     let date = value.trim().split('T').next().unwrap_or_default();
     if date.is_empty() {
         None
@@ -372,7 +372,7 @@ pub(super) fn migrate_mit_to_next_chunk(
     ))
 }
 
-pub(super) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
+pub(crate) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
     let trimmed = name.trim();
     let (base, suffix) = trimmed.rsplit_once(" (")?;
     let fraction = suffix.strip_suffix(')')?;
@@ -384,7 +384,7 @@ pub(super) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
     ))
 }
 
-pub(super) fn touch_row(row: &mut Row, today: &str) {
+pub(crate) fn touch_row(row: &mut Row, today: &str) {
     row.insert("last_touched".to_owned(), today.to_owned());
 }
 

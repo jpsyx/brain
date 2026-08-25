@@ -64,24 +64,52 @@ pub enum ManagedTriageCompletion {
 
 /// Acquire the task-store lock and complete the managed occurrence for `today`.
 pub fn complete_managed_triage(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     kind: ManagedTriageKind,
     enabled: bool,
     today: NaiveDate,
 ) -> Result<ManagedTriageCompletion> {
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
-    complete_in_root(workspace.root(), kind, enabled, today)
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    Ok(complete_in_root_and_sync(workspace.root(), &targets, kind, enabled, today)?.0)
+}
+
+/// Complete the managed occurrence, then re-sync the agenda it invalidated.
+/// A disabled feature mutates nothing, so it syncs nothing either.
+pub(crate) fn complete_in_root_and_sync(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    kind: ManagedTriageKind,
+    enabled: bool,
+    today: NaiveDate,
+) -> Result<(ManagedTriageCompletion, crate::tasks::agenda::Outcome)> {
+    let completion = complete_in_root(root, kind, enabled, today)?;
+    let synced = match &completion {
+        ManagedTriageCompletion::Completed { task_id, .. } => crate::tasks::agenda::sync_targets(
+            targets,
+            task_id,
+            crate::tasks::agenda::Action::Done,
+            today,
+        ),
+        ManagedTriageCompletion::Disabled => crate::tasks::agenda::Outcome::Unchanged,
+    };
+    Ok((completion, synced))
 }
 
 /// CLI runner for `brain habits complete-managed-triage <daily|weekly>`.
-pub fn run(workspace: &crate::workspace::WorkspaceContext, kind: ManagedTriageKind) -> Result<()> {
+pub fn run(
+    store: &crate::workspace::RegistryStore,
+    workspace: &crate::workspace::WorkspaceContext,
+    kind: ManagedTriageKind,
+) -> Result<()> {
     crate::logging::log(format!(
         "habits complete-managed-triage kind={}",
         kind.label()
     ));
     let enabled = crate::config::Config::load(workspace).enable_triage_habits;
     let today = Local::now().date_naive();
-    let outcome = complete_managed_triage(workspace, kind, enabled, today)?;
+    let outcome = complete_managed_triage(store, workspace, kind, enabled, today)?;
     print_outcome(kind, &outcome);
     Ok(())
 }

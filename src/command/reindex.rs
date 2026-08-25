@@ -6,7 +6,6 @@ pub fn run(
 ) -> anyhow::Result<()> {
     crate::reindex::run(
         &context.workspace,
-        &context.actor,
         args.projects,
         args.resources,
         args.tasks,

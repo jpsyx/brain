@@ -27,12 +27,56 @@ use crate::tasks::complete::{Located, locate, read_csv, write_csv};
 /// Apply an [`Edit`] to one row in the selected workspace, under the task-store
 /// lock.
 pub fn set_in_workspace(
+    store: &crate::workspace::RegistryStore,
     workspace: &crate::workspace::WorkspaceContext,
     raw_id: &str,
     edit: &Edit,
 ) -> Result<SetPlan> {
     let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
-    set_in_root_with_today(workspace.root(), raw_id, edit, Local::now().date_naive())
+    let today = Local::now().date_naive();
+    let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
+    Ok(set_in_root_and_sync(workspace.root(), &targets, raw_id, edit, today)?.0)
+}
+
+/// Edit, then re-sync the agenda for whatever the edit means for today's plan.
+pub(crate) fn set_in_root_and_sync(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    raw_id: &str,
+    edit: &Edit,
+    today: NaiveDate,
+) -> Result<(SetPlan, crate::tasks::agenda::Outcome)> {
+    let planned = set_in_root_with_today(root, raw_id, edit, today)?;
+    let outcome = crate::tasks::agenda::sync_targets(
+        targets,
+        &planned.task_id,
+        agenda_action(&planned, today),
+        today,
+    );
+    Ok((planned, outcome))
+}
+
+/// What an edit means for the day's plan.
+///
+/// An edit is not by itself a statement that the row left today: renaming it
+/// or adding a note leaves it exactly where the agenda's author put it. Two
+/// edits do say it left — being marked `done`, and being moved to another
+/// day — and those are the two that drop it from the plan.
+fn agenda_action(planned: &SetPlan, today: NaiveDate) -> crate::tasks::agenda::Action {
+    let changed = |column: &str| {
+        planned
+            .changes
+            .iter()
+            .find(|change| change.column == column)
+            .map(|change| change.after.trim())
+    };
+    if changed("status") == Some("done") {
+        return crate::tasks::agenda::Action::Done;
+    }
+    match changed("due_date") {
+        Some(after) if after != today.to_string() => crate::tasks::agenda::Action::Defer,
+        _ => crate::tasks::agenda::Action::Touch,
+    }
 }
 
 /// Root-scoped, clock-injected core. Reads both CSVs, resolves `raw_id`, plans

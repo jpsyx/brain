@@ -30,7 +30,6 @@ use crate::theme::Theme;
 /// lookup families, narrating each phase.
 pub fn run(
     workspace: &crate::workspace::WorkspaceContext,
-    actor: &crate::actor::ActorContext,
     projects: bool,
     resources: bool,
     tasks_flag: bool,
@@ -69,7 +68,7 @@ pub fn run(
     }
     if sel.tasks {
         println!("{}", theme.muted("Applying task + habit automation rules…"));
-        let outcome = tasks::reindex_tasks(workspace, actor, &home)?;
+        let outcome = tasks::reindex_tasks(workspace, &home)?;
         println!("{}", tasks::format_task_outcome(&outcome, theme));
     }
     Ok(())

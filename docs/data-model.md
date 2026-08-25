@@ -866,6 +866,83 @@ malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
 transaction before publication. A display reference shared with an unmanaged
 row is preserved because the surviving row remains its possible target.
 
+## Agenda document (`src/tasks/agenda/doc.rs`, `<agenda_markdown_dir>/<date>.md`)
+
+The day's agenda is markdown, not a record format, so the model is deliberately
+minimal: a `Document` is a **preamble** (every line before the first `## `
+heading — the title, `**Load:**`, `**Bottom line:**`) plus an ordered list of
+`Section { heading, body }`, where a section runs from its `## ` heading to the
+next one. Deeper headings (`### `) are body content, so a sub-heading never
+splits its parent. `Document::render` rejoins the parts and restores the source's
+trailing-newline state, which is what makes "everything we didn't touch comes
+back byte-for-byte" a property of the type rather than a promise.
+
+Sections are addressed by **heading prefix**, never exact text, so the agenda's
+author keeps their wording:
+
+| Prefix | Section | How the sync treats it |
+| --- | --- | --- |
+| `## ❗` | The MIT callout | Drop lines naming the mutated id; on a completed chunk, swap in the next chunk's line. |
+| `## Suggested order` | The ordered plan | Same, plus renumber `1..N`; a chunk swap keeps the number and time slot. |
+| `## Cut order` | What to drop first | Drop lines naming the id, then renumber. |
+| `## 🔁` | Today's habits | Re-derived from `habits.csv` every run. |
+| `## ✅` | Completed today | Re-derived from both CSVs every run. |
+| `## Appendix <!-- brain:optional-content -->` | Appended optional content | Never edited; it is the boundary a newly inserted core section is placed **before**. |
+
+A line "names" an id only in bolded form (`**T535**`), matching the `/todo`
+rule that every agenda line shows ID *and* name — so `Follow up on T1` in prose
+is not a match. The two re-derived sections render as a two-column markdown
+table, cells padded to an even count, and are omitted entirely when nothing
+qualifies.
+
+## Project record (`project/model.rs`, `<brain-root>/projects/<slug>/.METADATA.json`)
+
+`name`, `namespace`, `title`, `status`, `priority`, `due`, `directory`, `tasks`.
+The slug is `<namespace>__<outcome>` in lowercase kebab, and three fields are
+derived from where the project actually lives: `name` is the folder, `namespace`
+is the part before `__`, and `directory` is the path relative to the brain root
+(`projects/<slug>`, or `archive/projects/<slug>` once archived). Every write
+realigns those three, because a record that disagrees with its own location is
+the failure this file exists to prevent.
+
+`status` is one of `not-started`, `in-progress`, `blocked`, `extracting-ips`,
+`done`; `priority` is `p0`–`p4`, the same scale tasks use; `due` is an absolute
+`YYYY-MM-DD` or `none` — strictly, because the due date is what a project list
+sorts by. `tasks` is maintained bidirectionally with the task CSVs' `project`
+column, and `brain tasks lint --fix` repairs the metadata side of that link.
+
+Fields core does not model are carried through untouched on every write, so a
+caller (or a purge's `deleted_backlog_tasks` breadcrumb) can keep its own state
+in the same file.
+
+## Contacts book (`contacts/`, `<brain-root>/resources/contacts/contacts.csv`)
+
+One CSV per workspace, columns in a fixed order: `id`, `name`, `job`, `company`,
+`email`, `phone`, `preferred_comms`, `address`, `tags`, `birthday`, `notes`,
+`created_date`, `last_updated`. Ids are `C###`, assigned as one past the highest
+in the file and **never reused** — reusing a freed id would silently re-point
+anything that referenced the old contact at a different person. Rows are always
+written back in id order, so the file stays diffable and syncs cleanly. `tags`
+is `;`-separated and matched whole, not by fragment. `preferred_comms` accepts
+only `email`, `whatsapp`, or `phone`.
+
+`contacts.config.json` beside it may carry an opaque `notion_fallback` block.
+Core neither parses nor acts on it: `brain contacts fallback` prints it, and what
+the service is, and how to reach it, is the caller's.
+
+## Day streaks (`tasks/streak.rs`, `<brain-root>/tasks/.streaks/<name>.json`)
+
+`{"dates": ["YYYY-MM-DD", …]}` per named streak. The name is restricted to
+letters, digits, `-` and `_` because it is a file name. The *streak* is the
+consecutive run ending at the target day, or at the day before when the target
+itself is unmarked — the caller has not decided about today yet, and yesterday's
+run is still real. Any older gap means broken, and broken is zero.
+
+## Monthly-triage mark (`tasks/triage_state.rs`, `<brain-root>/tasks/.monthly_triage.json`)
+
+`{"last_monthly_triage_month": "YYYY-MM"}`. "Monthly triage" is the first weekly
+triage of a calendar month, so the whole state is which month has had one.
+
 ## Portable access policy (`access/`, `.config/config.json`)
 
 `AccessMode` accepts exactly `unrestricted` and `workspace_only`. It is
@@ -1363,6 +1440,7 @@ See [config.md](config.md) for migration and storage details.
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
+| `agenda_markdown_dir` | `String` | `/tmp` | Directory holding the day's agenda markdown, `<YYYY-MM-DD>.md`. Tilde-expanded. Read by `tasks::agenda::resolve_targets`. |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |
 | `opencode_cmd` | `String` | `opencode` | Machine-local command used to launch OpenCode. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session`, and optional `--prompt`, after isolated compatibility probes. |

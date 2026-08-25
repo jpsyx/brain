@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use brain::server::control::{LeaseRegistration, ServerClient};
 use brain::server::lifecycle::{ElectionGuard, IngressId, LeaseId, ServerGeneration, ServerPaths};
 use brain::workspace::{MachineRegistry, RegistryStore, WorkspaceName, WorkspaceRecord};
-use serde_json::Map;
 use tempfile::TempDir;
 
 use super::support::{
@@ -90,7 +89,7 @@ impl BackgroundFixture {
                     aliases: BTreeSet::new(),
                     local_user_id: "pablo".to_owned(),
                     receiver_enabled: true,
-                    env: Map::new(),
+                    env: crate::support::agenda_env(home.path()),
                 },
             )]),
             env: serde_json::Map::new(),

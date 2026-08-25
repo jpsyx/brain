@@ -1,6 +1,6 @@
 //! Protected daily and weekly triage habit chains.
 
-mod complete_managed;
+pub(crate) mod complete_managed;
 mod model;
 mod purge;
 mod reconcile;

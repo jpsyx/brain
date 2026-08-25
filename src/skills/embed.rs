@@ -276,14 +276,8 @@ mod tests {
             .expect("contacts should be embedded");
         let text = skill_md_text(contacts);
         assert!(text.contains("# contacts"), "has the heading");
-        // Ships its deterministic CLI and declares the Notion-fallback hook.
-        assert!(
-            contacts
-                .files
-                .iter()
-                .any(|f| f.rel_path.as_path() == Path::new("scripts/contacts.py")),
-            "bundles scripts/contacts.py"
-        );
+        // Points at the native command rather than shipping a script.
+        assert!(text.contains("brain contacts"), "names the native command");
         assert!(
             text.contains("brain:ext contacts:fallback"),
             "declares the contacts:fallback hook"
@@ -302,7 +296,7 @@ mod tests {
         ] {
             assert!(is_build_artifact(Path::new(p)), "{p} is build litter");
         }
-        for p in ["SKILL.md", "scripts/add_task.py", "references/schema.md"] {
+        for p in ["SKILL.md", "references/schema.md", "cleanup.sh"] {
             assert!(
                 !is_build_artifact(Path::new(p)),
                 "{p} is real skill content"
@@ -341,18 +335,36 @@ mod tests {
                 "declares the `{hook}` extension hook"
             );
         }
-        // Ships its generic references + its script suite.
-        for r in [
-            "references/schema.md",
-            "references/commands.md",
-            "scripts/add_task.py",
-        ] {
+        // Ships its generic references.
+        for r in ["references/schema.md", "references/commands.md"] {
             assert!(
                 todo.files
                     .iter()
                     .any(|f| f.rel_path.as_path() == Path::new(r)),
                 "bundles {r}"
             );
+        }
+    }
+
+    /// Every deterministic operation is a `brain` subcommand now, so no
+    /// bundled skill ships executable code for one. A skill that carried a
+    /// script would be a second implementation nobody can test from here.
+    #[test]
+    fn no_bundled_skill_ships_a_script() {
+        for skill in bundled_skills() {
+            for file in &skill.files {
+                let extension = file
+                    .rel_path
+                    .extension()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .unwrap_or_default();
+                assert!(
+                    !matches!(extension, "py" | "sh" | "js" | "rb"),
+                    "bundled skill `{}` ships `{}`; make it a brain subcommand instead",
+                    skill.name,
+                    file.rel_path.display()
+                );
+            }
         }
     }
 }

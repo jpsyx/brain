@@ -217,7 +217,7 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::RebuildDerivedData => {
-                crate::reindex::run(&context.workspace, &context.actor, true, true, true)?;
+                crate::reindex::run(&context.workspace, true, true, true)?;
                 journal.record_completed(step)?;
             }
             Step::Verify => {
@@ -231,7 +231,7 @@ fn execute(
                         crate::theme::Theme::active()
                             .info("Repairing duplicate task UUIDs from an earlier writer...")
                     );
-                    crate::reindex::run(&context.workspace, &context.actor, true, true, true)?;
+                    crate::reindex::run(&context.workspace, true, true, true)?;
                 }
                 if sync_config.is_configured() {
                     super::schema_transition::publish_task_schema_transition(context, sync_config)?;

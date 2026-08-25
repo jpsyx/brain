@@ -82,25 +82,83 @@ pub fn normalize_id(raw: &str) -> Result<String> {
     Ok(format!("{prefix}{n}"))
 }
 
-pub fn run(
-    workspace: &crate::workspace::WorkspaceContext,
-    raw_id: &str,
-    actor: &crate::actor::ActorContext,
-) -> Result<()> {
-    let root = workspace.root();
+pub fn run(command: &crate::workspace::CommandContext, raw_id: &str) -> Result<()> {
+    let root = command.workspace.root();
     crate::logging::log(format!("tasks complete raw_id={raw_id}"));
     crate::logging::log(format!("complete root {}", root.display()));
     let today = Local::now().date_naive();
-    let result = complete_in_workspace_for_actor_with_today(workspace, raw_id, today, actor)?;
+    let (result, agenda) = complete_and_sync_agenda(command, raw_id, today)?;
     crate::logging::log(format!(
         "complete result kind={:?} id={}",
         result.kind, result.task_id
     ));
     print_result(&result);
+    print_agenda_outcome(agenda);
     Ok(())
 }
 
-pub(crate) fn complete_in_workspace_for_actor_with_today(
+/// Complete `raw_id`, then re-sync the day's agenda that the mutation just
+/// invalidated.
+///
+/// This is the one native completion entry point: the CLI and the tasks view
+/// both run it, so neither can leave the agenda stale (BR-19). The agenda sync
+/// is best-effort by design — the CSVs are already written and committed.
+pub(crate) fn complete_and_sync_agenda(
+    command: &crate::workspace::CommandContext,
+    raw_id: &str,
+    today: NaiveDate,
+) -> Result<(CompletionResult, crate::tasks::agenda::Outcome)> {
+    let targets =
+        crate::tasks::agenda::resolve_targets(&command.registry_store, &command.workspace, today);
+    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&command.workspace)?;
+    complete_and_sync_in_root(
+        command.workspace.root(),
+        &targets,
+        raw_id,
+        today,
+        &command.actor,
+    )
+}
+
+/// The tested core of [`complete_and_sync_agenda`], with every path injected.
+pub(crate) fn complete_and_sync_in_root(
+    root: &Path,
+    targets: &crate::tasks::agenda::Targets,
+    raw_id: &str,
+    today: NaiveDate,
+    actor: &crate::actor::ActorContext,
+) -> Result<(CompletionResult, crate::tasks::agenda::Outcome)> {
+    let result = complete_in_root_for_actor_with_today(root, raw_id, today, actor)?;
+    let outcome = crate::tasks::agenda::sync_targets(
+        targets,
+        &result.task_id,
+        crate::tasks::agenda::Action::Done,
+        today,
+    );
+    Ok((result, outcome))
+}
+
+fn print_agenda_outcome(outcome: crate::tasks::agenda::Outcome) {
+    let theme = Theme::active();
+    match outcome {
+        crate::tasks::agenda::Outcome::NoAgenda | crate::tasks::agenda::Outcome::Unchanged => {}
+        crate::tasks::agenda::Outcome::Updated { pdf } => {
+            let note = if pdf {
+                "agenda and printable updated"
+            } else {
+                "agenda updated"
+            };
+            eprintln!("  {}", theme.muted(note));
+        }
+    }
+}
+
+/// Complete one task in a workspace **without** touching the agenda.
+///
+/// The ordinary native path is [`complete_and_sync_agenda`]; this exists for
+/// callers that own agenda handling themselves (or have no agenda at all, like
+/// the CSV-level tests).
+pub fn complete_in_workspace_without_agenda_sync(
     workspace: &crate::workspace::WorkspaceContext,
     raw_id: &str,
     today: NaiveDate,

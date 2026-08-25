@@ -292,10 +292,35 @@ management and reporting commands stay outside the persistent shell.
 | `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
-| `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. |
+| `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. Also re-syncs the day's agenda markdown the completion just invalidated (see [Keeping the day's agenda in sync](#keeping-the-days-agenda-in-sync)). |
+| `brain tasks sync-agenda [<id>] [--action done\|defer\|touch] [--date YYYY-MM-DD]` | Re-sync the day's agenda after any task/habit mutation, without mutating anything itself. This is the one implementation of that sync; native completion runs the same code in-process and the bundled `/todo` mutator scripts shell out to it. Omitting the id refreshes only the CSV-derived snapshot sections; `--action` defaults to `touch`, which never edits the plan. |
 | `brain tasks add --name <name> --type <type> --priority <p0..p4> [OPTIONS]` | Create a task or habit through native Brain logic, preserving assignment, project/Linear metadata, chunking, validation, and CSV behavior. `--habit` (with `--interval`/`--unit`) creates a recurring habit and accepts `--ideal-time "6:45 AM"` to place it in the habits views' Morning/Afternoon/Evening grouping; `--ideal-time` is rejected for a plain task. Use `--json` for automation; plain output prints each created ID. |
 | `brain tasks set <id> [--name\|--due\|--priority\|--status\|--notes\|--project\|--linear-issue\|--duration\|--ideal-time]` | Edit fields on one existing task or habit by absolute value (aliases: `edit`, `update`). Accepts `t123`/`H43`/a unique fuzzy name; `--due` takes `YYYY-MM-DD`, `today`, `tomorrow`, or empty to clear. Deliberately never touches `defer_count` — this is the surface an external tracker mirrors onto, and someone else's reschedule is not the user's slip. A habit row requires `--habit`. Reports each `before → after`; `--json` for automation, and a no-op edit writes nothing. Omitting every field drops a human into an interactive field picker. |
 | `brain tasks all --no-tui --linear-issue <ID>` | Find the local task mirroring an issue-tracker identifier (case-insensitive exact match on `linear_issue`). `--linear-issue` is a global filter, so it composes with any view and with `--include-done` / `--include-deferred` to reach closed or parked mirrors. |
+| `brain tasks remove <id> [--habit]` | Delete one task (aliases: `rm`, `drop`). Removing a **habit** destroys its whole recurring chain, so it needs the explicit `--habit` opt-in — which is what keeps a task-cleanup pass structurally unable to reach one. Managed triage rows are refused outright. |
+| `brain tasks defer <id> <+Nd\|YYYY-MM-DD> [--no-count]` | Push a task out, with the defer penalty: `defer_count` climbs, the `mit` tag is shed, and a `p0` drops to `p1`. A task that is `waiting` or `blocked_by` another defers for free, as does `--no-count`. Later chunks of a chunked task cascade forward only when they would otherwise land before it, and never inherit the penalty. |
+| `brain tasks touch <id>` | Bump `last_touched` to today and change nothing else — the chronic-ignore "yes, I still care" acknowledgement. |
+| `brain tasks assign <id> <user>` | Hand a task or habit to another portable workspace member. The user ID must name a real member. |
+| `brain tasks lint [--fix]` | Check the task automation rules over both CSVs and the task ↔ project links; `--fix` applies what can be applied mechanically. What the check reports is exactly what the fix would do. Exits non-zero when a check finds issues. |
+| `brain tasks chronic [--json\|--count]` | List chronically-ignored tasks: not done, not parked, actionable, deadline imminent or absent, and either 21 days untouched, 14 days stuck in progress, or old-thin-and-never-started. |
+| `brain tasks stale-waiting [--threshold N] [--json\|--count]` | List tasks stuck in `waiting` longer than N days (7 by default). A row with no `waiting_since` is surfaced regardless — not knowing how long it has waited is itself the problem. |
+| `brain tasks linked [--open-only] [--json\|--count]` | List tasks carrying an external issue-tracker link. Brain never contacts the tracker; this is the read a caller reconciles from. |
+| `brain tasks streak <name> [status\|mark\|unmark] [--date]` | Count consecutive days on which a named thing happened, and record or forget one. Deliberately generic: brain stores the dates and counts the run; what the name means is the caller's. |
+| `brain tasks agenda-pdf [--date]` | Render the day's agenda to `<agenda_dir>/agenda-<date>.pdf`, stripping HTML comments from a copy first. Unlike the mutation path's regen, this builds one whether or not a PDF already exists — asking for it *is* the request. |
+| `brain tasks agenda-appendix --content <file> [--date]` | Bake caller-supplied markdown into the day's agenda as one generic appendix section. Re-running replaces it rather than duplicating; core never discovers the content. |
+| `brain backlog` | Review the backlog, stalest first, with how long each has been parked. `--json` for automation. |
+| `brain backlog park\|restore <id>` | Park a task indefinitely (schedule cleared, hidden from every active view) or bring one back to `not_started` without a due date. |
+| `brain backlog purge [--dry-run\|--report]` | Delete tasks parked for more than six months, leaving a breadcrumb in any project they belonged to. Silent by design. |
+| `brain backlog dedupe [--dry-run\|--report]` | Delete parked tasks an active task has already superseded — a near-identical twin created *after* the parking date. Silent by design. |
+| `brain habits defer <id> [--occurrences N]` | Skip a habit's next occurrence by advancing its due date one recurrence interval (or N), using the same catch-up maths completion uses. Nothing is marked done. |
+| `brain habits cleanup` | Sweep completed habit occurrences older than a week. Managed triage rows are never swept: removing one is a transactional decision. |
+| `brain triage state [--mark]` | Report whether today's weekly triage is also this month's monthly one, or record that it has happened. "Monthly triage" is the first weekly pass of a calendar month, so this is one bit of state. |
+| `brain contacts [add\|edit\|delete\|list\|find\|get\|fallback]` | The workspace's local contacts book. Bare `brain contacts` lists everyone; `--pretty` prints a table instead of JSON. Ids are `C###`, assigned in sequence and never reused. Resolution takes an id, then an exact name, then a name fragment, and **refuses** rather than guessing when more than one contact matches. |
+| `brain project new <slug> --title <t> --priority <p0..p4> [--status] [--due] [--description]` | Scaffold a PARA project: the folder, its full `.METADATA.json`, and a README with the H1 and description — then rebuild `projects-lookup.csv`. Refuses to overwrite an existing project, and refuses a due date that isn't an absolute `YYYY-MM-DD` or `none`. Deciding the namespace, outcome slug, and priority stays with the person; writing the record exactly does not. |
+| `brain project set <slug> [--title\|--status\|--priority\|--due]` | Change a project's state. Only the fields you pass move, each is validated, unknown fields in the file are carried through untouched, and the lookup is rebuilt — so there is no way to leave it stale. Reports only what actually changed. |
+| `brain project archive <slug>` | Move a project to `archive/projects/<slug>`, keeping its folder name, repointing `.METADATA.json:directory`, and rebuilding the lookup. |
+| `brain project show <slug> [--json]` | Describe a project, plus how many of its tasks are open and how many the chronic-ignore sweep flags. When *every* open task has been ignored it says so outright (`died_quietly`): a project whose tasks all went quiet stopped rather than finished, and archiving it should be a decision rather than a way of papering over rot. |
+| `brain clean [--dry-run]` | Remove tool byproducts (Finder metadata, Python caches, editor scratch) from the workspace root. Idempotent; the pattern list is conservative and closed. |
 | `brain tasks doctor` | Run the state/hook health check, no TUI. |
 | `brain tasks search <q>` | Open the shell with an initial search over all tasks. |
 | `brain config [list\|get\|set]` | Read or change persistent, portable config (see below). |
@@ -1770,8 +1795,10 @@ The rule:
 - **`--until YYYY-MM-DD`** (either cadence) → `due_date` is deferred to that day,
   never marked done. Must be strictly after today.
 
-Like `brain tasks complete`, skip mutates the CSV natively and does not touch the
-agenda file; the next agenda build re-derives habit state from the CSV.
+Like every other native mutation, skip keeps the day's agenda in step: a daily
+skip is a completion, so the habit leaves the plan and joins Completed today;
+any other cadence is a one-day defer, which only drops it from the plan. See
+[Keeping the day's agenda in sync](#keeping-the-days-agenda-in-sync).
 
 `brain habits complete-managed-triage <daily|weekly>` completes Brain's managed
 triage occurrence **without needing its id**: it marks today's occurrence done
@@ -1785,6 +1812,72 @@ now exposed as a first-class CLI so an agent (or you) can do it non-interactivel
 It **respects `enable_triage_habits`**: with the feature off it is a pure no-op
 that mutates nothing (the day is acknowledged handled), so a fork with the
 feature disabled behaves identically.
+
+## Keeping the day's agenda in sync
+
+The day's agenda is a markdown file — `<agenda_markdown_dir>/<YYYY-MM-DD>.md`,
+`/tmp` by default — that whoever builds the agenda writes, and that the user
+reads (and prints) all day. It is a **snapshot of the CSVs**, not a second
+source of truth: the CSVs decide, the agenda reports. So the moment a mutation
+lands in a CSV, the snapshot is out of date.
+
+Brain closes that gap itself. **Every native path that writes `tasks.csv` or
+`habits.csv` runs the sync**, in-process, right after the write:
+
+| Mutation | What it tells the agenda |
+| --- | --- |
+| `brain tasks complete`, the tasks view's mark-complete | Completed: drop it from the plan, hand a chunked task's slot to its next chunk |
+| The habits browser page's done button | Completed |
+| `brain habits skip` on a **daily** habit | Completed (a daily skip marks done and respawns) |
+| `brain habits skip` on any other cadence, or with `--until` | Deferred: drop it from the plan |
+| `brain habits complete-managed-triage`, the daily-triage nudge's **Skip** | Completed |
+| `brain tasks set --status done` | Completed |
+| `brain tasks set --due <another day>` | Deferred |
+| `brain tasks set` on any other field | Refresh the snapshots only — renaming a task is not a statement that it left today |
+| `brain tasks add` | Refresh the snapshots only (a new habit due today joins Today's habits) |
+| `brain habits revive` | Refresh the snapshots only, which is provably a no-op: the occurrence it spawns is dated strictly after today |
+
+`brain tasks sync-agenda` exposes the same code to every other mutator, and the
+bundled `/todo` mutator scripts (`defer_task.py`, `defer_habit.py`,
+`touch_task.py`, `backlog_task.py`) shell out to it rather than carrying a
+second copy. Nobody has to remember to rewrite the agenda by hand, and a
+freehand rewrite is exactly how sections used to get dropped.
+
+One sync does three things, and nothing else:
+
+1. **The actionable sections lose the mutated id.** The MIT callout, `Suggested
+   order`, and `Cut order` drop every line naming it, and the numbered lists are
+   resequenced from 1. Sections are matched by heading prefix (`## ❗`,
+   `## Suggested order`, `## Cut order`), so the author's exact wording is free.
+   On a completed **chunked** task whose next chunk is unfinished and not yet on
+   the agenda, that chunk inherits the vacated callout line and suggested-order
+   slot (keeping its number and time), so exactly one actionable chunk stays
+   visible.
+2. **The snapshot sections are re-derived from the CSVs.** `🔁 Today's habits`
+   (pending habits with no due date or one on/before today, then today's
+   completions, ordered by ideal time, duration, then name) and
+   `✅ Completed today` (habits, then tasks, completed on that date) are rebuilt
+   from scratch every run — which is what catches a habit flipped to done
+   outside this process. A section with nothing to show is removed; a missing
+   one is inserted before any appended optional content, never after it.
+3. **The printable is regenerated, but only if one already exists.** A CSV
+   mutation is not a request for a fresh printout, so no PDF on disk means no
+   PDF. When `<agenda_dir>/agenda-<date>.pdf` does exist it must stay current,
+   so it is re-rendered from a comment-stripped copy of the markdown (the
+   renderer has no concept of HTML, so an unstripped comment would print as
+   visible text; the marker stays in the source, where the appendix baker greps
+   for it).
+
+**Everything else is reassembled byte-for-byte** — the title, `**Load:**`,
+`**Bottom line:**`, and any section Brain has never heard of. The sync is
+idempotent: re-running it on an already-accurate agenda writes nothing and
+regenerates nothing.
+
+It is also strictly best-effort. The CSVs are already written and committed by
+the time the sync runs, so a missing agenda, an unreadable file, or a broken PDF
+renderer is logged and swallowed — never a reason to fail a completion that
+already succeeded. No agenda for the date at all is the ordinary case, and it
+is a clean no-op.
 
 ### Prerequisite: `markdown-to-pdf`
 
