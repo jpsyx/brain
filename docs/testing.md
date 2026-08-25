@@ -659,16 +659,21 @@ first move is a failing test that reproduces it, *then* the fix.
   implementation nodes, and return facts, so two traits sharing one method
   name cannot overwrite one another. Non-test `cfg` alternatives that produce
   the same exact function or method node union every possible production call
-  edge and violation independent of source order; exact `cfg(test)` items stay
-  excluded. Ordinary method dispatch resolves a trait only when its exact
-  canonical identity is visible through the local module, a named import, or
-  the nearest finite module or block glob export graph.
+  edge, violation, and return-type fact independent of source order. Return
+  alternatives stay separate, so a forbidden canonical role in any possible
+  branch is retained without combining unrelated facts into an invented type;
+  exact `cfg(test)` items stay excluded. Ordinary method dispatch resolves a
+  trait only when its exact canonical identity is visible through the local
+  module, a named import, or the nearest finite module or block glob export
+  graph.
   Local declarations shadow glob traits, and colliding glob traits do not
-  create a guessed implementation edge. Typed closure parameters receive their
-  own lexical variable facts, including nested, `move`, and returned closures;
-  an inner closure shadows outer bindings. The receiver-reachable graph rejects
-  main-panel operations, activity sampling, and Unix socket accepts and reads,
-  including reads before job decoding. A separate semantic pass rejects
+  create a guessed implementation edge. Typed function and closure patterns
+  bind only the matching tuple, nested tuple, tuple-struct, struct, slice,
+  reference, or or-pattern component fact. Nested, `move`, and returned
+  closures retain their own lexical variable facts, and an inner closure
+  shadows outer bindings. The receiver-reachable graph rejects main-panel
+  operations, activity sampling, and Unix socket accepts and reads, including
+  reads before job decoding. A separate semantic pass rejects
   canonical typed `InboundJob` channel or queue consumption in every declared
   or orphan production module, independent of receiver-like module names or
   call reachability. Receiver `iter`, `try_iter`, `into_iter`, and `for`
@@ -677,12 +682,12 @@ first move is a failing test that reproduces it, *then* the fix.
   harmless; unrelated channel and socket operations remain outside that global
   rule. The guard also counts exactly one production receiver tick call.
   Mutation fixtures cover unconditional test-looking modules, true test scopes,
-  non-test platform alternatives in both source orders, neutral-name orphans,
-  indirect interactive helpers, typed nested and returned closures,
-  cross-module aliases, qualified-self UFCS, same-named trait implementations
-  in both source orders, module and block glob trait visibility, controller
-  fields and return chains, Unix sockets, channels, queues, and consuming
-  iteration. Negative fixtures prove a
+  non-test platform alternatives and return facts in both source orders,
+  neutral-name orphans, indirect interactive helpers, typed destructuring,
+  nested and returned closures, cross-module aliases, qualified-self UFCS,
+  same-named trait implementations in both source orders, module and block glob
+  trait visibility, controller fields and return chains, Unix sockets,
+  channels, queues, and consuming iteration. Negative fixtures prove a
   qualified safe trait call cannot inherit its peer's forbidden edge, local or
   ambiguous glob traits cannot select a forbidden peer, unrelated channel and
   socket types stay harmless, and unrelated same-name methods and ordinary

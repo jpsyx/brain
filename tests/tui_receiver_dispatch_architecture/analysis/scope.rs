@@ -22,7 +22,8 @@ impl<'symbols> Scope<'symbols> {
         lexical: &LexicalScope,
     ) -> Option<String> {
         if let Some(qself) = &expression.qself {
-            let owner = self.type_fact_scoped(&qself.ty, lexical).canonical?;
+            let owner = self.type_fact_scoped(&qself.ty, lexical);
+            let owner = owner.sole_canonical()?;
             let operation = expression.path.segments.last()?.ident.to_string();
             let trait_name = self.symbols.qself_trait_scoped(
                 &self.module,
@@ -30,7 +31,7 @@ impl<'symbols> Scope<'symbols> {
                 qself.position,
                 lexical,
             );
-            return Some(method_target(&owner, trait_name.as_deref(), &operation));
+            return Some(method_target(owner, trait_name.as_deref(), &operation));
         }
         Some(self.resolve_path_scoped(&expression.path, lexical))
     }
@@ -65,8 +66,11 @@ impl<'symbols> Scope<'symbols> {
 
     pub(super) fn type_display_scoped(&self, ty: &syn::Type, lexical: &LexicalScope) -> String {
         self.type_fact_scoped(ty, lexical)
-            .canonical
-            .unwrap_or_else(|| format!("{}::<anonymous>", self.module.join("::")))
+            .sole_canonical()
+            .map_or_else(
+                || format!("{}::<anonymous>", self.module.join("::")),
+                str::to_owned,
+            )
     }
 
     pub(super) fn lexical_scope(generics: &[&syn::Generics]) -> LexicalScope {
@@ -104,7 +108,7 @@ impl<'symbols> Scope<'symbols> {
         owner: &TypeFact,
         target: Option<String>,
     ) -> Option<String> {
-        if owner.server_control_client
+        if owner.all_variants(|owner| owner.server_control_client)
             && target
                 .as_deref()
                 .is_some_and(|target| self.symbols.is_control_capability(target))
@@ -125,9 +129,10 @@ impl<'symbols> Scope<'symbols> {
             canonical.rsplit("::").next(),
             Some("channel" | "sync_channel")
         ) && path.segments.iter().any(|segment| {
-            generic_types(segment)
-                .into_iter()
-                .any(|ty| self.type_fact_scoped(ty, lexical).inbound_job)
+            generic_types(segment).into_iter().any(|ty| {
+                self.type_fact_scoped(ty, lexical)
+                    .any_variant(|fact| fact.inbound_job)
+            })
         })
     }
 }

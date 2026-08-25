@@ -1,26 +1,13 @@
 #[path = "analysis/collect.rs"]
 mod collect;
+#[path = "analysis/facts.rs"]
+mod facts;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use collect::collect_program;
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct TypeFact {
-    pub(super) canonical: Option<String>,
-    pub(super) borrowed: bool,
-    pub(super) unresolved_glob: bool,
-    pub(super) inbound_job: bool,
-    pub(super) agent_controller: bool,
-    pub(super) app: bool,
-    pub(super) brain_panel: bool,
-    pub(super) server_control_client: bool,
-    pub(super) unix_listener: bool,
-    pub(super) unix_stream: bool,
-    pub(super) channel_receiver: bool,
-    pub(super) memory_queue: bool,
-}
+pub(super) use facts::TypeFact;
 
 #[derive(Clone, Debug)]
 pub(super) struct RawCall {
@@ -124,10 +111,16 @@ pub(super) fn receiver_owned_module(module: &[String]) -> bool {
 }
 
 pub(super) fn is_receiver_tick_call(owner: &TypeFact, method: &str) -> bool {
-    owner.app && method == "tick_receiver"
+    method == "tick_receiver" && owner.any_variant(|variant| variant.app)
 }
 
 pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
+    owner
+        .variants()
+        .find_map(|variant| classify_single_operation(variant, method))
+}
+
+fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
     if owner.unresolved_glob {
         return Some("unresolved glob-owned type operation");
     }
@@ -173,36 +166,44 @@ pub(super) fn is_global_inbound_consumer(owner: &TypeFact, method: &str) -> bool
 }
 
 fn is_inbound_channel_consumer(owner: &TypeFact, method: &str) -> bool {
-    owner.channel_receiver
-        && owner.inbound_job
-        && matches!(
-            method,
-            "recv" | "try_recv" | "recv_timeout" | "iter" | "try_iter"
-        )
+    owner.any_variant(|variant| {
+        variant.channel_receiver
+            && variant.inbound_job
+            && matches!(
+                method,
+                "recv" | "try_recv" | "recv_timeout" | "iter" | "try_iter"
+            )
+    })
 }
 
 fn is_inbound_queue_consumer(owner: &TypeFact, method: &str) -> bool {
-    owner.memory_queue
-        && owner.inbound_job
-        && matches!(method, "pop_front" | "pop_back" | "remove" | "drain")
+    owner.any_variant(|variant| {
+        variant.memory_queue
+            && variant.inbound_job
+            && matches!(method, "pop_front" | "pop_back" | "remove" | "drain")
+    })
 }
 
 pub(super) fn classify_into_iteration(owner: &TypeFact) -> Option<&'static str> {
-    if owner.channel_receiver && owner.inbound_job {
-        return Some("in-memory receiver channel consume");
-    }
-    if owner.memory_queue && owner.inbound_job && !owner.borrowed {
-        return Some("in-memory receiver queue consume");
-    }
-    None
+    owner.variants().find_map(|variant| {
+        if variant.channel_receiver && variant.inbound_job {
+            Some("in-memory receiver channel consume")
+        } else if variant.memory_queue && variant.inbound_job && !variant.borrowed {
+            Some("in-memory receiver queue consume")
+        } else {
+            None
+        }
+    })
 }
 
 pub(super) fn is_into_iterator_dispatch(owner: &TypeFact, method: &str) -> bool {
     method == "into_iter"
-        && (owner.channel_receiver
-            || owner.memory_queue
-            || matches!(
-                owner.canonical.as_deref(),
-                Some("std::iter::IntoIterator" | "core::iter::IntoIterator")
-            ))
+        && owner.any_variant(|variant| {
+            variant.channel_receiver
+                || variant.memory_queue
+                || matches!(
+                    variant.canonical.as_deref(),
+                    Some("std::iter::IntoIterator" | "core::iter::IntoIterator")
+                )
+        })
 }

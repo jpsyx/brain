@@ -38,17 +38,9 @@ impl Symbols {
         type_parameters: &HashMap<String, TypeFact>,
     ) -> TypeFact {
         match ty {
-            syn::Type::Reference(reference) => {
-                let mut fact = self.type_fact_inner(
-                    module,
-                    &reference.elem,
-                    lexical,
-                    resolving,
-                    type_parameters,
-                );
-                fact.borrowed = true;
-                fact
-            }
+            syn::Type::Reference(reference) => self
+                .type_fact_inner(module, &reference.elem, lexical, resolving, type_parameters)
+                .mark_borrowed(),
             syn::Type::Paren(parenthesized) => self.type_fact_inner(
                 module,
                 &parenthesized.elem,
@@ -59,6 +51,29 @@ impl Symbols {
             syn::Type::Group(group) => {
                 self.type_fact_inner(module, &group.elem, lexical, resolving, type_parameters)
             }
+            syn::Type::Tuple(tuple) => TypeFact::tuple(
+                tuple
+                    .elems
+                    .iter()
+                    .map(|element| {
+                        self.type_fact_inner(module, element, lexical, resolving, type_parameters)
+                    })
+                    .collect(),
+            ),
+            syn::Type::Array(array) => TypeFact::sequence(self.type_fact_inner(
+                module,
+                &array.elem,
+                lexical,
+                resolving,
+                type_parameters,
+            )),
+            syn::Type::Slice(slice) => TypeFact::sequence(self.type_fact_inner(
+                module,
+                &slice.elem,
+                lexical,
+                resolving,
+                type_parameters,
+            )),
             syn::Type::Path(path) => {
                 if let Some(fact) = type_parameter_fact(path, type_parameters) {
                     return fact;
@@ -128,7 +143,7 @@ impl Symbols {
                 let inbound_job = path.path.segments.iter().any(|segment| {
                     generic_types(segment).into_iter().any(|ty| {
                         self.type_fact_inner(module, ty, lexical, resolving, type_parameters)
-                            .inbound_job
+                            .any_variant(|fact| fact.inbound_job)
                     })
                 });
                 fact_for_canonical(canonical, inbound_job)
@@ -219,18 +234,24 @@ impl Symbols {
     }
 
     pub(in super::super) fn field_fact(&self, owner: &TypeFact, member: &syn::Member) -> TypeFact {
-        let Some(owner) = &owner.canonical else {
-            return TypeFact::default();
-        };
         let member = match member {
             syn::Member::Named(name) => name.to_string(),
             syn::Member::Unnamed(index) => index.index.to_string(),
         };
-        self.definition_fact(self.fields.get(&format!("{owner}::{member}")))
+        TypeFact::alternatives(owner.variants().filter_map(|owner| {
+            let owner = owner.canonical.as_ref()?;
+            Some(self.definition_fact(self.fields.get(&format!("{owner}::{member}"))))
+        }))
     }
 
     pub(in super::super) fn return_fact(&self, target: &str) -> TypeFact {
-        self.definition_fact(self.returns.get(target))
+        TypeFact::alternatives(
+            self.returns
+                .get(target)
+                .into_iter()
+                .flatten()
+                .map(|definition| self.definition_fact(Some(definition))),
+        )
     }
 
     fn definition_fact(&self, definition: Option<&TypeDefinition>) -> TypeFact {
@@ -307,6 +328,7 @@ fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
         unix_stream,
         channel_receiver,
         memory_queue,
+        ..TypeFact::default()
     }
 }
 

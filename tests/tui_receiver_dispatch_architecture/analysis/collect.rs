@@ -3,6 +3,8 @@ use std::path::Path;
 
 use syn::visit::Visit;
 
+#[path = "collect/expressions.rs"]
+mod expressions;
 #[path = "collect/patterns.rs"]
 mod patterns;
 #[path = "scope.rs"]
@@ -103,10 +105,10 @@ fn collect_impl(
     let impl_lexical = Scope::lexical_scope(&[&item_impl.generics]);
     let self_fact = scope.type_fact_scoped(&item_impl.self_ty, &impl_lexical);
     let self_type = (
-        self_fact
-            .canonical
-            .clone()
-            .unwrap_or_else(|| scope.type_display_scoped(&item_impl.self_ty, &impl_lexical)),
+        self_fact.sole_canonical().map_or_else(
+            || scope.type_display_scoped(&item_impl.self_ty, &impl_lexical),
+            str::to_owned,
+        ),
         self_fact,
         item_impl
             .trait_
@@ -155,6 +157,7 @@ fn collect_function(
     for input in &signature.inputs {
         if let syn::FnArg::Typed(argument) = input {
             bind_pattern(
+                scope,
                 &argument.pat,
                 scope.type_fact_scoped(&argument.ty, &lexical),
                 &mut variables[0],
@@ -215,6 +218,7 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
         syn::visit::visit_local(self, local);
         if let Some(fact) = fact {
             bind_pattern(
+                self.scope,
                 &local.pat,
                 fact,
                 self.variables
@@ -240,11 +244,12 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
             }
             if let Some(violation) = classify_operation(&owner, &name) {
                 self.record_operation(&owner, &name, violation);
-            } else if owner
-                .canonical
-                .as_deref()
-                .is_some_and(|owner| owner.ends_with("::Read"))
-                && let Some(stream) = call.args.first()
+            } else if owner.any_variant(|owner| {
+                owner
+                    .canonical
+                    .as_deref()
+                    .is_some_and(|owner| owner.ends_with("::Read"))
+            }) && let Some(stream) = call.args.first()
                 && let Some(violation) = classify_operation(&self.expression_fact(stream), &name)
             {
                 self.violations.push(violation.to_owned());
@@ -288,13 +293,15 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
         {
             self.record_global_operation(violation);
         }
-        let exact_target = owner.canonical.as_ref().and_then(|owner| {
-            self.scope
-                .method_call_target_scoped(owner, &name, &self.lexical)
-        });
-        self.calls.push(RawCall {
-            exact_target: self.scope.receiver_reachable_target(&owner, exact_target),
-        });
+        for variant in owner.variants() {
+            let exact_target = variant.canonical.as_ref().and_then(|owner| {
+                self.scope
+                    .method_call_target_scoped(owner, &name, &self.lexical)
+            });
+            self.calls.push(RawCall {
+                exact_target: self.scope.receiver_reachable_target(variant, exact_target),
+            });
+        }
         syn::visit::visit_expr_method_call(self, call);
     }
 
@@ -310,6 +317,7 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
         let mut variables = HashMap::new();
         for input in &closure.inputs {
             bind_pattern(
+                self.scope,
                 input,
                 closure_parameter_fact(self.scope, &self.lexical, input),
                 &mut variables,
@@ -334,51 +342,5 @@ impl BodyVisitor<'_, '_> {
     fn record_global_operation(&mut self, violation: &str) {
         self.violations.push(violation.to_owned());
         self.global_consumer_violations.push(violation.to_owned());
-    }
-
-    fn expression_fact(&self, expression: &syn::Expr) -> TypeFact {
-        match expression {
-            syn::Expr::Path(path) if path.path.segments.len() == 1 => self
-                .variables
-                .iter()
-                .rev()
-                .find_map(|variables| variables.get(&path.path.segments[0].ident.to_string()))
-                .cloned()
-                .unwrap_or_default(),
-            syn::Expr::Reference(reference) => {
-                let mut fact = self.expression_fact(&reference.expr);
-                fact.borrowed = true;
-                fact
-            }
-            syn::Expr::Paren(parenthesized) => self.expression_fact(&parenthesized.expr),
-            syn::Expr::Group(group) => self.expression_fact(&group.expr),
-            syn::Expr::Field(field) => {
-                let owner = self.expression_fact(&field.base);
-                self.scope.field_fact(&owner, &field.member)
-            }
-            syn::Expr::Call(call) => {
-                let syn::Expr::Path(target) = call.func.as_ref() else {
-                    return TypeFact::default();
-                };
-                self.scope
-                    .call_target_scoped(target, &self.lexical)
-                    .map_or_else(TypeFact::default, |target| self.scope.return_fact(&target))
-            }
-            syn::Expr::MethodCall(call) => {
-                let owner = self.expression_fact(&call.receiver);
-                owner
-                    .canonical
-                    .as_ref()
-                    .and_then(|owner| {
-                        self.scope.method_call_target_scoped(
-                            owner,
-                            &call.method.to_string(),
-                            &self.lexical,
-                        )
-                    })
-                    .map_or_else(TypeFact::default, |target| self.scope.return_fact(&target))
-            }
-            _ => TypeFact::default(),
-        }
     }
 }

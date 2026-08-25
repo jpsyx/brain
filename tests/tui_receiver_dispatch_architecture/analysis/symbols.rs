@@ -25,7 +25,7 @@ pub(super) struct Symbols {
     imports: ImportIndex,
     aliases: HashMap<String, TypeDefinition>,
     fields: HashMap<String, TypeDefinition>,
-    returns: HashMap<String, TypeDefinition>,
+    returns: HashMap<String, Vec<TypeDefinition>>,
     methods: MethodIndex,
     control_capabilities: HashSet<String>,
 }
@@ -112,7 +112,8 @@ impl Symbols {
         let impl_lexical = LexicalScope::from_generics(&[&item_impl.generics]);
         let Some(owner) = self
             .type_fact_scoped(module, &item_impl.self_ty, &impl_lexical)
-            .canonical
+            .sole_canonical()
+            .map(str::to_owned)
         else {
             return;
         };
@@ -175,14 +176,11 @@ impl Symbols {
         let syn::ReturnType::Type(_, ty) = output else {
             return;
         };
-        self.returns.insert(
-            id,
-            TypeDefinition {
-                module: module.to_vec(),
-                ty: (**ty).clone(),
-                lexical,
-            },
-        );
+        self.returns.entry(id).or_default().push(TypeDefinition {
+            module: module.to_vec(),
+            ty: (**ty).clone(),
+            lexical,
+        });
     }
 
     pub(super) fn resolve_path_scoped(
@@ -273,7 +271,8 @@ impl Symbols {
                     return None;
                 };
                 self.type_fact_scoped(module, &argument.ty, lexical)
-                    .canonical
+                    .sole_canonical()
+                    .map(str::to_owned)
             })
             .collect::<Vec<_>>();
         receiver_is_shared
