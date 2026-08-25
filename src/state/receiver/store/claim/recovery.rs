@@ -47,7 +47,7 @@ pub(super) fn recover_expired_launching(
              claim_owner = ?11, claim_expires_at_unix_ms = ?12,
              updated_at_unix_ms = ?6
          WHERE workspace_id = ?1 AND job_id = ?2 AND conversation_id = ?3
-           AND state = 'launching' AND claim_owner = ?4
+           AND state IN ('launching', 'launched') AND claim_owner = ?4
            AND claim_expires_at_unix_ms <= ?6 AND retry_count = ?5",
         rusqlite::params![
             workspace_id,

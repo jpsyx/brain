@@ -182,8 +182,8 @@ The OpenCode adapter
 launches `opencode` with the named Brain agent, translates semantic input to
 OpenCode control sequences, and supplies the trusted Brain policy through
 `OPENCODE_CONFIG_CONTENT`. The installed `.opencode/plugins/brain.js` bridge
-maps OpenCode `session.created` and `session.idle` events into Brain's generic
-lifecycle bridges. Selecting more than one frontend exits with
+maps OpenCode root-session, incremental user-message part, post-tool, and idle
+events into Brain's generic lifecycle bridges. Selecting more than one frontend exits with
 `🔴 Choose one agent frontend: --claude, --codex, or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
@@ -257,7 +257,9 @@ portable-transcript section. The raw receiver prompt is bounded to 47 KiB
 after canonical local paths are available, while retaining the newest
 UTF-8-safe transcript suffix. The planner keeps only a deterministic prefix of
 complete JSON path records and adds an explicit omission marker when more paths
-do not fit. Planning reserves 12 KiB for command, policy, and options under a
+do not fit. Its final line is the exact trusted
+`<!-- brain:receiver-job-token=<uuid> -->` marker used by lifecycle acceptance.
+Planning reserves 12 KiB for command, policy, and options under a
 96 KiB complete `/bin/sh -c` argument ceiling, accounting for adaptive POSIX
 quoting whose worst case is seven output bytes per four input bytes plus
 delimiters. `AgentController` checks the exact rendered argument before spawn,
@@ -280,6 +282,12 @@ after this renewal succeeds. When a boundary fails under the exact owner,
 cleanup finishes first; the coordinator then takes a new clock observation
 immediately before the retry CAS. This keeps retry timestamps and lease checks
 independent of slow cleanup.
+After successful spawn and tab allocation, one final exact-owner observation
+commits the Task 1 `launched` boundary with the job token, remote instance, and
+registered session before the run becomes active. Completion remains forbidden
+from `launching`; it is accepted only from `launched`, `accepted`, or
+`processing`. A process that exits before acceptance can still take the bounded
+pre-acceptance retry path from either side of that post-spawn commit.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
@@ -864,6 +872,26 @@ Which session to run is decided by the **lock + recency** model in
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
+   Receiver launches alone also receive `BRAIN_RECEIVER_JOB_TOKEN` and the
+   exact UUID-scoped cache path in `BRAIN_RECEIVER_OBSERVATION_PATH`.
+   Interactive panels and skill sessions receive neither variable, so their
+   ordinary prompts cannot produce receiver evidence. The generic
+   `receiver_observation_bridge.py` handles Claude and Codex
+   `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
+   token's exact marker as the prompt's final line. Progress requires an
+   accepted snapshot with the same token, remote instance, and native session.
+   Child, mismatched, duplicate, and regressed events are no-ops.
+
+   The normalized observation is an owner-only JSON snapshot and owner-only
+   advisory lock below the workspace UUID's receiver-observation cache. Schema
+   version 1 is limited to 4096 bytes and has only `version`, `revision`,
+   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, and the three
+   boundary timestamps. Writers serialize, flush an owner-only same-directory
+   temporary file, and atomically replace the snapshot. Revisions increase
+   only on `accepted`, `progressing`, or `completed` transitions, and each
+   later snapshot retains earlier timestamps. It stores no prompt, marker,
+   tool, response, sender, recipient, path, cwd, credential, or transcript
+   content.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
@@ -884,8 +912,11 @@ Which session to run is decided by the **lock + recency** model in
    Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives Codex turns the
    same completion path as Claude and OpenCode. The artifact includes frontend,
-   workspace, session, response, actor, channel, and completion status. An
-   interactive turn accepts only its launched session context.
+   workspace, session, response, actor, channel, and completion status. For a
+   receiver run it also includes the exact job token, then publishes the
+   content-free `completed` observation after the response and database commit.
+   An interactive turn accepts only its launched session context and has no job
+   token or observation authority.
    An active receiver run additionally requires the exact durable job, remote
    instance, response ID, frontend, actor, channel, and locked session in
    `completed` state. After artifact validation, Brain carries that validated
@@ -897,8 +928,9 @@ Which session to run is decided by the **lock + recency** model in
    channel-specific reply, moves the exact launch directly to `done`, releases
    that remote session owner, shuts down its controller once, removes only its
    tab, reloads tasks, and starts an immediate sync push. Direct
-   `launching`-to-`done` is temporary until BR-15 supplies accepted and
-   processing proof.
+   `launching`-to-`done` remains temporary: this task produces normalized
+   accepted and progressing evidence, while later controller work owns parsing,
+   polling, and durable application.
    If the receiver child exits without that exact artifact, Brain releases the
    registration, shuts down and removes only that tab, and records a durable
    pre-acceptance retry. If claim renewal loses ownership, it performs only
@@ -936,7 +968,8 @@ No TUI in-memory receiver queue remains. Prompt submission, completion, delivery
 queue consumption remain in the live TUI and never move into the shared server.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
-root-anchored `SessionStart` and `Stop` entries in
+root-anchored `SessionStart`, `Stop`, `UserPromptSubmit`, and `PostToolUse`
+entries in
 `<brain-root>/.claude/settings.json`; Codex stores them in
 `<brain-root>/.codex/hooks.json`. Each command resolves a script below that
 workspace's `.brain/hooks/` directory. Brain-launched Codex sessions include
@@ -948,6 +981,12 @@ those hooks before launching that workspace through Brain.
 OpenCode installs one exact workspace plugin at
 `<brain-root>/.opencode/plugins/brain.js`. On a root `session.created`, the
 plugin sends `{session_id, source}` to the generic session-start bridge. On
+incremental user `message.updated` plus `message.part.updated` events, it keeps
+at most 32 current message-to-session correlations and invokes acceptance only
+for the exact terminal receiver marker in a known root session. Its supported
+post-tool callback publishes progress only for a session accepted by that
+bounded state, passing no tool name, input, or output. These two paths never
+fetch or rescan message history. On
 `session.idle`, it resolves the reported session through the OpenCode client,
 rejects child sessions, fetches messages for that selected directory, and sends
 only the newest completed, non-synthetic assistant text to the generic
@@ -964,14 +1003,14 @@ the referent. A symlink whose final destination remains inside the workspace is
 preserved and updated atomically. The standalone repair installer applies the
 same confinement before copying a bridge or plugin.
 
-The plugin stays deliberately thin. OpenCode-specific event names and SDK calls
-belong in JavaScript, while session rotation, tuple authorization,
-deduplication, atomic response publication, and receiver delivery remain in
-Brain's generic Python bridges and SQLite transaction. This keeps one security
-and delivery contract for all frontends instead of reimplementing DB authority
-inside a frontend plugin.
+The plugin stays deliberately thin. OpenCode-specific event names, bounded
+correlation, and SDK calls belong in JavaScript, while observation transitions,
+session rotation, tuple authorization, deduplication, atomic response
+publication, and receiver delivery remain in Brain's generic Python bridges
+and SQLite transaction. This keeps one security and delivery contract for all
+frontends instead of reimplementing DB authority inside a frontend plugin.
 
-All three frontends can launch non-Python commands. Brain keeps these two
+All three frontends can launch non-Python commands. Brain keeps these three
 bridges as Python 3 scripts because the shipped standard-library implementation
 already provides the JSON, SQLite, locking, and atomic-file behavior needed at
 the hook boundary, while a second Rust executable would add build and install
@@ -987,7 +1026,7 @@ each other's sessions. The merged shell has a single app-level brain panel, so
 there is now exactly one generic lifecycle protocol, keyed on `BRAIN_*`, one DB
 per workspace UUID (`<workspace-cache>/state.db`, table
 `brain_sessions`), and
-one namespace. Registry-driven installation deploys the two generic scripts into
+one namespace. Registry-driven installation deploys the three generic scripts into
 `<brain-root>/.brain/hooks/` and registers them in that workspace's
 `.claude/settings.json` and `.codex/hooks.json`.
 
@@ -1008,13 +1047,21 @@ Codex reads the selected workspace's `.codex/hooks.json`, so Brain emits
 workspace explicitly. No absolute path is baked into either hook file, because
 both are read on every synced machine.
 
-`scripts/install_hook.sh` deploys the generic session-start and session-stop
-bridges, Claude/Codex workspace hook settings, and the
+`scripts/install_hook.sh` deploys the generic session-start, session-stop, and
+receiver-observation bridges, Claude/Codex workspace hook settings, and the
 OpenCode plugin from the same lifecycle registry contract. It strips stale
 legacy commands by script basename while preserving unrelated settings. Every
 ordinary Brain startup does the same automatically for every existing configured
 workspace before command dispatch; `brain receiver setup` also refreshes every
 registered frontend. Help and version are the only public no-write exceptions.
+Registry health checks compare the exact three bridge sources, the OpenCode
+plugin, and all four Claude/Codex event registrations. Startup reconciliation
+therefore replaces a stale observation bridge while preserving unrelated user
+hooks and plugin configuration.
+The 0.81 startup migration owns this producer layer. Its down operation removes
+only the receiver-observation script and submit/post-tool registrations, then
+restores the frozen 0.80 OpenCode plugin while leaving session start, stop, and
+unrelated user lifecycle configuration intact.
 The 0.71 lifecycle migration removes global registrations immediately, but
 retains workspace-local forwarding shims for the legacy script paths that an
 already-running frontend may have cached in memory. Those shims execute the new

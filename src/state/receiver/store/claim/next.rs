@@ -5,7 +5,7 @@ use rusqlite::OptionalExtension as _;
 
 use super::recovery::{ExpiredLaunchingRecovery, recover_expired_launching};
 use super::restart::has_ready_restart;
-use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverJobState, ReceiverRunClaim};
+use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim};
 
 use super::super::{
     load::{load_receiver_conversation, load_receiver_job},
@@ -58,7 +58,7 @@ impl Db {
         let Some(candidate) = candidate else {
             return Ok(None);
         };
-        if candidate.state == ReceiverJobState::Launching.as_str() {
+        if matches!(candidate.state.as_str(), "launching" | "launched") {
             match recover_expired_launching(
                 &transaction,
                 &self.workspace_id,

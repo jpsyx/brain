@@ -80,9 +80,11 @@ impl App {
             return None;
         }
         let workspace_id = attribution.scope().workspace_id().to_string();
+        let job_token = active.claim.job().token().to_string();
         read_exact_completion(
             path,
             &CompletionExpectation {
+                job_token: &job_token,
                 session_id: actual_session.as_str(),
                 response_id: attribution.instance(),
                 frontend: attribution.scope().agent_kind().as_str(),

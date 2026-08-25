@@ -140,19 +140,22 @@ pub(super) fn install_for_home_with(
                 style,
                 session_script,
                 completion_script,
+                observation_script,
                 legacy_session_scripts,
                 legacy_completion_scripts,
             } => {
                 // Both styles name the script through a root variable, so no
                 // command embeds this machine's resolved path.
-                let (session, stop) = match style {
+                let (session, stop, observation) = match style {
                     crate::agent::HookCommandStyle::ClaudeProjectDir => (
                         claude_project_dir_command(Path::new(session_script)),
                         claude_project_dir_command(Path::new(completion_script)),
+                        claude_project_dir_command(Path::new(observation_script)),
                     ),
                     crate::agent::HookCommandStyle::PortableBrainRoot => (
                         portable_root_command(Path::new(session_script)),
                         portable_root_command(Path::new(completion_script)),
+                        portable_root_command(Path::new(observation_script)),
                     ),
                 };
                 update_json_file_with_temporary_and_lock(
@@ -175,6 +178,22 @@ pub(super) fn install_for_home_with(
                         );
                         replace_entry(settings, "SessionStart", &session_basenames, &session);
                         replace_entry(settings, "Stop", &completion_basenames, &stop);
+                        let observation_basename = Path::new(observation_script)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .expect("registered observation script has a UTF-8 basename");
+                        replace_entry(
+                            settings,
+                            "UserPromptSubmit",
+                            &[observation_basename],
+                            &observation,
+                        );
+                        replace_entry(
+                            settings,
+                            "PostToolUse",
+                            &[observation_basename],
+                            &observation,
+                        );
                     },
                     || after_step(LifecycleInstallStep::Lock(installation)),
                 )?;

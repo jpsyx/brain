@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import sqlite3
+import subprocess
 import sys
 import tempfile
 
@@ -149,6 +150,30 @@ def rollback_publication(
         pass
 
 
+def publish_completed_observation(session_id: str, turn_id: object) -> None:
+    if not os.environ.get("BRAIN_RECEIVER_JOB_TOKEN") or not os.environ.get(
+        "BRAIN_RECEIVER_OBSERVATION_PATH"
+    ):
+        return
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": session_id,
+        "turn_id": turn_id if isinstance(turn_id, str) and turn_id else None,
+    }
+    try:
+        subprocess.run(
+            ["python3", pathlib.Path(__file__).with_name("receiver_observation_bridge.py")],
+            input=json.dumps(payload),
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def main() -> None:
     required = (
         "BRAIN_RESPONSE_DIR",
@@ -182,19 +207,20 @@ def main() -> None:
             return
         target_dir = pathlib.Path(launch["BRAIN_RESPONSE_DIR"])
         target = target_dir / f"{response_id}.json"
-        temporary = stage_response(
-            target,
-            json.dumps({
-                "session_id": session_id,
-                "response_id": response_id,
-                "frontend": launch["BRAIN_AGENT_KIND"],
-                "workspace_id": launch["BRAIN_WORKSPACE_ID"],
-                "actor_id": launch["BRAIN_ACTOR_ID"],
-                "channel": launch["BRAIN_CHANNEL"],
-                "completion_status": "completed",
-                "message": message,
-            }),
-        )
+        artifact = {
+            "session_id": session_id,
+            "response_id": response_id,
+            "frontend": launch["BRAIN_AGENT_KIND"],
+            "workspace_id": launch["BRAIN_WORKSPACE_ID"],
+            "actor_id": launch["BRAIN_ACTOR_ID"],
+            "channel": launch["BRAIN_CHANNEL"],
+            "completion_status": "completed",
+            "message": message,
+        }
+        job_token = os.environ.get("BRAIN_RECEIVER_JOB_TOKEN")
+        if job_token:
+            artifact["job_token"] = job_token
+        temporary = stage_response(target, json.dumps(artifact))
         scope = (
             launch["BRAIN_AGENT_KIND"],
             session_id,
@@ -243,6 +269,7 @@ def main() -> None:
         sync_directory(target.parent)
         conn.commit()
         committed = True
+        publish_completed_observation(session_id, payload.get("turn_id"))
     except Exception:
         if published and not committed and target is not None and published_identity is not None:
             rollback_publication(target, published_identity, backup)

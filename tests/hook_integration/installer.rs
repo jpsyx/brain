@@ -68,7 +68,11 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
         ]
     );
-    for name in ["agent_session_start_hook.py", "agent_session_stop_hook.py"] {
+    for name in [
+        "agent_session_start_hook.py",
+        "agent_session_stop_hook.py",
+        "receiver_observation_bridge.py",
+    ] {
         assert!(selected_root.join(".brain/hooks").join(name).is_file());
     }
     assert_eq!(
@@ -116,6 +120,8 @@ fn installer_reconciles_codex_hooks_idempotently() {
           "model": "custom-model",
           "hooks": {
             "PreToolUse": [{"hooks":[{"type":"command","command":"keep-pre-tool"}]}],
+            "UserPromptSubmit": [{"hooks":[{"type":"command","command":"keep-prompt"}]}],
+            "PostToolUse": [{"hooks":[{"type":"command","command":"keep-post-tool"}]}],
             "SessionStart": [
               {"hooks":[{"type":"command","command":"keep-session-start"}]},
               {"hooks":[{"type":"command","command":"python3 /stale/agent_session_start_hook.py"}]}
@@ -162,6 +168,20 @@ fn installer_reconciles_codex_hooks_idempotently() {
     assert_eq!(
         settings_hook_commands(&codex_hooks, "PreToolUse"),
         vec!["keep-pre-tool"]
+    );
+    assert_eq!(
+        settings_hook_commands(&codex_hooks, "UserPromptSubmit"),
+        vec![
+            "keep-prompt",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\"",
+        ]
+    );
+    assert_eq!(
+        settings_hook_commands(&codex_hooks, "PostToolUse"),
+        vec![
+            "keep-post-tool",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\"",
+        ]
     );
 }
 

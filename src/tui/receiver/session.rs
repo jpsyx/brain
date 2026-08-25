@@ -131,6 +131,10 @@ pub(crate) struct ReceiverSessionRegistration<'store, Store: ReceiverSessionStor
 }
 
 impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, Store> {
+    pub(crate) const fn attribution(&self) -> &ReceiverSessionAttribution {
+        &self.attribution
+    }
+
     pub(crate) fn register_fresh(
         store: &'store Store,
         conversation_id: ReceiverConversationId,

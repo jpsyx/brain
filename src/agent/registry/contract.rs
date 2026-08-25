@@ -21,11 +21,12 @@ pub(crate) enum HookCommandStyle {
 pub(crate) enum LifecyclePayload {
     /// Write exact bundled source with the requested Unix mode.
     StaticFile { contents: &'static str, mode: u32 },
-    /// Merge Brain's normalized session-start and session-stop hooks into JSON settings.
+    /// Merge Brain's normalized lifecycle hooks into JSON settings.
     HookSettings {
         style: HookCommandStyle,
         session_script: &'static str,
         completion_script: &'static str,
+        observation_script: &'static str,
         legacy_session_scripts: &'static [&'static str],
         legacy_completion_scripts: &'static [&'static str],
     },
@@ -131,7 +132,11 @@ const OPENCODE_PLUGIN: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/scripts/opencode_brain_plugin.js"
 ));
-pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 3] = [
+const RECEIVER_OBSERVATION_SCRIPT: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/scripts/receiver_observation_bridge.py"
+));
+pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 4] = [
     LifecycleInstallation {
         id: "agent-session-start-script",
         target: LifecycleTarget::Workspace(".brain/hooks/agent_session_start_hook.py"),
@@ -149,12 +154,21 @@ pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 3] = [
         },
     },
     LifecycleInstallation {
+        id: "receiver-observation-script",
+        target: LifecycleTarget::Workspace(".brain/hooks/receiver_observation_bridge.py"),
+        payload: LifecyclePayload::StaticFile {
+            contents: RECEIVER_OBSERVATION_SCRIPT,
+            mode: 0o755,
+        },
+    },
+    LifecycleInstallation {
         id: "claude-settings",
         target: LifecycleTarget::Workspace(".claude/settings.json"),
         payload: LifecyclePayload::HookSettings {
             style: HookCommandStyle::ClaudeProjectDir,
             session_script: ".brain/hooks/agent_session_start_hook.py",
             completion_script: ".brain/hooks/agent_session_stop_hook.py",
+            observation_script: ".brain/hooks/receiver_observation_bridge.py",
             legacy_session_scripts: &["claude_session_start_hook.py"],
             legacy_completion_scripts: &["claude_stop_hook.py", "agent_turn_complete_hook.py"],
         },
@@ -168,6 +182,7 @@ pub(super) const CODEX_LIFECYCLE: [LifecycleInstallation; 1] = [LifecycleInstall
         style: HookCommandStyle::PortableBrainRoot,
         session_script: ".brain/hooks/agent_session_start_hook.py",
         completion_script: ".brain/hooks/agent_session_stop_hook.py",
+        observation_script: ".brain/hooks/receiver_observation_bridge.py",
         legacy_session_scripts: &["claude_session_start_hook.py"],
         legacy_completion_scripts: &["claude_stop_hook.py", "agent_turn_complete_hook.py"],
     },
@@ -182,7 +197,7 @@ pub(super) const OPENCODE_LIFECYCLE: [LifecycleInstallation; 1] = [LifecycleInst
     },
 }];
 
-pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 4] = [
+pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 7] = [
     HealthCheckDescriptor {
         label: "SessionStart",
         target: HealthCheckTarget::WorkspaceFile(".claude/settings.json"),
@@ -200,6 +215,22 @@ pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 4] = [
         },
     },
     HealthCheckDescriptor {
+        label: "UserPromptSubmit",
+        target: HealthCheckTarget::WorkspaceFile(".claude/settings.json"),
+        expectation: HealthCheckExpectation::Hook {
+            event: "UserPromptSubmit",
+            suffix: ".brain/hooks/receiver_observation_bridge.py",
+        },
+    },
+    HealthCheckDescriptor {
+        label: "PostToolUse",
+        target: HealthCheckTarget::WorkspaceFile(".claude/settings.json"),
+        expectation: HealthCheckExpectation::Hook {
+            event: "PostToolUse",
+            suffix: ".brain/hooks/receiver_observation_bridge.py",
+        },
+    },
+    HealthCheckDescriptor {
         label: "session-start bridge",
         target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
@@ -209,9 +240,14 @@ pub(super) const CLAUDE_HEALTH: [HealthCheckDescriptor; 4] = [
         target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
     },
+    HealthCheckDescriptor {
+        label: "receiver-observation bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/receiver_observation_bridge.py"),
+        expectation: HealthCheckExpectation::FileContents(RECEIVER_OBSERVATION_SCRIPT),
+    },
 ];
 
-pub(super) const CODEX_HEALTH: [HealthCheckDescriptor; 4] = [
+pub(super) const CODEX_HEALTH: [HealthCheckDescriptor; 7] = [
     HealthCheckDescriptor {
         label: "SessionStart",
         target: HealthCheckTarget::WorkspaceFile(".codex/hooks.json"),
@@ -229,6 +265,22 @@ pub(super) const CODEX_HEALTH: [HealthCheckDescriptor; 4] = [
         },
     },
     HealthCheckDescriptor {
+        label: "UserPromptSubmit",
+        target: HealthCheckTarget::WorkspaceFile(".codex/hooks.json"),
+        expectation: HealthCheckExpectation::Hook {
+            event: "UserPromptSubmit",
+            suffix: ".brain/hooks/receiver_observation_bridge.py",
+        },
+    },
+    HealthCheckDescriptor {
+        label: "PostToolUse",
+        target: HealthCheckTarget::WorkspaceFile(".codex/hooks.json"),
+        expectation: HealthCheckExpectation::Hook {
+            event: "PostToolUse",
+            suffix: ".brain/hooks/receiver_observation_bridge.py",
+        },
+    },
+    HealthCheckDescriptor {
         label: "session-start bridge",
         target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
@@ -238,9 +290,14 @@ pub(super) const CODEX_HEALTH: [HealthCheckDescriptor; 4] = [
         target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
     },
+    HealthCheckDescriptor {
+        label: "receiver-observation bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/receiver_observation_bridge.py"),
+        expectation: HealthCheckExpectation::FileContents(RECEIVER_OBSERVATION_SCRIPT),
+    },
 ];
 
-pub(super) const OPENCODE_HEALTH: [HealthCheckDescriptor; 3] = [
+pub(super) const OPENCODE_HEALTH: [HealthCheckDescriptor; 4] = [
     HealthCheckDescriptor {
         label: "Brain plugin",
         target: HealthCheckTarget::WorkspaceFile(".opencode/plugins/brain.js"),
@@ -255,5 +312,10 @@ pub(super) const OPENCODE_HEALTH: [HealthCheckDescriptor; 3] = [
         label: "session-stop bridge",
         target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
         expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
+    },
+    HealthCheckDescriptor {
+        label: "receiver-observation bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/receiver_observation_bridge.py"),
+        expectation: HealthCheckExpectation::FileContents(RECEIVER_OBSERVATION_SCRIPT),
     },
 ];

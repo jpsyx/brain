@@ -340,7 +340,7 @@ fn durable_dispatch_downloads_authenticated_media_before_agent_launch() {
             .expect("load receiver job")
             .expect("receiver job")
             .state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
     assert_eq!(
         (

@@ -1,7 +1,6 @@
 // Brain lifecycle bridge for OpenCode.
 //
-// Frontend event and SDK details stay here. Brain's existing Python hooks own
-// session rotation, attribution, deduplication, and response publication.
+// Frozen 0.80 lifecycle plugin used only when downgrading from 0.81.
 
 const RUNTIME_ENVIRONMENT = [
   "PATH",
@@ -26,11 +25,7 @@ const BRAIN_ENVIRONMENT = [
   "BRAIN_STATE_DB",
   "BRAIN_RESPONSE_DIR",
   "BRAIN_RESPONSE_ID",
-  "BRAIN_RECEIVER_JOB_TOKEN",
-  "BRAIN_RECEIVER_OBSERVATION_PATH",
 ];
-
-const MAX_CORRELATION_ENTRIES = 32;
 
 const sessionIdFrom = (event) => {
   const properties = event?.properties ?? {};
@@ -111,30 +106,12 @@ const logFailure = async (client, operation) => {
 };
 
 const invokeHook = async (client, operation, hook, payload) => {
-  if (!hook) return false;
+  if (!hook) return;
   try {
     await runHook(hook, payload);
-    return true;
   } catch {
     await logFailure(client, operation);
-    return false;
   }
-};
-
-const boundedSet = (values, key, value) => {
-  values.delete(key);
-  values.set(key, value);
-  while (values.size > MAX_CORRELATION_ENTRIES) {
-    values.delete(values.keys().next().value);
-  }
-};
-
-const exactReceiverMarker = (value) => {
-  const token = process.env.BRAIN_RECEIVER_JOB_TOKEN;
-  if (typeof value !== "string" || typeof token !== "string" || !token) return false;
-  const withoutTerminalNewline = value.replace(/\r?\n$/, "");
-  const lines = withoutTerminalNewline.split(/\r?\n/);
-  return lines.at(-1) === `<!-- brain:receiver-job-token=${token} -->`;
 };
 
 const handleIdle = async (client, directory, sessionID) => {
@@ -174,83 +151,22 @@ const handleIdle = async (client, directory, sessionID) => {
   });
 };
 
-export const BrainPlugin = async ({ client, directory }) => {
-  const rootSessions = new Map();
-  const userMessages = new Map();
-  const acceptedSessions = new Map();
+export const BrainPlugin = async ({ client, directory }) => ({
+  event: async ({ event }) => {
+    const sessionID = sessionIdFrom(event);
+    if (!sessionID) return;
 
-  return {
-    event: async ({ event }) => {
-      const sessionID = sessionIdFrom(event);
-
-      if (event.type === "session.created") {
-        if (!sessionID) return;
-        const root = isRootSession(event.properties?.info);
-        boundedSet(rootSessions, sessionID, root);
-        if (!root) return;
-        await invokeHook(
-          client,
-          "session_start_bridge",
-          hookPath("agent_session_start_hook.py"),
-          { session_id: sessionID, source: "startup" },
-        );
-        return;
-      }
-
-      if (event.type === "message.updated") {
-        const info = event.properties?.info;
-        if (
-          info?.role === "user" &&
-          typeof info.id === "string" &&
-          typeof info.sessionID === "string" &&
-          rootSessions.get(info.sessionID) === true
-        ) {
-          boundedSet(userMessages, info.id, info.sessionID);
-        }
-        return;
-      }
-
-      if (event.type === "message.part.updated") {
-        const part = event.properties?.part;
-        if (
-          part?.type !== "text" ||
-          typeof part.messageID !== "string" ||
-          typeof part.sessionID !== "string" ||
-          userMessages.get(part.messageID) !== part.sessionID ||
-          !exactReceiverMarker(part.text)
-        ) {
-          return;
-        }
-        const accepted = await invokeHook(
-          client,
-          "receiver_acceptance_bridge",
-          hookPath("receiver_observation_bridge.py"),
-          {
-            hook_event_name: "UserPromptSubmit",
-            session_id: part.sessionID,
-            prompt: part.text,
-          },
-        );
-        if (accepted) boundedSet(acceptedSessions, part.sessionID, true);
-        return;
-      }
-
-      if (event.type === "session.idle" && sessionID) {
-        await handleIdle(client, directory, sessionID);
-      }
-    },
-    "tool.execute.after": async (input) => {
-      if (!acceptedSessions.has(input?.sessionID)) return;
+    if (event.type === "session.created") {
+      if (!isRootSession(event.properties?.info)) return;
       await invokeHook(
         client,
-        "receiver_progress_bridge",
-        hookPath("receiver_observation_bridge.py"),
-        {
-          hook_event_name: "PostToolUse",
-          session_id: input.sessionID,
-          turn_id: typeof input.messageID === "string" ? input.messageID : null,
-        },
+        "session_start_bridge",
+        hookPath("agent_session_start_hook.py"),
+        { session_id: sessionID, source: "startup" },
       );
-    },
-  };
-};
+      return;
+    }
+
+    if (event.type === "session.idle") await handleIdle(client, directory, sessionID);
+  },
+});

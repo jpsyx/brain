@@ -40,7 +40,7 @@ fn completion_validated_after_claim_expiry_cannot_finalize_or_run_terminal_effec
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching,
+        ReceiverJobState::Launched,
         "an observation older than the lease must not authorize terminal commit"
     );
     assert!(
@@ -137,7 +137,7 @@ fn native_binding_mismatch_keeps_exact_completion_retryable() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching,
+        ReceiverJobState::Launched,
         "an unproved native binding must not make completion irreversible"
     );
     assert_eq!(app.brain.receiver_run_observations().len(), 1);
@@ -217,7 +217,7 @@ fn native_binding_write_error_keeps_exact_completion_retryable() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching,
+        ReceiverJobState::Launched,
         "a transient binding write error must not make completion irreversible"
     );
     assert_eq!(app.brain.receiver_run_observations().len(), 1);
@@ -307,7 +307,7 @@ fn lifecycle_rotation_after_validation_cannot_finalize_the_old_completion() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching,
+        ReceiverJobState::Launched,
         "a different lifecycle session must not finalize the validated artifact"
     );
     assert!(completion_path.exists());
@@ -370,6 +370,14 @@ fn write_completion(
             "actor_id": attribution.scope().actor().user_id().as_str(),
             "channel": attribution.scope().actor().channel().as_str(),
             "completion_status": "completed",
+            "job_token": app
+                .receiver
+                .active_durable_run()
+                .expect("active receiver run")
+                .claim
+                .job()
+                .token()
+                .to_string(),
             "message": "completed after durable binding repair",
         })
         .to_string(),

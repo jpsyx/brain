@@ -92,7 +92,7 @@ fn missing_resume_history_falls_back_fresh_while_claim_is_live() {
         assert_eq!(transport.launch_specs().len(), 1, "{}", kind.label());
         assert_eq!(
             db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-            ReceiverJobState::Launching,
+            ReceiverJobState::Launched,
             "{}",
             kind.label()
         );
@@ -171,7 +171,7 @@ fn resume_validation_error_falls_back_fresh_while_claim_is_live() {
     assert_eq!(transport.launch_specs().len(), 1);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
 }
 
@@ -245,6 +245,6 @@ fn rejected_resume_claim_falls_back_fresh_while_claim_is_live() {
     assert_eq!(transport.launch_specs().len(), 1);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
 }

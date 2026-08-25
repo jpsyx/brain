@@ -94,6 +94,11 @@ fn plugin_sends_payload_only_over_stdin_with_a_minimal_safe_environment() {
 }
 
 #[test]
+fn plugin_records_receiver_acceptance_and_progress_from_incremental_events_only() {
+    assert_harness_succeeds("observations");
+}
+
+#[test]
 fn repeated_idle_events_leave_one_response_artifact_through_the_real_bridge() {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("family");

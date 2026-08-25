@@ -315,6 +315,54 @@ fn explicit_down_migration_restores_the_previous_frontend_lifecycle() {
 }
 
 #[test]
+fn task_two_down_migration_removes_only_receiver_observation_producers() {
+    let fixture = Fixture::new();
+    assert!(fixture.run(&["server", "status"]).status.success());
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        env!("CARGO_PKG_VERSION"),
+        "--to-version",
+        "0.80.2",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for root in [&fixture.family, &fixture.work] {
+        assert!(
+            root.join(".brain/hooks/agent_session_start_hook.py")
+                .is_file()
+        );
+        assert!(
+            root.join(".brain/hooks/agent_session_stop_hook.py")
+                .is_file()
+        );
+        assert!(
+            !root
+                .join(".brain/hooks/receiver_observation_bridge.py")
+                .exists()
+        );
+        for settings in [
+            root.join(".claude/settings.json"),
+            root.join(".codex/hooks.json"),
+        ] {
+            assert!(configured_commands(&settings, "SessionStart").len() == 1);
+            assert!(configured_commands(&settings, "Stop").len() == 1);
+            assert!(configured_commands(&settings, "UserPromptSubmit").is_empty());
+            assert!(configured_commands(&settings, "PostToolUse").is_empty());
+        }
+        let plugin = std::fs::read_to_string(root.join(".opencode/plugins/brain.js"))
+            .expect("downgraded OpenCode plugin");
+        assert!(!plugin.contains("BRAIN_RECEIVER_JOB_TOKEN"));
+        assert!(!plugin.contains("receiver_observation_bridge.py"));
+    }
+}
+
+#[test]
 fn help_and_version_do_not_run_migrations() {
     for arguments in [["--help"].as_slice(), ["--version"].as_slice()] {
         let fixture = Fixture::new();

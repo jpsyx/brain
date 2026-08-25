@@ -84,8 +84,8 @@ impl<'app> ReceiverLaunchEffects<'app> {
         );
         #[cfg(test)]
         receiver.run_launch_boundary_hook(crate::tui::receiver::ReceiverLaunchBoundary::Allocation);
-        match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
-            Ok(Some(_)) => {}
+        let owner = match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
+            Ok(Some(owner)) => owner,
             Ok(None) => {
                 remove_new_receiver_tab(brain, &tab);
                 let _ = registration.cleanup();
@@ -99,7 +99,7 @@ impl<'app> ReceiverLaunchEffects<'app> {
                 let _ = registration.cleanup();
                 return;
             }
-        }
+        };
         let tab_id = match tab {
             Ok(tab_id) => tab_id,
             Err(error) => {
@@ -113,6 +113,39 @@ impl<'app> ReceiverLaunchEffects<'app> {
                 return;
             }
         };
+        let attribution = registration.attribution();
+        let launch_observation = crate::state::ReceiverLaunchObservation {
+            token: claimed.claim.job().token(),
+            instance: attribution.instance().to_owned(),
+            session_id: attribution.registered_session().as_str().to_owned(),
+            observed_at_unix_ms: owner.observed_at_unix_ms(),
+            authorized_at_unix_ms: owner.observed_at_unix_ms(),
+        };
+        match services.commit_receiver_job_launch(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            &launch_observation,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = brain.remove_receiver_run(tab_id);
+                let _ = registration.cleanup();
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver launch observation commit failed: {error:#}"
+                ));
+                let _ = brain.remove_receiver_run(tab_id);
+                let _ = registration.cleanup();
+                let _ = super::ownership::retry_receiver_owner_now(
+                    services,
+                    &claimed.claim,
+                    ReceiverLaunchFailure::Spawn,
+                );
+                return;
+            }
+        }
         let attribution = registration.commit();
         receiver.store_durable_run(DurableReceiverRun::Active(
             crate::tui::receiver::ActiveReceiverRun {

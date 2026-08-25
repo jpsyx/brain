@@ -271,7 +271,10 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
                 );
                 assert_eq!(
                     plan.initial_prompt(),
-                    RESUME_PROMPT,
+                    format!(
+                        "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
+                        job.token()
+                    ),
                     "{} for {} must omit portable transcript context",
                     case.name,
                     kind.label(),
@@ -467,6 +470,29 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
                 kind.label(),
             );
             assert!(plan.initial_prompt().starts_with(TASK_CAPTURE_POLICY));
+        }
+    }
+}
+
+#[test]
+fn receiver_launch_appends_the_exact_job_token_marker_as_the_final_prompt_line() {
+    for kind in AgentKind::ALL {
+        for binding in [BindingKind::Matching, BindingKind::Absent] {
+            let (job, conversation) = durable_fixture(kind, binding, "synthetic context");
+            let plan = render_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(binding),
+            );
+            let expected = format!("<!-- brain:receiver-job-token={} -->", job.token());
+
+            assert_eq!(
+                plan.initial_prompt().lines().last(),
+                Some(expected.as_str())
+            );
+            assert_eq!(plan.initial_prompt().matches(&expected).count(), 1);
+            assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
         }
     }
 }

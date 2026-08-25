@@ -172,7 +172,7 @@ fn install_workspace_hooks() -> Result<()> {
     Ok(())
 }
 
-fn workspace_roots() -> Vec<PathBuf> {
+pub(super) fn workspace_roots() -> Vec<PathBuf> {
     let path = crate::workspace::RegistryStore::real().path().to_path_buf();
     let registry = match crate::workspace::RegistryStore::load_readable(&path) {
         Ok(registry) => registry,

@@ -15,20 +15,50 @@ fn fresh_lifecycle(
 
 #[test]
 fn normalized_completion_contract_preserves_exact_identity_for_every_frontend() {
+    const JOB_TOKEN: &str = "33333333-3333-4333-8333-333333333333";
     for agent_kind in ["claude", "codex", "opencode"] {
         let session_id = format!("{agent_kind}-session");
         let (_temporary, state_db, response_dir, instance) =
             fresh_lifecycle(agent_kind, &session_id);
         let response_id = format!("{agent_kind}-response");
+        let observation_path = response_dir.join(format!("{agent_kind}-observation.json"));
+        let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+        let mut acceptance = attributed_hook_command(
+            "receiver_observation_bridge.py",
+            &state_db,
+            &response_dir,
+            agent_kind,
+            &instance,
+            &response_id,
+        );
+        acceptance
+            .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
+            .env("BRAIN_RECEIVER_OBSERVATION_PATH", &observation_path);
+        assert!(
+            run_hook(
+                acceptance,
+                &serde_json::json!({
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": session_id,
+                    "prompt": marker,
+                }),
+            )
+            .status
+            .success()
+        );
+        let mut completion = attributed_hook_command(
+            "agent_session_stop_hook.py",
+            &state_db,
+            &response_dir,
+            agent_kind,
+            &instance,
+            &response_id,
+        );
+        completion
+            .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
+            .env("BRAIN_RECEIVER_OBSERVATION_PATH", &observation_path);
         let output = run_hook(
-            attributed_hook_command(
-                "agent_session_stop_hook.py",
-                &state_db,
-                &response_dir,
-                agent_kind,
-                &instance,
-                &response_id,
-            ),
+            completion,
             &serde_json::json!({
                 "session_id": session_id,
                 "last_assistant_message": format!("completed by {agent_kind}")
@@ -47,6 +77,12 @@ fn normalized_completion_contract_preserves_exact_identity_for_every_frontend() 
         assert_eq!(response["actor_id"], "member");
         assert_eq!(response["channel"], "sms");
         assert_eq!(response["completion_status"], "completed");
+        assert_eq!(response["job_token"], JOB_TOKEN);
+        let observation: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&observation_path).unwrap()).unwrap();
+        assert_eq!(observation["phase"], "completed");
+        assert_eq!(observation["revision"], 2);
+        assert_eq!(observation["job_token"], JOB_TOKEN);
         assert_eq!(completion_status(&state_db, &session_id), "completed");
     }
 }

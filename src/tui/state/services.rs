@@ -146,6 +146,16 @@ impl AppServices {
             .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
     }
 
+    pub(crate) fn commit_receiver_job_launch(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        owner: &str,
+        observation: &crate::state::ReceiverLaunchObservation,
+    ) -> Result<bool> {
+        self.db
+            .commit_receiver_job_launch(job_id, owner, observation)
+    }
+
     pub(crate) fn poll_receiver_attachment_stage(
         &mut self,
         job_id: crate::state::ReceiverJobId,

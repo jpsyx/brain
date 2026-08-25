@@ -50,7 +50,7 @@ fn durable_receiver_launches_in_background_while_main_turn_is_busy() {
             .expect("load receiver job")
             .expect("receiver job")
             .state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
     assert_eq!(
         (
@@ -198,7 +198,43 @@ fn every_frontend_gets_an_isolated_controller_and_remote_instance() {
             .find(|(name, _)| name == "BRAIN_RESPONSE_ID")
             .map(|(_, value)| value.as_str())
             .expect("remote response environment");
+        let token = specs[0]
+            .environment
+            .iter()
+            .find(|(name, _)| name == "BRAIN_RECEIVER_JOB_TOKEN")
+            .map(|(_, value)| value.as_str())
+            .expect("receiver job-token environment");
+        let observation_path = specs[0]
+            .environment
+            .iter()
+            .find(|(name, _)| name == "BRAIN_RECEIVER_OBSERVATION_PATH")
+            .map(|(_, value)| value.as_str())
+            .expect("receiver observation-path environment");
         assert_eq!(instance, response);
+        assert_eq!(
+            token,
+            db.receiver_job(accepted.job_id())
+                .unwrap()
+                .unwrap()
+                .token()
+                .to_string()
+        );
+        assert_eq!(
+            observation_path,
+            app.context
+                .workspace()
+                .paths()
+                .cache_dir()
+                .join("receiver-observations")
+                .join(format!("{instance}.json"))
+                .display()
+                .to_string()
+        );
+        assert!(
+            specs[0]
+                .command
+                .contains(&format!("<!-- brain:receiver-job-token={token} -->"))
+        );
         assert_ne!(instance, "shell-under-test");
         assert_eq!(specs[0].cwd, app.context.workspace().root());
         assert!(specs[0].command.contains("frontend-neutral run"));

@@ -59,7 +59,7 @@ fn tasks_doctor_reads_an_existing_wal_state_database_without_mutating_it() {
 
     let (_, output) = run(home.path(), &["-b", "brain", "tasks", "doctor"]);
 
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.status.success(), "{output:?}");
     assert_eq!(snapshot(home.path()), before);
 }
 

@@ -66,6 +66,7 @@ impl Db {
                    AND claim_expires_at_unix_ms > ?4
                    AND (
                      state = ?5
+                     OR (?5 = 'launching' AND state = 'launched')
                      OR (
                        ?5 = 'claimed' AND state = 'retrying'
                        AND retry_at_unix_ms <= ?4
@@ -104,6 +105,7 @@ impl Db {
                AND claim_expires_at_unix_ms > ?4
                AND (
                  state = ?5
+                 OR (?5 = 'launching' AND state = 'launched')
                  OR (
                    ?5 = 'claimed' AND state = 'retrying'
                    AND retry_at_unix_ms <= ?4

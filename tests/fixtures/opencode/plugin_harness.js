@@ -134,6 +134,8 @@ const sdk = ({ sessions = {}, messages = {}, getError, messagesError, malformedM
 const dispatch = async (plugin, event) => plugin.event({ event });
 const created = (info) => ({ type: "session.created", properties: { info } });
 const idle = (sessionID) => ({ type: "session.idle", properties: { sessionID } });
+const messageUpdated = (info) => ({ type: "message.updated", properties: { info } });
+const partUpdated = (part) => ({ type: "message.part.updated", properties: { part } });
 
 const assertExactLookupCalls = (calls, method, sessionIDs, directory) => {
   assert.deepEqual(
@@ -323,6 +325,105 @@ const newSessionScenario = async (BrainPlugin) => {
   assert.deepEqual(fake.logs, []);
 };
 
+const observationScenario = async (BrainPlugin) => {
+  const { temporary, root } = setupCaptureRoot();
+  const token = "11111111-1111-4111-8111-111111111111";
+  const observationPath = path.join(temporary, "observations", "receiver.json");
+  fs.copyFileSync(
+    path.join(path.dirname(pluginPath), "receiver_observation_bridge.py"),
+    path.join(root, ".brain", "hooks", "receiver_observation_bridge.py"),
+  );
+  Object.assign(process.env, {
+    BRAIN_RECEIVER_JOB_TOKEN: token,
+    BRAIN_RECEIVER_OBSERVATION_PATH: observationPath,
+  });
+  const fake = sdk();
+  const plugin = await BrainPlugin({ client: fake.client, directory: root });
+  await dispatch(plugin, created({ id: "root-observed" }));
+  await dispatch(plugin, created({ id: "child-observed", parentID: "root-observed" }));
+
+  const marker = `<!-- brain:receiver-job-token=${token} -->`;
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "child-user",
+      sessionID: "child-observed",
+      role: "user",
+      time: { created: 0 },
+    }),
+  );
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "child-part",
+      sessionID: "child-observed",
+      messageID: "child-user",
+      type: "text",
+      text: marker,
+    }),
+  );
+  assert.equal(fs.existsSync(observationPath), false, "child correlation must not accept");
+
+  for (let index = 0; index < 40; index += 1) {
+    await dispatch(
+      plugin,
+      messageUpdated({
+        id: `user-${index}`,
+        sessionID: "root-observed",
+        role: "user",
+        time: { created: index },
+      }),
+    );
+  }
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "part-evicted",
+      sessionID: "root-observed",
+      messageID: "user-0",
+      type: "text",
+      text: marker,
+    }),
+  );
+  assert.equal(fs.existsSync(observationPath), false, "evicted correlation must not accept");
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "part-current",
+      sessionID: "root-observed",
+      messageID: "user-39",
+      type: "text",
+      text: `synthetic\n${marker}`,
+    }),
+  );
+
+  const accepted = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(accepted.phase, "accepted");
+  assert.equal(accepted.revision, 1);
+  assert.equal(accepted.session_id, "root-observed");
+  assert.equal(accepted.job_token, token);
+  assert.deepEqual(fake.calls, [], "acceptance must not fetch message history");
+
+  await plugin["tool.execute.after"](
+    { sessionID: "other-session", messageID: "other-turn", tool: "synthetic-tool" },
+    { output: "synthetic-output" },
+  );
+  assert.equal(JSON.parse(fs.readFileSync(observationPath, "utf8")).revision, 1);
+  await plugin["tool.execute.after"](
+    { sessionID: "root-observed", messageID: "turn-1", tool: "synthetic-tool" },
+    { output: "synthetic-output" },
+  );
+  const progressing = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(progressing.phase, "progressing");
+  assert.equal(progressing.revision, 2);
+  assert.equal(progressing.turn_id, "turn-1");
+  assert.deepEqual(fake.calls, [], "progress must not fetch message history");
+  const serialized = JSON.stringify(progressing);
+  for (const forbidden of ["synthetic", "tool", "output", "sender", "recipient", "cwd"]) {
+    assert.equal(serialized.includes(forbidden), false, `snapshot leaked ${forbidden}`);
+  }
+};
+
 (async () => {
   const BrainPlugin = await loadPlugin();
   const scenarios = {
@@ -332,6 +433,7 @@ const newSessionScenario = async (BrainPlugin) => {
     safety: subprocessSafetyScenario,
     repeated_idle: repeatedIdleScenario,
     new_session: newSessionScenario,
+    observations: observationScenario,
   };
   const run = scenarios[scenario];
   if (!run) throw new Error(`unknown scenario: ${scenario}`);

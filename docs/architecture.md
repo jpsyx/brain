@@ -180,7 +180,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v9 schema plus ordered, row-scaled, bounded token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, session, and revision observation commits; `store/claim/next.rs` owns FIFO selection and replacement leases; `store/claim/recovery.rs` owns atomic expired-launch cleanup; `store/claim.rs` owns launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn and background-tab allocation; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `shutdown.rs` owns receiver-first orderly teardown; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `shutdown.rs` owns receiver-first orderly teardown; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -324,7 +324,9 @@ commands run toward the compiled version and then reconcile its migrations so
 missing managed files self-heal. The lifecycle migration also retains inert
 workspace-local forwarding shims for hook commands cached by agent processes
 that started before the migration; no current frontend setting registers those
-legacy paths. The version stamp lives at
+legacy paths. The 0.81 receiver-lifecycle migration installs the normalized
+observation producers and has an exact down path that removes only those hooks
+and script while restoring the frozen 0.80 OpenCode plugin. The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
 
@@ -477,6 +479,12 @@ non-deleted root sessions whose reported directory resolves to that same root.
 `LaunchRequest::HookMetadata` is trusted input that adapters merge into the
 explicit child environment. The plan-mandated `LaunchSpec::hooks` slot is
 currently reserved and empty; `PtyPane` does not consume a second hook channel.
+Receiver launches add the exact durable job token and its UUID-scoped
+observation path to that metadata. Main-panel and skill-session requests omit
+both values. The registry installs one normalized observation bridge and
+declares every managed event and exact source health check for Claude, Codex,
+and OpenCode, so startup reconciliation replaces stale bridges without
+discarding unrelated user hooks.
 
 ### `access/`
 
@@ -1830,7 +1838,16 @@ is enabled again.
 more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
 creation instead of immediate execution, unless the sender explicitly asks for
-both. A verified completion launches an immediate push. Failed PTY launches
+both, and ends with the trusted job token's exact marker. Claude and Codex
+submit and post-tool hooks feed the same content-free Python observation
+writer. OpenCode derives acceptance from incremental user-message parts and
+progress from its post-tool callback using bounded correlation, with no history
+scan on either path. The owner-only, advisory-locked JSON snapshot is at most
+4096 bytes; same-directory flush and atomic replacement make its monotonic
+revision safe across duplicate or concurrent delivery. It retains accepted,
+progressing, and completed timestamps but never stores prompt, tool, response,
+sender, recipient, attachment, cwd, credential, or transcript content. A
+verified completion launches an immediate push. Failed PTY launches
 release the exact registration and claim, shut down the new controller once,
 and record a durable pre-acceptance retry with a clock observation sampled
 after cleanup, without changing the main panel. Every

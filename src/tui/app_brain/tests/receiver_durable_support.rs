@@ -184,10 +184,21 @@ fn write_completion_artifact(
             "actor_id": attribution.scope().actor().user_id().as_str(),
             "channel": attribution.scope().actor().channel().as_str(),
             "completion_status": "completed",
+            "job_token": active_job_token(app),
             "message": message,
         })
         .to_string(),
     )
     .expect("completion artifact");
     path
+}
+
+fn active_job_token(app: &App) -> String {
+    app.receiver
+        .active_durable_run()
+        .expect("active receiver run")
+        .claim
+        .job()
+        .token()
+        .to_string()
 }

@@ -49,6 +49,7 @@ fn lifecycle_installations_follow_the_complete_frontend_registry() {
         vec![
             "agent-session-start-script",
             "agent-session-stop-script",
+            "receiver-observation-script",
             "claude-settings",
             "codex-settings",
             "opencode-plugin",

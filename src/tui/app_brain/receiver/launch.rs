@@ -314,6 +314,20 @@ impl App {
                     .display()
                     .to_string(),
             ),
+            (
+                "BRAIN_RECEIVER_JOB_TOKEN".to_owned(),
+                claimed.claim.job().token().to_string(),
+            ),
+            (
+                "BRAIN_RECEIVER_OBSERVATION_PATH".to_owned(),
+                self.context
+                    .workspace()
+                    .paths()
+                    .receiver_observations_dir()
+                    .join(format!("{}.json", claimed.remote.instance()))
+                    .display()
+                    .to_string(),
+            ),
         ])
     }
 }

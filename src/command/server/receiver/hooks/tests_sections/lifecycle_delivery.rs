@@ -30,6 +30,14 @@ fn concurrent_workspace_installs_keep_every_codex_config_inside_its_root() {
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
         );
         assert_eq!(
+            configured_command(&root.join(".claude/settings.json"), "UserPromptSubmit"),
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
+        );
+        assert_eq!(
+            configured_command(&root.join(".claude/settings.json"), "PostToolUse"),
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
+        );
+        assert_eq!(
             configured_command(&root.join(".codex/hooks.json"), "SessionStart"),
             r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#
         );
@@ -37,6 +45,15 @@ fn concurrent_workspace_installs_keep_every_codex_config_inside_its_root() {
             configured_command(&root.join(".codex/hooks.json"), "Stop"),
             r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
         );
+        assert_eq!(
+            configured_command(&root.join(".codex/hooks.json"), "UserPromptSubmit"),
+            r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
+        );
+        assert_eq!(
+            configured_command(&root.join(".codex/hooks.json"), "PostToolUse"),
+            r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
+        );
+        assert!(root.join(".brain/hooks/receiver_observation_bridge.py").is_file());
     }
     let codex_bytes = std::fs::read(home.join(".codex/hooks.json")).unwrap();
     let codex: serde_json::Value = serde_json::from_slice(&codex_bytes).unwrap();
