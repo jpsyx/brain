@@ -152,6 +152,9 @@ impl App {
             .last()
             .map_or(AgentObservationPhase::Launched, |boundary| boundary.phase());
         #[cfg(test)]
+        self.receiver
+            .run_before_observation_persistence_hook(poll.observation.boundaries());
+        #[cfg(test)]
         self.receiver.run_after_observation_validation_hook();
         let authorized_at_unix_ms = self.receiver_now_unix_ms();
         match self.services.apply_receiver_observation_result(

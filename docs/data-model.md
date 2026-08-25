@@ -1169,6 +1169,10 @@ written in one exact-owner transaction, the current lifecycle session replaces
 the launch placeholder only when that session remains locked to the exact
 instance, and `observation_revision` advances once. Equal revision, expired or
 replaced ownership, identity mismatch, and state mismatch mutate no field.
+The generic single-observation value uses
+`ReceiverNonterminalObservationPhase`, whose complete variant set is accepted
+and progressing. It cannot represent completion; terminal evidence requires the
+registration-aware batch transaction below.
 
 A valid completion can move `launched`, `accepted`, or `processing` directly to
 `done` without fabricating missing accepted or progressing timestamps. Artifact

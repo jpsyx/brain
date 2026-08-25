@@ -122,9 +122,9 @@ pub use receiver::{
     ReceiverClaim, ReceiverCompletionRequest, ReceiverConversation, ReceiverConversationId,
     ReceiverConversationIdentity, ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverJobToken,
     ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
-    ReceiverObservation, ReceiverObservationPhase, ReceiverObservationSet, ReceiverRunClaim,
-    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
-    ReceiverSessionPlan,
+    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
+    ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
+    ReceiverSessionBindingError, ReceiverSessionPlan,
 };
 #[cfg(test)]
 mod tests;

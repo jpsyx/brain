@@ -455,7 +455,10 @@ only those handle-bound bytes. Receiver coordination therefore never parses
 provider transcripts, rollouts, event names, or snapshot grammar.
 `BrainPanelState` provides the smallest exact-tab observation facade, while
 `AppServices` loads durable cursor facts and applies one atomic receiver
-observation batch. The active coordinator resolves the current lifecycle
+observation batch. The single-observation state API exposes only accepted and
+progressing phases through `ReceiverNonterminalObservationPhase`; terminal
+evidence can reach persistence only through the registration-aware batch
+transaction. The active coordinator resolves the current lifecycle
 session before crossing that facade and samples a fresh authorization time only
 after evidence validation. A terminal lifecycle batch persists that exact
 native session as the conversation binding in the same transaction that marks

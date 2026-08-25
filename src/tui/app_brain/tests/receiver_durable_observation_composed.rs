@@ -1,7 +1,7 @@
 use super::receiver_durable_support::accept_email_job;
 use super::*;
 
-use crate::state::{ReceiverJobState, ReceiverObservation, ReceiverObservationPhase};
+use crate::state::{ReceiverJobState, ReceiverNonterminalObservationPhase, ReceiverObservation};
 
 #[test]
 fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_atomically() {
@@ -30,7 +30,7 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
                 token,
                 instance,
                 session_id: native.as_str().to_owned(),
-                phase: ReceiverObservationPhase::Accepted,
+                phase: ReceiverNonterminalObservationPhase::Accepted,
                 revision: 1,
                 observed_at_unix_ms: 1_000,
                 authorized_at_unix_ms: 1_050,
@@ -39,6 +39,18 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
         .expect("seed durable accepted evidence")
     );
     let state_path = app.context.state_db_path().to_path_buf();
+    let (normalized_boundaries, observed_boundaries) = std::sync::mpsc::sync_channel(1);
+    app.receiver
+        .install_before_observation_persistence_hook(Box::new(move |boundaries| {
+            normalized_boundaries
+                .send(
+                    boundaries
+                        .iter()
+                        .map(|boundary| boundary.phase())
+                        .collect::<Vec<_>>(),
+                )
+                .expect("record normalized boundaries");
+        }));
     let (before_tx, observed_before_tx) = std::sync::mpsc::sync_channel(1);
     app.receiver
         .install_after_observation_validation_hook(Box::new(move || {
@@ -68,6 +80,14 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
 
     app.tick_receiver();
 
+    assert_eq!(
+        observed_boundaries.recv().expect("normalized boundaries"),
+        [
+            crate::agent::AgentObservationPhase::Progressing,
+            crate::agent::AgentObservationPhase::Completed,
+        ],
+        "the durable accepted cursor must suppress accepted before persistence"
+    );
     assert_eq!(
         observed_before_tx.recv().expect("pre-transaction evidence"),
         ("accepted".to_owned(), Some(1_000), None, None, 1),

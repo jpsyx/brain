@@ -342,8 +342,11 @@ first move is a failing test that reproduces it, *then* the fix.
   Composed App tests then drive that neutral facade through Claude, Codex, and
   OpenCode. They prove an unobserved launch remains `launched`, current-session
   rotation persists exact acceptance, a newer full snapshot atomically catches
-  up accepted plus progressing, and a cursor rebuilt from durable evidence does
-  not emit an earlier phase. A terminal continuity matrix proves fresh and
+  up accepted plus progressing, and a cursor rebuilt from durable accepted
+  evidence sends exactly progressing then completed across the App-to-store
+  boundary without re-emitting accepted. An exhaustive generic-observation type
+  test permits only accepted and progressing, while the terminal continuity
+  matrix proves the registration-aware path remains authorized. That matrix also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a
   forced binding write failure leaves completion retryable. Deterministic cases

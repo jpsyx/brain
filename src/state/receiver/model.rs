@@ -49,12 +49,11 @@ pub enum ReceiverLaunchRetryOutcome {
     Exhausted,
 }
 
-/// One frontend-neutral receiver lifecycle fact.
+/// One frontend-neutral nonterminal receiver lifecycle fact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReceiverObservationPhase {
+pub enum ReceiverNonterminalObservationPhase {
     Accepted,
     Progressing,
-    Completed,
 }
 
 /// Content-free evidence and authorization timing for one post-spawn launch.
@@ -67,13 +66,13 @@ pub struct ReceiverLaunchObservation {
     pub authorized_at_unix_ms: u64,
 }
 
-/// Content-free evidence and authorization timing for one lifecycle fact.
+/// Content-free evidence and authorization timing for one nonterminal lifecycle fact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiverObservation {
     pub token: ReceiverJobToken,
     pub instance: String,
     pub session_id: String,
-    pub phase: ReceiverObservationPhase,
+    pub phase: ReceiverNonterminalObservationPhase,
     pub revision: u64,
     pub observed_at_unix_ms: u64,
     pub authorized_at_unix_ms: u64,

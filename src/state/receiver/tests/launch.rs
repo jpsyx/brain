@@ -90,13 +90,13 @@ fn launched_observations_require_the_exact_owner_instance_session_and_revision()
         .commit_receiver_job_launch(accepted.job_id(), "owner", &launch_observation(token, "instance-a", "session-a", 1_200))
         .expect("commit launched evidence"));
     assert!(!db
-        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-b", "session-a", ReceiverObservationPhase::Accepted, 1, 1_300))
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-b", "session-a", ReceiverNonterminalObservationPhase::Accepted, 1, 1_300))
         .expect("reject stale instance"));
     assert!(db
-        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverObservationPhase::Accepted, 1, 1_300))
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverNonterminalObservationPhase::Accepted, 1, 1_300))
         .expect("apply accepted evidence"));
     assert!(db
-        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverObservationPhase::Progressing, 2, 1_400))
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverNonterminalObservationPhase::Progressing, 2, 1_400))
         .expect("apply progressing evidence"));
 
     let job = db
@@ -108,6 +108,25 @@ fn launched_observations_require_the_exact_owner_instance_session_and_revision()
     assert_eq!(job.accepted_at_unix_ms(), Some(1_300));
     assert_eq!(job.progressing_at_unix_ms(), Some(1_400));
     assert_eq!(job.observation_revision(), 2);
+}
+
+#[test]
+fn generic_observation_type_has_only_nonterminal_phases() {
+    const fn label(phase: ReceiverNonterminalObservationPhase) -> &'static str {
+        match phase {
+            ReceiverNonterminalObservationPhase::Accepted => "accepted",
+            ReceiverNonterminalObservationPhase::Progressing => "progressing",
+        }
+    }
+
+    assert_eq!(
+        [
+            ReceiverNonterminalObservationPhase::Accepted,
+            ReceiverNonterminalObservationPhase::Progressing,
+        ]
+        .map(label),
+        ["accepted", "progressing"]
+    );
 }
 
 struct ObservationFixture {
@@ -240,7 +259,7 @@ fn receiver_observations_reject_wrong_identity_owner_token_and_fresh_lease_witho
                 wrong_instance.token,
                 "instance-b",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),
@@ -259,7 +278,7 @@ fn receiver_observations_reject_wrong_identity_owner_token_and_fresh_lease_witho
                 wrong_session.token,
                 "instance-a",
                 "session-b",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),
@@ -278,7 +297,7 @@ fn receiver_observations_reject_wrong_identity_owner_token_and_fresh_lease_witho
                 stale_owner.token,
                 "instance-a",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),
@@ -299,7 +318,7 @@ fn receiver_observations_reject_wrong_identity_owner_token_and_fresh_lease_witho
                 invalid_token,
                 "instance-a",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),
@@ -312,7 +331,7 @@ fn receiver_observations_reject_wrong_identity_owner_token_and_fresh_lease_witho
         expired.token,
         "instance-a",
         "session-a",
-        ReceiverObservationPhase::Accepted,
+        ReceiverNonterminalObservationPhase::Accepted,
         1,
         1_300,
     );
@@ -337,7 +356,7 @@ fn receiver_observations_reject_stale_revisions_and_phase_regressions_without_mu
                 equal_revision.token,
                 "instance-a",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),
@@ -354,7 +373,7 @@ fn receiver_observations_reject_stale_revisions_and_phase_regressions_without_mu
                     equal_revision.token,
                     "instance-a",
                     "session-a",
-                    ReceiverObservationPhase::Progressing,
+                    ReceiverNonterminalObservationPhase::Progressing,
                     revision,
                     1_400,
                 ),
@@ -391,7 +410,7 @@ fn receiver_observations_reject_stale_revisions_and_phase_regressions_without_mu
                 regression.token,
                 "instance-a",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 2,
                 1_400,
             ),
@@ -548,7 +567,7 @@ fn generic_transition_cannot_advance_accepted_work_without_progress_evidence() {
                 fixture.token,
                 "instance-a",
                 "session-a",
-                ReceiverObservationPhase::Accepted,
+                ReceiverNonterminalObservationPhase::Accepted,
                 1,
                 1_300,
             ),

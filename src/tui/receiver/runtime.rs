@@ -9,6 +9,9 @@ mod sync;
 pub(crate) use sync::{SyncGateObservation, SyncGatePoll};
 
 #[cfg(test)]
+type BeforeObservationPersistenceHook = Box<dyn FnOnce(&[crate::agent::AgentObservationBoundary])>;
+
+#[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReceiverLaunchBoundary {
     CapabilityPlanning,
@@ -39,6 +42,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     after_observation_validation_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
+    before_observation_persistence_hook: Option<BeforeObservationPersistenceHook>,
+    #[cfg(test)]
     launch_boundary_hooks: Vec<(ReceiverLaunchBoundary, Box<dyn FnOnce()>)>,
 }
 
@@ -56,6 +61,8 @@ impl ReceiverRuntime {
             after_completion_validation_hook: None,
             #[cfg(test)]
             after_observation_validation_hook: None,
+            #[cfg(test)]
+            before_observation_persistence_hook: None,
             #[cfg(test)]
             launch_boundary_hooks: Vec::new(),
         }
@@ -94,6 +101,24 @@ impl ReceiverRuntime {
     pub(crate) fn run_after_observation_validation_hook(&mut self) {
         if let Some(hook) = self.after_observation_validation_hook.take() {
             hook();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_before_observation_persistence_hook(
+        &mut self,
+        hook: BeforeObservationPersistenceHook,
+    ) {
+        self.before_observation_persistence_hook = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_before_observation_persistence_hook(
+        &mut self,
+        boundaries: &[crate::agent::AgentObservationBoundary],
+    ) {
+        if let Some(hook) = self.before_observation_persistence_hook.take() {
+            hook(boundaries);
         }
     }
 

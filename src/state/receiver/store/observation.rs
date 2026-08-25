@@ -3,8 +3,8 @@ use anyhow::Result;
 use super::{to_i64, validated_owner};
 use crate::agent::AgentSession;
 use crate::state::{
-    Db, ReceiverJobId, ReceiverLaunchObservation, ReceiverObservation, ReceiverObservationPhase,
-    ReceiverObservationSet, ReceiverSessionAttribution,
+    Db, ReceiverJobId, ReceiverLaunchObservation, ReceiverNonterminalObservationPhase,
+    ReceiverObservation, ReceiverObservationSet, ReceiverSessionAttribution,
 };
 
 impl Db {
@@ -65,14 +65,11 @@ impl Db {
             authorized_at_unix_ms: observation.authorized_at_unix_ms,
         };
         match observation.phase {
-            ReceiverObservationPhase::Accepted => {
+            ReceiverNonterminalObservationPhase::Accepted => {
                 set.accepted_at_unix_ms = Some(observation.observed_at_unix_ms);
             }
-            ReceiverObservationPhase::Progressing => {
+            ReceiverNonterminalObservationPhase::Progressing => {
                 set.progressing_at_unix_ms = Some(observation.observed_at_unix_ms);
-            }
-            ReceiverObservationPhase::Completed => {
-                set.completed_at_unix_ms = Some(observation.observed_at_unix_ms);
             }
         }
         self.apply_receiver_observation_set(job_id, owner, &set)

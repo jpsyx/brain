@@ -93,7 +93,7 @@ pub(super) fn observation(
     token: crate::state::ReceiverJobToken,
     instance: &str,
     session_id: &str,
-    phase: crate::state::ReceiverObservationPhase,
+    phase: crate::state::ReceiverNonterminalObservationPhase,
     revision: u64,
     at: u64,
 ) -> crate::state::ReceiverObservation {
