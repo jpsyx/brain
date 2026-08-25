@@ -46,6 +46,7 @@ impl Recording {
 struct RecordingFrontend {
     recording: Recording,
     available: bool,
+    command: String,
 }
 
 impl AgentFrontend for RecordingFrontend {
@@ -65,7 +66,7 @@ impl AgentFrontend for RecordingFrontend {
         self.recording
             .record(Event::Launch(request.session_plan().clone()));
         Ok(LaunchSpec::new(
-            "recording-agent",
+            self.command.clone(),
             request.workspace().root().to_path_buf(),
             Vec::new(),
             HookMetadata::none(),
@@ -211,6 +212,7 @@ fn controller() -> (
         Box::new(RecordingFrontend {
             recording: recording.clone(),
             available: true,
+            command: "recording-agent".to_owned(),
         }),
         Box::new(RecordingTransport {
             recording: recording.clone(),

@@ -151,6 +151,17 @@ impl AgentController {
             return Err(AgentError::ContextMismatch);
         }
         let spec = self.frontend.launch_spec(request)?;
+        if !crate::agent::frontend::shell_command_is_transport_safe(&spec.command) {
+            let error = AgentError::Frontend(
+                "agent launch command exceeds the 96 KiB shell argument safety limit".to_owned(),
+            );
+            if let Err(rollback_error) = self.frontend.rollback_launch(request) {
+                return Err(AgentError::Frontend(format!(
+                    "{error}; launch rollback failed: {rollback_error}"
+                )));
+            }
+            return Err(error);
+        }
         if let Err(spawn_error) = self.transport.spawn(&spec) {
             if let Err(rollback_error) = self.frontend.rollback_launch(request) {
                 return Err(AgentError::Frontend(format!(

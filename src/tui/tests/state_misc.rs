@@ -23,14 +23,13 @@ fn shell_quote_empty_string_is_two_quotes() {
 }
 
 #[test]
-fn shell_quote_escapes_embedded_single_quote() {
-    // POSIX trick: close, escape, reopen.
-    assert_eq!(shell_quote("it's"), "'it'\\''s'");
+fn shell_quote_uses_shorter_double_quotes_for_an_embedded_single_quote() {
+    assert_eq!(shell_quote("it's"), "\"it's\"");
 }
 
 #[test]
-fn shell_quote_escapes_multiple_single_quotes() {
-    assert_eq!(shell_quote("'a'b'"), "''\\''a'\\''b'\\'''");
+fn shell_quote_uses_shorter_double_quotes_for_multiple_single_quotes() {
+    assert_eq!(shell_quote("'a'b'"), "\"'a'b'\"");
 }
 
 // --- BrainInputState::finalize ---

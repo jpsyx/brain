@@ -5,7 +5,8 @@ use crate::{
     state::{ReceiverConversation, ReceiverJob},
 };
 
-pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize = 64 * 1024;
+pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize =
+    crate::agent::frontend::SHELL_INLINE_VALUE_BUDGET_BYTES;
 
 const TRANSCRIPT_RESERVED_BYTES: usize = 8 * 1024;
 const CURRENT_MESSAGE_RESERVED_BYTES: usize = 16 * 1024;

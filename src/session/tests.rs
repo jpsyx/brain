@@ -137,7 +137,7 @@ fn blank_legacy_session_ids_return_the_typed_validation_error() {
 }
 
 #[test]
-fn prompt_with_a_single_quote_is_escaped() {
+fn prompt_with_a_single_quote_uses_the_shorter_valid_quote_form() {
     let cmd = build_llm_command(
         &PathBuf::from("/Users/x/brain"),
         AgentKind::Claude,
@@ -146,7 +146,10 @@ fn prompt_with_a_single_quote_is_escaped() {
         Some("don't break"),
     )
     .expect("Claude quoted-prompt command");
-    assert!(cmd.contains(r"'don'\''t break'"));
+    assert_eq!(
+        cmd,
+        "cd '/Users/x/brain' && claude --session-id 'u' -- \"don't break\""
+    );
 }
 
 #[test]
@@ -193,25 +196,25 @@ fn launch_matrix_preserves_cwd_prefix_and_frontend_specific_session_syntax() {
             AgentKind::Claude,
             " claude --model sonnet ",
             Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && claude --model sonnet --session-id 'fresh-1' -- \"don't lose this\"",
         ),
         (
             AgentKind::Claude,
             " claude --model sonnet ",
             Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && claude --model sonnet --resume 'resume-1' -- \"don't lose this\"",
         ),
         (
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Fresh("fresh-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust -- \"don't lose this\"",
         ),
         (
             AgentKind::Codex,
             " codex --model gpt-5 ",
             Plan::Resume("resume-1".to_owned()),
-            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- 'don'\\''t lose this'",
+            "cd '/workspaces/family brain' && codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- \"don't lose this\"",
         ),
     ];
 

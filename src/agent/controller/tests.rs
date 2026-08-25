@@ -56,6 +56,7 @@ fn compatibility_failure_precedes_frontend_launch_and_transport_spawn() {
     controller.frontend = Box::new(RecordingFrontend {
         recording: recording.clone(),
         available: false,
+        command: "recording-agent".to_owned(),
     });
     let request = request(
         workspace,
@@ -92,6 +93,39 @@ fn failed_transport_spawn_rolls_back_frontend_launch_artifacts() {
         vec![
             Event::Launch(request.session_plan().clone()),
             Event::Spawn,
+            Event::Rollback
+        ]
+    );
+}
+
+#[test]
+fn shell_command_argument_over_budget_rolls_back_without_reaching_transport() {
+    let (mut controller, recording, workspace, actor) = controller();
+    controller.frontend = Box::new(RecordingFrontend {
+        recording: recording.clone(),
+        available: true,
+        command: "x".repeat(96 * 1024 + 1),
+    });
+    let request = request(
+        workspace,
+        actor,
+        SessionPlan::fresh(AgentSession::new("fresh-1").expect("session")),
+    );
+
+    let error = controller
+        .launch(&request)
+        .expect_err("oversized shell command must fail before spawn");
+
+    assert_eq!(
+        error,
+        AgentError::Frontend(
+            "agent launch command exceeds the 96 KiB shell argument safety limit".to_owned()
+        )
+    );
+    assert_eq!(
+        recording.events(),
+        vec![
+            Event::Launch(request.session_plan().clone()),
             Event::Rollback
         ]
     );
@@ -319,6 +353,7 @@ fn shutdown_stops_the_transport_even_when_frontend_availability_fails() {
     controller.frontend = Box::new(RecordingFrontend {
         recording: recording.clone(),
         available: false,
+        command: "recording-agent".to_owned(),
     });
 
     let error = controller

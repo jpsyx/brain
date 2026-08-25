@@ -5,7 +5,8 @@ use crate::{
     agent::{
         AgentAction, AgentController, AgentError, AgentFrontend, AgentKind, AgentSession,
         AgentTransport, CompletionStrategy, HookMetadata, InputSequence, LaunchRequest, LaunchSpec,
-        SessionPlan,
+        SessionPlan, build_command,
+        frontend::{SHELL_COMMAND_ARGUMENT_BUDGET_BYTES, SHELL_INLINE_VALUE_BUDGET_BYTES},
     },
     server::receiver::{AttachmentRef, Channel, InboundJob},
     state::{
@@ -675,5 +676,62 @@ fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
         assert!(!prompt.contains("https://attachments.example.test/resume-255"));
         assert!(!prompt.contains("portable transcript must not enter a resumed prompt"));
         assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
+    }
+}
+
+#[test]
+fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_resume() {
+    let quote_mix = "'$$$".repeat(RECOVERY_PROMPT_BUDGET_BYTES);
+    let transcript = format!("oldest-é🙂\n{quote_mix}\nnewest-é🙂");
+    let message = format!("authenticated-message-start-é🙂-{quote_mix}-message-end");
+    let attachments: Vec<_> = (0..256)
+        .map(|index| AttachmentRef {
+            url: format!("https://attachments.example.test/quote-{index:03}"),
+            provider_id: Some(format!("provider-{index:03}")),
+            content_type: Some("text/plain".to_owned()),
+            filename: Some(format!("quote-{index:03}-é🙂-{quote_mix}.txt")),
+        })
+        .collect();
+
+    for kind in AgentKind::ALL {
+        for binding in [BindingKind::Matching, BindingKind::Absent] {
+            let controller = controller(kind, ProbeOutcome::Exists);
+            let (job, conversation) = durable_fixture_with_input(
+                kind,
+                binding,
+                &transcript,
+                &message,
+                attachments.clone(),
+            );
+            let plan =
+                plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
+                    Ok(true)
+                });
+            let prompt = plan.initial_prompt();
+            let command = build_command(
+                kind,
+                "receiver-frontend --fixed-option",
+                plan.session_plan(),
+                Some(prompt),
+            );
+
+            assert!(
+                prompt.len() <= SHELL_INLINE_VALUE_BUDGET_BYTES,
+                "{} with {binding:?} raw prompt was {} bytes",
+                kind.label(),
+                prompt.len(),
+            );
+            assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
+            assert!(prompt.contains("authenticated-message-start-é🙂-"));
+            assert!(prompt.contains("source=\"https://attachments.example.test/quote-000\""));
+            assert!(prompt.contains("[Current authenticated message truncated]"));
+            assert!(prompt.contains("[Attachment references truncated]"));
+            assert!(
+                command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
+                "{} with {binding:?} shell command was {} bytes",
+                kind.label(),
+                command.len(),
+            );
+        }
     }
 }

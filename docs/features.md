@@ -1522,10 +1522,15 @@ merge key. Each conversation stores
 Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
-Every receiver launch prompt is capped at 64 KiB and begins with the same
-trusted task-capture policy. A resumed session relies on its native history and
-receives only the bounded current authenticated message and attachment
-references. A fresh recovery also includes the portable transcript, reserving
+Every raw receiver launch prompt is capped at 47 KiB and begins with the same
+trusted task-capture policy. Adaptive POSIX quoting keeps a maximally escaped
+prompt plus 12 KiB reserved for the configured command, trusted policy, and
+options within a 96 KiB shell argument ceiling. `AgentController` also checks
+the completed command and rejects it before spawn if it exceeds that ceiling,
+leaving margin below 128 KiB single-argument platforms. A resumed session
+relies on its native history and receives only the bounded current authenticated
+message and attachment references. A fresh recovery also includes the portable
+transcript, reserving
 up to 8 KiB for its newest context and up to 16 KiB for the current message
 before attachment metadata can use the remaining space. Oversized sections
 carry explicit transcript, message, or attachment omission markers, so

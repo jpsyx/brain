@@ -123,6 +123,52 @@ fn receiver_launch_adapter_contract_translates_both_plans_with_an_initial_prompt
     }
 }
 
+#[test]
+fn receiver_launch_commands_bound_quote_heavy_prompts_for_every_frontend_and_plan() {
+    let prefix = "## Current authenticated message\nKeep Unicode é🙂 and apostrophes.\n\nAttachment references:\n- filename=\"quote-heavy-é🙂.txt\"\n";
+    let prompt = format!(
+        "{prefix}{}",
+        "'".repeat(SHELL_INLINE_VALUE_BUDGET_BYTES - prefix.len())
+    );
+
+    assert_eq!(prompt.len(), SHELL_INLINE_VALUE_BUDGET_BYTES);
+    let quoted_prompt = shell_quote(&prompt);
+    assert!(
+        quoted_prompt.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
+        "shell quoting alone must fit the transport-safe command argument"
+    );
+
+    for case in frontend_contracts() {
+        let frontend = (case.frontend)(case.configured_value);
+        for plan in [
+            SessionPlan::fresh(AgentSession::new("fresh-1").expect("fresh session")),
+            SessionPlan::resume(AgentSession::new("resume-1").expect("resume session")),
+        ] {
+            let spec = frontend
+                .launch_spec(&workspace_only_request(plan, Some(&prompt)))
+                .expect("receiver launch spec");
+
+            assert!(
+                spec.command.ends_with(&quoted_prompt),
+                "{} prompt",
+                case.label
+            );
+            let fixed_overhead = spec.command.len() - quoted_prompt.len();
+            assert!(
+                fixed_overhead <= SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES,
+                "{} fixed command and policy overhead was {fixed_overhead} bytes",
+                case.label,
+            );
+            assert!(
+                spec.command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
+                "{} command was {} bytes",
+                case.label,
+                spec.command.len(),
+            );
+        }
+    }
+}
+
 fn configured_command_context() -> (tempfile::TempDir, CommandContext) {
     let temporary = tempfile::tempdir().expect("temporary command context");
     let root = temporary.path().join("family");

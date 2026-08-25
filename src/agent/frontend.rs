@@ -12,6 +12,19 @@ use crate::{
     workspace::WorkspaceContext,
 };
 
+pub(crate) const SHELL_COMMAND_ARGUMENT_BUDGET_BYTES: usize = 96 * 1024;
+pub(crate) const SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES: usize = 12 * 1024;
+const SHELL_QUOTE_DELIMITER_BYTES: usize = 2;
+const SHELL_QUOTED_EXPANSION_NUMERATOR: usize = 7;
+const SHELL_QUOTED_EXPANSION_DENOMINATOR: usize = 4;
+const SHELL_INLINE_VALUE_UNROUNDED_BYTES: usize = (SHELL_COMMAND_ARGUMENT_BUDGET_BYTES
+    - SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES
+    - SHELL_QUOTE_DELIMITER_BYTES)
+    * SHELL_QUOTED_EXPANSION_DENOMINATOR
+    / SHELL_QUOTED_EXPANSION_NUMERATOR;
+pub(crate) const SHELL_INLINE_VALUE_BUDGET_BYTES: usize =
+    SHELL_INLINE_VALUE_UNROUNDED_BYTES / 1024 * 1024;
+
 /// Frontend-neutral input intent translated atomically by one adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentAction<'a> {
@@ -253,8 +266,45 @@ pub(crate) trait AgentFrontend: Send {
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {
+    let single_quote_bytes = value
+        .len()
+        .saturating_add(
+            value
+                .bytes()
+                .filter(|byte| *byte == b'\'')
+                .count()
+                .saturating_mul(3),
+        )
+        .saturating_add(2);
+    let double_quote_bytes = value
+        .len()
+        .saturating_add(
+            value
+                .bytes()
+                .filter(|byte| matches!(*byte, b'\\' | b'"' | b'$' | b'`'))
+                .count(),
+        )
+        .saturating_add(2);
+
+    if double_quote_bytes < single_quote_bytes {
+        let mut quoted = String::with_capacity(double_quote_bytes);
+        quoted.push('"');
+        for character in value.chars() {
+            if matches!(character, '\\' | '"' | '$' | '`') {
+                quoted.push('\\');
+            }
+            quoted.push(character);
+        }
+        quoted.push('"');
+        return quoted;
+    }
+
     let escaped = value.replace('\'', "'\\''");
     format!("'{escaped}'")
+}
+
+pub(crate) const fn shell_command_is_transport_safe(command: &str) -> bool {
+    command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES
 }
 
 pub(super) fn launch_environment(

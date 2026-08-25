@@ -1,16 +1,57 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::{
+    access::AccessMode,
     actor::{ActorContext, RequestIdentity},
     agent::{
         AccessPolicy, AgentAction, AgentFrontend, AgentSession, ClaudeFrontend, CodexFrontend,
         CompletionStrategy, InputSequence, LaunchRequest, SessionPlan,
+        frontend::{
+            SHELL_COMMAND_ARGUMENT_BUDGET_BYTES, SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES,
+            SHELL_INLINE_VALUE_BUDGET_BYTES, shell_quote,
+        },
     },
     users::{USERS_SCHEMA_VERSION, User, UserId, Users},
     workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
 };
 
 mod contract;
+
+#[test]
+fn shell_quote_round_trips_every_supported_special_character_through_posix_sh() {
+    let values = [
+        "apostrophe ' and double quote \"",
+        "backslash \\ dollar $ backtick `",
+        "two\nlines\nwith Unicode é🙂",
+        "mixed '$`\\\"\nUnicode é🙂 and plain text",
+    ];
+
+    for value in values {
+        let command = format!("printf %s {}", shell_quote(value));
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", &command])
+            .output()
+            .expect("run POSIX shell quote round trip");
+
+        assert!(output.status.success(), "{value:?}");
+        assert_eq!(output.stdout, value.as_bytes(), "{value:?}");
+    }
+}
+
+#[test]
+fn adaptive_shell_quote_proves_the_inline_value_budget_with_reserved_command_overhead() {
+    let worst_case = "'$$$".repeat(SHELL_INLINE_VALUE_BUDGET_BYTES / 4);
+    let quoted = shell_quote(&worst_case);
+
+    assert_eq!(SHELL_COMMAND_ARGUMENT_BUDGET_BYTES, 96 * 1024);
+    assert_eq!(SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES, 12 * 1024);
+    assert_eq!(SHELL_INLINE_VALUE_BUDGET_BYTES, 47 * 1024);
+    assert_eq!(quoted.len(), worst_case.len() * 7 / 4 + 2);
+    assert!(
+        quoted.len() + SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES
+            <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES
+    );
+}
 
 fn workspace() -> Arc<WorkspaceContext> {
     Arc::new(
@@ -52,6 +93,19 @@ fn request(plan: SessionPlan, prompt: Option<&str>) -> LaunchRequest {
         plan,
         prompt.map(str::to_owned),
         AccessPolicy::default(),
+    )
+}
+
+fn workspace_only_request(plan: SessionPlan, prompt: Option<&str>) -> LaunchRequest {
+    let workspace = workspace();
+    let actor = actor();
+    let access_policy = AccessPolicy::new(&workspace, &actor, AccessMode::WorkspaceOnly);
+    LaunchRequest::new(
+        workspace,
+        actor,
+        plan,
+        prompt.map(str::to_owned),
+        access_policy,
     )
 }
 
@@ -133,7 +187,7 @@ fn adapters_preserve_configured_prefix_and_prompt_quoting() {
             ))
             .expect("Claude launch")
             .command,
-        "claude --model sonnet --session-id 'fresh-1' -- 'don'\\''t lose this'"
+        "claude --model sonnet --session-id 'fresh-1' -- \"don't lose this\""
     );
     assert_eq!(
         codex
@@ -143,7 +197,7 @@ fn adapters_preserve_configured_prefix_and_prompt_quoting() {
             ))
             .expect("Codex launch")
             .command,
-        "codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- 'don'\\''t lose this'"
+        "codex --model gpt-5 --dangerously-bypass-hook-trust resume 'resume-1' -- \"don't lose this\""
     );
 }
 
