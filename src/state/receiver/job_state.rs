@@ -30,10 +30,6 @@ impl ReceiverJobState {
                     Self::Launched | Self::Retrying | Self::Failed
                 )
                 | (
-                    Self::Launched,
-                    Self::Accepted | Self::Processing | Self::Done
-                )
-                | (
                     Self::Accepted,
                     Self::Processing | Self::Retrying | Self::Failed
                 )

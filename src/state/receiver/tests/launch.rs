@@ -87,27 +87,16 @@ fn launched_observations_require_the_exact_owner_instance_session_and_revision()
         .token();
 
     assert!(db
-        .commit_receiver_job_launch(
-            accepted.job_id(), token, "owner", "instance-a", "session-a", 1_200,
-        )
+        .commit_receiver_job_launch(accepted.job_id(), "owner", &launch_observation(token, "instance-a", "session-a", 1_200))
         .expect("commit launched evidence"));
     assert!(!db
-        .apply_receiver_observation(
-            accepted.job_id(), token, "owner", "instance-b", "session-a",
-            ReceiverObservationPhase::Accepted, 1, 1_300,
-        )
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-b", "session-a", ReceiverObservationPhase::Accepted, 1, 1_300))
         .expect("reject stale instance"));
     assert!(db
-        .apply_receiver_observation(
-            accepted.job_id(), token, "owner", "instance-a", "session-a",
-            ReceiverObservationPhase::Accepted, 1, 1_300,
-        )
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverObservationPhase::Accepted, 1, 1_300))
         .expect("apply accepted evidence"));
     assert!(db
-        .apply_receiver_observation(
-            accepted.job_id(), token, "owner", "instance-a", "session-a",
-            ReceiverObservationPhase::Progressing, 2, 1_400,
-        )
+        .apply_receiver_observation(accepted.job_id(), "owner", &observation(token, "instance-a", "session-a", ReceiverObservationPhase::Progressing, 2, 1_400))
         .expect("apply progressing evidence"));
 
     let job = db

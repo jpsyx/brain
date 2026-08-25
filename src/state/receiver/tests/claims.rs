@@ -127,9 +127,7 @@ fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
         .expect("job")
         .token();
     assert!(db
-        .commit_receiver_job_launch(
-            accepted.job_id(), token, "worker-a", "instance-a", "session-a", 1_060,
-        )
+        .commit_receiver_job_launch(accepted.job_id(), "worker-a", &launch_observation(token, "instance-a", "session-a", 1_060))
         .expect("commit owned launch"));
     for (expected, next) in [
         (ReceiverJobState::Launched, ReceiverJobState::Accepted),

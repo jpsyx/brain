@@ -57,6 +57,28 @@ pub enum ReceiverObservationPhase {
     Completed,
 }
 
+/// Content-free evidence and authorization timing for one post-spawn launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverLaunchObservation {
+    pub token: ReceiverJobToken,
+    pub instance: String,
+    pub session_id: String,
+    pub observed_at_unix_ms: u64,
+    pub authorized_at_unix_ms: u64,
+}
+
+/// Content-free evidence and authorization timing for one lifecycle fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverObservation {
+    pub token: ReceiverJobToken,
+    pub instance: String,
+    pub session_id: String,
+    pub phase: ReceiverObservationPhase,
+    pub revision: u64,
+    pub observed_at_unix_ms: u64,
+    pub authorized_at_unix_ms: u64,
+}
+
 /// Immutable identifier for one workspace-scoped receiver job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobId(Uuid);

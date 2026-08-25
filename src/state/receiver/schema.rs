@@ -76,6 +76,7 @@ pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Res
                ));",
         )?;
     }
+    ensure_token_column(&transaction)?;
     rebuild_v8_jobs_for_observations(&transaction)?;
     ensure_observation_columns(&transaction)?;
     if current_version < VERSION {
@@ -86,7 +87,7 @@ pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Res
 }
 
 fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
-    if has_column(connection, "job_token")? || !has_column(connection, "job_id")? {
+    if !has_column(connection, "job_id")? || is_v9_receiver_jobs(connection)? {
         return Ok(());
     }
     connection.execute_batch(
@@ -110,16 +111,46 @@ fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
            CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL))
          );
          INSERT INTO receiver_jobs
-           (job_id, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
+           (job_id, job_token, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
             received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
             retry_count, retry_at_unix_ms, retry_from_state, last_error)
-         SELECT job_id, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
+         SELECT job_id, job_token, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
             received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
             retry_count, retry_at_unix_ms, retry_from_state, last_error FROM receiver_jobs_v8;
          DROP TABLE receiver_jobs_v8;
          CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
     )?;
     Ok(())
+}
+
+fn ensure_token_column(connection: &Connection) -> Result<()> {
+    if !has_column(connection, "job_token")? && has_column(connection, "job_id")? {
+        connection.execute_batch("ALTER TABLE receiver_jobs ADD COLUMN job_token TEXT;")?;
+    }
+    Ok(())
+}
+
+fn is_v9_receiver_jobs(connection: &Connection) -> Result<bool> {
+    let sql: Option<String> = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'receiver_jobs'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(sql.is_some_and(|sql| {
+        sql.contains("'launched'")
+            && [
+                "job_token",
+                "launched_at_unix_ms",
+                "accepted_at_unix_ms",
+                "progressing_at_unix_ms",
+                "completed_at_unix_ms",
+                "observation_instance",
+                "observation_session_id",
+                "observation_revision",
+            ]
+            .iter()
+            .all(|column| sql.contains(column))
+    }))
 }
 
 fn ensure_observation_columns(connection: &Connection) -> Result<()> {
@@ -186,15 +217,32 @@ pub(crate) fn down_observation_to_registration_path(path: &std::path::Path) -> R
     }
     let transaction = connection.unchecked_transaction()?;
     transaction.execute_batch(
-        "DROP INDEX IF EXISTS receiver_jobs_job_token;
-         ALTER TABLE receiver_jobs DROP COLUMN job_token;
-         ALTER TABLE receiver_jobs DROP COLUMN launched_at_unix_ms;
-         ALTER TABLE receiver_jobs DROP COLUMN accepted_at_unix_ms;
-         ALTER TABLE receiver_jobs DROP COLUMN progressing_at_unix_ms;
-         ALTER TABLE receiver_jobs DROP COLUMN completed_at_unix_ms;
-         ALTER TABLE receiver_jobs DROP COLUMN observation_instance;
-         ALTER TABLE receiver_jobs DROP COLUMN observation_session_id;
-         ALTER TABLE receiver_jobs DROP COLUMN observation_revision;",
+        "DROP INDEX IF EXISTS receiver_jobs_ready;
+         DROP INDEX IF EXISTS receiver_jobs_job_token;
+         ALTER TABLE receiver_jobs RENAME TO receiver_jobs_v9;
+         CREATE TABLE receiver_jobs (
+           job_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+           conversation_id TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
+           channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')), provider_id TEXT,
+           inbound_json TEXT NOT NULL,
+           state TEXT NOT NULL CHECK (state IN ('queued', 'claimed', 'launching', 'accepted', 'processing', 'answer-ready', 'delivering', 'retrying', 'failed', 'done')),
+           received_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
+           claim_owner TEXT, claim_expires_at_unix_ms INTEGER,
+           retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0), retry_at_unix_ms INTEGER,
+           retry_from_state TEXT CHECK (retry_from_state IN ('claimed', 'launching', 'accepted', 'processing', 'delivering')),
+           last_error TEXT, UNIQUE (workspace_id, channel, provider_id),
+           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL))
+         );
+         INSERT INTO receiver_jobs
+           (job_id, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
+            received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
+            retry_count, retry_at_unix_ms, retry_from_state, last_error)
+         SELECT job_id, workspace_id, conversation_id, channel, provider_id, inbound_json,
+            CASE state WHEN 'launched' THEN 'launching' ELSE state END,
+            received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
+            retry_count, retry_at_unix_ms, retry_from_state, last_error FROM receiver_jobs_v9;
+         DROP TABLE receiver_jobs_v9;
+         CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
     )?;
     transaction.pragma_update(None, "user_version", REGISTRATION_VERSION)?;
     transaction.commit()?;
@@ -223,7 +271,7 @@ pub(crate) fn down_registration_to_launch_path(path: &std::path::Path) -> Result
     }
     let connection = Connection::open(path)?;
     let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != VERSION {
+    if version != REGISTRATION_VERSION {
         return Ok(());
     }
     let transaction = connection.unchecked_transaction()?;

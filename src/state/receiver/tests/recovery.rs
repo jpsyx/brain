@@ -219,9 +219,7 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
         .expect("job")
         .token();
     assert!(db
-        .commit_receiver_job_launch(
-            accepted.job_id(), token, "worker-a", "instance-a", "session-a", 1_020,
-        )
+        .commit_receiver_job_launch(accepted.job_id(), "worker-a", &launch_observation(token, "instance-a", "session-a", 1_020))
         .expect("commit delivery launch"));
     for (expected, next, observed_at) in [
         (ReceiverJobState::Launched, ReceiverJobState::Accepted, 1_020),

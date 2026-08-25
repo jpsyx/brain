@@ -264,11 +264,14 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
     assert!(
         db.commit_receiver_job_launch(
             accepted.job_id(),
-            token,
             "previous-owner",
-            "previous-instance",
-            "previous-session",
-            now,
+            &crate::state::ReceiverLaunchObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
         )
         .expect("commit previous launch")
     );

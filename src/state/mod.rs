@@ -121,9 +121,9 @@ pub use receiver::{
     EmailLineage, EmailLineageError, MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance,
     ReceiverClaim, ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity,
     ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverJobToken, ReceiverLaunchFailure,
-    ReceiverLaunchRetryOutcome, ReceiverObservationPhase, ReceiverRunClaim,
-    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
-    ReceiverSessionPlan,
+    ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverObservation,
+    ReceiverObservationPhase, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
+    ReceiverSessionBindingError, ReceiverSessionPlan,
 };
 #[cfg(test)]
 mod tests;
