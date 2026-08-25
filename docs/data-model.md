@@ -1089,7 +1089,11 @@ receiver_session_registrations(
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
 are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
 correlation identity created at durable ingress. It never replaces the public job
-ID or authorizes a mutation. The database handle itself is pinned to one
+ID or authorizes a mutation. During v8 and partial-v9 reconciliation, token
+allocation visits rows in `job_id` order and reserves every earlier token. A
+repeated random candidate is retried, while a later duplicate persisted token
+is replaced and the lowest-job-ID row keeps the original value. The database
+handle itself is pinned to one
 workspace UUID and rejects an inbound job or conversation identity from any
 other workspace. A conversation identity is the composite
 `(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
@@ -1199,20 +1203,17 @@ durable claim, binding update, or coordinator state.
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
 nonterminal phases. Schema v8 adds the exact receiver-session registration
-table. Every DB open reconciles the tables and missing managed columns for new
-or partially repaired workspaces, including a damaged v7 database already
-stamped at that version. The automatic 0.72.0 machine migration applies the table
-reconciliation to every existing registered workspace state DB without
-creating an otherwise unused DB. The 0.75.0 migration upgrades those existing
-tables to v7; its down operation removes only the retry-origin column and
-returns the DB to v6. The 0.75.1 migration upgrades existing state to v8; its
-down operation removes only receiver-session registrations and returns the DB
-to v7. A newly attached workspace receives v8 on its first ordinary DB open.
-The older v6 down operation still transactionally removes
-the receiver schema and returns a v6 DB to v5.
-Task 5 changes only process-local ownership and removes obsolete consumers; it
-does not change this binding or database schema. BR-18 still owns the remaining
-representation cleanup and any schema migration or reconciliation it requires.
+table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
+lifecycle evidence timestamps, exact observation instance/session identity,
+and monotonic revision. Every DB open reconciles the tables and managed
+columns for new, partially repaired, damaged, and already-current workspaces.
+The automatic 0.80.0 migration upgrades every existing registered workspace
+state DB without creating an otherwise unused DB. Its down operation rebuilds
+a v8-compatible jobs table before the older downgrade chain continues. A newly
+attached workspace receives v9 on its first ordinary DB open. The older v6
+down operation still transactionally removes the receiver schema and returns a
+v6 DB to v5. BR-18 still owns the remaining representation cleanup and any
+later schema migration or reconciliation it requires.
 
 Receiver attachment staging owns one exact job directory. Downloads write only
 `.part` files and rename after success. The owning batch moves from the worker

@@ -1,11 +1,23 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension as _};
+
+use super::ReceiverJobToken;
 
 pub(super) const VERSION: i32 = 9;
 const REGISTRATION_VERSION: i32 = 8;
 const LAUNCH_VERSION: i32 = 7;
 
 pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Result<()> {
+    up_with_token_factory(connection, current_version, ReceiverJobToken::new)
+}
+
+pub(super) fn up_with_token_factory(
+    connection: &Connection,
+    current_version: i32,
+    mut next_token: impl FnMut() -> ReceiverJobToken,
+) -> Result<()> {
     let transaction = connection.unchecked_transaction()?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS receiver_conversations (
@@ -76,9 +88,9 @@ pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Res
                ));",
         )?;
     }
-    ensure_token_column(&transaction)?;
+    ensure_token_column(&transaction, &mut next_token)?;
     rebuild_v8_jobs_for_observations(&transaction)?;
-    ensure_observation_columns(&transaction)?;
+    ensure_observation_columns(&transaction, &mut next_token)?;
     if current_version < VERSION {
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
@@ -145,11 +157,14 @@ fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn ensure_token_column(connection: &Connection) -> Result<()> {
+fn ensure_token_column(
+    connection: &Connection,
+    next_token: &mut impl FnMut() -> ReceiverJobToken,
+) -> Result<()> {
     if !has_column(connection, "job_token")? && has_column(connection, "job_id")? {
         connection.execute_batch("ALTER TABLE receiver_jobs ADD COLUMN job_token TEXT;")?;
     }
-    populate_job_tokens(connection)?;
+    populate_job_tokens(connection, next_token)?;
     Ok(())
 }
 
@@ -188,7 +203,10 @@ fn has_non_null_token_column(connection: &Connection) -> Result<bool> {
         .unwrap_or(false))
 }
 
-fn ensure_observation_columns(connection: &Connection) -> Result<()> {
+fn ensure_observation_columns(
+    connection: &Connection,
+    next_token: &mut impl FnMut() -> ReceiverJobToken,
+) -> Result<()> {
     for (column, definition) in [
         ("job_token", "TEXT"),
         ("launched_at_unix_ms", "INTEGER"),
@@ -208,24 +226,48 @@ fn ensure_observation_columns(connection: &Connection) -> Result<()> {
             ))?;
         }
     }
-    populate_job_tokens(connection)?;
+    populate_job_tokens(connection, next_token)?;
     connection.execute_batch(
         "CREATE UNIQUE INDEX IF NOT EXISTS receiver_jobs_job_token ON receiver_jobs(job_token);",
     )?;
     Ok(())
 }
 
-fn populate_job_tokens(connection: &Connection) -> Result<()> {
-    let mut statement = connection
-        .prepare("SELECT job_id FROM receiver_jobs WHERE job_token IS NULL OR job_token = ''")?;
-    let ids = statement
-        .query_map([], |row| row.get::<_, String>(0))?
+fn populate_job_tokens(
+    connection: &Connection,
+    next_token: &mut impl FnMut() -> ReceiverJobToken,
+) -> Result<()> {
+    let mut statement =
+        connection.prepare("SELECT job_id, job_token FROM receiver_jobs ORDER BY job_id")?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     drop(statement);
-    for job_id in ids {
+    let mut unavailable = HashSet::with_capacity(rows.len());
+    for (_, token) in &rows {
+        if let Some(token) = token.as_ref().filter(|token| !token.is_empty()) {
+            unavailable.insert(token.clone());
+        }
+    }
+    let mut retained = HashSet::with_capacity(unavailable.len());
+    for (job_id, token) in rows {
+        if token
+            .filter(|token| !token.is_empty())
+            .is_some_and(|token| retained.insert(token))
+        {
+            continue;
+        }
+        let token = loop {
+            let candidate = next_token().to_string();
+            if unavailable.insert(candidate.clone()) {
+                break candidate;
+            }
+        };
         connection.execute(
-            "UPDATE receiver_jobs SET job_token = ?1 WHERE job_id = ?2 AND (job_token IS NULL OR job_token = '')",
-            rusqlite::params![uuid::Uuid::new_v4().to_string(), job_id],
+            "UPDATE receiver_jobs SET job_token = ?1 WHERE job_id = ?2",
+            rusqlite::params![token, job_id],
         )?;
     }
     Ok(())

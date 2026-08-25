@@ -57,4 +57,5 @@ mod schema {
     use super::*;
 
     include!("tests/schema.rs");
+    include!("tests/schema_sections/collisions.rs");
 }
