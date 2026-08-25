@@ -321,7 +321,17 @@ first move is a failing test that reproduces it, *then* the fix.
   concrete frontend modules, adapter traits, or adapter operation exports and
   guards shared call sites against direct frontend branching. Black-box
   integration tests launch all three frontends through `AgentController` and a
-  recording transport.
+  recording transport. The adapter contract table also drives identical
+  normalized observation requests through Claude, Codex, and OpenCode, proving
+  ordered missed-boundary recovery and explicit current/prior/placeholder
+  session rotation behavior. Focused parser tests cover the exact ten fields,
+  duplicate/missing/unknown fields, identifier and revision bounds,
+  phase/timestamp consistency, equal and regressed cursors, identity/session
+  mismatches, missing files, one-byte-over-limit snapshots, permissions,
+  non-regular files, symlinks, trailing JSON, and redacted diagnostics. A
+  structural receiver scan rejects provider types, transcript/rollout/event
+  grammar, direct normalized-reader access, and observation-path access outside
+  launch/controller ownership.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

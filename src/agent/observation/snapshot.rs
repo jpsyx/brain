@@ -1,0 +1,331 @@
+//! One-read schema-v1 snapshot validation and neutral boundary recovery.
+
+use std::{fmt::Formatter, fs::File, io::Read as _, path::Path};
+
+use serde::Deserialize as _;
+
+use super::{
+    ACCEPTED_BIT, AgentObservationBoundary, AgentObservationCursor, AgentObservationError,
+    AgentObservationPhase, AgentObservationRequest, AgentObservationResult, COMPLETED_BIT,
+    LAUNCHED_BIT, PROGRESSING_BIT, is_canonical_uuid, valid_bounded_identifier,
+};
+
+const MAX_SNAPSHOT_BYTES: usize = 4096;
+const SNAPSHOT_READ_BYTES: usize = MAX_SNAPSHOT_BYTES + 1;
+
+pub(crate) fn read_normalized_snapshot(
+    request: &AgentObservationRequest,
+) -> Result<AgentObservationResult, AgentObservationError> {
+    let Some(bytes) = read_snapshot_once(&request.snapshot_path)? else {
+        return Ok(AgentObservationResult {
+            session: request.lifecycle_session.clone(),
+            boundaries: Vec::new(),
+            next_cursor: request.cursor,
+        });
+    };
+    let mut deserializer = serde_json::Deserializer::from_slice(&bytes);
+    let snapshot = RawSnapshot::deserialize(&mut deserializer)
+        .map_err(|_| AgentObservationError::MalformedSnapshot)?;
+    deserializer
+        .end()
+        .map_err(|_| AgentObservationError::MalformedSnapshot)?;
+    let parsed = ParsedSnapshot::try_from(snapshot)?;
+    if parsed.job_token != request.job_token {
+        return Err(AgentObservationError::IdentityMismatch);
+    }
+    if parsed.instance_id != request.remote_instance {
+        return Err(AgentObservationError::IdentityMismatch);
+    }
+    if parsed.session_id != request.lifecycle_session.as_str() {
+        return Err(AgentObservationError::SessionMismatch);
+    }
+    if parsed.revision < request.cursor.revision {
+        return Err(AgentObservationError::RevisionRegression);
+    }
+    if parsed.revision == request.cursor.revision {
+        return Ok(AgentObservationResult {
+            session: request.lifecycle_session.clone(),
+            boundaries: Vec::new(),
+            next_cursor: request.cursor,
+        });
+    }
+    let represented = parsed.represented();
+    if request.cursor.represented & !represented & !LAUNCHED_BIT != 0 {
+        return Err(AgentObservationError::AmbiguousLifecycle);
+    }
+    let boundaries = parsed
+        .boundaries()
+        .into_iter()
+        .filter(|(bit, _)| request.cursor.represented & bit == 0)
+        .map(|(_, boundary)| boundary)
+        .collect();
+    Ok(AgentObservationResult {
+        session: request.lifecycle_session.clone(),
+        boundaries,
+        next_cursor: AgentObservationCursor {
+            revision: parsed.revision,
+            represented: request.cursor.represented | represented,
+        },
+    })
+}
+
+fn read_snapshot_once(path: &Path) -> Result<Option<Vec<u8>>, AgentObservationError> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(AgentObservationError::TruncatedSnapshot),
+    };
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(AgentObservationError::InvalidFileType);
+    }
+    validate_permissions(&metadata)?;
+    if metadata.len() > u64::try_from(MAX_SNAPSHOT_BYTES).expect("snapshot bound fits u64") {
+        return Err(AgentObservationError::SnapshotTooLarge);
+    }
+    let mut file = File::open(path).map_err(|_| AgentObservationError::TruncatedSnapshot)?;
+    let mut buffer = [0_u8; SNAPSHOT_READ_BYTES];
+    let read = file
+        .read(&mut buffer)
+        .map_err(|_| AgentObservationError::TruncatedSnapshot)?;
+    if read > MAX_SNAPSHOT_BYTES {
+        return Err(AgentObservationError::SnapshotTooLarge);
+    }
+    if read != usize::try_from(metadata.len()).unwrap_or(usize::MAX) {
+        return Err(AgentObservationError::TruncatedSnapshot);
+    }
+    Ok(Some(buffer[..read].to_vec()))
+}
+
+#[cfg(unix)]
+fn validate_permissions(metadata: &std::fs::Metadata) -> Result<(), AgentObservationError> {
+    use std::os::unix::fs::PermissionsExt as _;
+    if metadata.permissions().mode() & 0o077 != 0 {
+        return Err(AgentObservationError::InvalidPermissions);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_permissions(_metadata: &std::fs::Metadata) -> Result<(), AgentObservationError> {
+    Ok(())
+}
+
+struct RawSnapshot {
+    version: u64,
+    revision: u64,
+    phase: String,
+    job_token: String,
+    instance_id: String,
+    session_id: String,
+    turn_id: Option<String>,
+    accepted_at_unix_ms: Option<u64>,
+    progressing_at_unix_ms: Option<u64>,
+    completed_at_unix_ms: Option<u64>,
+}
+
+impl<'de> serde::Deserialize<'de> for RawSnapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = RawSnapshot;
+
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("the exact ten-field agent observation snapshot")
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let mut version = None;
+                let mut revision = None;
+                let mut phase = None;
+                let mut job_token = None;
+                let mut instance_id = None;
+                let mut session_id = None;
+                let mut turn_id = None;
+                let mut accepted_at_unix_ms = None;
+                let mut progressing_at_unix_ms = None;
+                let mut completed_at_unix_ms = None;
+                while let Some(field) = map.next_key::<String>()? {
+                    match field.as_str() {
+                        "version" if version.is_none() => version = Some(map.next_value()?),
+                        "revision" if revision.is_none() => revision = Some(map.next_value()?),
+                        "phase" if phase.is_none() => phase = Some(map.next_value()?),
+                        "job_token" if job_token.is_none() => job_token = Some(map.next_value()?),
+                        "instance_id" if instance_id.is_none() => {
+                            instance_id = Some(map.next_value()?);
+                        }
+                        "session_id" if session_id.is_none() => {
+                            session_id = Some(map.next_value()?);
+                        }
+                        "turn_id" if turn_id.is_none() => turn_id = Some(map.next_value()?),
+                        "accepted_at_unix_ms" if accepted_at_unix_ms.is_none() => {
+                            accepted_at_unix_ms = Some(map.next_value()?);
+                        }
+                        "progressing_at_unix_ms" if progressing_at_unix_ms.is_none() => {
+                            progressing_at_unix_ms = Some(map.next_value()?);
+                        }
+                        "completed_at_unix_ms" if completed_at_unix_ms.is_none() => {
+                            completed_at_unix_ms = Some(map.next_value()?);
+                        }
+                        "version"
+                        | "revision"
+                        | "phase"
+                        | "job_token"
+                        | "instance_id"
+                        | "session_id"
+                        | "turn_id"
+                        | "accepted_at_unix_ms"
+                        | "progressing_at_unix_ms"
+                        | "completed_at_unix_ms" => {
+                            return Err(serde::de::Error::duplicate_field("observation field"));
+                        }
+                        _ => return Err(serde::de::Error::unknown_field(&field, SNAPSHOT_FIELDS)),
+                    }
+                }
+                Ok(RawSnapshot {
+                    version: version.ok_or_else(|| serde::de::Error::missing_field("version"))?,
+                    revision: revision
+                        .ok_or_else(|| serde::de::Error::missing_field("revision"))?,
+                    phase: phase.ok_or_else(|| serde::de::Error::missing_field("phase"))?,
+                    job_token: job_token
+                        .ok_or_else(|| serde::de::Error::missing_field("job_token"))?,
+                    instance_id: instance_id
+                        .ok_or_else(|| serde::de::Error::missing_field("instance_id"))?,
+                    session_id: session_id
+                        .ok_or_else(|| serde::de::Error::missing_field("session_id"))?,
+                    turn_id: turn_id.ok_or_else(|| serde::de::Error::missing_field("turn_id"))?,
+                    accepted_at_unix_ms: accepted_at_unix_ms
+                        .ok_or_else(|| serde::de::Error::missing_field("accepted_at_unix_ms"))?,
+                    progressing_at_unix_ms: progressing_at_unix_ms
+                        .ok_or_else(|| serde::de::Error::missing_field("progressing_at_unix_ms"))?,
+                    completed_at_unix_ms: completed_at_unix_ms
+                        .ok_or_else(|| serde::de::Error::missing_field("completed_at_unix_ms"))?,
+                })
+            }
+        }
+
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+const SNAPSHOT_FIELDS: &[&str] = &[
+    "version",
+    "revision",
+    "phase",
+    "job_token",
+    "instance_id",
+    "session_id",
+    "turn_id",
+    "accepted_at_unix_ms",
+    "progressing_at_unix_ms",
+    "completed_at_unix_ms",
+];
+
+struct ParsedSnapshot {
+    revision: i64,
+    job_token: String,
+    instance_id: String,
+    session_id: String,
+    accepted_at_unix_ms: Option<u64>,
+    progressing_at_unix_ms: Option<u64>,
+    completed_at_unix_ms: Option<u64>,
+}
+
+impl TryFrom<RawSnapshot> for ParsedSnapshot {
+    type Error = AgentObservationError;
+
+    fn try_from(raw: RawSnapshot) -> Result<Self, Self::Error> {
+        if raw.version != 1
+            || raw.revision == 0
+            || raw.revision > u64::try_from(i64::MAX).expect("i64 maximum fits u64")
+            || !is_canonical_uuid(&raw.job_token)
+            || !is_canonical_uuid(&raw.instance_id)
+            || !valid_bounded_identifier(&raw.session_id)
+            || raw
+                .turn_id
+                .as_deref()
+                .is_some_and(|turn| !valid_bounded_identifier(turn))
+        {
+            return Err(AgentObservationError::MalformedSnapshot);
+        }
+        let accepted = raw.accepted_at_unix_ms;
+        let progressing = raw.progressing_at_unix_ms;
+        let completed = raw.completed_at_unix_ms;
+        let consistent = match raw.phase.as_str() {
+            "accepted" => accepted.is_some() && progressing.is_none() && completed.is_none(),
+            "progressing" => accepted.is_some() && progressing.is_some() && completed.is_none(),
+            "completed" => completed.is_some() && !(accepted.is_none() && progressing.is_some()),
+            _ => false,
+        };
+        if !consistent || !timestamps_are_nondecreasing(accepted, progressing, completed) {
+            return Err(AgentObservationError::AmbiguousLifecycle);
+        }
+        Ok(Self {
+            revision: i64::try_from(raw.revision)
+                .map_err(|_| AgentObservationError::MalformedSnapshot)?,
+            job_token: raw.job_token,
+            instance_id: raw.instance_id,
+            session_id: raw.session_id,
+            accepted_at_unix_ms: accepted,
+            progressing_at_unix_ms: progressing,
+            completed_at_unix_ms: completed,
+        })
+    }
+}
+
+impl ParsedSnapshot {
+    fn represented(&self) -> u8 {
+        (ACCEPTED_BIT * u8::from(self.accepted_at_unix_ms.is_some()))
+            | (PROGRESSING_BIT * u8::from(self.progressing_at_unix_ms.is_some()))
+            | (COMPLETED_BIT * u8::from(self.completed_at_unix_ms.is_some()))
+    }
+
+    fn boundaries(&self) -> Vec<(u8, AgentObservationBoundary)> {
+        [
+            (
+                ACCEPTED_BIT,
+                AgentObservationPhase::Accepted,
+                self.accepted_at_unix_ms,
+            ),
+            (
+                PROGRESSING_BIT,
+                AgentObservationPhase::Progressing,
+                self.progressing_at_unix_ms,
+            ),
+            (
+                COMPLETED_BIT,
+                AgentObservationPhase::Completed,
+                self.completed_at_unix_ms,
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(bit, phase, timestamp)| {
+            timestamp.map(|observed_at_unix_ms| {
+                (
+                    bit,
+                    AgentObservationBoundary {
+                        phase,
+                        observed_at_unix_ms,
+                    },
+                )
+            })
+        })
+        .collect()
+    }
+}
+
+fn timestamps_are_nondecreasing(
+    accepted: Option<u64>,
+    progressing: Option<u64>,
+    completed: Option<u64>,
+) -> bool {
+    !(accepted.zip(progressing).is_some_and(|(a, p)| a > p)
+        || progressing.zip(completed).is_some_and(|(p, c)| p > c)
+        || accepted.zip(completed).is_some_and(|(a, c)| a > c))
+}

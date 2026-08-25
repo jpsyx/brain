@@ -1306,8 +1306,8 @@ kind-specific metadata, and controller, while `ShellState` owns the active
 Receiver metadata is a separate variant containing the durable `ReceiverJobId`
 plus remote instance identity; it is never represented as a configured skill.
 The single counter spans both kinds and never reuses an ID after removal.
-Each receiver launch also owns a unique `receiver-run-<uuid>`
-`BRAIN_INSTANCE_ID`, never the main TUI instance. A fresh launch registers a
+Each receiver launch also owns a unique canonical UUID `BRAIN_INSTANCE_ID`,
+never the main TUI instance. A fresh launch registers a
 unique placeholder before spawning; a resume launch claims only its exact
 validated native session. An armed registration guard releases that exact
 remote owner on early return, while the main interactive lineage is untouched.

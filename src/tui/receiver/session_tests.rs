@@ -68,6 +68,13 @@ fn remote_session_owners_are_unique_and_never_reuse_the_interactive_instance() {
     assert_ne!(second.instance(), "interactive-shell");
     assert_ne!(first.instance(), second.instance());
     assert_ne!(first.placeholder(), second.placeholder());
+    assert_eq!(
+        uuid::Uuid::parse_str(first.instance())
+            .expect("canonical receiver instance")
+            .hyphenated()
+            .to_string(),
+        first.instance()
+    );
 }
 
 #[test]

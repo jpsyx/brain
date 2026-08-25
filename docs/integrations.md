@@ -899,6 +899,21 @@ Which session to run is decided by the **lock + recency** model in
    content. If submit and post-tool evidence was delayed or missed, an exact
    Stop event may create revision 1 directly at `completed`; its accepted and
    progressing timestamps remain null while the completed timestamp is set.
+   `AgentController::observe` is the only consumer facade for these snapshots.
+   It first requires canonical token and instance UUIDs, the exact derived
+   snapshot path, a bounded non-placeholder lifecycle session, and a current
+   locked session row matching the remote instance, selected frontend,
+   workspace, actor, and channel. Every frontend then delegates to the same
+   strict reader. One poll performs one read of at most 4097 bytes, accepts only
+   the exact ten-field schema, and returns content-free accepted, progressing,
+   and completed boundaries in lifecycle order with an opaque next cursor.
+   Missing files and equal revisions are pending/no-change. Oversize,
+   non-owner-only, symlink, malformed, mismatched, regressed, or ambiguous
+   evidence fails in a stable category whose display contains no request or
+   snapshot data. A higher revision can recover missed intermediate boundaries;
+   a prior rotated or placeholder session cannot advance the lifecycle. This
+   operation only reads evidence. Durable receiver transitions and polling
+   remain outside this contract.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under

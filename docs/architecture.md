@@ -442,7 +442,14 @@ reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
 The frontend-neutral agent boundary. `controller` owns the semantic
 `AgentController` facade and the transport trait, so callers can type, submit,
 queue, start sessions, launch, inspect completion and session eligibility, snapshot,
-and shut down without constructing frontend keystrokes. `frontend` defines the
+observe bounded receiver lifecycle facts, and shut down without constructing
+frontend keystrokes. `observation` owns the opaque cursor and neutral
+phase/boundary/request/result/error model, exact current-session ownership gate,
+and the shared one-read schema-v1 snapshot validator. The controller validates
+the trusted token, instance, canonical path, lifecycle session, actor, workspace,
+channel, and selected frontend before the adapter delegates to that shared
+reader. Receiver coordination therefore never parses provider transcripts,
+rollouts, event names, or snapshot grammar. `frontend` defines the
 crate-private frontend trait and adapter operation enum plus complete launch
 request and launch spec types. Concrete Claude, Codex, and OpenCode adapters
 are also crate-private; callers and black-box tests construct a controller and

@@ -6,7 +6,8 @@ use crate::{
     access::{AccessMode, AccessPolicy},
     actor::{ActorContext, Channel},
     agent::{
-        AgentError, AgentKind, AgentSession, CompletionStrategy, HookMetadata, InputSequence,
+        AgentError, AgentKind, AgentObservationError, AgentObservationRequest,
+        AgentObservationResult, AgentSession, CompletionStrategy, HookMetadata, InputSequence,
         SessionPlan,
     },
     workspace::WorkspaceContext,
@@ -263,6 +264,14 @@ pub(crate) trait AgentFrontend: Send {
 
     /// Whether a completed receiver frontend session can restore interactive work.
     fn can_resume_response_session(&self, session: &AgentSession) -> Result<bool, AgentError>;
+
+    /// Read one bounded normalized lifecycle snapshot.
+    fn observe(
+        &self,
+        request: &AgentObservationRequest,
+    ) -> Result<AgentObservationResult, AgentObservationError> {
+        crate::agent::observation::read_normalized_snapshot(request)
+    }
 }
 
 pub(crate) fn shell_quote(value: &str) -> String {

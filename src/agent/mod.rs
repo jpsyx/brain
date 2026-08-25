@@ -11,6 +11,7 @@ pub mod default_frontend;
 pub(crate) mod frontend;
 pub mod hooks;
 mod input;
+mod observation;
 mod opencode;
 mod registry;
 pub mod session;
@@ -26,6 +27,10 @@ pub use default_frontend::resolved_frontend;
 pub use frontend::{LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::{InputSequence, InputWrite};
+pub use observation::{
+    AgentObservationBoundary, AgentObservationCursor, AgentObservationError, AgentObservationPhase,
+    AgentObservationRequest, AgentObservationResult,
+};
 pub use session::{
     AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,
     SessionStore,

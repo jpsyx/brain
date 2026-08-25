@@ -81,3 +81,50 @@ fn shared_installation_and_rollback_code_do_not_branch_on_frontend_artifacts() {
         );
     }
 }
+
+#[test]
+fn receiver_observation_coordination_cannot_name_provider_or_snapshot_grammar() {
+    let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for relative in ["tui/receiver", "tui/app_brain/receiver"] {
+        let root = source_root.join(relative);
+        for entry in walkdir::WalkDir::new(&root) {
+            let entry = entry.expect("walk receiver source");
+            let path = entry.path();
+            if !entry.file_type().is_file()
+                || path.extension().and_then(|extension| extension.to_str()) != Some("rs")
+                || path.to_string_lossy().contains("tests")
+            {
+                continue;
+            }
+            let source = std::fs::read_to_string(path).expect("read receiver source");
+            for forbidden in [
+                "ClaudeFrontend",
+                "CodexFrontend",
+                "OpenCodeFrontend",
+                ".jsonl",
+                "rollout-",
+                "message.part.updated",
+                "session.updated",
+                "UserPromptSubmit",
+                "PostToolUse",
+                "read_normalized_snapshot",
+                "accepted_at_unix_ms",
+                "progressing_at_unix_ms",
+                "completed_at_unix_ms",
+            ] {
+                assert!(
+                    !source.contains(forbidden),
+                    "{} bypasses AgentController with `{forbidden}`",
+                    path.display()
+                );
+            }
+            if path.file_name().and_then(|name| name.to_str()) != Some("launch.rs") {
+                assert!(
+                    !source.contains("receiver_observations_dir"),
+                    "{} reads an observation path outside launch/controller ownership",
+                    path.display()
+                );
+            }
+        }
+    }
+}
