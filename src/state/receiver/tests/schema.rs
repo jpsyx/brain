@@ -336,6 +336,8 @@ fn damaged_v9_reconciliation_preserves_every_observation_field() {
     super::super::schema::up(&db.conn, 9).expect("repair damaged v9 receiver jobs");
 
     assert_eq!(evidence(&db), before);
+    super::super::schema::up(&db.conn, 9).expect("reconcile already-current v9 receiver jobs");
+    assert_eq!(evidence(&db), before);
     for job_id in jobs {
         assert!(db
             .receiver_job(job_id)
