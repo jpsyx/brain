@@ -681,6 +681,17 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
+Receiver lifecycle-only completion follows the same continuity rule as
+artifact completion. The immediate terminal transaction proves the exact job
+token, owner, live lease, remote instance, registered current session, and
+observed native session; it then replaces the conversation binding before it
+commits `done` and claim clearing. This prevents completion from deleting the
+only durable reference to a fresh or rotated Codex, OpenCode, or Claude session.
+A failed binding write rolls back the whole transaction. After any terminal or
+local-only exit route, a separate exact-instance cleanup removes the response,
+observation snapshot, and sibling lock without touching durable facts or files
+owned by another instance.
+
 ## Historical: why the completion bridge learned to read a Claude transcript
 
 The former warm-panel receiver depended on the session-stop bridge to publish

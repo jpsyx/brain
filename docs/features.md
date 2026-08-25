@@ -1529,10 +1529,17 @@ An exact lifecycle completion artifact and lifecycle-only completion are both
 terminal evidence. A valid artifact wins when both appear in one tick, so its
 private response is delivered once through the existing exact completion path.
 Lifecycle-only completion can move `launched` or `accepted` directly to `done`
-without inventing missed intermediate timestamps or a response body. Child exit
-or orderly shutdown after `launched` without terminal evidence cleans only local
-resources and never replays the prompt. BR-16 still owns recovery for a proven
-stalled run, and BR-17 still owns durable answer and delivery-only recovery.
+without inventing missed intermediate timestamps or a response body. Its
+terminal transaction also replaces the conversation binding with the exact
+lifecycle-reported native session; if that binding cannot be persisted, the job
+remains retryable instead of becoming `done`. Terminal completion, child exit,
+lost ownership, and orderly shutdown remove only the exact instance's response,
+observation snapshot, and observation lock while preserving durable facts and
+unrelated instance files. Poll diagnostics use one content-free shape containing
+only opaque job and instance IDs, frontend, prior phase, observed boundary or
+`none`, and a stable category. Child exit or orderly shutdown after `launched`
+without terminal evidence never replays the prompt. BR-16 still owns recovery
+for a proven stalled run, and BR-17 still owns durable answer and delivery-only recovery.
 Provider replies currently use the
 exact acceptance-time channel and recipient context on a bounded background
 worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery

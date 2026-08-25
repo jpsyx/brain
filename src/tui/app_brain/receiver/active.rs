@@ -10,6 +10,7 @@ use crate::tui::receiver::ActiveReceiverRun;
 use crate::tui::state::ReceiverRunPollError;
 
 use super::artifact::{CompletionExpectation, read_exact_completion};
+use super::diagnostic::receiver_observation_diagnostic;
 use super::dispatch::CLAIM_LIFETIME_MS;
 
 impl App {
@@ -23,11 +24,11 @@ impl App {
         ) {
             Ok(true) => {}
             Ok(false) => {
-                self.stop_locally_after_lost_receiver_ownership(&active);
+                self.stop_locally_after_lost_receiver_ownership(&active, None, "ownership-changed");
                 return;
             }
-            Err(error) => {
-                crate::logging::log(format!("receiver claim renewal failed: {error:#}"));
+            Err(_) => {
+                self.log_receiver_observation(&active, None, "claim-renewal-store");
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
                 return;
@@ -44,7 +45,7 @@ impl App {
                     && observation.instance == active.attribution.instance()
             });
         let Some(tab) = tab else {
-            self.stop_locally_after_lost_receiver_ownership(&active);
+            self.stop_locally_after_lost_receiver_ownership(&active, None, "tab-identity-mismatch");
             return;
         };
         let poll = self.poll_active_receiver_run(&active);
@@ -53,11 +54,17 @@ impl App {
             #[cfg(test)]
             self.receiver.run_after_completion_validation_hook();
             let completion_observed_at = self.receiver_now_unix_ms();
+            let boundary = poll.as_ref().ok().and_then(|(poll, _)| {
+                poll.observation
+                    .boundaries()
+                    .last()
+                    .map(|boundary| boundary.phase())
+            });
+            self.log_receiver_observation(&active, boundary, "artifact-precedence");
             self.finish_completed_receiver_run(
                 active,
                 &completion.session,
                 &completion.message,
-                &path,
                 completion_observed_at,
             );
             return;
@@ -66,31 +73,35 @@ impl App {
         match poll {
             Ok((poll, _)) if poll.observation.boundaries().is_empty() => {
                 if poll.exited {
-                    self.clean_exited_receiver_run_locally(&active, &path);
+                    self.log_receiver_observation(&active, None, "child-exit");
+                    self.clean_exited_receiver_run_locally(&active);
                 } else {
+                    self.log_receiver_observation(&active, None, "pending");
                     self.receiver.store_durable_run(
                         crate::tui::receiver::DurableReceiverRun::Active(active),
                     );
                 }
             }
             Ok((poll, prior_state)) => {
-                self.apply_active_receiver_observation(active, &poll, prior_state, &path);
+                self.apply_active_receiver_observation(active, &poll, prior_state);
             }
-            Err(ReceiverRunPollError::MissingTab | ReceiverRunPollError::IdentityMismatch) => {
-                self.stop_locally_after_lost_receiver_ownership(&active);
+            Err(ReceiverRunPollError::MissingTab) => {
+                self.stop_locally_after_lost_receiver_ownership(&active, None, "tab-missing");
+            }
+            Err(ReceiverRunPollError::IdentityMismatch) => {
+                self.stop_locally_after_lost_receiver_ownership(
+                    &active,
+                    None,
+                    "tab-identity-mismatch",
+                );
             }
             Err(ReceiverRunPollError::Observation(error)) => {
                 if tab.exited {
-                    self.clean_exited_receiver_run_locally(&active, &path);
+                    self.log_receiver_observation(&active, None, "child-exit");
+                    self.clean_exited_receiver_run_locally(&active);
                     return;
                 }
-                crate::logging::log(format!(
-                    "receiver observation rejected job={} instance={} frontend={} category={}",
-                    active.claim.job().id(),
-                    active.attribution.instance(),
-                    active.attribution.scope().agent_kind().as_str(),
-                    observation_error_category(error),
-                ));
+                self.log_receiver_observation(&active, None, observation_error_category(error));
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
             }
@@ -134,7 +145,6 @@ impl App {
         active: ActiveReceiverRun,
         poll: &crate::tui::state::ReceiverRunPoll,
         prior_state: ReceiverJobState,
-        path: &std::path::Path,
     ) {
         let boundary = poll
             .observation
@@ -148,25 +158,42 @@ impl App {
             active.claim.job().id(),
             active.claim.job().token(),
             active.claim.claim().owner(),
-            active.attribution.instance(),
+            &active.attribution,
             &poll.observation,
             authorized_at_unix_ms,
         ) {
             Ok(outcome) if outcome.changed && outcome.completed => {
-                self.finish_observation_only_receiver_run(&active, path);
-            }
-            Ok(outcome) if outcome.changed => {
-                crate::logging::log(format!(
-                    "receiver observation persisted job={} instance={} frontend={} prior={:?} boundary={boundary:?}",
+                crate::logging::log(receiver_observation_diagnostic(
                     active.claim.job().id(),
                     active.attribution.instance(),
-                    active.attribution.scope().agent_kind().as_str(),
+                    active.attribution.scope().agent_kind(),
                     prior_state,
+                    Some(boundary),
+                    "persisted-terminal",
+                ));
+                self.finish_observation_only_receiver_run(&active);
+            }
+            Ok(outcome) if outcome.changed => {
+                crate::logging::log(receiver_observation_diagnostic(
+                    active.claim.job().id(),
+                    active.attribution.instance(),
+                    active.attribution.scope().agent_kind(),
+                    prior_state,
+                    Some(boundary),
+                    "persisted",
                 ));
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
             }
             Ok(_) => {
+                crate::logging::log(receiver_observation_diagnostic(
+                    active.claim.job().id(),
+                    active.attribution.instance(),
+                    active.attribution.scope().agent_kind(),
+                    prior_state,
+                    Some(boundary),
+                    "not-committed",
+                ));
                 let now = self.receiver_now_unix_ms();
                 match self.services.renew_receiver_claim(
                     active.claim.job().id(),
@@ -174,18 +201,24 @@ impl App {
                     now,
                     now.saturating_add(CLAIM_LIFETIME_MS),
                 ) {
-                    Ok(false) => self.stop_locally_after_lost_receiver_ownership(&active),
+                    Ok(false) => self.stop_locally_after_lost_receiver_ownership(
+                        &active,
+                        Some(boundary),
+                        "ownership-changed",
+                    ),
                     Ok(true) | Err(_) => self.receiver.store_durable_run(
                         crate::tui::receiver::DurableReceiverRun::Active(active),
                     ),
                 }
             }
             Err(_) => {
-                crate::logging::log(format!(
-                    "receiver observation commit failed job={} instance={} frontend={} category=store",
+                crate::logging::log(receiver_observation_diagnostic(
                     active.claim.job().id(),
                     active.attribution.instance(),
-                    active.attribution.scope().agent_kind().as_str(),
+                    active.attribution.scope().agent_kind(),
+                    prior_state,
+                    Some(boundary),
+                    "store",
                 ));
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
@@ -193,11 +226,7 @@ impl App {
         }
     }
 
-    fn finish_observation_only_receiver_run(
-        &mut self,
-        active: &ActiveReceiverRun,
-        path: &std::path::Path,
-    ) {
+    fn finish_observation_only_receiver_run(&mut self, active: &ActiveReceiverRun) {
         if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
             let _ = self
                 .services
@@ -208,10 +237,14 @@ impl App {
             .release_receiver_session(&active.attribution)
             .is_err()
         {
-            crate::logging::log("receiver session release failed category=store");
+            self.log_receiver_observation(
+                active,
+                Some(AgentObservationPhase::Completed),
+                "session-release-store",
+            );
         }
         self.remove_exact_receiver_tab(active);
-        let _ = std::fs::remove_file(path);
+        self.cleanup_receiver_instance_files(active.attribution.instance());
         crate::logging::log(format!(
             "receiver run completed from lifecycle observation job={} instance={} frontend={}",
             active.claim.job().id(),
@@ -257,7 +290,6 @@ impl App {
         active: ActiveReceiverRun,
         completed_session: &AgentSession,
         message: &str,
-        path: &std::path::Path,
         now: u64,
     ) {
         let completed = self.services.complete_receiver_job_with_binding(
@@ -271,12 +303,13 @@ impl App {
         match completed {
             Ok(true) => {}
             Ok(false) => {
+                self.log_receiver_observation(&active, None, "artifact-not-committed");
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
                 return;
             }
-            Err(error) => {
-                crate::logging::log(format!("receiver completion commit failed: {error:#}"));
+            Err(_) => {
+                self.log_receiver_observation(&active, None, "artifact-store");
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
                 return;
@@ -292,11 +325,19 @@ impl App {
             "final receiver response",
             message,
         );
-        if let Err(error) = self.services.release_receiver_session(&active.attribution) {
-            crate::logging::log(format!("receiver session release failed: {error:#}"));
+        if self
+            .services
+            .release_receiver_session(&active.attribution)
+            .is_err()
+        {
+            self.log_receiver_observation(
+                &active,
+                Some(AgentObservationPhase::Completed),
+                "session-release-store",
+            );
         }
         self.remove_exact_receiver_tab(&active);
-        let _ = std::fs::remove_file(path);
+        self.cleanup_receiver_instance_files(active.attribution.instance());
         crate::logging::log(format!(
             "receiver run completed channel={:?}",
             active.claim.job().inbound().channel
@@ -304,20 +345,21 @@ impl App {
         self.reload_after_brain();
     }
 
-    fn clean_exited_receiver_run_locally(
-        &mut self,
-        active: &ActiveReceiverRun,
-        path: &std::path::Path,
-    ) {
+    fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {
         self.remove_exact_receiver_tab(active);
-        let _ = std::fs::remove_file(path);
+        self.cleanup_receiver_instance_files(active.attribution.instance());
         crate::logging::log("receiver exited after launch; durable evidence remains unchanged");
     }
 
-    fn stop_locally_after_lost_receiver_ownership(&mut self, active: &ActiveReceiverRun) {
+    fn stop_locally_after_lost_receiver_ownership(
+        &mut self,
+        active: &ActiveReceiverRun,
+        boundary: Option<AgentObservationPhase>,
+        category: &'static str,
+    ) {
+        self.log_receiver_observation(active, boundary, category);
         self.remove_exact_receiver_tab(active);
-        let _ = std::fs::remove_file(self.receiver_completion_path(active.attribution.instance()));
-        crate::logging::log("receiver run stopped after durable claim ownership changed");
+        self.cleanup_receiver_instance_files(active.attribution.instance());
     }
 
     fn remove_exact_receiver_tab(&mut self, active: &ActiveReceiverRun) {
@@ -326,8 +368,30 @@ impl App {
             removed.job_id != active.claim.job().id()
                 || removed.instance != active.attribution.instance()
         }) {
-            crate::logging::log("receiver tab identity changed before exact cleanup");
+            self.log_receiver_observation(active, None, "tab-cleanup-identity-mismatch");
         }
+    }
+
+    fn log_receiver_observation(
+        &self,
+        active: &ActiveReceiverRun,
+        boundary: Option<AgentObservationPhase>,
+        category: &'static str,
+    ) {
+        let prior = self
+            .services
+            .receiver_observation_cursor(active.claim.job().id())
+            .ok()
+            .flatten()
+            .map_or(ReceiverJobState::Launched, |(state, _)| state);
+        crate::logging::log(receiver_observation_diagnostic(
+            active.claim.job().id(),
+            active.attribution.instance(),
+            active.attribution.scope().agent_kind(),
+            prior,
+            boundary,
+            category,
+        ));
     }
 
     fn receiver_completion_path(&self, instance: &str) -> std::path::PathBuf {

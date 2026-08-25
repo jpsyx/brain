@@ -217,7 +217,7 @@ impl AppServices {
         job_id: crate::state::ReceiverJobId,
         token: crate::state::ReceiverJobToken,
         owner: &str,
-        instance: &str,
+        registration: &crate::state::ReceiverSessionAttribution,
         result: &crate::agent::AgentObservationResult,
         authorized_at_unix_ms: u64,
     ) -> Result<ReceiverObservationApplyOutcome> {
@@ -239,20 +239,28 @@ impl AppServices {
             }
         }
         let completed = completed_at_unix_ms.is_some();
-        let changed = self.db.apply_receiver_observation_set(
-            job_id,
-            owner,
-            &crate::state::ReceiverObservationSet {
-                token,
-                instance: instance.to_owned(),
-                session_id: result.session().as_str().to_owned(),
-                revision: result.snapshot_revision(),
-                accepted_at_unix_ms,
-                progressing_at_unix_ms,
-                completed_at_unix_ms,
-                authorized_at_unix_ms,
-            },
-        )?;
+        let observation = crate::state::ReceiverObservationSet {
+            token,
+            instance: registration.instance().to_owned(),
+            session_id: result.session().as_str().to_owned(),
+            revision: result.snapshot_revision(),
+            accepted_at_unix_ms,
+            progressing_at_unix_ms,
+            completed_at_unix_ms,
+            authorized_at_unix_ms,
+        };
+        let changed = if completed {
+            self.db.apply_terminal_receiver_observation_set(
+                job_id,
+                owner,
+                &observation,
+                registration,
+                result.session(),
+            )?
+        } else {
+            self.db
+                .apply_receiver_observation_set(job_id, owner, &observation)?
+        };
         Ok(ReceiverObservationApplyOutcome { changed, completed })
     }
 

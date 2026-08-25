@@ -1174,6 +1174,11 @@ A valid completion can move `launched`, `accepted`, or `processing` directly to
 `done` without fabricating missing accepted or progressing timestamps. Artifact
 completion's terminal compare-and-swap shares one immediate
 transaction with exact lifecycle-native binding proof and persistence. The
+same rule applies to lifecycle-only completion: its exact observed native
+session replaces the conversation binding before the terminal update may
+commit. Both paths therefore make `done`, claim clearing, and conversation
+continuity one atomic fact; any binding write failure preserves the prior job,
+claim, registration, and binding for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
 passes it directly into the terminal transaction, so validation cannot outlive
 the owner's lease. A binding mismatch, concurrent lifecycle rotation, or

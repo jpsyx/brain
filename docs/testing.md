@@ -343,10 +343,16 @@ first move is a failing test that reproduces it, *then* the fix.
   OpenCode. They prove an unobserved launch remains `launched`, current-session
   rotation persists exact acceptance, a newer full snapshot atomically catches
   up accepted plus progressing, and a cursor rebuilt from durable evidence does
-  not emit an earlier phase. Deterministic cases cover missing, malformed,
+  not emit an earlier phase. A terminal continuity matrix proves fresh and
+  rotated native sessions become the next message's exact resume target for all
+  three frontends, including Codex and OpenCode placeholder rotation, while a
+  forced binding write failure leaves completion retryable. Deterministic cases
+  cover missing, malformed,
   unrelated, equal-revision, and completion-only evidence; owner loss between
-  read and transaction; artifact plus lifecycle completion in one tick; local
-  cleanup after terminal evidence; and FIFO release to the next durable job.
+  read and transaction; artifact plus lifecycle completion in one tick; exact
+  artifact-body delivery once versus no lifecycle-only delivery; exact-instance
+  response, snapshot, and lock cleanup for all five exit routes; stable
+  content-free diagnostics; and FIFO release to the next durable job.
   Existing exit and shutdown cases prove that no terminal evidence means local
   cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +

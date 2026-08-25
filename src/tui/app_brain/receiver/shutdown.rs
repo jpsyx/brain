@@ -1,8 +1,11 @@
 //! Orderly cleanup for receiver work before generic controller shutdown.
 
+use crate::state::ReceiverJobState;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
 use crate::tui::receiver::{ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun};
+
+use super::diagnostic::receiver_observation_diagnostic;
 
 impl App {
     pub(crate) fn shutdown_receiver_runtime(&mut self) {
@@ -40,15 +43,22 @@ impl App {
         if removed.as_ref().is_some_and(|removed| {
             removed.job_id != claim.job().id() || removed.instance != attribution.instance()
         }) {
-            crate::logging::log("receiver tab identity changed before shutdown cleanup");
+            let prior = self
+                .services
+                .receiver_observation_cursor(claim.job().id())
+                .ok()
+                .flatten()
+                .map_or(ReceiverJobState::Launched, |(state, _)| state);
+            crate::logging::log(receiver_observation_diagnostic(
+                claim.job().id(),
+                attribution.instance(),
+                attribution.scope().agent_kind(),
+                prior,
+                None,
+                "tab-shutdown-identity-mismatch",
+            ));
         }
-        let _ = std::fs::remove_file(
-            self.context
-                .workspace()
-                .paths()
-                .responses_dir()
-                .join(format!("{}.json", attribution.instance())),
-        );
+        self.cleanup_receiver_instance_files(attribution.instance());
         drop(attachments);
         crate::logging::log("receiver shutdown preserved launched durable evidence");
     }

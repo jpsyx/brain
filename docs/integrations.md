@@ -977,12 +977,18 @@ Which session to run is decided by the **lock + recency** model in
    `launching`-to-`done` remains forbidden. Exact completion may move a
    `launched` job directly to `done` when intermediate observations were missed.
    Lifecycle-only completion uses the same exact owner and identity gates, may
-   also finish directly without inventing a response body, and never delivers
-   twice when an artifact is valid in the same tick. If the receiver child exits without that exact
-   artifact, Brain shuts down and removes only local resources while retaining
-   the `launched` job and its durable registration unchanged. Claim-renewal loss
-   follows the same local-only rule. BR-16 owns stalled-run recovery, while
-   BR-17 owns answer persistence and delivery-only retry.
+   also finish directly without inventing a response body, and atomically
+   replaces the conversation binding with its exact observed native session.
+   A binding persistence failure rolls back the terminal job update. A valid
+   artifact still wins when both terminal forms exist in one tick and delivers
+   its exact body once. Lifecycle-only completion delivers nothing. Terminal
+   completion, child exit, claim-renewal loss, and orderly shutdown remove only
+   the exact instance's response artifact, observation snapshot, and sibling
+   lock. Durable job evidence is retained for every nonterminal route. Poll
+   outcomes use a stable content-free diagnostic containing opaque job and
+   instance IDs, frontend, prior phase, boundary or `none`, and category. BR-16
+   owns stalled-run recovery, while BR-17 owns answer persistence and
+   delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
