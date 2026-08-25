@@ -910,8 +910,10 @@ Which session to run is decided by the **lock + recency** model in
    every cache component with no-follow directory handles, opens the final file
    nonblocking, validates that opened handle as regular, owner-only, and at most
    4096 bytes both before and after the single read, and rejects a short read.
-   Platforms that cannot enforce the Unix owner-only contract fail closed for
-   an existing snapshot. One poll reads at most 4097 bytes, accepts only the
+   Platforms that cannot enforce the Unix owner-only contract treat only a
+   true not-found result as pending, reject symlink and nonregular entries as
+   invalid file types, and otherwise fail closed without reading the snapshot.
+   One poll reads at most 4097 bytes, accepts only the
    exact ten-field schema, and returns content-free accepted, progressing, and
    completed boundaries in lifecycle order with an opaque next cursor.
    Missing files and equal revisions are pending/no-change. Oversize,

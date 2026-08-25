@@ -269,13 +269,68 @@ fn open_error(error: Errno) -> AgentObservationError {
     }
 }
 
+#[cfg(any(test, not(unix)))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SnapshotMetadataEntry {
+    RegularFile,
+    Symlink,
+    Other,
+}
+
+#[cfg(any(test, not(unix)))]
+fn snapshot_metadata_entry(metadata: &std::fs::Metadata) -> SnapshotMetadataEntry {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        SnapshotMetadataEntry::Symlink
+    } else if file_type.is_file() {
+        SnapshotMetadataEntry::RegularFile
+    } else {
+        SnapshotMetadataEntry::Other
+    }
+}
+
+#[cfg(any(test, not(unix)))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NonUnixSnapshotDecision {
+    Pending,
+    InvalidFileType,
+    InvalidPermissions,
+}
+
+#[cfg(any(test, not(unix)))]
+fn classify_non_unix_snapshot_metadata(
+    metadata: Result<SnapshotMetadataEntry, std::io::ErrorKind>,
+) -> NonUnixSnapshotDecision {
+    match metadata {
+        Err(std::io::ErrorKind::NotFound) => NonUnixSnapshotDecision::Pending,
+        Ok(SnapshotMetadataEntry::Symlink | SnapshotMetadataEntry::Other) => {
+            NonUnixSnapshotDecision::InvalidFileType
+        }
+        Ok(SnapshotMetadataEntry::RegularFile) | Err(_) => {
+            NonUnixSnapshotDecision::InvalidPermissions
+        }
+    }
+}
+
+#[cfg(any(test, not(unix)))]
+fn read_snapshot_without_owner_only_enforcement(
+    path: &Path,
+) -> Result<Option<Vec<u8>>, AgentObservationError> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map(|metadata| snapshot_metadata_entry(&metadata))
+        .map_err(|error| error.kind());
+    match classify_non_unix_snapshot_metadata(metadata) {
+        NonUnixSnapshotDecision::Pending => Ok(None),
+        NonUnixSnapshotDecision::InvalidFileType => Err(AgentObservationError::InvalidFileType),
+        NonUnixSnapshotDecision::InvalidPermissions => {
+            Err(AgentObservationError::InvalidPermissions)
+        }
+    }
+}
+
 #[cfg(not(unix))]
 pub(super) fn read_snapshot_once(path: &Path) -> Result<Option<Vec<u8>>, AgentObservationError> {
-    if path.exists() {
-        Err(AgentObservationError::InvalidPermissions)
-    } else {
-        Ok(None)
-    }
+    read_snapshot_without_owner_only_enforcement(path)
 }
 
 #[cfg(all(test, not(unix)))]
@@ -285,4 +340,116 @@ pub(super) fn read_snapshot_once_with_open_hook(
 ) -> Result<Option<Vec<u8>>, AgentObservationError> {
     before_file_open();
     read_snapshot_once(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::ErrorKind;
+
+    use super::{
+        NonUnixSnapshotDecision, SnapshotMetadataEntry, classify_non_unix_snapshot_metadata,
+    };
+
+    #[test]
+    fn non_unix_metadata_classification_preserves_only_true_not_found_as_pending() {
+        let cases = [
+            (Err(ErrorKind::NotFound), NonUnixSnapshotDecision::Pending),
+            (
+                Ok(SnapshotMetadataEntry::Symlink),
+                NonUnixSnapshotDecision::InvalidFileType,
+            ),
+            (
+                Ok(SnapshotMetadataEntry::Other),
+                NonUnixSnapshotDecision::InvalidFileType,
+            ),
+            (
+                Ok(SnapshotMetadataEntry::RegularFile),
+                NonUnixSnapshotDecision::InvalidPermissions,
+            ),
+            (
+                Err(ErrorKind::PermissionDenied),
+                NonUnixSnapshotDecision::InvalidPermissions,
+            ),
+            (
+                Err(ErrorKind::Other),
+                NonUnixSnapshotDecision::InvalidPermissions,
+            ),
+        ];
+
+        for (metadata, expected) in cases {
+            assert_eq!(classify_non_unix_snapshot_metadata(metadata), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unix_file_type_mapping_identifies_a_dangling_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().expect("temporary root");
+        let link = temporary.path().join("dangling.json");
+        symlink(temporary.path().join("missing.json"), &link).expect("dangling symlink");
+        let metadata = std::fs::symlink_metadata(link).expect("symlink metadata");
+
+        assert_eq!(
+            super::snapshot_metadata_entry(&metadata),
+            SnapshotMetadataEntry::Symlink
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unix_reader_logic_rejects_dangling_symlinks_and_preserves_only_missing() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().expect("temporary root");
+        let missing = temporary.path().join("missing.json");
+        assert_eq!(
+            super::read_snapshot_without_owner_only_enforcement(&missing),
+            Ok(None)
+        );
+
+        let dangling = temporary.path().join("dangling.json");
+        symlink(&missing, &dangling).expect("dangling symlink");
+        assert_eq!(
+            super::read_snapshot_without_owner_only_enforcement(&dangling),
+            Err(super::AgentObservationError::InvalidFileType)
+        );
+
+        let regular = temporary.path().join("regular.json");
+        std::fs::write(&regular, b"{}").expect("regular snapshot");
+        assert_eq!(
+            super::read_snapshot_without_owner_only_enforcement(&regular),
+            Err(super::AgentObservationError::InvalidPermissions)
+        );
+
+        let directory = temporary.path().join("directory.json");
+        std::fs::create_dir(&directory).expect("snapshot directory");
+        assert_eq!(
+            super::read_snapshot_without_owner_only_enforcement(&directory),
+            Err(super::AgentObservationError::InvalidFileType)
+        );
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn non_unix_reader_preserves_missing_and_rejects_existing_entries() {
+        let temporary = tempfile::tempdir().expect("temporary root");
+        let missing = temporary.path().join("missing.json");
+        assert_eq!(super::read_snapshot_once(&missing), Ok(None));
+
+        let regular = temporary.path().join("regular.json");
+        std::fs::write(&regular, b"{}").expect("regular snapshot");
+        assert_eq!(
+            super::read_snapshot_once(&regular),
+            Err(super::AgentObservationError::InvalidPermissions)
+        );
+
+        let directory = temporary.path().join("directory.json");
+        std::fs::create_dir(&directory).expect("snapshot directory");
+        assert_eq!(
+            super::read_snapshot_once(&directory),
+            Err(super::AgentObservationError::InvalidFileType)
+        );
+    }
 }
