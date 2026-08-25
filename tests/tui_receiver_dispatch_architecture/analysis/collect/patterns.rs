@@ -27,7 +27,12 @@ pub(super) fn bind_pattern(
 ) {
     match pattern {
         syn::Pat::Ident(identifier) => {
-            merge_binding(variables, identifier.ident.to_string(), fact.clone());
+            let fact = if identifier.by_ref.is_some() {
+                fact.mark_borrowed()
+            } else {
+                fact
+            };
+            variables.insert(identifier.ident.to_string(), fact.clone());
             if let Some((_, subpattern)) = &identifier.subpat {
                 bind_pattern(scope, subpattern, fact, variables);
             }
@@ -54,13 +59,19 @@ pub(super) fn bind_pattern(
             }
         }
         syn::Pat::TupleStruct(tuple) => {
+            let rest = tuple
+                .elems
+                .iter()
+                .position(|item| matches!(item, syn::Pat::Rest(_)));
             for (index, item) in tuple.elems.iter().enumerate() {
-                bind_pattern(
-                    scope,
-                    item,
-                    scope.field_fact(&fact, &syn::Member::Unnamed(index.into())),
-                    variables,
+                if matches!(item, syn::Pat::Rest(_)) {
+                    continue;
+                }
+                let component = rest.filter(|rest| index > *rest).map_or_else(
+                    || scope.field_fact(&fact, &syn::Member::Unnamed(index.into())),
+                    |_| scope.field_fact_from_end(&fact, tuple.elems.len() - index - 1),
                 );
+                bind_pattern(scope, item, component, variables);
             }
         }
         syn::Pat::Struct(structure) => {
@@ -76,20 +87,41 @@ pub(super) fn bind_pattern(
         syn::Pat::Slice(slice) => {
             for item in &slice.elems {
                 if !matches!(item, syn::Pat::Rest(_)) {
-                    bind_pattern(scope, item, fact.sequence_component(), variables);
+                    let component = if is_rest_binding(item) {
+                        fact.sequence_remainder()
+                    } else {
+                        fact.sequence_component()
+                    };
+                    bind_pattern(scope, item, component, variables);
                 }
             }
         }
         syn::Pat::Or(alternatives) => {
+            let mut merged = HashMap::new();
             for alternative in &alternatives.cases {
-                bind_pattern(scope, alternative, fact.clone(), variables);
+                let mut branch = HashMap::new();
+                bind_pattern(scope, alternative, fact.clone(), &mut branch);
+                for (name, fact) in branch {
+                    merge_alternative(&mut merged, name, fact);
+                }
             }
+            variables.extend(merged);
         }
         _ => {}
     }
 }
 
-fn merge_binding(variables: &mut HashMap<String, TypeFact>, name: String, fact: TypeFact) {
+fn is_rest_binding(pattern: &syn::Pat) -> bool {
+    let syn::Pat::Ident(identifier) = pattern else {
+        return false;
+    };
+    identifier
+        .subpat
+        .as_ref()
+        .is_some_and(|(_, pattern)| matches!(**pattern, syn::Pat::Rest(_)))
+}
+
+fn merge_alternative(variables: &mut HashMap<String, TypeFact>, name: String, fact: TypeFact) {
     if let Some(existing) = variables.get_mut(&name) {
         *existing = TypeFact::alternatives([existing.clone(), fact]);
     } else {

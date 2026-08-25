@@ -89,6 +89,10 @@ impl<'symbols> Scope<'symbols> {
         self.symbols.field_fact(owner, member)
     }
 
+    pub(super) fn field_fact_from_end(&self, owner: &TypeFact, reverse_index: usize) -> TypeFact {
+        self.symbols.field_fact_from_end(owner, reverse_index)
+    }
+
     pub(super) fn return_fact(&self, target: &str) -> TypeFact {
         self.symbols.return_fact(target)
     }

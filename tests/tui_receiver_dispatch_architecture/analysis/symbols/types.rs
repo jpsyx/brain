@@ -3,21 +3,12 @@ use std::collections::HashMap;
 use super::super::super::TypeFact;
 use super::{LexicalScope, Symbols, TypeDefinition};
 
-struct AliasExpansion<'a> {
-    module: &'a [String],
-    use_scope: &'a LexicalScope,
-    definition_scope: &'a LexicalScope,
-    outer_bindings: &'a HashMap<String, TypeFact>,
-}
+#[path = "types/generics.rs"]
+mod generics;
 
-#[derive(Eq, PartialEq)]
-enum ResolutionFrame {
-    Definition(String),
-    LexicalAlias {
-        declaration: String,
-        supplied_types: Vec<(String, TypeFact)>,
-    },
-}
+use generics::{
+    AliasExpansion, ResolutionFrame, generic_arguments, generic_types, lexical_alias_frame,
+};
 
 impl Symbols {
     pub(in super::super) fn type_fact_scoped(
@@ -92,7 +83,8 @@ impl Symbols {
                         &arguments,
                         resolving,
                         &AliasExpansion {
-                            module,
+                            use_module: module,
+                            definition_module: module,
                             use_scope: lexical,
                             definition_scope: &definition_scope,
                             outer_bindings: type_parameters,
@@ -108,7 +100,8 @@ impl Symbols {
                         &mut bindings,
                         resolving,
                         &AliasExpansion {
-                            module,
+                            use_module: module,
+                            definition_module: module,
                             use_scope: lexical,
                             definition_scope: &definition_scope,
                             outer_bindings: type_parameters,
@@ -146,90 +139,20 @@ impl Symbols {
                             .any_variant(|fact| fact.inbound_job)
                     })
                 });
-                fact_for_canonical(canonical, inbound_job)
+                let mut fact = fact_for_canonical(canonical.clone(), inbound_job);
+                if let Some(definition) = self.structs.get(&canonical) {
+                    fact.type_arguments = self.struct_type_arguments(
+                        definition,
+                        path,
+                        module,
+                        lexical,
+                        resolving,
+                        type_parameters,
+                    );
+                }
+                fact
             }
             _ => TypeFact::default(),
-        }
-    }
-
-    fn lexical_alias_bindings(
-        &self,
-        parameters: &[syn::GenericParam],
-        arguments: &[&syn::GenericArgument],
-        resolving: &mut Vec<ResolutionFrame>,
-        expansion: &AliasExpansion<'_>,
-    ) -> HashMap<String, TypeFact> {
-        let mut argument_index = 0;
-        let mut bindings = HashMap::new();
-        for parameter in parameters {
-            match parameter {
-                syn::GenericParam::Lifetime(_) => {
-                    if matches!(
-                        arguments.get(argument_index).copied(),
-                        Some(syn::GenericArgument::Lifetime(_))
-                    ) {
-                        argument_index += 1;
-                    }
-                }
-                syn::GenericParam::Const(_) => {
-                    if arguments
-                        .get(argument_index)
-                        .copied()
-                        .is_some_and(is_const_position_argument)
-                    {
-                        argument_index += 1;
-                    }
-                }
-                syn::GenericParam::Type(parameter) => {
-                    let explicit = arguments.get(argument_index).copied().and_then(|argument| {
-                        let syn::GenericArgument::Type(ty) = argument else {
-                            return None;
-                        };
-                        Some(ty)
-                    });
-                    if let Some(ty) = explicit {
-                        argument_index += 1;
-                        let fact = self.type_fact_inner(
-                            expansion.module,
-                            ty,
-                            expansion.use_scope,
-                            resolving,
-                            expansion.outer_bindings,
-                        );
-                        bindings.insert(parameter.ident.to_string(), fact);
-                    }
-                }
-            }
-        }
-        bindings
-    }
-
-    fn apply_lexical_alias_defaults(
-        &self,
-        parameters: &[syn::GenericParam],
-        bindings: &mut HashMap<String, TypeFact>,
-        resolving: &mut Vec<ResolutionFrame>,
-        expansion: &AliasExpansion<'_>,
-    ) {
-        for parameter in parameters {
-            let syn::GenericParam::Type(parameter) = parameter else {
-                continue;
-            };
-            let name = parameter.ident.to_string();
-            if bindings.contains_key(&name) {
-                continue;
-            }
-            let Some(default) = &parameter.default else {
-                continue;
-            };
-            let fact = self.type_fact_inner(
-                expansion.module,
-                default,
-                expansion.definition_scope,
-                resolving,
-                bindings,
-            );
-            bindings.insert(name, fact);
         }
     }
 
@@ -239,8 +162,36 @@ impl Symbols {
             syn::Member::Unnamed(index) => index.index.to_string(),
         };
         TypeFact::alternatives(owner.variants().filter_map(|owner| {
-            let owner = owner.canonical.as_ref()?;
-            Some(self.definition_fact(self.fields.get(&format!("{owner}::{member}"))))
+            let canonical = owner.canonical.as_ref()?;
+            let definition = self.fields.get(&format!("{canonical}::{member}"));
+            let bindings = owner.type_arguments.iter().cloned().collect();
+            Some(definition.map_or_else(TypeFact::default, |definition| {
+                let fact = self.type_fact_inner(
+                    &definition.module,
+                    &definition.ty,
+                    &definition.lexical,
+                    &mut Vec::new(),
+                    &bindings,
+                );
+                if owner.borrowed {
+                    fact.mark_borrowed()
+                } else {
+                    fact
+                }
+            }))
+        }))
+    }
+
+    pub(in super::super) fn field_fact_from_end(
+        &self,
+        owner: &TypeFact,
+        reverse_index: usize,
+    ) -> TypeFact {
+        TypeFact::alternatives(owner.variants().filter_map(|owner| {
+            let canonical = owner.canonical.as_ref()?;
+            let field_count = self.structs.get(canonical)?.field_count;
+            let index = field_count.checked_sub(reverse_index + 1)?;
+            Some(self.field_fact(owner, &syn::Member::Unnamed(index.into())))
         }))
     }
 
@@ -258,27 +209,6 @@ impl Symbols {
         definition.map_or_else(TypeFact::default, |definition| {
             self.type_fact_scoped(&definition.module, &definition.ty, &definition.lexical)
         })
-    }
-}
-
-fn lexical_alias_frame(
-    declaration: &str,
-    parameters: &[syn::GenericParam],
-    bindings: &HashMap<String, TypeFact>,
-) -> ResolutionFrame {
-    let supplied_types = parameters
-        .iter()
-        .filter_map(|parameter| {
-            let syn::GenericParam::Type(parameter) = parameter else {
-                return None;
-            };
-            let name = parameter.ident.to_string();
-            bindings.get(&name).cloned().map(|fact| (name, fact))
-        })
-        .collect();
-    ResolutionFrame::LexicalAlias {
-        declaration: declaration.to_owned(),
-        supplied_types,
     }
 }
 
@@ -329,37 +259,5 @@ fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
         channel_receiver,
         memory_queue,
         ..TypeFact::default()
-    }
-}
-
-fn generic_types(segment: &syn::PathSegment) -> Vec<&syn::Type> {
-    generic_arguments(segment)
-        .into_iter()
-        .filter_map(|argument| {
-            let syn::GenericArgument::Type(ty) = argument else {
-                return None;
-            };
-            Some(ty)
-        })
-        .collect()
-}
-
-fn generic_arguments(segment: &syn::PathSegment) -> Vec<&syn::GenericArgument> {
-    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return Vec::new();
-    };
-    arguments.args.iter().collect()
-}
-
-fn is_const_position_argument(argument: &syn::GenericArgument) -> bool {
-    match argument {
-        syn::GenericArgument::Const(_) | syn::GenericArgument::Type(syn::Type::Infer(_)) => true,
-        syn::GenericArgument::Type(syn::Type::Path(path)) => {
-            path.qself.is_none()
-                && path.path.leading_colon.is_none()
-                && path.path.segments.len() == 1
-                && matches!(path.path.segments[0].arguments, syn::PathArguments::None)
-        }
-        _ => false,
     }
 }

@@ -20,11 +20,20 @@ struct TypeDefinition {
     lexical: LexicalScope,
 }
 
+#[derive(Clone)]
+struct StructDefinition {
+    module: Vec<String>,
+    parameters: Vec<syn::GenericParam>,
+    lexical: LexicalScope,
+    field_count: usize,
+}
+
 #[derive(Default)]
 pub(super) struct Symbols {
     imports: ImportIndex,
     aliases: HashMap<String, TypeDefinition>,
     fields: HashMap<String, TypeDefinition>,
+    structs: HashMap<String, StructDefinition>,
     returns: HashMap<String, Vec<TypeDefinition>>,
     methods: MethodIndex,
     control_capabilities: HashSet<String>,
@@ -68,6 +77,17 @@ impl Symbols {
                             module: module.to_vec(),
                             ty: (*item_type.ty).clone(),
                             lexical: LexicalScope::from_generics(&[&item_type.generics]),
+                        },
+                    );
+                }
+                syn::Item::Struct(item_struct) => {
+                    self.structs.insert(
+                        format!("{}::{}", module.join("::"), item_struct.ident),
+                        StructDefinition {
+                            module: module.to_vec(),
+                            parameters: item_struct.generics.params.iter().cloned().collect(),
+                            lexical: LexicalScope::from_generics(&[&item_struct.generics]),
+                            field_count: item_struct.fields.len(),
                         },
                     );
                 }

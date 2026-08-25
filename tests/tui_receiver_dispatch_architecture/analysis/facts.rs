@@ -20,6 +20,7 @@ pub(crate) struct TypeFact {
     pub(super) unix_stream: bool,
     pub(super) channel_receiver: bool,
     pub(super) memory_queue: bool,
+    pub(super) type_arguments: Vec<(String, Self)>,
     pub(super) shape: TypeShape,
     pub(super) alternatives: Vec<Self>,
 }
@@ -102,9 +103,12 @@ impl TypeFact {
     }
 
     pub(super) fn tuple_component(&self, index: usize) -> Self {
-        Self::alternatives(self.variants().filter_map(|variant| match &variant.shape {
-            TypeShape::Tuple(components) => components.get(index).cloned(),
-            _ => None,
+        Self::alternatives(self.variants().filter_map(|variant| {
+            let component = match &variant.shape {
+                TypeShape::Tuple(components) => components.get(index).cloned(),
+                _ => None,
+            }?;
+            Some(inherit_borrow(variant, component))
         }))
     }
 
@@ -115,16 +119,38 @@ impl TypeFact {
                     .len()
                     .checked_sub(index + 1)
                     .and_then(|index| components.get(index))
-                    .cloned(),
+                    .cloned()
+                    .map(|component| inherit_borrow(variant, component)),
                 _ => None,
             }
         }))
     }
 
     pub(super) fn sequence_component(&self) -> Self {
-        Self::alternatives(self.variants().filter_map(|variant| match &variant.shape {
-            TypeShape::Sequence(component) => Some((**component).clone()),
-            _ => None,
+        Self::alternatives(self.variants().filter_map(|variant| {
+            let component = match &variant.shape {
+                TypeShape::Sequence(component) => (**component).clone(),
+                _ => return None,
+            };
+            Some(inherit_borrow(variant, component))
         }))
+    }
+
+    pub(super) fn sequence_remainder(&self) -> Self {
+        Self::alternatives(self.variants().filter_map(|variant| {
+            let component = match &variant.shape {
+                TypeShape::Sequence(component) => (**component).clone(),
+                _ => return None,
+            };
+            Some(inherit_borrow(variant, Self::sequence(component)))
+        }))
+    }
+}
+
+fn inherit_borrow(owner: &TypeFact, component: TypeFact) -> TypeFact {
+    if owner.borrowed {
+        component.mark_borrowed()
+    } else {
+        component
     }
 }
