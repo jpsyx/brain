@@ -93,24 +93,3 @@ impl App {
         }
     }
 }
-
-pub(super) fn localize_attachment_references(
-    prompt: &str,
-    attachments: &[crate::server::receiver::StagedAttachment],
-) -> Option<String> {
-    if attachments.is_empty() {
-        return Some(prompt.to_owned());
-    }
-    let marker = "\n\nAttachment references:";
-    let start = prompt.rfind(marker)?;
-    let mut localized = prompt[..start].to_owned();
-    localized.push_str("\n\nLocal attachment files:");
-    for attachment in attachments {
-        use std::fmt::Write as _;
-
-        let path = attachment.path.as_ref()?;
-        let encoded = serde_json::to_string(&path.display().to_string()).ok()?;
-        let _ = write!(localized, "\n- path={encoded}");
-    }
-    Some(localized)
-}

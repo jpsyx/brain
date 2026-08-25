@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::path::Path;
 
 use crate::{
     agent::{AgentSession, SessionPlan},
@@ -17,7 +17,8 @@ const CURRENT_MESSAGE_HEADING: &str = "\n\n## Current authenticated message\n";
 const EMPTY_TRANSCRIPT: &str = "(no prior portable transcript)";
 const OMITTED_TRANSCRIPT: &str = "[Earlier portable transcript omitted]\n";
 const TRUNCATED_MESSAGE: &str = "\n[Current authenticated message truncated]";
-const TRUNCATED_ATTACHMENTS: &str = "\n[Attachment references truncated]";
+const LOCAL_ATTACHMENTS_HEADING: &str = "\n\nLocal attachment files:";
+const OMITTED_LOCAL_ATTACHMENTS: &str = "\n[Additional local attachment files omitted]";
 
 #[derive(Clone, Copy)]
 enum PromptHistory<'a> {
@@ -43,66 +44,57 @@ impl ReceiverLaunchPlan {
 pub(crate) fn plan_receiver_launch(
     job: &ReceiverJob,
     conversation: &ReceiverConversation,
+    local_attachment_paths: &[&Path],
     fresh_session: AgentSession,
     resume_session: Option<AgentSession>,
-) -> ReceiverLaunchPlan {
-    let (message_body, attachment_references) = current_message_parts(job);
+) -> Option<ReceiverLaunchPlan> {
+    let (message_body, attachment_lines) = current_message_parts(job, local_attachment_paths)?;
 
     if let Some(session) = resume_session {
-        return ReceiverLaunchPlan {
+        return Some(ReceiverLaunchPlan {
             session_plan: SessionPlan::resume(session),
             initial_prompt: bounded_receiver_prompt(
                 PromptHistory::NativeResume,
                 message_body,
-                &attachment_references,
+                &attachment_lines,
             ),
-        };
+        });
     }
 
-    ReceiverLaunchPlan {
+    Some(ReceiverLaunchPlan {
         session_plan: SessionPlan::fresh(fresh_session),
         initial_prompt: bounded_receiver_prompt(
             PromptHistory::PortableRecovery(conversation.transcript_markdown()),
             message_body,
-            &attachment_references,
+            &attachment_lines,
         ),
-    }
+    })
 }
 
-fn current_message_parts(job: &ReceiverJob) -> (&str, String) {
+fn current_message_parts<'job>(
+    job: &'job ReceiverJob,
+    local_attachment_paths: &[&Path],
+) -> Option<(&'job str, Vec<String>)> {
     let inbound = job.inbound();
-    let mut attachment_references = String::new();
-    if inbound.attachments.is_empty() {
-        return (&inbound.prompt, attachment_references);
+    if inbound.attachments.len() != local_attachment_paths.len() {
+        return None;
     }
-    attachment_references.push_str("\n\nAttachment references:");
-    for attachment in &inbound.attachments {
-        let _ = write!(
-            attachment_references,
-            "\n- source={}, provider_id={}, content_type={}, filename={}",
-            json_string(Some(&attachment.url)),
-            json_string(attachment.provider_id.as_deref()),
-            json_string(attachment.content_type.as_deref()),
-            json_string(attachment.filename.as_deref()),
-        );
-    }
-    (&inbound.prompt, attachment_references)
-}
 
-fn json_string(value: Option<&str>) -> String {
-    value.map_or_else(
-        || "null".to_owned(),
-        |value| {
-            serde_json::to_string(value)
-                .expect("serializing an attachment string as JSON cannot fail")
-        },
-    )
+    let attachment_lines = local_attachment_paths
+        .iter()
+        .map(|path| {
+            let encoded = serde_json::to_string(&path.display().to_string())
+                .expect("serializing an attachment path as JSON cannot fail");
+            format!("\n- path={encoded}")
+        })
+        .collect();
+    Some((&inbound.prompt, attachment_lines))
 }
 
 fn bounded_receiver_prompt(
     history: PromptHistory<'_>,
     message_body: &str,
-    attachment_references: &str,
+    attachment_lines: &[String],
 ) -> String {
     let history_fixed_bytes = match history {
         PromptHistory::NativeResume => 0,
@@ -133,11 +125,7 @@ fn bounded_receiver_prompt(
     let attachment_budget = content_budget
         .saturating_sub(transcript_reserve)
         .saturating_sub(current_reserve);
-    let attachment_references = bounded_prefix(
-        attachment_references,
-        attachment_budget,
-        TRUNCATED_ATTACHMENTS,
-    );
+    let attachment_references = bounded_attachment_references(attachment_lines, attachment_budget);
     let section_budget = content_budget.saturating_sub(attachment_references.len());
     let current_budget = section_budget.saturating_sub(transcript_reserve);
     let message_body = bounded_prefix(message_body, current_budget, TRUNCATED_MESSAGE);
@@ -164,6 +152,42 @@ fn bounded_receiver_prompt(
     prompt.push_str(&message_body);
     prompt.push_str(&attachment_references);
     prompt
+}
+
+fn bounded_attachment_references(lines: &[String], budget: usize) -> String {
+    if lines.is_empty() || LOCAL_ATTACHMENTS_HEADING.len() > budget {
+        return String::new();
+    }
+
+    let mut references = String::with_capacity(budget);
+    references.push_str(LOCAL_ATTACHMENTS_HEADING);
+    for (index, line) in lines.iter().enumerate() {
+        let has_more = index + 1 < lines.len();
+        let marker_bytes = if has_more {
+            OMITTED_LOCAL_ATTACHMENTS.len()
+        } else {
+            0
+        };
+        if references
+            .len()
+            .saturating_add(line.len())
+            .saturating_add(marker_bytes)
+            > budget
+        {
+            break;
+        }
+        references.push_str(line);
+    }
+    let retained = references.matches("\n- path=").count();
+    if retained < lines.len()
+        && references
+            .len()
+            .saturating_add(OMITTED_LOCAL_ATTACHMENTS.len())
+            <= budget
+    {
+        references.push_str(OMITTED_LOCAL_ATTACHMENTS);
+    }
+    references
 }
 
 fn bounded_prefix(value: &str, budget: usize, marker: &str) -> String {

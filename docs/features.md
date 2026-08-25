@@ -1529,12 +1529,14 @@ options within a 96 KiB shell argument ceiling. `AgentController` also checks
 the completed command and rejects it before spawn if it exceeds that ceiling,
 leaving margin below 128 KiB single-argument platforms. A resumed session
 relies on its native history and receives only the bounded current authenticated
-message and attachment references. A fresh recovery also includes the portable
+message and local attachment paths. A fresh recovery also includes the portable
 transcript, reserving
 up to 8 KiB for its newest context and up to 16 KiB for the current message
-before attachment metadata can use the remaining space. Oversized sections
-carry explicit transcript, message, or attachment omission markers, so
-attachment metadata cannot silently erase the conversation or current turn.
+before local attachment paths can use the remaining space. Final prompt planning
+runs after attachment staging, retains a deterministic prefix of complete
+JSON-encoded path records, and never truncates inside a usable path. Oversized
+sections carry explicit transcript, message, or attachment omission markers, so
+long workspace paths cannot silently erase the conversation or current turn.
 
 BR-12 established the storage contract, BR-13 moved authenticated provider
 admission onto it, and BR-14 made the isolated TUI coordinator its sole

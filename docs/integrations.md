@@ -250,12 +250,14 @@ that inbox, and bounds sanitized per-batch filenames to 128 bytes. Resumed
 launches carry only the current authenticated message and those local file
 paths. Fresh launches carry the same current inputs after a separate
 portable-transcript section. The raw receiver prompt is bounded to 47 KiB
-while retaining the newest UTF-8-safe transcript suffix. Planning reserves 12
-KiB for command, policy, and options under a 96 KiB complete `/bin/sh -c`
-argument ceiling, accounting for adaptive POSIX quoting whose worst case is
-seven output bytes per four input bytes plus delimiters. `AgentController`
-checks the exact rendered argument before spawn, retaining margin below 128
-KiB platforms. Prompt, transcript, attachment, sender,
+after canonical local paths are available, while retaining the newest
+UTF-8-safe transcript suffix. The planner keeps only a deterministic prefix of
+complete JSON path records and adds an explicit omission marker when more paths
+do not fit. Planning reserves 12 KiB for command, policy, and options under a
+96 KiB complete `/bin/sh -c` argument ceiling, accounting for adaptive POSIX
+quoting whose worst case is seven output bytes per four input bytes plus
+delimiters. `AgentController` checks the exact rendered argument before spawn,
+retaining margin below 128 KiB platforms. Prompt, transcript, attachment, sender,
 recipient, credential, and attachment-error contents never enter planning
 diagnostics. Claude, Codex, and OpenCode translate both semantic plans with the
 non-blank initial prompt through their existing launch command. A refresh,

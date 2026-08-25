@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::{
     actor::{ActorContext, RequestIdentity},
     agent::{
@@ -12,7 +14,12 @@ use crate::{
     workspace::WorkspaceId,
 };
 
-use super::planning::{RECOVERY_PROMPT_BUDGET_BYTES, plan_receiver_launch};
+use super::planning::{
+    RECOVERY_PROMPT_BUDGET_BYTES, ReceiverLaunchPlan,
+    plan_receiver_launch as build_receiver_launch_plan,
+};
+
+mod localized_paths;
 
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 const CURRENT_PROMPT: &str = "Review the attached photo and remember its subject.";
@@ -23,9 +30,8 @@ const RESUME_PROMPT: &str = concat!(
     "sender explicitly asks you to.",
     "\n\n## Current authenticated message\n",
     "Review the attached photo and remember its subject.",
-    "\n\nAttachment references:\n",
-    "- source=\"https://attachments.example.test/photo\", ",
-    "provider_id=\"media-1\", content_type=\"image/png\", filename=\"photo.png\"",
+    "\n\nLocal attachment files:\n",
+    "- path=\"/workspaces/family/inbox/attachment-000.bin\"",
 );
 
 #[derive(Clone, Copy, Debug)]
@@ -174,6 +180,52 @@ fn selected_resume(binding: BindingKind) -> Option<AgentSession> {
         .then(|| AgentSession::new("native-session").expect("native session"))
 }
 
+fn local_attachment_paths(job: &ReceiverJob) -> Vec<PathBuf> {
+    job.inbound()
+        .attachments
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            PathBuf::from(format!(
+                "/workspaces/family/inbox/attachment-{index:03}.bin"
+            ))
+        })
+        .collect()
+}
+
+fn long_local_attachment_paths(count: usize) -> Vec<PathBuf> {
+    (0..count)
+        .map(|index| {
+            PathBuf::from(format!(
+                "/workspaces/family/{}/attachment-{index:03}.bin",
+                "long-local-path-".repeat(128)
+            ))
+        })
+        .collect()
+}
+
+fn render_receiver_launch(
+    job: &ReceiverJob,
+    conversation: &ReceiverConversation,
+    fresh_session: AgentSession,
+    resume_session: Option<AgentSession>,
+) -> ReceiverLaunchPlan {
+    let paths = local_attachment_paths(job);
+    render_receiver_launch_with_paths(job, conversation, &paths, fresh_session, resume_session)
+}
+
+fn render_receiver_launch_with_paths(
+    job: &ReceiverJob,
+    conversation: &ReceiverConversation,
+    paths: &[PathBuf],
+    fresh_session: AgentSession,
+    resume_session: Option<AgentSession>,
+) -> ReceiverLaunchPlan {
+    let path_refs = paths.iter().map(PathBuf::as_path).collect::<Vec<_>>();
+    build_receiver_launch_plan(job, conversation, &path_refs, fresh_session, resume_session)
+        .expect("matching localized attachment paths")
+}
+
 #[test]
 fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_frontend() {
     let cases = [
@@ -200,7 +252,7 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
     for kind in AgentKind::ALL {
         for case in &cases {
             let (job, conversation) = durable_fixture(kind, case.binding, case.transcript);
-            let plan = plan_receiver_launch(
+            let plan = render_receiver_launch(
                 &job,
                 &conversation,
                 fresh_session(),
@@ -265,7 +317,7 @@ fn receiver_launch_recovery_prompt_is_utf8_safe_bounded_and_keeps_newest_context
 
     for kind in AgentKind::ALL {
         let (job, conversation) = durable_fixture(kind, BindingKind::Absent, &transcript);
-        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
+        let plan = render_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
 
         assert!(
@@ -279,7 +331,7 @@ fn receiver_launch_recovery_prompt_is_utf8_safe_bounded_and_keeps_newest_context
         assert!(prompt.contains("## Current authenticated message\n"));
         assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
         assert!(prompt.contains(CURRENT_PROMPT));
-        assert!(prompt.contains("source=\"https://attachments.example.test/photo\""));
+        assert!(prompt.contains("path=\"/workspaces/family/inbox/attachment-000.bin\""));
     }
 }
 
@@ -294,7 +346,7 @@ fn receiver_launch_recovery_prompt_preserves_attachments_when_message_is_oversiz
             "portable context",
             &oversized_message,
         );
-        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
+        let plan = render_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
 
         assert!(
@@ -303,47 +355,9 @@ fn receiver_launch_recovery_prompt_preserves_attachments_when_message_is_oversiz
             kind.label()
         );
         assert!(prompt.contains("[Current authenticated message truncated]"));
-        assert!(prompt.contains("\n\nAttachment references:\n"));
-        assert!(prompt.contains("source=\"https://attachments.example.test/photo\""));
-        assert!(prompt.contains("provider_id=\"media-1\""));
-        assert!(prompt.contains("content_type=\"image/png\""));
-        assert!(prompt.contains("filename=\"photo.png\""));
-    }
-}
-
-#[test]
-fn receiver_launch_recovery_prompt_bounds_oversized_attachment_metadata() {
-    let oversized_filename = format!(
-        "oversized-{}-end.png",
-        "attachment-é🙂".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
-    );
-
-    for kind in AgentKind::ALL {
-        let (job, conversation) = durable_fixture_with_input(
-            kind,
-            BindingKind::Absent,
-            "portable context",
-            CURRENT_PROMPT,
-            vec![AttachmentRef {
-                url: "https://attachments.example.test/oversized".to_owned(),
-                provider_id: Some("media-oversized".to_owned()),
-                content_type: Some("image/png".to_owned()),
-                filename: Some(oversized_filename.clone()),
-            }],
-        );
-        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
-        let prompt = plan.initial_prompt();
-
-        assert!(
-            prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES,
-            "{}",
-            kind.label()
-        );
-        assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
-        assert!(prompt.contains("\n\nAttachment references:\n"));
-        assert!(prompt.contains("source=\"https://attachments.example.test/oversized\""));
-        assert!(prompt.contains("[Attachment references truncated]"));
-        assert!(!prompt.contains("-end.png"));
+        assert!(prompt.contains("\n\nLocal attachment files:\n"));
+        assert!(prompt.contains("path=\"/workspaces/family/inbox/attachment-000.bin\""));
+        assert!(!prompt.contains("https://attachments.example.test/photo"));
     }
 }
 
@@ -366,7 +380,7 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
             CURRENT_PROMPT,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
+        let plan = render_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
         let (_, recovery_sections) = prompt
             .split_once("## Portable transcript\n")
@@ -375,17 +389,11 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
             .split_once("\n\n## Current authenticated message\n")
             .expect("current authenticated message heading");
 
-        assert_eq!(
-            prompt.len(),
-            RECOVERY_PROMPT_BUDGET_BYTES,
-            "{}",
-            kind.label()
-        );
+        assert!(prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES);
         assert_eq!(transcript, "portable context from the preceding turn");
         assert!(current.starts_with(CURRENT_PROMPT));
-        assert!(current.contains("source=\"https://attachments.example.test/item-000\""));
-        assert!(current.contains("[Attachment references truncated]"));
-        assert!(!current.contains("https://attachments.example.test/item-255"));
+        assert!(current.contains("path=\"/workspaces/family/inbox/attachment-000.bin\""));
+        assert!(current.contains("path=\"/workspaces/family/inbox/attachment-255.bin\""));
     }
 }
 
@@ -416,7 +424,9 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
             &message,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
+        let paths = long_local_attachment_paths(attachments.len());
+        let plan =
+            render_receiver_launch_with_paths(&job, &conversation, &paths, fresh_session(), None);
         let prompt = plan.initial_prompt();
         let (_, recovery_sections) = prompt
             .split_once("## Portable transcript\n")
@@ -425,23 +435,16 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
             .split_once("\n\n## Current authenticated message\n")
             .expect("current authenticated message heading");
 
-        assert_eq!(
-            prompt.len(),
-            RECOVERY_PROMPT_BUDGET_BYTES,
-            "{}",
-            kind.label()
-        );
+        assert!(prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES);
         assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
         assert!(transcript_section.starts_with("[Earlier portable transcript omitted]\n"));
         assert!(transcript_section.ends_with("newest-context"));
         assert!(!transcript_section.contains("oldest-context"));
         assert!(current_section.starts_with("authenticated-message-start-"));
         assert!(current_section.contains("[Current authenticated message truncated]"));
-        assert!(
-            current_section.contains("source=\"https://attachments.example.test/oversized-000\"")
-        );
-        assert!(current_section.contains("[Attachment references truncated]"));
-        assert!(!current_section.contains("https://attachments.example.test/oversized-255"));
+        assert!(current_section.contains(&paths[0].display().to_string()));
+        assert!(current_section.contains("[Additional local attachment files omitted]"));
+        assert!(!current_section.contains("attachment-255.bin"));
     }
 }
 
@@ -450,7 +453,7 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
     for kind in AgentKind::ALL {
         for binding in [BindingKind::Matching, BindingKind::Absent] {
             let (job, conversation) = durable_fixture(kind, binding, "portable transcript context");
-            let plan = plan_receiver_launch(
+            let plan = render_receiver_launch(
                 &job,
                 &conversation,
                 fresh_session(),
@@ -469,7 +472,7 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
 }
 
 #[test]
-fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
+fn receiver_launch_resume_prompt_bounds_utf8_message_and_local_attachment_paths() {
     let message = format!(
         "authenticated-message-start-{}-authenticated-message-end",
         "current-é🙂-".repeat(RECOVERY_PROMPT_BUDGET_BYTES)
@@ -494,9 +497,11 @@ fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
             &message,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(
+        let paths = long_local_attachment_paths(attachments.len());
+        let plan = render_receiver_launch_with_paths(
             &job,
             &conversation,
+            &paths,
             fresh_session(),
             selected_resume(BindingKind::Matching),
         );
@@ -515,10 +520,10 @@ fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
         assert!(prompt.contains("## Current authenticated message\n"));
         assert!(prompt.contains("authenticated-message-start-"));
         assert!(prompt.contains("[Current authenticated message truncated]"));
-        assert!(prompt.contains("Attachment references:\n"));
-        assert!(prompt.contains("source=\"https://attachments.example.test/resume-000\""));
-        assert!(prompt.contains("[Attachment references truncated]"));
-        assert!(!prompt.contains("https://attachments.example.test/resume-255"));
+        assert!(prompt.contains("Local attachment files:\n"));
+        assert!(prompt.contains(&paths[0].display().to_string()));
+        assert!(prompt.contains("[Additional local attachment files omitted]"));
+        assert!(!prompt.contains("attachment-255.bin"));
         assert!(!prompt.contains("portable transcript must not enter a resumed prompt"));
         assert!(std::str::from_utf8(prompt.as_bytes()).is_ok());
     }
@@ -529,14 +534,22 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
     let quote_mix = "'$$$".repeat(RECOVERY_PROMPT_BUDGET_BYTES);
     let transcript = format!("oldest-é🙂\n{quote_mix}\nnewest-é🙂");
     let message = format!("authenticated-message-start-é🙂-{quote_mix}-message-end");
-    let attachments: Vec<_> = (0..256)
+    let attachments: Vec<_> = (0..10)
         .map(|index| AttachmentRef {
             url: format!("https://attachments.example.test/quote-{index:03}"),
             provider_id: Some(format!("provider-{index:03}")),
             content_type: Some("text/plain".to_owned()),
-            filename: Some(format!("quote-{index:03}-é🙂-{quote_mix}.txt")),
+            filename: Some(format!("quote-{index:03}.txt")),
         })
         .collect();
+    let paths = (0..attachments.len())
+        .map(|index| {
+            PathBuf::from(format!(
+                "/workspaces/family/{}/quote-{index:03}-é🙂.txt",
+                "local-'$$$-".repeat(900)
+            ))
+        })
+        .collect::<Vec<_>>();
 
     for kind in AgentKind::ALL {
         for binding in [BindingKind::Matching, BindingKind::Absent] {
@@ -547,9 +560,10 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
                 &message,
                 attachments.clone(),
             );
-            let plan = plan_receiver_launch(
+            let plan = render_receiver_launch_with_paths(
                 &job,
                 &conversation,
+                &paths,
                 fresh_session(),
                 selected_resume(binding),
             );
@@ -569,9 +583,9 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
             );
             assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
             assert!(prompt.contains("authenticated-message-start-é🙂-"));
-            assert!(prompt.contains("source=\"https://attachments.example.test/quote-000\""));
+            assert!(prompt.contains(&paths[0].display().to_string()));
             assert!(prompt.contains("[Current authenticated message truncated]"));
-            assert!(prompt.contains("[Attachment references truncated]"));
+            assert!(prompt.contains("[Additional local attachment files omitted]"));
             assert!(
                 command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
                 "{} with {binding:?} shell command was {} bytes",

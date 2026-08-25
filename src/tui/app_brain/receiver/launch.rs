@@ -12,8 +12,6 @@ use crate::tui::receiver::{
 };
 use crate::tui::state::AppServices;
 
-use super::attachment_dispatch::localize_attachment_references;
-
 #[cfg(not(test))]
 fn receiver_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     Box::new(PtyPane::new(24, 80))
@@ -40,6 +38,18 @@ impl App {
         staged_attachments: PreparedReceiverAttachments,
     ) {
         let staged_attachment_work = !staged_attachments.staged().is_empty();
+        let local_attachment_paths = staged_attachments
+            .staged()
+            .iter()
+            .map(|attachment| attachment.path.as_deref())
+            .collect::<Option<Vec<_>>>();
+        let Some(local_attachment_paths) = local_attachment_paths
+            .filter(|paths| paths.len() == claimed.claim.job().inbound().attachments.len())
+        else {
+            crate::logging::log("receiver attachment prompt preparation failed");
+            let _ = self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
+            return;
+        };
         let capability_plan = self.launch_capability_plan();
         #[cfg(test)]
         self.receiver.run_launch_boundary_hook(
@@ -151,12 +161,20 @@ impl App {
                 return;
             }
         };
-        let plan = crate::tui::receiver::planning::plan_receiver_launch(
+        let Some(plan) = crate::tui::receiver::planning::plan_receiver_launch(
             claimed.claim.job(),
             claimed.claim.conversation(),
+            &local_attachment_paths,
             claimed.remote.placeholder().clone(),
             resume_session,
-        );
+        ) else {
+            if let Some(registration) = resume_registration {
+                let _ = registration.cleanup();
+            }
+            cleanup_unregistered(&mut controller);
+            let _ = self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
+            return;
+        };
 
         let registration = if let Some(registration) = resume_registration {
             registration
@@ -246,20 +264,12 @@ impl App {
             }
         }
 
-        let Some(initial_prompt) =
-            localize_attachment_references(plan.initial_prompt(), staged_attachments.staged())
-        else {
-            crate::logging::log("receiver attachment prompt preparation failed");
-            let _ = cleanup_receiver_launch(Some(registration), &mut controller);
-            let _ = self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Planning);
-            return;
-        };
         let hooks = self.receiver_hook_metadata(&claimed, pid);
         let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.context.command().workspace),
             actor,
             plan.session_plan().clone(),
-            Some(initial_prompt),
+            Some(plan.initial_prompt().to_owned()),
             self.context.access_mode(),
         );
         if let Some(capability_plan) = capability_plan {
