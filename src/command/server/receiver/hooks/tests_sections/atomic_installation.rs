@@ -79,8 +79,14 @@ fn merge_replaces_exact_managed_hooks_but_preserves_user_same_basename_commands(
         "hooks": {
             "SessionStart": [
                 {"hooks": [{"type": "command", "command": r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#}]},
+                {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"}]},
                 {"hooks": [{"type": "command", "command": "python3 /opt/user/agent_session_start_hook.py"}]},
+                {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_session_start_hook.py"}]},
                 {"hooks": [{"type": "command", "command": "python3 /keep/unrelated.py"}]}
+            ],
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"}]},
+                {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_stop_hook.py"}]}
             ]
         }
     })).unwrap()).unwrap();
@@ -100,8 +106,23 @@ fn merge_replaces_exact_managed_hooks_but_preserves_user_same_basename_commands(
         commands,
         vec![
             "python3 /opt/user/agent_session_start_hook.py",
+            "python3 /opt/user/claude_session_start_hook.py",
             "python3 /keep/unrelated.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
+        ]
+    );
+    let stop_commands = settings["hooks"]["Stop"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry["hooks"].as_array().unwrap())
+        .map(|hook| hook["command"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stop_commands,
+        vec![
+            "python3 /opt/user/claude_stop_hook.py",
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
         ]
     );
 }

@@ -67,6 +67,16 @@ fn portable_root_command(hook_path: &Path) -> String {
     format!(r#"python3 "${{BRAIN_ROOT}}/{relative}""#)
 }
 
+fn historical_home_command(script: &str) -> Option<&'static str> {
+    match script {
+        "claude_session_start_hook.py" => {
+            Some("python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py")
+        }
+        "claude_stop_hook.py" => Some("python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"),
+        _ => None,
+    }
+}
+
 fn legacy_hook_command(style: crate::agent::HookCommandStyle, script: &str) -> String {
     match style {
         crate::agent::HookCommandStyle::ClaudeProjectDir => format!(
@@ -91,6 +101,12 @@ fn managed_hook_commands(
             format!("python3 .claude/brain-hooks/{script}"),
         ]
     }));
+    commands.extend(
+        legacy_scripts
+            .iter()
+            .filter_map(|script| historical_home_command(script))
+            .map(str::to_owned),
+    );
     commands
 }
 

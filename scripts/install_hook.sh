@@ -166,9 +166,9 @@ install_hook_settings() {
       map(.hooks |= map(select((.command // "") as $command | ($commands | index($command)) == null)))
       | map(select((.hooks | length) > 0));
     .hooks //= {}
-    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip([$sess, $legacy_sess, $legacy_sess_alias, "python3 .brain/hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/claude_session_start_hook.py"]))
+    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip([$sess, $legacy_sess, $legacy_sess_alias, "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py", "python3 .brain/hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/claude_session_start_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $sess}]}]
-    | .hooks.Stop = ((.hooks.Stop // []) | strip([$stop, $legacy_stop, $legacy_stop_alias, "python3 .brain/hooks/agent_session_stop_hook.py", "python3 .claude/brain-hooks/agent_turn_complete_hook.py", "python3 .claude/brain-hooks/claude_stop_hook.py"]))
+    | .hooks.Stop = ((.hooks.Stop // []) | strip([$stop, $legacy_stop, $legacy_stop_alias, "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py", "python3 .brain/hooks/agent_session_stop_hook.py", "python3 .claude/brain-hooks/agent_turn_complete_hook.py", "python3 .claude/brain-hooks/claude_stop_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $stop}]}]
     | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | strip([$observe]))
         + [{"hooks": [{"type": "command", "command": $observe}]}]

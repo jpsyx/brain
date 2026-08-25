@@ -97,11 +97,15 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
             "hooks": {
                 "SessionStart": [
                     {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}]},
+                    {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"}]},
                     {"hooks": [{"type": "command", "command": "python3 /opt/user/agent_session_start_hook.py"}]},
+                    {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_session_start_hook.py"}]},
                     {"hooks": [{"type": "command", "command": "python3 /keep/claude.py"}]}
                 ],
                 "Stop": [
-                    {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]}
+                    {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]},
+                    {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"}]},
+                    {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_stop_hook.py"}]}
                 ]
             },
             "permissions": {"allow": ["Read"]}
@@ -147,10 +151,14 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
         configured_commands(&fixture.home.join(".claude/settings.json"), "SessionStart"),
         vec![
             "python3 /opt/user/agent_session_start_hook.py",
+            "python3 /opt/user/claude_session_start_hook.py",
             "python3 /keep/claude.py",
         ]
     );
-    assert!(configured_commands(&fixture.home.join(".claude/settings.json"), "Stop").is_empty());
+    assert_eq!(
+        configured_commands(&fixture.home.join(".claude/settings.json"), "Stop"),
+        vec!["python3 /opt/user/claude_stop_hook.py"]
+    );
     assert!(
         configured_commands(&fixture.home.join(".codex/hooks.json"), "SessionStart").is_empty()
     );

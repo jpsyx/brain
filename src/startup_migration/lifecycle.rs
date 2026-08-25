@@ -17,6 +17,8 @@ const BRAIN_HOOK_COMMANDS: &[&str] = &[
     r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py""#,
     r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#,
     r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py""#,
+    "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py",
+    "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py",
     "python3 .claude/brain-hooks/claude_session_start_hook.py",
     "python3 .claude/brain-hooks/agent_session_start_hook.py",
     "python3 .claude/brain-hooks/claude_stop_hook.py",

@@ -38,7 +38,7 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     std::fs::create_dir_all(selected_root.join(".claude")).expect("create settings directory");
     std::fs::write(
         selected_root.join(".claude/settings.json"),
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py\""}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"}]},{"hooks":[{"type":"command","command":"python3 /opt/user/claude_session_start_hook.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"}]},{"hooks":[{"type":"command","command":"python3 /opt/user/claude_stop_hook.py"}]}]}}"#,
     )
     .expect("write legacy settings");
 
@@ -59,12 +59,14 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     assert_eq!(
         settings_hook_commands(&settings, "SessionStart"),
         vec![
+            "python3 /opt/user/claude_session_start_hook.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
         ]
     );
     assert_eq!(
         settings_hook_commands(&settings, "Stop"),
         vec![
+            "python3 /opt/user/claude_stop_hook.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
         ]
     );
