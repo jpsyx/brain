@@ -82,49 +82,126 @@ fn shared_installation_and_rollback_code_do_not_branch_on_frontend_artifacts() {
     }
 }
 
+fn production_prefix(source: &str) -> &str {
+    source
+        .split_once("\n#[cfg(test)]\nmod tests")
+        .map_or(source, |(production, _)| production)
+}
+
+fn observation_boundary_violation(relative: &str, source: &str) -> Option<&'static str> {
+    for forbidden in [
+        "ClaudeFrontend",
+        "CodexFrontend",
+        "OpenCodeFrontend",
+        "AgentKind::Claude",
+        "AgentKind::Codex",
+        "AgentKind::OpenCode",
+        r#""claude""#,
+        r#""codex""#,
+        r#""opencode""#,
+        r#""open-code""#,
+        r#""Claude""#,
+        r#""Codex""#,
+        r#""OpenCode""#,
+        ".claude/",
+        ".codex/",
+        ".opencode/",
+        ".jsonl",
+        "rollout-",
+        "message.part.updated",
+        "session.updated",
+        "UserPromptSubmit",
+        "PostToolUse",
+        "read_normalized_snapshot",
+        "RawSnapshot",
+        "ParsedSnapshot",
+        "accepted_at_unix_ms",
+        "progressing_at_unix_ms",
+        "completed_at_unix_ms",
+    ] {
+        if source.contains(forbidden) {
+            return Some(forbidden);
+        }
+    }
+    if relative != "tui/app_brain/receiver/launch.rs"
+        && source.contains("receiver_observations_dir")
+    {
+        return Some("receiver_observations_dir");
+    }
+    None
+}
+
+#[test]
+fn receiver_observation_guard_rejects_provider_branches_literals_and_bypasses() {
+    for (label, relative, mutation) in [
+        (
+            "provider branch",
+            "tui/state/brain/ephemeral.rs",
+            "match kind { AgentKind::Claude => observe() }",
+        ),
+        (
+            "provider literal",
+            "tui/state/brain/ephemeral.rs",
+            r#"let provider = "codex";"#,
+        ),
+        (
+            "concrete adapter",
+            "tui/state/brain/ephemeral.rs",
+            "OpenCodeFrontend::new(command)",
+        ),
+        (
+            "concrete parser",
+            "tui/state/brain/ephemeral.rs",
+            "read_normalized_snapshot(request)",
+        ),
+        (
+            "path ownership",
+            "tui/state/brain/ephemeral.rs",
+            "paths.receiver_observations_dir()",
+        ),
+    ] {
+        assert!(
+            observation_boundary_violation(relative, mutation).is_some(),
+            "guard accepted {label}"
+        );
+    }
+}
+
 #[test]
 fn receiver_observation_coordination_cannot_name_provider_or_snapshot_grammar() {
     let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for relative in ["tui/receiver", "tui/app_brain/receiver"] {
-        let root = source_root.join(relative);
+    let mut paths = vec![source_root.join("tui/state/brain/ephemeral.rs")];
+    for root in [
+        source_root.join("tui/receiver"),
+        source_root.join("tui/app_brain/receiver"),
+    ] {
         for entry in walkdir::WalkDir::new(&root) {
             let entry = entry.expect("walk receiver source");
             let path = entry.path();
             if !entry.file_type().is_file()
                 || path.extension().and_then(|extension| extension.to_str()) != Some("rs")
-                || path.to_string_lossy().contains("tests")
+                || path
+                    .strip_prefix(&source_root)
+                    .expect("source path")
+                    .components()
+                    .any(|component| component.as_os_str().to_string_lossy().contains("test"))
             {
                 continue;
             }
-            let source = std::fs::read_to_string(path).expect("read receiver source");
-            for forbidden in [
-                "ClaudeFrontend",
-                "CodexFrontend",
-                "OpenCodeFrontend",
-                ".jsonl",
-                "rollout-",
-                "message.part.updated",
-                "session.updated",
-                "UserPromptSubmit",
-                "PostToolUse",
-                "read_normalized_snapshot",
-                "accepted_at_unix_ms",
-                "progressing_at_unix_ms",
-                "completed_at_unix_ms",
-            ] {
-                assert!(
-                    !source.contains(forbidden),
-                    "{} bypasses AgentController with `{forbidden}`",
-                    path.display()
-                );
-            }
-            if path.file_name().and_then(|name| name.to_str()) != Some("launch.rs") {
-                assert!(
-                    !source.contains("receiver_observations_dir"),
-                    "{} reads an observation path outside launch/controller ownership",
-                    path.display()
-                );
-            }
+            paths.push(path.to_path_buf());
         }
+    }
+    for path in paths {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("receiver source path")
+            .to_string_lossy();
+        let source = std::fs::read_to_string(&path).expect("read receiver source");
+        assert_eq!(
+            observation_boundary_violation(&relative, production_prefix(&source)),
+            None,
+            "{} bypasses AgentController observation ownership",
+            path.display()
+        );
     }
 }

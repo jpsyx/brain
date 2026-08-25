@@ -1086,6 +1086,14 @@ receiver_session_registrations(
 )
 ```
 
+**Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
+frontend-neutral controller and is never persisted as provider grammar. It
+retains the highest parsed revision, represented lifecycle phases, and the
+exact accepted/progressing/completed timestamps already observed. A later poll
+may add only phases that follow the cursor's lifecycle order while preserving
+every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
+emission order fail conservatively before any durable receiver mutation.
+
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
 are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
 correlation identity created at durable ingress. It never replaces the public job

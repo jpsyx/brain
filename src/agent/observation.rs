@@ -21,6 +21,9 @@ pub(crate) use snapshot::read_normalized_snapshot;
 pub struct AgentObservationCursor {
     revision: i64,
     represented: u8,
+    accepted_at_unix_ms: Option<u64>,
+    progressing_at_unix_ms: Option<u64>,
+    completed_at_unix_ms: Option<u64>,
 }
 
 impl AgentObservationCursor {
@@ -30,14 +33,25 @@ impl AgentObservationCursor {
         Self {
             revision: 0,
             represented: LAUNCHED_BIT,
+            accepted_at_unix_ms: None,
+            progressing_at_unix_ms: None,
+            completed_at_unix_ms: None,
         }
     }
 
     #[cfg(test)]
-    pub(crate) const fn at_revision(revision: i64) -> Self {
+    pub(crate) const fn at_revision(
+        revision: i64,
+        accepted_at_unix_ms: Option<u64>,
+        progressing_at_unix_ms: Option<u64>,
+        completed_at_unix_ms: Option<u64>,
+    ) -> Self {
         Self {
             revision,
             represented: LAUNCHED_BIT | ACCEPTED_BIT | PROGRESSING_BIT | COMPLETED_BIT,
+            accepted_at_unix_ms,
+            progressing_at_unix_ms,
+            completed_at_unix_ms,
         }
     }
 }
@@ -243,6 +257,15 @@ pub(super) fn validate_controller_request(
     {
         return Err(AgentObservationError::PlaceholderSession);
     }
+    validate_session_ownership(workspace, actor, kind, request)
+}
+
+pub(super) fn validate_session_ownership(
+    workspace: &crate::workspace::WorkspaceContext,
+    actor: &crate::actor::ActorContext,
+    kind: AgentKind,
+    request: &AgentObservationRequest,
+) -> Result<(), AgentObservationError> {
     let connection = rusqlite::Connection::open_with_flags(
         workspace.paths().state_db(),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -283,3 +306,6 @@ fn valid_bounded_identifier(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod file_tests;

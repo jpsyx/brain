@@ -444,12 +444,15 @@ The frontend-neutral agent boundary. `controller` owns the semantic
 queue, start sessions, launch, inspect completion and session eligibility, snapshot,
 observe bounded receiver lifecycle facts, and shut down without constructing
 frontend keystrokes. `observation` owns the opaque cursor and neutral
-phase/boundary/request/result/error model, exact current-session ownership gate,
-and the shared one-read schema-v1 snapshot validator. The controller validates
-the trusted token, instance, canonical path, lifecycle session, actor, workspace,
-channel, and selected frontend before the adapter delegates to that shared
-reader. Receiver coordination therefore never parses provider transcripts,
-rollouts, event names, or snapshot grammar. `frontend` defines the
+phase/boundary/request/result/error model, exact current-session ownership gates,
+and the shared descriptor-bound schema-v1 snapshot validator. The controller
+validates the trusted token, instance, canonical path, lifecycle session, actor,
+workspace, channel, and selected frontend before delegation, then reopens
+durable state and proves the same ownership again after the read. On Unix the
+reader opens the cache path component by component without following symlinks,
+validates the opened regular file before and after one bounded read, and parses
+only those handle-bound bytes. Receiver coordination therefore never parses
+provider transcripts, rollouts, event names, or snapshot grammar. `frontend` defines the
 crate-private frontend trait and adapter operation enum plus complete launch
 request and launch spec types. Concrete Claude, Codex, and OpenCode adapters
 are also crate-private; callers and black-box tests construct a controller and

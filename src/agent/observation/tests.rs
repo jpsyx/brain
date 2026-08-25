@@ -26,6 +26,19 @@ fn write_owner_only(path: &Path, body: &[u8]) {
     }
 }
 
+fn observation_directory(temporary: &tempfile::TempDir) -> PathBuf {
+    let directory = temporary
+        .path()
+        .join("home")
+        .join(".cache")
+        .join("brain")
+        .join("workspaces")
+        .join("f5ecda26-5e5d-4dd0-91f8-c49bd0fb4c31")
+        .join("receiver-observations");
+    std::fs::create_dir_all(&directory).expect("observation directory");
+    directory
+}
+
 fn snapshot_value() -> serde_json::Value {
     serde_json::json!({
         "version": 1,
@@ -43,7 +56,7 @@ fn snapshot_value() -> serde_json::Value {
 
 fn read_body(body: impl AsRef<[u8]>) -> Result<AgentObservationResult, AgentObservationError> {
     let temporary = tempfile::tempdir().expect("temporary observation");
-    let path = temporary.path().join("observation.json");
+    let path = observation_directory(&temporary).join("observation.json");
     write_owner_only(&path, body.as_ref());
     read_normalized_snapshot(&request(&path))
 }
@@ -51,7 +64,7 @@ fn read_body(body: impl AsRef<[u8]>) -> Result<AgentObservationResult, AgentObse
 #[test]
 fn trailing_json_after_the_ten_field_snapshot_is_malformed() {
     let temporary = tempfile::tempdir().expect("temporary observation");
-    let path = temporary.path().join("observation.json");
+    let path = observation_directory(&temporary).join("observation.json");
     let body = format!(
         r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{TOKEN}","instance_id":"{INSTANCE}","session_id":"{SESSION}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"completed_at_unix_ms":null}} []"#
     );
@@ -205,12 +218,13 @@ fn phase_timestamp_contract_accepts_only_unambiguous_nondecreasing_lifecycles() 
 #[test]
 fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
     let temporary = tempfile::tempdir().expect("temporary observation");
-    let missing = temporary.path().join("missing.json");
+    let observations = observation_directory(&temporary);
+    let missing = observations.join("missing.json");
     let pending = read_normalized_snapshot(&request(&missing)).expect("missing is pending");
     assert!(pending.boundaries().is_empty());
     assert_eq!(pending.next_cursor(), AgentObservationCursor::launched());
 
-    let path = temporary.path().join("snapshot.json");
+    let path = observations.join("snapshot.json");
     let mut value = snapshot_value();
     value["revision"] = serde_json::json!(1);
     value["phase"] = serde_json::json!("accepted");
@@ -240,6 +254,9 @@ fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
         AgentObservationCursor {
             revision: 2,
             represented: LAUNCHED_BIT | ACCEPTED_BIT,
+            accepted_at_unix_ms: Some(1_000),
+            progressing_at_unix_ms: None,
+            completed_at_unix_ms: None,
         },
     );
     assert_eq!(
@@ -264,16 +281,143 @@ fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
 }
 
 #[test]
+fn higher_revision_cannot_rewrite_a_prior_timestamp_or_decrease_the_stream() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(1);
+    value["phase"] = serde_json::json!("accepted");
+    value["accepted_at_unix_ms"] = serde_json::json!(100);
+    value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["completed_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let first = read_normalized_snapshot(&request(&path)).expect("first accepted boundary");
+
+    value["revision"] = serde_json::json!(2);
+    value["phase"] = serde_json::json!("progressing");
+    value["accepted_at_unix_ms"] = serde_json::json!(50);
+    value["progressing_at_unix_ms"] = serde_json::json!(60);
+    write_owner_only(&path, value.to_string().as_bytes());
+    let next = AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(SESSION).expect("session"),
+        first.next_cursor(),
+    );
+
+    assert_eq!(
+        read_normalized_snapshot(&next),
+        Err(AgentObservationError::AmbiguousLifecycle)
+    );
+}
+
+#[test]
+fn higher_revision_cannot_introduce_an_earlier_phase_after_completion() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(1);
+    value["phase"] = serde_json::json!("completed");
+    value["accepted_at_unix_ms"] = serde_json::Value::Null;
+    value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["completed_at_unix_ms"] = serde_json::json!(100);
+    write_owner_only(&path, value.to_string().as_bytes());
+    let first = read_normalized_snapshot(&request(&path)).expect("completion-only boundary");
+
+    value["revision"] = serde_json::json!(2);
+    value["accepted_at_unix_ms"] = serde_json::json!(50);
+    write_owner_only(&path, value.to_string().as_bytes());
+    let next = AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(SESSION).expect("session"),
+        first.next_cursor(),
+    );
+
+    assert_eq!(
+        read_normalized_snapshot(&next),
+        Err(AgentObservationError::AmbiguousLifecycle)
+    );
+}
+
+#[test]
+fn higher_revision_cannot_erase_a_previously_observed_phase() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(1);
+    value["phase"] = serde_json::json!("progressing");
+    value["accepted_at_unix_ms"] = serde_json::json!(100);
+    value["progressing_at_unix_ms"] = serde_json::json!(110);
+    value["completed_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let first = read_normalized_snapshot(&request(&path)).expect("progressing boundaries");
+
+    value["revision"] = serde_json::json!(2);
+    value["phase"] = serde_json::json!("accepted");
+    value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let next = AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(SESSION).expect("session"),
+        first.next_cursor(),
+    );
+
+    assert_eq!(
+        read_normalized_snapshot(&next),
+        Err(AgentObservationError::AmbiguousLifecycle)
+    );
+}
+
+#[test]
+fn exact_256_byte_session_and_turn_identifiers_are_accepted() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let session_id = "s".repeat(256);
+    let turn_id = "t".repeat(256);
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(1);
+    value["phase"] = serde_json::json!("accepted");
+    value["session_id"] = serde_json::json!(session_id);
+    value["turn_id"] = serde_json::json!(turn_id);
+    value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["completed_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let request = AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(session_id).expect("exact identifier bound"),
+        AgentObservationCursor::launched(),
+    );
+
+    let result = read_normalized_snapshot(&request).expect("exact identifier bounds");
+
+    assert_eq!(
+        result.boundaries(),
+        &[AgentObservationBoundary::new(
+            AgentObservationPhase::Accepted,
+            1_000,
+        )]
+    );
+}
+
+#[test]
 fn file_type_size_and_permissions_are_bounded_before_parsing() {
     let temporary = tempfile::tempdir().expect("temporary observation");
-    let directory = temporary.path().join("directory.json");
+    let observations = observation_directory(&temporary);
+    let directory = observations.join("directory.json");
     std::fs::create_dir(&directory).unwrap();
     assert_eq!(
         read_normalized_snapshot(&request(&directory)),
         Err(AgentObservationError::InvalidFileType)
     );
 
-    let oversized = temporary.path().join("oversized.json");
+    let oversized = observations.join("oversized.json");
     write_owner_only(&oversized, &vec![b'x'; 4097]);
     assert_eq!(
         read_normalized_snapshot(&request(&oversized)),
@@ -283,14 +427,14 @@ fn file_type_size_and_permissions_are_bounded_before_parsing() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
-        let permissive = temporary.path().join("permissive.json");
+        let permissive = observations.join("permissive.json");
         write_owner_only(&permissive, snapshot_value().to_string().as_bytes());
         std::fs::set_permissions(&permissive, std::fs::Permissions::from_mode(0o640)).unwrap();
         assert_eq!(
             read_normalized_snapshot(&request(&permissive)),
             Err(AgentObservationError::InvalidPermissions)
         );
-        let link = temporary.path().join("link.json");
+        let link = observations.join("link.json");
         symlink(&permissive, &link).unwrap();
         assert_eq!(
             read_normalized_snapshot(&request(&link)),

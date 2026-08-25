@@ -259,13 +259,38 @@ impl AgentController {
         &self,
         request: &AgentObservationRequest,
     ) -> Result<AgentObservationResult, AgentObservationError> {
+        self.observe_with_post_read(request, || {})
+    }
+
+    fn observe_with_post_read(
+        &self,
+        request: &AgentObservationRequest,
+        post_read: impl FnOnce(),
+    ) -> Result<AgentObservationResult, AgentObservationError> {
         crate::agent::observation::validate_controller_request(
             &self.workspace,
             &self.actor,
             self.frontend.kind(),
             request,
         )?;
-        self.frontend.observe(request)
+        let result = self.frontend.observe(request)?;
+        post_read();
+        crate::agent::observation::validate_session_ownership(
+            &self.workspace,
+            &self.actor,
+            self.frontend.kind(),
+            request,
+        )?;
+        Ok(result)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_with_post_read_hook(
+        &self,
+        request: &AgentObservationRequest,
+        post_read: impl FnOnce(),
+    ) -> Result<AgentObservationResult, AgentObservationError> {
+        self.observe_with_post_read(request, post_read)
     }
 
     /// Snapshot the transport's visible output.

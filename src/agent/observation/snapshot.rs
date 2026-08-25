@@ -1,6 +1,6 @@
 //! One-read schema-v1 snapshot validation and neutral boundary recovery.
 
-use std::{fmt::Formatter, fs::File, io::Read as _, path::Path};
+use std::fmt::Formatter;
 
 use serde::Deserialize as _;
 
@@ -11,12 +11,43 @@ use super::{
 };
 
 const MAX_SNAPSHOT_BYTES: usize = 4096;
-const SNAPSHOT_READ_BYTES: usize = MAX_SNAPSHOT_BYTES + 1;
+
+mod file;
+use file::read_snapshot_once;
+#[cfg(test)]
+use file::read_snapshot_once_with_open_hook;
+
+#[cfg(all(test, unix))]
+pub(super) fn read_opened_snapshot_for_test(
+    body: &[u8],
+    declared_length: usize,
+    bytes_read: usize,
+) -> Result<Vec<u8>, AgentObservationError> {
+    file::read_opened_snapshot_for_test(body, declared_length, bytes_read)
+}
 
 pub(crate) fn read_normalized_snapshot(
     request: &AgentObservationRequest,
 ) -> Result<AgentObservationResult, AgentObservationError> {
-    let Some(bytes) = read_snapshot_once(&request.snapshot_path)? else {
+    normalize_snapshot(request, read_snapshot_once(&request.snapshot_path)?)
+}
+
+#[cfg(test)]
+pub(super) fn read_normalized_snapshot_with_open_hook(
+    request: &AgentObservationRequest,
+    before_open: impl FnOnce(),
+) -> Result<AgentObservationResult, AgentObservationError> {
+    normalize_snapshot(
+        request,
+        read_snapshot_once_with_open_hook(&request.snapshot_path, before_open)?,
+    )
+}
+
+fn normalize_snapshot(
+    request: &AgentObservationRequest,
+    bytes: Option<Vec<u8>>,
+) -> Result<AgentObservationResult, AgentObservationError> {
+    let Some(bytes) = bytes else {
         return Ok(AgentObservationResult {
             session: request.lifecycle_session.clone(),
             boundaries: Vec::new(),
@@ -53,6 +84,11 @@ pub(crate) fn read_normalized_snapshot(
     if request.cursor.represented & !represented & !LAUNCHED_BIT != 0 {
         return Err(AgentObservationError::AmbiguousLifecycle);
     }
+    if !prior_timestamps_are_unchanged(request.cursor, &parsed)
+        || !new_phases_follow_prior_phases(request.cursor, &parsed)
+    {
+        return Err(AgentObservationError::AmbiguousLifecycle);
+    }
     let boundaries = parsed
         .boundaries()
         .into_iter()
@@ -65,49 +101,38 @@ pub(crate) fn read_normalized_snapshot(
         next_cursor: AgentObservationCursor {
             revision: parsed.revision,
             represented: request.cursor.represented | represented,
+            accepted_at_unix_ms: parsed.accepted_at_unix_ms,
+            progressing_at_unix_ms: parsed.progressing_at_unix_ms,
+            completed_at_unix_ms: parsed.completed_at_unix_ms,
         },
     })
 }
 
-fn read_snapshot_once(path: &Path) -> Result<Option<Vec<u8>>, AgentObservationError> {
-    let metadata = match std::fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(AgentObservationError::TruncatedSnapshot),
-    };
-    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-        return Err(AgentObservationError::InvalidFileType);
-    }
-    validate_permissions(&metadata)?;
-    if metadata.len() > u64::try_from(MAX_SNAPSHOT_BYTES).expect("snapshot bound fits u64") {
-        return Err(AgentObservationError::SnapshotTooLarge);
-    }
-    let mut file = File::open(path).map_err(|_| AgentObservationError::TruncatedSnapshot)?;
-    let mut buffer = [0_u8; SNAPSHOT_READ_BYTES];
-    let read = file
-        .read(&mut buffer)
-        .map_err(|_| AgentObservationError::TruncatedSnapshot)?;
-    if read > MAX_SNAPSHOT_BYTES {
-        return Err(AgentObservationError::SnapshotTooLarge);
-    }
-    if read != usize::try_from(metadata.len()).unwrap_or(usize::MAX) {
-        return Err(AgentObservationError::TruncatedSnapshot);
-    }
-    Ok(Some(buffer[..read].to_vec()))
+fn new_phases_follow_prior_phases(cursor: AgentObservationCursor, parsed: &ParsedSnapshot) -> bool {
+    let prior = [
+        cursor.accepted_at_unix_ms.is_some(),
+        cursor.progressing_at_unix_ms.is_some(),
+        cursor.completed_at_unix_ms.is_some(),
+    ];
+    let current = [
+        parsed.accepted_at_unix_ms.is_some(),
+        parsed.progressing_at_unix_ms.is_some(),
+        parsed.completed_at_unix_ms.is_some(),
+    ];
+    current
+        .into_iter()
+        .enumerate()
+        .all(|(index, present)| !present || prior[index] || !prior[index + 1..].contains(&true))
 }
 
-#[cfg(unix)]
-fn validate_permissions(metadata: &std::fs::Metadata) -> Result<(), AgentObservationError> {
-    use std::os::unix::fs::PermissionsExt as _;
-    if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(AgentObservationError::InvalidPermissions);
-    }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn validate_permissions(_metadata: &std::fs::Metadata) -> Result<(), AgentObservationError> {
-    Ok(())
+fn prior_timestamps_are_unchanged(cursor: AgentObservationCursor, parsed: &ParsedSnapshot) -> bool {
+    [
+        (cursor.accepted_at_unix_ms, parsed.accepted_at_unix_ms),
+        (cursor.progressing_at_unix_ms, parsed.progressing_at_unix_ms),
+        (cursor.completed_at_unix_ms, parsed.completed_at_unix_ms),
+    ]
+    .into_iter()
+    .all(|(prior, current)| prior.is_none() || prior == current)
 }
 
 struct RawSnapshot {

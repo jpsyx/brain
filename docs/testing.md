@@ -327,11 +327,18 @@ first move is a failing test that reproduces it, *then* the fix.
   session rotation behavior. Focused parser tests cover the exact ten fields,
   duplicate/missing/unknown fields, identifier and revision bounds,
   phase/timestamp consistency, equal and regressed cursors, identity/session
-  mismatches, missing files, one-byte-over-limit snapshots, permissions,
-  non-regular files, symlinks, trailing JSON, and redacted diagnostics. A
-  structural receiver scan rejects provider types, transcript/rollout/event
-  grammar, direct normalized-reader access, and observation-path access outside
-  launch/controller ownership.
+  mismatches, missing files, exact 4096-byte acceptance, one-byte-over-limit
+  rejection, exact 256-byte identifiers, permissions, non-regular files,
+  nonblocking FIFO rejection, symlinked cache ancestors, metadata-to-open
+  replacement, stable-length short reads, trailing JSON, and redacted
+  diagnostics. Cross-poll tests pin timestamp immutability, phase preservation,
+  lifecycle order, and a nondecreasing emitted stream. A deterministic
+  post-read seam rotates session ownership on another thread and proves the
+  controller's fresh post-delegation check returns no facts. A structural
+  receiver scan covers both coordination trees plus ephemeral receiver-tab
+  ownership and rejects provider enum branches and literals, concrete adapter
+  or parser ownership, transcript/rollout/event grammar, direct normalized-reader
+  access, and observation-path access outside launch/controller ownership.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

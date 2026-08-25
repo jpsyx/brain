@@ -904,13 +904,23 @@ Which session to run is decided by the **lock + recency** model in
    snapshot path, a bounded non-placeholder lifecycle session, and a current
    locked session row matching the remote instance, selected frontend,
    workspace, actor, and channel. Every frontend then delegates to the same
-   strict reader. One poll performs one read of at most 4097 bytes, accepts only
-   the exact ten-field schema, and returns content-free accepted, progressing,
-   and completed boundaries in lifecycle order with an opaque next cursor.
+   strict reader. After that read, the controller opens fresh durable state and
+   proves the exact ownership tuple again; a rotation during delegation discards
+   the content-free result. On Unix the reader opens the trusted home anchor and
+   every cache component with no-follow directory handles, opens the final file
+   nonblocking, validates that opened handle as regular, owner-only, and at most
+   4096 bytes both before and after the single read, and rejects a short read.
+   Platforms that cannot enforce the Unix owner-only contract fail closed for
+   an existing snapshot. One poll reads at most 4097 bytes, accepts only the
+   exact ten-field schema, and returns content-free accepted, progressing, and
+   completed boundaries in lifecycle order with an opaque next cursor.
    Missing files and equal revisions are pending/no-change. Oversize,
    non-owner-only, symlink, malformed, mismatched, regressed, or ambiguous
    evidence fails in a stable category whose display contains no request or
-   snapshot data. A higher revision can recover missed intermediate boundaries;
+   snapshot data. The opaque cursor retains the timestamps already emitted, so
+   a higher revision cannot rewrite or erase prior facts, introduce an earlier
+   phase after a later one, or make the emitted timestamp stream decrease. A
+   higher revision can still recover genuinely missed intermediate boundaries;
    a prior rotated or placeholder session cannot advance the lifecycle. This
    operation only reads evidence. Durable receiver transitions and polling
    remain outside this contract.
