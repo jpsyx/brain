@@ -231,23 +231,40 @@ matching durable conversation binding is
 offered only to the selected `AgentController`; `Resume(session_id)` is chosen
 only when the adapter confirms that native history and an injected exact-session
 claim succeeds. Missing history, a frontend change, a probe error, or a failed
-claim produces `Fresh(session_id)`. Resumed launches carry only the current
-authenticated message and attachment references. Fresh launches carry those
-same current inputs after a separate portable-transcript section, bounded to
-64 KiB while retaining the newest UTF-8-safe transcript suffix. Prompt,
-transcript, attachment, sender, recipient, and credential contents never enter
-planning diagnostics. Claude, Codex, and OpenCode translate both semantic
-plans with the non-blank initial prompt through their existing launch command.
+claim produces `Fresh(session_id)`. After receiver sync freshness completes,
+the launch boundary refreshes delayed email attachment access from stable
+Resend IDs and downloads email or authenticated SMS media into the exact
+workspace's receiver inbox before agent planning. It accepts at most ten
+regular files of at most 40 MiB each, canonicalizes every staged path beneath
+that inbox, and bounds sanitized per-batch filenames to 128 bytes. Resumed
+launches carry only the current authenticated message and those local file
+paths. Fresh launches carry the same current inputs after a separate
+portable-transcript section. The raw receiver prompt is bounded to 47 KiB
+while retaining the newest UTF-8-safe transcript suffix. Planning reserves 12
+KiB for command, policy, and options under a 96 KiB complete `/bin/sh -c`
+argument ceiling, accounting for adaptive POSIX quoting whose worst case is
+seven output bytes per four input bytes plus delimiters. `AgentController`
+checks the exact rendered argument before spawn, retaining margin below 128
+KiB platforms. Prompt, transcript, attachment, sender,
+recipient, credential, and attachment-error contents never enter planning
+diagnostics. Claude, Codex, and OpenCode translate both semantic plans with the
+non-blank initial prompt through their existing launch command. A refresh,
+download, cardinality, path, or size failure returns the exact claim to its
+bounded pre-acceptance retry without launching an agent or changing the active
+view, tab, or focus.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
-Claude may use that registered ID directly as its native session ID; Codex and
-OpenCode session-start integrations must rotate it to a distinct native ID.
+Claude may use a fresh registered ID directly as its native session ID. A
+resumed Codex or OpenCode run may report the already-bound native ID only when
+it matches that exact durable conversation binding; a fresh Codex or OpenCode
+run must still rotate away from its Brain-supplied placeholder.
 Only an exact locked remote instance whose complete durable registration tuple
 matches the workspace, logical conversation, frontend, actor, channel,
 instance, and registered ID may replace the durable binding. Equality is valid
-only for Claude with that exact lifecycle evidence; unproved placeholders and
-equality for Codex or OpenCode are rejected. The lifecycle-reported native ID
+for fresh Claude lifecycle evidence and for a resumed Codex or OpenCode run
+whose exact conversation binding already names that native ID. Unproved or
+fresh reused placeholders remain rejected. The lifecycle-reported native ID
 is retained in that registration, and the binding-only update does not rewrite
 the portable transcript. Pre-launch rollback stops the controller,
 uses a fallible exact-registration cleanup, and still records its bounded
@@ -1118,10 +1135,13 @@ outside the queue. The one exception is an exact in-flight unavailable
 duplicate, which receives 503 until pending acceptance resolves; invalid
 signatures remain authentication failures, and
 internal 500/502 outcomes remain failures rather than provider success.
-Delayed email dispatch refreshes signed attachment access from stable provider IDs, and
-processing plus final replies preserve the original subject and message
-lineage without widening recipients. Receiving-API rejection or malformed
-provider JSON returns 502.
+Delayed email dispatch refreshes signed attachment access from stable provider
+IDs, then the TUI downloads and validates each local inbox file before its
+durable launch planner can start an agent. Authenticated SMS media uses the
+same staging boundary with Twilio credentials supplied through the provider
+request configuration. Processing plus final replies preserve the original
+subject and message lineage without widening recipients. Receiving-API
+rejection or malformed provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it

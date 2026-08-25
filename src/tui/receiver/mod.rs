@@ -1,5 +1,6 @@
 //! Durable receiver-run scheduling and session ownership.
 
+pub(crate) mod attachments;
 mod failure;
 pub(crate) mod planning;
 mod run;

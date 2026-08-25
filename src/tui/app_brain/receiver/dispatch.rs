@@ -98,6 +98,23 @@ impl App {
     fn launch_claimed_receiver_run(&mut self, claimed: ClaimedReceiverRun) {
         let now = self.receiver_now_unix_ms();
         let retry_at = now.saturating_add(RETRY_DELAY_MS);
+        let Ok(staged_attachments) = self.services.stage_receiver_attachments(
+            self.context.workspace(),
+            self.context.command(),
+            claimed.claim.job().inbound(),
+        ) else {
+            crate::logging::log("receiver attachment preparation failed");
+            self.retry_unregistered_receiver(&claimed, ReceiverLaunchFailure::Planning, now);
+            return;
+        };
+        if staged_attachments
+            .iter()
+            .any(|attachment| attachment.path.is_none() || attachment.error.is_some())
+        {
+            crate::logging::log("receiver attachment preparation failed");
+            self.retry_unregistered_receiver(&claimed, ReceiverLaunchFailure::Planning, now);
+            return;
+        }
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
             Err(error) => {
@@ -209,12 +226,27 @@ impl App {
             }
         }
 
+        let Some(initial_prompt) =
+            localize_attachment_references(plan.initial_prompt(), &staged_attachments)
+        else {
+            crate::logging::log("receiver attachment prompt preparation failed");
+            let _ = rollback_receiver_launch(
+                &self.services,
+                &claimed.claim,
+                Some(registration),
+                &mut controller,
+                ReceiverLaunchFailure::Planning,
+                now,
+                retry_at,
+            );
+            return;
+        };
         let hooks = self.receiver_hook_metadata(&claimed, pid);
         let mut request = LaunchRequest::from_trusted_context(
             Arc::clone(&self.context.command().workspace),
             actor,
             plan.session_plan().clone(),
-            Some(plan.initial_prompt().to_owned()),
+            Some(initial_prompt),
             self.context.access_mode(),
         );
         if let Some(capability_plan) = capability_plan {
@@ -322,4 +354,25 @@ impl App {
     pub(super) fn receiver_now_unix_ms(&self) -> u64 {
         u64::try_from(self.services.utc_now().timestamp_millis()).unwrap_or(0)
     }
+}
+
+fn localize_attachment_references(
+    prompt: &str,
+    attachments: &[crate::server::receiver::StagedAttachment],
+) -> Option<String> {
+    if attachments.is_empty() {
+        return Some(prompt.to_owned());
+    }
+    let marker = "\n\nAttachment references:";
+    let start = prompt.rfind(marker)?;
+    let mut localized = prompt[..start].to_owned();
+    localized.push_str("\n\nLocal attachment files:");
+    for attachment in attachments {
+        use std::fmt::Write as _;
+
+        let path = attachment.path.as_ref()?;
+        let encoded = serde_json::to_string(&path.display().to_string()).ok()?;
+        let _ = write!(localized, "\n- path={encoded}");
+    }
+    Some(localized)
 }

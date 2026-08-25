@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use super::{Channel, InboundJob};
 
+pub const MAX_ATTACHMENT_COUNT: usize = 10;
+pub const MAX_ATTACHMENT_BYTES: u64 = 40 * 1024 * 1024;
+const MAX_ATTACHMENT_FILENAME_BYTES: usize = 128;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StagedAttachment {
     pub source: String,
@@ -9,14 +13,16 @@ pub struct StagedAttachment {
     pub error: Option<String>,
 }
 
-/// Download every inbound media item into a job-scoped cache directory. A
-/// failed download is returned as data so the agent can report it explicitly.
-#[must_use]
+/// Download every inbound media item into a job-scoped cache directory.
 pub fn stage_attachments(
     workspace: &crate::workspace::WorkspaceContext,
     command: &crate::workspace::CommandContext,
     message: &InboundJob,
-) -> Vec<StagedAttachment> {
+) -> anyhow::Result<Vec<StagedAttachment>> {
+    anyhow::ensure!(
+        message.attachments.len() <= MAX_ATTACHMENT_COUNT,
+        "receiver attachment count exceeds limit"
+    );
     let job = uuid::Uuid::new_v4().to_string();
     let dir = workspace.paths().inbox_dir().join(&job);
     let dir_error = std::fs::create_dir_all(&dir)
@@ -26,7 +32,7 @@ pub fn stage_attachments(
         match super::http::refresh_attachment_access(command, message) {
             Ok(attachments) => attachments,
             Err(error) => {
-                return message
+                return Ok(message
                     .attachments
                     .iter()
                     .map(|attachment| StagedAttachment {
@@ -37,13 +43,13 @@ pub fn stage_attachments(
                         path: None,
                         error: Some(format!("refreshing attachment access: {error}")),
                     })
-                    .collect();
+                    .collect());
             }
         }
     } else {
         message.attachments.clone()
     };
-    attachments
+    Ok(attachments
         .iter()
         .enumerate()
         .map(|(index, attachment)| {
@@ -103,7 +109,7 @@ pub fn stage_attachments(
                 }
             }
         })
-        .collect()
+        .collect())
 }
 
 fn safe_attachment_name(source: &str, index: usize) -> String {
@@ -122,8 +128,24 @@ fn safe_attachment_name(source: &str, index: usize) -> String {
     if clean.is_empty() {
         format!("attachment-{index}")
     } else {
-        format!("{index}-{clean}")
+        bounded_attachment_name(index, &clean)
     }
+}
+
+fn bounded_attachment_name(index: usize, clean: &str) -> String {
+    let prefix = format!("{index}-");
+    if prefix.len() + clean.len() <= MAX_ATTACHMENT_FILENAME_BYTES {
+        return prefix + clean;
+    }
+    let extension = clean
+        .rfind('.')
+        .map(|start| &clean[start..])
+        .filter(|extension| extension.len() <= 16)
+        .unwrap_or_default();
+    let stem_bytes = MAX_ATTACHMENT_FILENAME_BYTES
+        .saturating_sub(prefix.len())
+        .saturating_sub(extension.len());
+    format!("{prefix}{}{extension}", &clean[..stem_bytes])
 }
 
 #[cfg(test)]
@@ -140,5 +162,24 @@ mod tests {
             safe_attachment_name("https://example.test/", 1),
             "attachment-1"
         );
+    }
+
+    #[test]
+    fn attachment_names_are_bounded_for_filesystem_safety() {
+        let name = safe_attachment_name(&format!("{}.txt", "a".repeat(500)), 9);
+        let next = safe_attachment_name(&format!("{}.txt", "a".repeat(500)), 10);
+
+        assert!(
+            name.len() <= 128,
+            "staged filename was {} bytes",
+            name.len()
+        );
+        assert!(
+            std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+        );
+        assert_ne!(name, next, "batch indexes must keep staged names unique");
+        assert!(!name.contains(['/', '\\']));
     }
 }

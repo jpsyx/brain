@@ -5,6 +5,9 @@ use crate::command::server::{ReceiverActionOutcome, ReceiverIntentRefresher};
 use crate::state::{Db, PanelSide};
 use crate::sync::args::Direction;
 use crate::tui::app_sync::ReceiverSyncRuntime;
+use crate::tui::receiver::attachments::{
+    ReceiverAttachmentRuntime, SystemReceiverAttachmentRuntime,
+};
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
@@ -22,6 +25,7 @@ pub(crate) struct AppServices {
     db: Db,
     receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
+    receiver_attachment_runtime: Box<dyn ReceiverAttachmentRuntime>,
 }
 
 impl AppServices {
@@ -32,6 +36,7 @@ impl AppServices {
             db: init.db,
             receiver_intent_refresher: init.receiver_intent_refresher,
             receiver_sync_runtime: init.receiver_sync_runtime,
+            receiver_attachment_runtime: Box::new(SystemReceiverAttachmentRuntime),
         }
     }
 
@@ -141,6 +146,20 @@ impl AppServices {
             .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
     }
 
+    pub(crate) fn stage_receiver_attachments(
+        &self,
+        workspace: &crate::workspace::WorkspaceContext,
+        command: &CommandContext,
+        message: &crate::server::receiver::InboundJob,
+    ) -> Result<Vec<crate::server::receiver::StagedAttachment>> {
+        crate::tui::receiver::attachments::stage_receiver_attachments_with(
+            self.receiver_attachment_runtime.as_ref(),
+            workspace,
+            command,
+            message,
+        )
+    }
+
     pub(crate) fn renew_receiver_claim(
         &self,
         job_id: crate::state::ReceiverJobId,
@@ -235,6 +254,14 @@ impl AppServices {
     #[cfg(test)]
     pub(crate) fn replace_receiver_sync_runtime(&mut self, runtime: Box<dyn ReceiverSyncRuntime>) {
         self.receiver_sync_runtime = runtime;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_receiver_attachment_runtime(
+        &mut self,
+        runtime: Box<dyn ReceiverAttachmentRuntime>,
+    ) {
+        self.receiver_attachment_runtime = runtime;
     }
 
     #[cfg(test)]
