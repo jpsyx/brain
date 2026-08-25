@@ -1,7 +1,7 @@
 ---
 id: BR-14
 title: Run receiver jobs in isolated resumable tabs
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [feature, server]
@@ -13,7 +13,7 @@ parent:
 github:
 blocked_by: []
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-25
 ---
 
 # BR-14: Run receiver jobs in isolated resumable tabs
@@ -34,23 +34,23 @@ terminal lifecycle outcome.
 
 ## Acceptance criteria
 
-- [ ] The consumer atomically claims, rather than removes, the oldest ready job.
-- [ ] Every job runs in a dedicated remote-run tab and a newly launched agent
+- [x] The consumer atomically claims, rather than removes, the oldest ready job.
+- [x] Every job runs in a dedicated remote-run tab and a newly launched agent
       process through `AgentController`.
-- [ ] A resumable matching conversation uses `Resume(session_id)` plus the job
+- [x] A resumable matching conversation uses `Resume(session_id)` plus the job
       as the initial prompt for Claude, Codex, and OpenCode.
-- [ ] Missing or incompatible native history starts fresh with the bounded
+- [x] Missing or incompatible native history starts fresh with the bounded
       Brain transcript and updates the conversation's native binding.
-- [ ] No receiver path injects text into an existing process or waits for the
+- [x] No receiver path injects text into an existing process or waits for the
       main interactive session.
-- [ ] Remote tabs run in the background without stealing view, tab, or keyboard
+- [x] Remote tabs run in the background without stealing view, tab, or keyboard
       focus and close themselves after a terminal outcome.
-- [ ] A message arriving while a remote run is active remains durable and is
+- [x] A message arriving while a remote run is active remains durable and is
       considered only after the current run closes.
-- [ ] One workspace runs at most one receiver job concurrently in this release.
-- [ ] Red/green tests cover resume, transcript fallback, frontend changes,
+- [x] One workspace runs at most one receiver job concurrently in this release.
+- [x] Red/green tests cover resume, transcript fallback, frontend changes,
       background focus, mid-run arrival, launch failure, and FIFO draining.
-- [ ] Brain-panel, skill-session, receiver, glossary, feature, integration,
+- [x] Brain-panel, skill-session, receiver, glossary, feature, integration,
       architecture, keybinding, decision, and testing docs stay consistent.
 
 ## Notes
