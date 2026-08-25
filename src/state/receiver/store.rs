@@ -3,7 +3,7 @@ use rusqlite::OptionalExtension as _;
 
 use super::{
     ReceiverAcceptance, ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity,
-    ReceiverJob, ReceiverJobId, ReceiverSessionBinding,
+    ReceiverJob, ReceiverJobId, ReceiverJobToken, ReceiverSessionBinding,
 };
 use crate::state::Db;
 
@@ -11,6 +11,7 @@ mod claim;
 mod completion;
 mod control;
 mod load;
+mod observation;
 mod session;
 
 use load::{load_receiver_conversation, load_receiver_job};
@@ -27,6 +28,7 @@ impl Db {
         self.validate_receiver_scope(inbound, identity)?;
         let channel = channel_str(inbound.channel);
         let job_id = ReceiverJobId::from(inbound.job_id);
+        let token = ReceiverJobToken::new();
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
@@ -123,11 +125,12 @@ impl Db {
         let inbound_json = serde_json::to_string(inbound).context("serialize receiver job")?;
         transaction.execute(
             "INSERT INTO receiver_jobs
-               (job_id, workspace_id, conversation_id, channel, provider_id,
+               (job_id, job_token, workspace_id, conversation_id, channel, provider_id,
                 inbound_json, state, received_at_unix_ms, updated_at_unix_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'queued', ?7, ?7)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8)",
             rusqlite::params![
                 job_id.to_string(),
+                token.to_string(),
                 self.workspace_id,
                 conversation_id.to_string(),
                 channel,

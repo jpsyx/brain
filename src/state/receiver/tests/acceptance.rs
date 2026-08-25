@@ -238,3 +238,28 @@ fn receiver_database_rejects_a_conversation_identity_from_another_workspace() {
         "receiver conversation belongs to another workspace"
     );
 }
+
+#[test]
+fn newly_accepted_jobs_receive_distinct_opaque_tokens() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let first = db
+        .accept_receiver_job(&receiver_job(Some("token-first"), 100), &identity)
+        .expect("accept first receiver job");
+    let second = db
+        .accept_receiver_job(&receiver_job(Some("token-second"), 200), &identity)
+        .expect("accept second receiver job");
+
+    let first = db
+        .receiver_job(first.job_id())
+        .expect("load first receiver job")
+        .expect("first receiver job");
+    let second = db
+        .receiver_job(second.job_id())
+        .expect("load second receiver job")
+        .expect("second receiver job");
+
+    assert_ne!(first.token(), second.token());
+    assert!(ReceiverJobToken::parse(&first.token().to_string()).is_ok());
+    assert!(ReceiverJobToken::parse("not-a-token").is_err());
+}

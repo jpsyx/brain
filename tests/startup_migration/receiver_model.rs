@@ -116,7 +116,7 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         assert!(table_exists(&path, "receiver_conversations"));
         assert!(table_exists(&path, "receiver_jobs"));
         assert!(table_exists(&path, "receiver_session_registrations"));
-        assert_eq!(state_schema_version(&path), 8);
+        assert_eq!(state_schema_version(&path), 9);
     }
 
     let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
@@ -172,7 +172,7 @@ fn ordinary_startup_repairs_a_missing_launch_retry_column_in_damaged_v7_schema()
         "retry_from_state"
     ));
     assert!(table_exists(&family, "receiver_session_registrations"));
-    assert_eq!(state_schema_version(&family), 8);
+    assert_eq!(state_schema_version(&family), 9);
 }
 
 #[test]

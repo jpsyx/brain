@@ -1048,6 +1048,7 @@ receiver_conversations(
 
 receiver_jobs(
   job_id                    TEXT PRIMARY KEY,
+  job_token                 TEXT NOT NULL UNIQUE,
   workspace_id              TEXT NOT NULL,
   conversation_id           TEXT NOT NULL REFERENCES receiver_conversations,
   channel                   TEXT NOT NULL,  -- sms | email
@@ -1062,6 +1063,13 @@ receiver_jobs(
   retry_at_unix_ms          INTEGER,
   retry_from_state          TEXT,
   last_error                TEXT,
+  launched_at_unix_ms       INTEGER,
+  accepted_at_unix_ms       INTEGER,
+  progressing_at_unix_ms    INTEGER,
+  completed_at_unix_ms      INTEGER,
+  observation_instance      TEXT,
+  observation_session_id    TEXT,
+  observation_revision      INTEGER NOT NULL,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1079,7 +1087,9 @@ receiver_session_registrations(
 ```
 
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
-are immutable UUID-backed values. The database handle itself is pinned to one
+are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
+correlation identity created at durable ingress. It never replaces the public job
+ID or authorizes a mutation. The database handle itself is pinned to one
 workspace UUID and rejects an inbound job or conversation identity from any
 other workspace. A conversation identity is the composite
 `(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
@@ -1101,7 +1111,7 @@ the queued-capacity decision. That decision counts only `queued` rows and caps
 them at 64 inside the same immediate transaction; concurrent writers therefore
 cannot admit a sixty-fifth queued job.
 
-The stored lifecycle is `queued`, `claimed`, `launching`, `accepted`,
+The stored lifecycle is `queued`, `claimed`, `launching`, `launched`, `accepted`,
 `processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.
 A claim stores a non-blank owner and millisecond expiry without deleting its
 job. Only the live exact owner may renew or transition it. After expiry,

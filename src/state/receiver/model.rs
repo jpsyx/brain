@@ -49,6 +49,14 @@ pub enum ReceiverLaunchRetryOutcome {
     Exhausted,
 }
 
+/// One frontend-neutral receiver lifecycle fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverObservationPhase {
+    Accepted,
+    Progressing,
+    Completed,
+}
+
 /// Immutable identifier for one workspace-scoped receiver job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobId(Uuid);
@@ -66,6 +74,31 @@ impl From<Uuid> for ReceiverJobId {
 }
 
 impl Display for ReceiverJobId {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// Opaque correlation identity for the complete lifetime of one receiver job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReceiverJobToken(Uuid);
+
+impl ReceiverJobToken {
+    pub(super) fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Parse a persisted opaque receiver job token.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `value` is not a UUID token.
+    pub fn parse(value: &str) -> anyhow::Result<Self> {
+        Ok(Self(Uuid::parse_str(value)?))
+    }
+}
+
+impl Display for ReceiverJobToken {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
     }
@@ -263,6 +296,7 @@ impl ReceiverConversation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiverJob {
     id: ReceiverJobId,
+    token: ReceiverJobToken,
     conversation_id: ReceiverConversationId,
     inbound: crate::server::receiver::InboundJob,
     state: ReceiverJobState,
@@ -270,6 +304,13 @@ pub struct ReceiverJob {
     retry_at_unix_ms: Option<u64>,
     retry_from_state: Option<ReceiverJobState>,
     last_error: Option<String>,
+    launched_at_unix_ms: Option<u64>,
+    accepted_at_unix_ms: Option<u64>,
+    progressing_at_unix_ms: Option<u64>,
+    completed_at_unix_ms: Option<u64>,
+    observation_instance: Option<String>,
+    observation_session_id: Option<String>,
+    observation_revision: u64,
 }
 
 pub(super) struct ReceiverRetryMetadata {
@@ -282,13 +323,16 @@ pub(super) struct ReceiverRetryMetadata {
 impl ReceiverJob {
     pub(super) fn from_stored(
         id: ReceiverJobId,
+        token: ReceiverJobToken,
         conversation_id: ReceiverConversationId,
         inbound: crate::server::receiver::InboundJob,
         state: ReceiverJobState,
         retry: ReceiverRetryMetadata,
+        evidence: ReceiverObservationMetadata,
     ) -> Self {
         Self {
             id,
+            token,
             conversation_id,
             inbound,
             state,
@@ -296,12 +340,24 @@ impl ReceiverJob {
             retry_at_unix_ms: retry.at_unix_ms,
             retry_from_state: retry.from_state,
             last_error: retry.last_error,
+            launched_at_unix_ms: evidence.launched_at_unix_ms,
+            accepted_at_unix_ms: evidence.accepted_at_unix_ms,
+            progressing_at_unix_ms: evidence.progressing_at_unix_ms,
+            completed_at_unix_ms: evidence.completed_at_unix_ms,
+            observation_instance: evidence.instance,
+            observation_session_id: evidence.session_id,
+            observation_revision: evidence.revision,
         }
     }
 
     #[must_use]
     pub const fn id(&self) -> ReceiverJobId {
         self.id
+    }
+
+    #[must_use]
+    pub const fn token(&self) -> ReceiverJobToken {
+        self.token
     }
 
     #[must_use]
@@ -338,6 +394,45 @@ impl ReceiverJob {
     pub fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }
+
+    #[must_use]
+    pub const fn launched_at_unix_ms(&self) -> Option<u64> {
+        self.launched_at_unix_ms
+    }
+    #[must_use]
+    pub const fn accepted_at_unix_ms(&self) -> Option<u64> {
+        self.accepted_at_unix_ms
+    }
+    #[must_use]
+    pub const fn progressing_at_unix_ms(&self) -> Option<u64> {
+        self.progressing_at_unix_ms
+    }
+    #[must_use]
+    pub const fn completed_at_unix_ms(&self) -> Option<u64> {
+        self.completed_at_unix_ms
+    }
+    #[must_use]
+    pub fn observation_instance(&self) -> Option<&str> {
+        self.observation_instance.as_deref()
+    }
+    #[must_use]
+    pub fn observation_session_id(&self) -> Option<&str> {
+        self.observation_session_id.as_deref()
+    }
+    #[must_use]
+    pub const fn observation_revision(&self) -> u64 {
+        self.observation_revision
+    }
+}
+
+pub(super) struct ReceiverObservationMetadata {
+    pub(super) launched_at_unix_ms: Option<u64>,
+    pub(super) accepted_at_unix_ms: Option<u64>,
+    pub(super) progressing_at_unix_ms: Option<u64>,
+    pub(super) completed_at_unix_ms: Option<u64>,
+    pub(super) instance: Option<String>,
+    pub(super) session_id: Option<String>,
+    pub(super) revision: u64,
 }
 
 /// One live FIFO claim with the immutable job and logical conversation it owns.

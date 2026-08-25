@@ -3,6 +3,7 @@
 mod lifecycle;
 mod receiver_launch;
 mod receiver_model;
+mod receiver_observation;
 mod receiver_session_registration;
 mod version;
 
@@ -17,6 +18,7 @@ const LIFECYCLE_VERSION: Version = Version::new(0, 71, 0);
 const RECEIVER_MODEL_VERSION: Version = Version::new(0, 72, 0);
 const RECEIVER_LAUNCH_VERSION: Version = Version::new(0, 75, 0);
 const RECEIVER_SESSION_REGISTRATION_VERSION: Version = Version::new(0, 75, 1);
+const RECEIVER_OBSERVATION_VERSION: Version = Version::new(0, 80, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -25,7 +27,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 4] = [
+const MIGRATIONS: [Migration; 5] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -45,6 +47,11 @@ const MIGRATIONS: [Migration; 4] = [
         introduced: RECEIVER_SESSION_REGISTRATION_VERSION,
         up: receiver_session_registration::up,
         down: receiver_session_registration::down,
+    },
+    Migration {
+        introduced: RECEIVER_OBSERVATION_VERSION,
+        up: receiver_observation::up,
+        down: receiver_observation::down,
     },
 ];
 

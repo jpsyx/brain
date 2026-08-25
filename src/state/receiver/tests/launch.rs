@@ -69,6 +69,59 @@ fn launch_preparation_requires_the_exact_live_owner_and_launch_eligible_state() 
 }
 
 #[test]
+fn launched_observations_require_the_exact_owner_instance_session_and_revision() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&receiver_job(None, 100), &identity)
+        .expect("accept receiver job");
+    db.claim_next_receiver_run("owner", 1_000, 2_000)
+        .expect("claim receiver job")
+        .expect("receiver claim");
+    db.prepare_receiver_job_launch(accepted.job_id(), "owner", 1_100)
+        .expect("prepare receiver launch");
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load receiver job")
+        .expect("receiver job")
+        .token();
+
+    assert!(db
+        .commit_receiver_job_launch(
+            accepted.job_id(), token, "owner", "instance-a", "session-a", 1_200,
+        )
+        .expect("commit launched evidence"));
+    assert!(!db
+        .apply_receiver_observation(
+            accepted.job_id(), token, "owner", "instance-b", "session-a",
+            ReceiverObservationPhase::Accepted, 1, 1_300,
+        )
+        .expect("reject stale instance"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(), token, "owner", "instance-a", "session-a",
+            ReceiverObservationPhase::Accepted, 1, 1_300,
+        )
+        .expect("apply accepted evidence"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(), token, "owner", "instance-a", "session-a",
+            ReceiverObservationPhase::Progressing, 2, 1_400,
+        )
+        .expect("apply progressing evidence"));
+
+    let job = db
+        .receiver_job(accepted.job_id())
+        .expect("load observed receiver job")
+        .expect("receiver job");
+    assert_eq!(job.state(), ReceiverJobState::Processing);
+    assert_eq!(job.launched_at_unix_ms(), Some(1_200));
+    assert_eq!(job.accepted_at_unix_ms(), Some(1_300));
+    assert_eq!(job.progressing_at_unix_ms(), Some(1_400));
+    assert_eq!(job.observation_revision(), 2);
+}
+
+#[test]
 fn only_a_due_pre_acceptance_retry_can_prepare_another_launch() {
     for (retry_from, eligible) in [
         (ReceiverJobState::Claimed, true),

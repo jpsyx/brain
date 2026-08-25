@@ -112,9 +112,27 @@ fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
         .renew_receiver_claim(accepted.job_id(), "worker-a", 1_050, 1_200)
         .expect("renew owned claim"));
 
+    assert!(db
+        .transition_receiver_job(
+            accepted.job_id(),
+            "worker-a",
+            ReceiverJobState::Claimed,
+            ReceiverJobState::Launching,
+            1_060,
+        )
+        .expect("prepare owned launch"));
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load launch")
+        .expect("job")
+        .token();
+    assert!(db
+        .commit_receiver_job_launch(
+            accepted.job_id(), token, "worker-a", "instance-a", "session-a", 1_060,
+        )
+        .expect("commit owned launch"));
     for (expected, next) in [
-        (ReceiverJobState::Claimed, ReceiverJobState::Launching),
-        (ReceiverJobState::Launching, ReceiverJobState::Accepted),
+        (ReceiverJobState::Launched, ReceiverJobState::Accepted),
         (ReceiverJobState::Accepted, ReceiverJobState::Processing),
         (ReceiverJobState::Processing, ReceiverJobState::AnswerReady),
         (ReceiverJobState::AnswerReady, ReceiverJobState::Delivering),

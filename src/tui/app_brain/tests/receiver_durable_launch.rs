@@ -256,8 +256,24 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
         db.prepare_receiver_job_launch(accepted.job_id(), "previous-owner", now)
             .expect("prepare previous launch")
     );
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load previous launch")
+        .expect("previous launch")
+        .token();
+    assert!(
+        db.commit_receiver_job_launch(
+            accepted.job_id(),
+            token,
+            "previous-owner",
+            "previous-instance",
+            "previous-session",
+            now,
+        )
+        .expect("commit previous launch")
+    );
     for (expected, next) in [
-        (ReceiverJobState::Launching, ReceiverJobState::Accepted),
+        (ReceiverJobState::Launched, ReceiverJobState::Accepted),
         (ReceiverJobState::Accepted, ReceiverJobState::Processing),
     ] {
         assert!(

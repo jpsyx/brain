@@ -207,9 +207,24 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
     db.claim_next_receiver_job("worker-a", 1_000, 1_500)
         .expect("claim job")
         .expect("claim available");
+    assert!(db
+        .transition_receiver_job(
+            accepted.job_id(), "worker-a", ReceiverJobState::Claimed,
+            ReceiverJobState::Launching, 1_010,
+        )
+        .expect("prepare delivery launch"));
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load launch")
+        .expect("job")
+        .token();
+    assert!(db
+        .commit_receiver_job_launch(
+            accepted.job_id(), token, "worker-a", "instance-a", "session-a", 1_020,
+        )
+        .expect("commit delivery launch"));
     for (expected, next, observed_at) in [
-        (ReceiverJobState::Claimed, ReceiverJobState::Launching, 1_010),
-        (ReceiverJobState::Launching, ReceiverJobState::Accepted, 1_020),
+        (ReceiverJobState::Launched, ReceiverJobState::Accepted, 1_020),
         (ReceiverJobState::Accepted, ReceiverJobState::Processing, 1_030),
         (
             ReceiverJobState::Processing,
