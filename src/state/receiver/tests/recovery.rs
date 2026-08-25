@@ -153,6 +153,70 @@ fn expired_launching_is_atomically_recovered_as_a_due_spawn_retry() {
 }
 
 #[test]
+fn expired_launched_lease_remains_exactly_unchanged_and_blocks_replay() {
+    use crate::agent::{AgentKind, AgentSession, SessionScope};
+
+    let db = Db::open_in_memory().expect("receiver state");
+    let job = receiver_job(None, 100);
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&job, &identity)
+        .expect("accept receiver job");
+    db.claim_next_receiver_run("crashed-worker", 1_000, 1_100)
+        .expect("claim launch")
+        .expect("launch claim");
+    assert!(
+        db.prepare_receiver_job_launch(accepted.job_id(), "crashed-worker", 1_010)
+            .expect("prepare launch")
+    );
+    let scope = SessionScope::new(AgentKind::Claude, receiver_workspace_id(), job.actor);
+    let registered = AgentSession::new("pending-crashed-session").expect("registered session");
+    db.register_receiver_session(
+        accepted.conversation_id(),
+        &registered,
+        "crashed-worker",
+        42,
+        &scope,
+    )
+    .expect("register launched session");
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load launching job")
+        .expect("launching job")
+        .token();
+    assert!(
+        db.commit_receiver_job_launch(
+            accepted.job_id(),
+            "crashed-worker",
+            &launch_observation(token, "crashed-worker", registered.as_str(), 1_020),
+        )
+        .expect("commit launched boundary")
+    );
+    let durable_before = db
+        .receiver_job(accepted.job_id())
+        .expect("load launched job")
+        .expect("launched job");
+    let correlation_before = db.locked_session_for_instance("crashed-worker", &scope);
+
+    assert!(
+        db.claim_next_receiver_run("recovery-worker", 1_100, 1_200)
+            .expect("poll expired launched job")
+            .is_none(),
+        "an expired post-spawn lease must not become launchable"
+    );
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap(),
+        durable_before,
+        "lease expiry must preserve the complete durable launched row"
+    );
+    assert_eq!(
+        db.locked_session_for_instance("crashed-worker", &scope),
+        correlation_before,
+        "lease expiry must preserve exact durable session correlation"
+    );
+}
+
+#[test]
 fn exhausted_expired_launch_fails_atomically_then_allows_the_next_fifo_job() {
     let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());

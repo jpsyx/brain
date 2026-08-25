@@ -5,6 +5,10 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 const PREVIOUS_OPENCODE_PLUGIN: &str = include_str!("assets/opencode_brain_plugin_0_80.js");
+const CLAUDE_OBSERVATION_COMMAND: &str =
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#;
+const CODEX_OBSERVATION_COMMAND: &str =
+    r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#;
 
 pub(super) fn up(_home: &Path) -> Result<()> {
     for root in super::lifecycle::workspace_roots() {
@@ -20,8 +24,11 @@ pub(super) fn up(_home: &Path) -> Result<()> {
 
 pub(super) fn down(_home: &Path) -> Result<()> {
     for root in super::lifecycle::workspace_roots() {
-        remove_observation_settings(&root.join(".claude/settings.json"))?;
-        remove_observation_settings(&root.join(".codex/hooks.json"))?;
+        remove_observation_settings(
+            &root.join(".claude/settings.json"),
+            CLAUDE_OBSERVATION_COMMAND,
+        )?;
+        remove_observation_settings(&root.join(".codex/hooks.json"), CODEX_OBSERVATION_COMMAND)?;
         remove_if_present(&root.join(".brain/hooks/receiver_observation_bridge.py"))?;
         crate::command::server::write_agent_workspace_artifact(
             &root,
@@ -33,20 +40,24 @@ pub(super) fn down(_home: &Path) -> Result<()> {
     Ok(())
 }
 
-fn remove_observation_settings(path: &Path) -> Result<()> {
+fn remove_observation_settings(path: &Path, managed_command: &str) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     crate::command::server::update_agent_hook_json(path, |settings| {
         for event in ["UserPromptSubmit", "PostToolUse"] {
-            remove_observation_entries(settings, event);
+            remove_observation_entries(settings, event, managed_command);
         }
         prune_empty_hooks(settings);
     })
     .with_context(|| format!("remove receiver observation hooks from {}", path.display()))
 }
 
-fn remove_observation_entries(settings: &mut serde_json::Value, event: &str) {
+fn remove_observation_entries(
+    settings: &mut serde_json::Value,
+    event: &str,
+    managed_command: &str,
+) {
     let Some(entries) = settings
         .get_mut("hooks")
         .and_then(|hooks| hooks.get_mut(event))
@@ -62,14 +73,9 @@ fn remove_observation_entries(settings: &mut serde_json::Value, event: &str) {
             return true;
         };
         hooks.retain(|hook| {
-            !hook
-                .get("command")
+            hook.get("command")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|command| {
-                    command
-                        .trim_end_matches(['"', '\''])
-                        .ends_with("receiver_observation_bridge.py")
-                })
+                .is_none_or(|command| command != managed_command)
         });
         !hooks.is_empty()
     });

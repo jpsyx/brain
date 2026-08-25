@@ -42,6 +42,8 @@ fn receiver_job_states_allow_only_forward_lifecycle_transitions() {
     assert!(ReceiverJobState::Launching.can_transition_to(ReceiverJobState::Launched));
     assert!(!ReceiverJobState::Launching.can_transition_to(ReceiverJobState::Accepted));
     assert!(!ReceiverJobState::Launched.can_transition_to(ReceiverJobState::Done));
+    assert!(!ReceiverJobState::Launched.can_transition_to(ReceiverJobState::Retrying));
+    assert!(!ReceiverJobState::Launched.can_transition_to(ReceiverJobState::Failed));
     assert!(!ReceiverJobState::Accepted.can_transition_to(ReceiverJobState::Processing));
     assert!(ReceiverJobState::Processing.can_transition_to(ReceiverJobState::AnswerReady));
     assert!(ReceiverJobState::AnswerReady.can_transition_to(ReceiverJobState::Delivering));

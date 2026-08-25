@@ -177,10 +177,10 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
-| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v9 schema plus ordered, row-scaled, bounded token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, session, and revision observation commits; `store/claim/next.rs` owns FIFO selection and replacement leases; `store/claim/recovery.rs` owns atomic expired-launch cleanup; `store/claim.rs` owns launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v9 schema plus ordered, row-scaled, bounded token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, session, and revision observation commits; `store/claim/next.rs` owns FIFO selection, replacement leases, and the no-replay stop at an expired `launched` row; `store/claim/recovery.rs` owns atomic expired pre-spawn `launching` cleanup only; `store/claim.rs` owns launch CAS, transitions, and bounded pre-spawn retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `shutdown.rs` owns receiver-first orderly teardown; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, terminal completion, and local-only cleanup after ambiguous post-spawn exit; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -325,8 +325,9 @@ missing managed files self-heal. The lifecycle migration also retains inert
 workspace-local forwarding shims for hook commands cached by agent processes
 that started before the migration; no current frontend setting registers those
 legacy paths. The 0.81 receiver-lifecycle migration installs the normalized
-observation producers and has an exact down path that removes only those hooks
-and script while restoring the frozen 0.80 OpenCode plugin. The version stamp lives at
+observation producers and has an exact down path that removes only its canonical
+hooks and script while restoring the frozen 0.80 OpenCode plugin. Same-basename
+user commands are not managed entries. The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
 
@@ -484,7 +485,9 @@ observation path to that metadata. Main-panel and skill-session requests omit
 both values. The registry installs one normalized observation bridge and
 declares every managed event and exact source health check for Claude, Codex,
 and OpenCode, so startup reconciliation replaces stale bridges without
-discarding unrelated user hooks.
+discarding unrelated user hooks. Hook entries are managed by exact canonical or
+explicitly known legacy command values, never by a basename shared with a user
+script.
 
 ### `access/`
 
@@ -1842,15 +1845,23 @@ both, and ends with the trusted job token's exact marker. Claude and Codex
 submit and post-tool hooks feed the same content-free Python observation
 writer. OpenCode derives acceptance from incremental user-message parts and
 progress from its post-tool callback using bounded correlation, with no history
-scan on either path. The owner-only, advisory-locked JSON snapshot is at most
+scan on either path. Root `session.updated` events conservatively seed resumed
+native correlation while parent-bearing child updates remain ineligible. Native
+Claude/Codex `agent_id` child hooks are rejected. The owner-only,
+advisory-locked JSON snapshot is at most
 4096 bytes; same-directory flush and atomic replacement make its monotonic
 revision safe across duplicate or concurrent delivery. It retains accepted,
 progressing, and completed timestamps but never stores prompt, tool, response,
-sender, recipient, attachment, cwd, credential, or transcript content. A
+sender, recipient, attachment, cwd, credential, or transcript content.
+Completion may create revision 1 with null intermediate timestamps when submit
+and tool evidence was missed; private text remains separate. A
 verified completion launches an immediate push. Failed PTY launches
 release the exact registration and claim, shut down the new controller once,
 and record a durable pre-acceptance retry with a clock observation sampled
-after cleanup, without changing the main panel. Every
+after cleanup, without changing the main panel. Once the post-spawn `launched`
+commit succeeds, exit, shutdown, and lease expiry clean local resources but do
+not release durable correlation or make the job claimable again; BR-16 owns that
+ambiguous recovery policy. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;

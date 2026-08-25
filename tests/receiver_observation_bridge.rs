@@ -170,6 +170,51 @@ fn acceptance_rejects_nonterminal_mismatched_and_child_markers_without_artifacts
 }
 
 #[test]
+fn native_agent_id_child_submit_cannot_establish_root_acceptance() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("observation.json");
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    let payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": SESSION_ID,
+        "agent_id": "child-agent-1",
+        "prompt": marker,
+    });
+
+    assert!(run_bridge(&path, &payload).status.success());
+    assert!(
+        !path.exists(),
+        "a native child submit must not establish root acceptance"
+    );
+}
+
+#[test]
+fn native_agent_id_child_post_tool_cannot_advance_root_progress() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("observation.json");
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    assert!(
+        run_bridge(&path, &accepted_payload(&marker))
+            .status
+            .success()
+    );
+    let accepted = snapshot(&path);
+    let payload = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "session_id": SESSION_ID,
+        "agent_id": "child-agent-1",
+        "turn_id": "child-turn",
+    });
+
+    assert!(run_bridge(&path, &payload).status.success());
+    assert_eq!(
+        snapshot(&path),
+        accepted,
+        "a native child tool event must not advance root progress"
+    );
+}
+
+#[test]
 fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_noops() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = temporary.path().join("observation.json");
@@ -283,4 +328,27 @@ fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
         value,
         "duplicate completion mutated evidence"
     );
+}
+
+#[test]
+fn completion_first_writes_revision_one_with_null_intermediate_boundaries() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("observation.json");
+    let completed = serde_json::json!({
+        "hook_event_name": "Stop",
+        "session_id": SESSION_ID,
+        "turn_id": "turn-final",
+    });
+
+    assert!(run_bridge(&path, &completed).status.success());
+    let value = snapshot(&path);
+    assert_eq!(value["revision"], 1);
+    assert_eq!(value["phase"], "completed");
+    assert_eq!(value["job_token"], JOB_TOKEN);
+    assert_eq!(value["instance_id"], INSTANCE_ID);
+    assert_eq!(value["session_id"], SESSION_ID);
+    assert_eq!(value["turn_id"], "turn-final");
+    assert!(value["accepted_at_unix_ms"].is_null());
+    assert!(value["progressing_at_unix_ms"].is_null());
+    assert!(value["completed_at_unix_ms"].as_u64().is_some());
 }

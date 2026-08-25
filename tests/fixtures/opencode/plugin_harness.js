@@ -133,6 +133,7 @@ const sdk = ({ sessions = {}, messages = {}, getError, messagesError, malformedM
 
 const dispatch = async (plugin, event) => plugin.event({ event });
 const created = (info) => ({ type: "session.created", properties: { info } });
+const updated = (info) => ({ type: "session.updated", properties: { info } });
 const idle = (sessionID) => ({ type: "session.idle", properties: { sessionID } });
 const messageUpdated = (info) => ({ type: "message.updated", properties: { info } });
 const partUpdated = (part) => ({ type: "message.part.updated", properties: { part } });
@@ -424,6 +425,65 @@ const observationScenario = async (BrainPlugin) => {
   }
 };
 
+const resumedObservationScenario = async (BrainPlugin) => {
+  const { temporary, root } = setupCaptureRoot();
+  const token = "11111111-1111-4111-8111-111111111111";
+  const observationPath = path.join(temporary, "observations", "receiver.json");
+  fs.copyFileSync(
+    path.join(path.dirname(pluginPath), "receiver_observation_bridge.py"),
+    path.join(root, ".brain", "hooks", "receiver_observation_bridge.py"),
+  );
+  Object.assign(process.env, {
+    BRAIN_RECEIVER_JOB_TOKEN: token,
+    BRAIN_RECEIVER_OBSERVATION_PATH: observationPath,
+  });
+  const fake = sdk();
+  const plugin = await BrainPlugin({ client: fake.client, directory: root });
+  await dispatch(plugin, updated({ id: "root-resumed" }));
+  await dispatch(plugin, updated({ id: "child-resumed", parentID: "root-resumed" }));
+
+  const marker = `<!-- brain:receiver-job-token=${token} -->`;
+  await dispatch(
+    plugin,
+    messageUpdated({ id: "child-user", sessionID: "child-resumed", role: "user" }),
+  );
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "child-part",
+      sessionID: "child-resumed",
+      messageID: "child-user",
+      type: "text",
+      text: marker,
+    }),
+  );
+  assert.equal(fs.existsSync(observationPath), false, "resumed child must not accept");
+
+  await dispatch(
+    plugin,
+    messageUpdated({ id: "root-user", sessionID: "root-resumed", role: "user" }),
+  );
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "root-part",
+      sessionID: "root-resumed",
+      messageID: "root-user",
+      type: "text",
+      text: marker,
+    }),
+  );
+  const accepted = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(accepted.phase, "accepted");
+  assert.equal(accepted.session_id, "root-resumed");
+
+  await plugin["tool.execute.after"]({ sessionID: "root-resumed", messageID: "turn-resumed" });
+  const progressing = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(progressing.phase, "progressing");
+  assert.equal(progressing.turn_id, "turn-resumed");
+  assert.deepEqual(fake.calls, [], "resumed evidence must not fetch message history");
+};
+
 (async () => {
   const BrainPlugin = await loadPlugin();
   const scenarios = {
@@ -434,6 +494,7 @@ const observationScenario = async (BrainPlugin) => {
     repeated_idle: repeatedIdleScenario,
     new_session: newSessionScenario,
     observations: observationScenario,
+    resumed_observations: resumedObservationScenario,
   };
   const run = scenarios[scenario];
   if (!run) throw new Error(`unknown scenario: ${scenario}`);

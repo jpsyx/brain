@@ -127,7 +127,7 @@ fn completion_closes_only_the_exact_receiver_then_next_tick_launches_oldest_wait
 }
 
 #[test]
-fn child_exit_without_valid_completion_releases_registration_and_retries_durably() {
+fn child_exit_after_launch_cleans_locally_without_replaying_or_changing_correlation() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Codex);
@@ -143,6 +143,13 @@ fn child_exit_without_valid_completion_releases_registration_and_retries_durably
         .expect("active receiver")
         .attribution
         .clone();
+    let durable_before = db
+        .receiver_job(accepted.job_id())
+        .expect("load launched job")
+        .expect("launched job");
+    let correlation_before = app
+        .services
+        .locked_session_for_instance(attribution.instance(), attribution.scope());
     transport.set_alive(false);
 
     app.tick_receiver();
@@ -150,18 +157,20 @@ fn child_exit_without_valid_completion_releases_registration_and_retries_durably
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(transport.shutdowns(), 1);
     assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Retrying
+        db.receiver_job(accepted.job_id()).unwrap().unwrap(),
+        durable_before,
+        "an ambiguous post-spawn exit must not change durable job state"
     );
-    assert!(
+    assert_eq!(
         app.services
-            .locked_session_for_instance(attribution.instance(), attribution.scope())
-            .is_none()
+            .locked_session_for_instance(attribution.instance(), attribution.scope()),
+        correlation_before,
+        "an ambiguous post-spawn exit must retain durable session correlation"
     );
 }
 
 #[test]
-fn lost_claim_stops_local_child_without_mutating_replacement_owner_state() {
+fn expired_launched_lease_stops_local_child_without_mutating_durable_correlation() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
@@ -180,15 +189,29 @@ fn lost_claim_stops_local_child_without_mutating_replacement_owner_state() {
         .expect("active receiver")
         .attribution
         .clone();
+    let durable_before = db
+        .receiver_job(accepted.job_id())
+        .expect("load launched job")
+        .expect("launched job");
+    let correlation_before = app
+        .services
+        .locked_session_for_instance(attribution.instance(), attribution.scope());
+    let artifact = app
+        .context
+        .workspace()
+        .paths()
+        .responses_dir()
+        .join(format!("{}.json", attribution.instance()));
+    std::fs::create_dir_all(artifact.parent().expect("response directory"))
+        .expect("create response directory");
+    std::fs::write(&artifact, "partial private response").expect("partial response artifact");
     clock.advance(std::time::Duration::from_secs(31));
     let now = clock.unix_ms();
-    db.claim_next_receiver_run("replacement-owner", now, now + 30_000)
-        .expect("replacement claim")
-        .expect("expired active job is recoverable");
-    let after_replacement = db
-        .receiver_job(accepted.job_id())
-        .expect("load replacement state")
-        .expect("replacement job");
+    assert!(
+        db.claim_next_receiver_run("replacement-owner", now, now + 30_000)
+            .expect("poll expired launched job")
+            .is_none()
+    );
 
     app.tick_receiver();
 
@@ -196,13 +219,16 @@ fn lost_claim_stops_local_child_without_mutating_replacement_owner_state() {
     assert_eq!(transport.shutdowns(), 1);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap(),
-        after_replacement
+        durable_before
+    );
+    assert_eq!(
+        app.services
+            .locked_session_for_instance(attribution.instance(), attribution.scope()),
+        correlation_before
     );
     assert!(
-        app.services
-            .locked_session_for_instance(attribution.instance(), attribution.scope())
-            .is_none(),
-        "the replacement transaction owns stale lifecycle cleanup"
+        !artifact.exists(),
+        "lease-expiry cleanup left a local artifact"
     );
 }
 

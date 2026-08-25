@@ -99,6 +99,11 @@ fn plugin_records_receiver_acceptance_and_progress_from_incremental_events_only(
 }
 
 #[test]
+fn plugin_records_resumed_root_evidence_from_supported_session_updates() {
+    assert_harness_succeeds("resumed_observations");
+}
+
+#[test]
 fn repeated_idle_events_leave_one_response_artifact_through_the_real_bridge() {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("family");

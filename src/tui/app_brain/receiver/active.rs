@@ -1,7 +1,6 @@
 //! Renewal and terminal handling for one launched receiver process.
 
 use crate::agent::{AgentSession, CompletionStatus, SessionStore};
-use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
 use crate::tui::receiver::ActiveReceiverRun;
 
@@ -57,7 +56,7 @@ impl App {
                 completion_observed_at,
             );
         } else if observation.exited {
-            self.retry_exited_receiver_run(&active, &path);
+            self.clean_exited_receiver_run_locally(&active, &path);
         } else {
             self.receiver
                 .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
@@ -147,23 +146,19 @@ impl App {
         self.reload_after_brain();
     }
 
-    fn retry_exited_receiver_run(&mut self, active: &ActiveReceiverRun, path: &std::path::Path) {
-        if let Err(error) = self.services.release_receiver_session(&active.attribution) {
-            crate::logging::log(format!("receiver session cleanup failed: {error:#}"));
-        }
+    fn clean_exited_receiver_run_locally(
+        &mut self,
+        active: &ActiveReceiverRun,
+        path: &std::path::Path,
+    ) {
         self.remove_exact_receiver_tab(active);
         let _ = std::fs::remove_file(path);
-        match self.retry_receiver_owner_now(&active.claim, ReceiverLaunchFailure::Spawn) {
-            Ok(Some(_)) => {}
-            Ok(None) => crate::logging::log("receiver exited after claim ownership was lost"),
-            Err(error) => {
-                crate::logging::log(format!("receiver exit retry recording failed: {error:#}"));
-            }
-        }
+        crate::logging::log("receiver exited after launch; durable evidence remains unchanged");
     }
 
     fn stop_locally_after_lost_receiver_ownership(&mut self, active: &ActiveReceiverRun) {
         self.remove_exact_receiver_tab(active);
+        let _ = std::fs::remove_file(self.receiver_completion_path(active.attribution.instance()));
         crate::logging::log("receiver run stopped after durable claim ownership changed");
     }
 

@@ -58,7 +58,10 @@ impl Db {
         let Some(candidate) = candidate else {
             return Ok(None);
         };
-        if matches!(candidate.state.as_str(), "launching" | "launched") {
+        if candidate.state == "launched" {
+            return Ok(None);
+        }
+        if candidate.state == "launching" {
             match recover_expired_launching(
                 &transaction,
                 &self.workspace_id,

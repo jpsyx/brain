@@ -4,10 +4,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-fn replace_entry(
+fn replace_entry<Command: AsRef<str>>(
     settings: &mut serde_json::Value,
     event: &str,
-    hook_basenames: &[&str],
+    managed_commands: &[Command],
     command: &str,
 ) {
     let hooks = settings
@@ -33,10 +33,9 @@ fn replace_entry(
                 .get("command")
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|candidate| {
-                    let candidate = candidate.trim_end_matches(['"', '\'']);
-                    hook_basenames
+                    managed_commands
                         .iter()
-                        .any(|basename| candidate.ends_with(basename))
+                        .any(|managed| candidate == managed.as_ref())
                 })
         });
         !items.is_empty()
@@ -66,6 +65,33 @@ fn portable_root_command(hook_path: &Path) -> String {
         .trim_start_matches('/')
         .to_owned();
     format!(r#"python3 "${{BRAIN_ROOT}}/{relative}""#)
+}
+
+fn legacy_hook_command(style: crate::agent::HookCommandStyle, script: &str) -> String {
+    match style {
+        crate::agent::HookCommandStyle::ClaudeProjectDir => format!(
+            r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT:-$HOME/brain}}}}/.claude/brain-hooks/{script}""#
+        ),
+        crate::agent::HookCommandStyle::PortableBrainRoot => {
+            format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/{script}""#)
+        }
+    }
+}
+
+fn managed_hook_commands(
+    style: crate::agent::HookCommandStyle,
+    current_script: &str,
+    canonical: String,
+    legacy_scripts: &[&str],
+) -> Vec<String> {
+    let mut commands = vec![canonical, format!("python3 {current_script}")];
+    commands.extend(legacy_scripts.iter().flat_map(|script| {
+        [
+            legacy_hook_command(style, script),
+            format!("python3 .claude/brain-hooks/{script}"),
+        ]
+    }));
+    commands
 }
 
 mod json;
@@ -162,36 +188,30 @@ pub(super) fn install_for_home_with(
                     &path,
                     &hook_temporary_path(&path),
                     |settings| {
-                        let mut session_basenames = legacy_session_scripts.to_vec();
-                        session_basenames.push(
-                            Path::new(session_script)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .expect("registered session script has a UTF-8 basename"),
+                        let session_commands = managed_hook_commands(
+                            style,
+                            session_script,
+                            session.clone(),
+                            legacy_session_scripts,
                         );
-                        let mut completion_basenames = legacy_completion_scripts.to_vec();
-                        completion_basenames.push(
-                            Path::new(completion_script)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .expect("registered completion script has a UTF-8 basename"),
+                        let completion_commands = managed_hook_commands(
+                            style,
+                            completion_script,
+                            stop.clone(),
+                            legacy_completion_scripts,
                         );
-                        replace_entry(settings, "SessionStart", &session_basenames, &session);
-                        replace_entry(settings, "Stop", &completion_basenames, &stop);
-                        let observation_basename = Path::new(observation_script)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .expect("registered observation script has a UTF-8 basename");
+                        replace_entry(settings, "SessionStart", &session_commands, &session);
+                        replace_entry(settings, "Stop", &completion_commands, &stop);
                         replace_entry(
                             settings,
                             "UserPromptSubmit",
-                            &[observation_basename],
+                            std::slice::from_ref(&observation),
                             &observation,
                         );
                         replace_entry(
                             settings,
                             "PostToolUse",
-                            &[observation_basename],
+                            std::slice::from_ref(&observation),
                             &observation,
                         );
                     },

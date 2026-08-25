@@ -182,8 +182,8 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         root.join(".claude/settings.json"),
         serde_json::to_vec(&serde_json::json!({
             "hooks": {
-                "SessionStart": [{"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]}],
-                "Stop": [{"hooks": [{"type": "command", "command": "python3 /old/claude_stop_hook.py"}] }]
+                "SessionStart": [{"hooks": [{"type": "command", "command": r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py""#}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_stop_hook.py""#}] }]
             }
         }))
         .unwrap(),
@@ -194,8 +194,8 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         root.join(".codex/hooks.json"),
         serde_json::to_vec(&serde_json::json!({
             "hooks": {
-                "SessionStart": [{"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]}],
-                "Stop": [{"hooks": [{"type": "command", "command": "python3 /old/claude_stop_hook.py"}] }]
+                "SessionStart": [{"hooks": [{"type": "command", "command": r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py""#}]}],
+                "Stop": [{"hooks": [{"type": "command", "command": r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#}] }]
             }
         }))
         .unwrap(),

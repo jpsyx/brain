@@ -70,51 +70,6 @@ fn completion_validated_after_claim_expiry_cannot_finalize_or_run_terminal_effec
 }
 
 #[test]
-fn completion_validated_before_owner_replacement_cannot_finalize_for_the_old_owner() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.receiver.record_intent(true);
-    let clock = ReceiverClock::new();
-    app.services
-        .replace_receiver_sync_runtime(Box::new(clock.clone()));
-    let db = Db::open(app.context.workspace()).expect("state DB");
-    let accepted = accept_email_job(&app, &db, "complete across owner replacement", 100);
-    let transport = TransportRecording::default();
-    app.brain.replace_receiver_transport(transport.transport());
-    app.tick_receiver();
-    let completion_path = publish_valid_completion(&app, "old owner response");
-    let workspace = Arc::clone(&app.context.command().workspace);
-    app.receiver
-        .install_after_completion_validation_hook(Box::new(move || {
-            clock.advance(std::time::Duration::from_secs(31));
-            let now = clock.unix_ms();
-            Db::open(&workspace)
-                .expect("replacement state DB")
-                .claim_next_receiver_run("replacement-owner", now, now + 30_000)
-                .expect("replacement claim")
-                .expect("expired launching run is reclaimable");
-        }));
-
-    app.tick_receiver();
-
-    assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Retrying,
-        "the replacement owner may recover the expired launch, but the old owner cannot finish it"
-    );
-    assert!(
-        db.receiver_conversation(accepted.conversation_id())
-            .unwrap()
-            .unwrap()
-            .binding()
-            .is_none()
-    );
-    assert!(completion_path.exists());
-    assert_eq!(transport.shutdowns(), 0);
-}
-
-#[test]
 fn native_binding_mismatch_keeps_exact_completion_retryable() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);

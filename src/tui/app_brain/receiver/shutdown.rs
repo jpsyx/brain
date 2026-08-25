@@ -36,23 +36,6 @@ impl App {
             _attachments: attachments,
         } = active;
         self.services.shutdown_receiver_attachments();
-        let owned = match self.authorize_receiver_owner_now(&claim) {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(error) => {
-                crate::logging::log(format!(
-                    "receiver shutdown ownership check failed: {error:#}"
-                ));
-                false
-            }
-        };
-        if owned {
-            if let Err(error) = self.services.release_receiver_session(&attribution) {
-                crate::logging::log(format!(
-                    "receiver session shutdown cleanup failed: {error:#}"
-                ));
-            }
-        }
         let removed = self.brain.remove_receiver_run(tab_id);
         if removed.as_ref().is_some_and(|removed| {
             removed.job_id != claim.job().id() || removed.instance != attribution.instance()
@@ -67,16 +50,6 @@ impl App {
                 .join(format!("{}.json", attribution.instance())),
         );
         drop(attachments);
-        if owned {
-            match self.retry_receiver_owner_now(&claim, ReceiverLaunchFailure::Spawn) {
-                Ok(Some(_)) => {}
-                Ok(None) => crate::logging::log(
-                    "receiver shutdown retry lost durable ownership during cleanup",
-                ),
-                Err(error) => crate::logging::log(format!(
-                    "receiver shutdown retry recording failed: {error:#}"
-                )),
-            }
-        }
+        crate::logging::log("receiver shutdown preserved launched durable evidence");
     }
 }

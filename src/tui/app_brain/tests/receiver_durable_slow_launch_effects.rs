@@ -307,7 +307,7 @@ fn allocation_failure_retry_uses_the_clock_observed_after_controller_cleanup() {
 }
 
 #[test]
-fn child_exit_retry_uses_the_clock_observed_after_controller_cleanup() {
+fn child_exit_cleanup_does_not_mutate_launched_state_when_shutdown_advances_clock() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
@@ -321,18 +321,20 @@ fn child_exit_retry_uses_the_clock_observed_after_controller_cleanup() {
     let shutdowns = Arc::new(Mutex::new(0));
     app.brain
         .replace_receiver_transport(Box::new(ShutdownAdvancingActiveTransport {
-            clock: clock.clone(),
+            clock,
             alive: Arc::clone(&alive),
             shutdowns: Arc::clone(&shutdowns),
         }));
     app.tick_receiver();
+    let durable_before = db
+        .receiver_job(accepted.job_id())
+        .expect("load launched job")
+        .expect("launched job");
     *alive.lock().expect("alive state") = false;
 
     app.tick_receiver();
 
     assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_count(), 1);
-    assert_eq!(job.retry_at_unix_ms(), Some(clock.unix_ms() + 5_000));
+    assert_eq!(job, durable_before);
 }

@@ -197,6 +197,13 @@ export const BrainPlugin = async ({ client, directory }) => {
         return;
       }
 
+      if (event.type === "session.updated") {
+        const info = event.properties?.info;
+        if (!sessionID || typeof info?.id !== "string" || info.id !== sessionID) return;
+        boundedSet(rootSessions, sessionID, isRootSession(info));
+        return;
+      }
+
       if (event.type === "message.updated") {
         const info = event.properties?.info;
         if (

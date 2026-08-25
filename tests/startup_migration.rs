@@ -96,11 +96,12 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
         serde_json::to_vec_pretty(&json!({
             "hooks": {
                 "SessionStart": [
-                    {"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]},
+                    {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py\""}]},
+                    {"hooks": [{"type": "command", "command": "python3 /opt/user/agent_session_start_hook.py"}]},
                     {"hooks": [{"type": "command", "command": "python3 /keep/claude.py"}]}
                 ],
                 "Stop": [
-                    {"hooks": [{"type": "command", "command": "python3 /old/agent_turn_complete_hook.py"}]}
+                    {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]}
                 ]
             },
             "permissions": {"allow": ["Read"]}
@@ -114,10 +115,11 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
         serde_json::to_vec_pretty(&json!({
             "hooks": {
                 "SessionStart": [
-                    {"hooks": [{"type": "command", "command": "python3 /old/agent_session_start_hook.py"}]}
+                    {"hooks": [{"type": "command", "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\""}]}
                 ],
                 "Stop": [
-                    {"hooks": [{"type": "command", "command": "python3 /old/claude_stop_hook.py"}]},
+                    {"hooks": [{"type": "command", "command": "python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]},
+                    {"hooks": [{"type": "command", "command": "python3 /opt/user/agent_session_stop_hook.py"}]},
                     {"hooks": [{"type": "command", "command": "python3 /keep/codex.py"}]}
                 ]
             }
@@ -143,7 +145,10 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
     );
     assert_eq!(
         configured_commands(&fixture.home.join(".claude/settings.json"), "SessionStart"),
-        vec!["python3 /keep/claude.py"]
+        vec![
+            "python3 /opt/user/agent_session_start_hook.py",
+            "python3 /keep/claude.py",
+        ]
     );
     assert!(configured_commands(&fixture.home.join(".claude/settings.json"), "Stop").is_empty());
     assert!(
@@ -151,7 +156,10 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
     );
     assert_eq!(
         configured_commands(&fixture.home.join(".codex/hooks.json"), "Stop"),
-        vec!["python3 /keep/codex.py"]
+        vec![
+            "python3 /opt/user/agent_session_stop_hook.py",
+            "python3 /keep/codex.py",
+        ]
     );
     assert!(!global_opencode.exists());
 
@@ -318,6 +326,27 @@ fn explicit_down_migration_restores_the_previous_frontend_lifecycle() {
 fn task_two_down_migration_removes_only_receiver_observation_producers() {
     let fixture = Fixture::new();
     assert!(fixture.run(&["server", "status"]).status.success());
+    for root in [&fixture.family, &fixture.work] {
+        for settings in [
+            root.join(".claude/settings.json"),
+            root.join(".codex/hooks.json"),
+        ] {
+            let mut value: Value =
+                serde_json::from_slice(&std::fs::read(&settings).expect("read lifecycle settings"))
+                    .expect("parse lifecycle settings");
+            for event in ["UserPromptSubmit", "PostToolUse"] {
+                value["hooks"][event]
+                    .as_array_mut()
+                    .expect("observation event")
+                    .push(json!({"hooks": [{
+                        "type": "command",
+                        "command": "python3 /opt/user/receiver_observation_bridge.py"
+                    }]}));
+            }
+            std::fs::write(&settings, serde_json::to_vec_pretty(&value).unwrap())
+                .expect("seed same-basename user command");
+        }
+    }
 
     let down = fixture.run(&[
         "__migrate",
@@ -352,8 +381,14 @@ fn task_two_down_migration_removes_only_receiver_observation_producers() {
         ] {
             assert!(configured_commands(&settings, "SessionStart").len() == 1);
             assert!(configured_commands(&settings, "Stop").len() == 1);
-            assert!(configured_commands(&settings, "UserPromptSubmit").is_empty());
-            assert!(configured_commands(&settings, "PostToolUse").is_empty());
+            assert_eq!(
+                configured_commands(&settings, "UserPromptSubmit"),
+                vec!["python3 /opt/user/receiver_observation_bridge.py"]
+            );
+            assert_eq!(
+                configured_commands(&settings, "PostToolUse"),
+                vec!["python3 /opt/user/receiver_observation_bridge.py"]
+            );
         }
         let plugin = std::fs::read_to_string(root.join(".opencode/plugins/brain.js"))
             .expect("downgraded OpenCode plugin");

@@ -148,6 +148,19 @@ def next_snapshot(
         if current is None:
             return accepted_snapshot(token, instance, session, now)
         return None
+    if phase == "completed" and current is None:
+        return {
+            "version": VERSION,
+            "revision": 1,
+            "phase": "completed",
+            "job_token": token,
+            "instance_id": instance,
+            "session_id": session,
+            "turn_id": turn_id if isinstance(turn_id, str) and turn_id else None,
+            "accepted_at_unix_ms": None,
+            "progressing_at_unix_ms": None,
+            "completed_at_unix_ms": now,
+        }
     if current is None or not same_scope(current, token, instance, session):
         return None
     if phase == "progressing" and current.get("phase") == "accepted":
@@ -187,7 +200,12 @@ def main() -> None:
         return
     if not isinstance(payload, dict):
         return
-    if payload.get("parent_session_id") or payload.get("parentID") or payload.get("parent_id"):
+    if (
+        payload.get("agent_id")
+        or payload.get("parent_session_id")
+        or payload.get("parentID")
+        or payload.get("parent_id")
+    ):
         return
     session_id = payload.get("session_id")
     if not session_id and os.environ.get("BRAIN_AGENT_KIND") == "codex":

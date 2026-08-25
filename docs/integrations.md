@@ -286,8 +286,12 @@ After successful spawn and tab allocation, one final exact-owner observation
 commits the Task 1 `launched` boundary with the job token, remote instance, and
 registered session before the run becomes active. Completion remains forbidden
 from `launching`; it is accepted only from `launched`, `accepted`, or
-`processing`. A process that exits before acceptance can still take the bounded
-pre-acceptance retry path from either side of that post-spawn commit.
+`processing`. Only failures before that commit can take the bounded
+pre-acceptance retry path. Once `launched` is durable, a child exit, orderly
+shutdown, or expired lease is ambiguous: Brain cleans local controller, tab,
+artifact, and staged-file resources but preserves the complete durable job and
+session correlation. Claim polling cannot renew, replace, retry, or overtake
+that row before BR-16 supplies a proved recovery policy.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
@@ -880,7 +884,8 @@ Which session to run is decided by the **lock + recency** model in
    `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
    token's exact marker as the prompt's final line. Progress requires an
    accepted snapshot with the same token, remote instance, and native session.
-   Child, mismatched, duplicate, and regressed events are no-ops.
+   Native Claude/Codex child events carrying `agent_id`, other recognized child
+   payloads, mismatches, duplicates, and regressions are no-ops.
 
    The normalized observation is an owner-only JSON snapshot and owner-only
    advisory lock below the workspace UUID's receiver-observation cache. Schema
@@ -891,7 +896,9 @@ Which session to run is decided by the **lock + recency** model in
    only on `accepted`, `progressing`, or `completed` transitions, and each
    later snapshot retains earlier timestamps. It stores no prompt, marker,
    tool, response, sender, recipient, path, cwd, credential, or transcript
-   content.
+   content. If submit and post-tool evidence was delayed or missed, an exact
+   Stop event may create revision 1 directly at `completed`; its accepted and
+   progressing timestamps remain null while the completed timestamp is set.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
@@ -915,6 +922,8 @@ Which session to run is decided by the **lock + recency** model in
    workspace, session, response, actor, channel, and completion status. For a
    receiver run it also includes the exact job token, then publishes the
    content-free `completed` observation after the response and database commit.
+   Completion-first production remains valid when earlier hooks were missed;
+   private response text stays only in the separate completion artifact.
    An interactive turn accepts only its launched session context and has no job
    token or observation authority.
    An active receiver run additionally requires the exact durable job, remote
@@ -928,14 +937,13 @@ Which session to run is decided by the **lock + recency** model in
    channel-specific reply, moves the exact launch directly to `done`, releases
    that remote session owner, shuts down its controller once, removes only its
    tab, reloads tasks, and starts an immediate sync push. Direct
-   `launching`-to-`done` remains temporary: this task produces normalized
-   accepted and progressing evidence, while later controller work owns parsing,
-   polling, and durable application.
-   If the receiver child exits without that exact artifact, Brain releases the
-   registration, shuts down and removes only that tab, and records a durable
-   pre-acceptance retry. If claim renewal loses ownership, it performs only
-   local controller and tab cleanup; it does not mutate lifecycle, reply,
-   session, or job state owned by the winner.
+   `launching`-to-`done` remains forbidden. Exact completion may move a
+   `launched` job directly to `done` when intermediate observations were missed;
+   later controller work owns parsing, polling, and durable application of
+   snapshots that did arrive. If the receiver child exits without that exact
+   artifact, Brain shuts down and removes only local resources while retaining
+   the `launched` job and its durable registration unchanged. Claim-renewal loss
+   follows the same local-only rule.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -980,7 +988,10 @@ those hooks before launching that workspace through Brain.
 
 OpenCode installs one exact workspace plugin at
 `<brain-root>/.opencode/plugins/brain.js`. On a root `session.created`, the
-plugin sends `{session_id, source}` to the generic session-start bridge. On
+plugin sends `{session_id, source}` to the generic session-start bridge. A
+supported root `session.updated` also seeds bounded correlation for a resumed
+native session without invoking the start bridge again; a parent-bearing child
+update records only an ineligible classification. On
 incremental user `message.updated` plus `message.part.updated` events, it keeps
 at most 32 current message-to-session correlations and invokes acceptance only
 for the exact terminal receiver marker in a known root session. Its supported
@@ -1040,7 +1051,9 @@ directory. `CLAUDE_PROJECT_DIR` is the project root Claude exports for exactly
 this purpose; `BRAIN_ROOT` covers a session Brain launched. The Rust installer
 and `install_hook.sh` emit the same
 command, and reinstallation replaces a stale relative command in place (stale
-entries are matched by script basename, ignoring surrounding quotes).
+entries are recognized only by exact canonical or explicitly known legacy
+commands). A user command at another path remains untouched even when its
+script has the same basename.
 
 Codex reads the selected workspace's `.codex/hooks.json`, so Brain emits
 `python3 "${BRAIN_ROOT}/.brain/hooks/<script>.py"`. `BRAIN_ROOT` selects the
@@ -1050,7 +1063,8 @@ both are read on every synced machine.
 `scripts/install_hook.sh` deploys the generic session-start, session-stop, and
 receiver-observation bridges, Claude/Codex workspace hook settings, and the
 OpenCode plugin from the same lifecycle registry contract. It strips stale
-legacy commands by script basename while preserving unrelated settings. Every
+legacy commands by exact value while preserving unrelated settings and
+same-basename user commands. Every
 ordinary Brain startup does the same automatically for every existing configured
 workspace before command dispatch; `brain receiver setup` also refreshes every
 registered frontend. Help and version are the only public no-write exceptions.
@@ -1177,10 +1191,11 @@ new active session. Neither process spawn nor screen activity is completion
 evidence. Terminal cleanup releases that session owner, shuts down the
 controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Spawn failure and child exit without valid completion
-perform explicit registration cleanup and durable pre-acceptance retry. Lost
-claim ownership permits local cleanup only, with no lifecycle or retry
-mutation. Retry failure paths finish controller, tab, registration, artifact,
+the active view or focus. Spawn failure before the durable `launched` commit
+performs explicit registration cleanup and durable pre-acceptance retry. After
+that commit, child exit, orderly shutdown, and lease expiry permit local cleanup
+only; the durable job and exact session correlation remain unchanged for BR-16.
+Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are not rerun before
 BR-16 defines their recovery policy.
