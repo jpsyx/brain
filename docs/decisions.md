@@ -2525,9 +2525,35 @@ prepared run, so unread results and every rollback remove private files.
 
 BR-12 intentionally stopped at this model boundary, and BR-13 adopted it for
 provider ingress, including durable deduplication and queued capacity. BR-14 now
-owns the sole live-TUI durable consumer and its isolated agent execution.
-BR-15 through BR-18 retain phase proof, recovery, delivery, and final
+owns the sole live-TUI durable consumer and its isolated agent execution. BR-15
+added phase proof. BR-16 through BR-18 retain recovery, delivery, and final
 representation or schema work.
+
+## Why receiver observation polling rebuilds from durable facts
+
+The lifecycle snapshot is evidence, not the coordinator's source of truth. An
+in-memory poll cursor would forget accepted or progressing facts when the TUI
+restarts and could re-emit an earlier boundary. Brain instead reconstructs the
+opaque `AgentObservationCursor` from the job's durable revision and three
+evidence timestamps on every active tick. This also lets a frontend rotate from
+the launch placeholder to its lifecycle-owned native session without exposing
+provider grammar to the TUI.
+
+One snapshot may contain several phases that Brain missed between ticks. Writing
+each phase separately would expose a half-applied lifecycle and advance the
+revision before every fact was durable. The state store therefore validates and
+applies all newly represented timestamps in one exact-owner transaction, then
+advances the revision once. A fresh coordinator time authorizes the mutation;
+producer timestamps remain evidence only. Completion can be the first observed
+phase, so direct `launched` or `accepted` to `done` is valid and leaves absent
+intermediate timestamps null.
+
+Artifact validation remains independent because lifecycle evidence deliberately
+contains no response text. When both terminal forms arrive together, the exact
+artifact path wins and delivers once. Lifecycle-only completion closes the job
+without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
+does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns
+durable answer and delivery-only recovery.
 
 ## Historical: the pre-durable receiver tick used ordered decisions and effects
 

@@ -339,6 +339,16 @@ first move is a failing test that reproduces it, *then* the fix.
   ownership and rejects provider enum branches and literals, concrete adapter
   or parser ownership, transcript/rollout/event grammar, direct normalized-reader
   access, and observation-path access outside launch/controller ownership.
+  Composed App tests then drive that neutral facade through Claude, Codex, and
+  OpenCode. They prove an unobserved launch remains `launched`, current-session
+  rotation persists exact acceptance, a newer full snapshot atomically catches
+  up accepted plus progressing, and a cursor rebuilt from durable evidence does
+  not emit an earlier phase. Deterministic cases cover missing, malformed,
+  unrelated, equal-revision, and completion-only evidence; owner loss between
+  read and transaction; artifact plus lifecycle completion in one tick; local
+  cleanup after terminal evidence; and FIFO release to the next durable job.
+  Existing exit and shutdown cases prove that no terminal evidence means local
+  cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).

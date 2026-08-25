@@ -153,6 +153,33 @@ fn launched_observation_fixture() -> ObservationFixture {
     fixture
 }
 
+#[test]
+fn one_newer_snapshot_applies_missed_accepted_and_progress_boundaries_atomically() {
+    let fixture = launched_observation_fixture();
+    let observation = ReceiverObservationSet {
+        token: fixture.token,
+        instance: "instance-a".to_owned(),
+        session_id: "session-a".to_owned(),
+        revision: 2,
+        accepted_at_unix_ms: Some(1_300),
+        progressing_at_unix_ms: Some(1_400),
+        completed_at_unix_ms: None,
+        authorized_at_unix_ms: 1_500,
+    };
+
+    assert!(fixture
+        .db
+        .apply_receiver_observation_set(fixture.job_id, "owner", &observation)
+        .expect("apply complete observation snapshot"));
+
+    let job = persisted_observation_job(&fixture);
+    assert_eq!(job.state(), ReceiverJobState::Processing);
+    assert_eq!(job.accepted_at_unix_ms(), Some(1_300));
+    assert_eq!(job.progressing_at_unix_ms(), Some(1_400));
+    assert_eq!(job.completed_at_unix_ms(), None);
+    assert_eq!(job.observation_revision(), 2);
+}
+
 fn persisted_observation_job(fixture: &ObservationFixture) -> ReceiverJob {
     fixture
         .db
@@ -339,17 +366,19 @@ fn receiver_observations_reject_stale_revisions_and_phase_regressions_without_mu
     let regression = launched_observation_fixture();
     assert!(regression
         .db
-        .apply_receiver_observation(
+        .apply_receiver_observation_set(
             regression.job_id,
             "owner",
-            &observation(
-                regression.token,
-                "instance-a",
-                "session-a",
-                ReceiverObservationPhase::Progressing,
-                1,
-                1_300,
-            ),
+            &ReceiverObservationSet {
+                token: regression.token,
+                instance: "instance-a".to_owned(),
+                session_id: "session-a".to_owned(),
+                revision: 1,
+                accepted_at_unix_ms: Some(1_250),
+                progressing_at_unix_ms: Some(1_300),
+                completed_at_unix_ms: None,
+                authorized_at_unix_ms: 1_300,
+            },
         )
         .expect("record progressing observation"));
     let before = persisted_observation_job(&regression);

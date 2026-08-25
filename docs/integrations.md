@@ -292,6 +292,16 @@ shutdown, or expired lease is ambiguous: Brain cleans local controller, tab,
 artifact, and staged-file resources but preserves the complete durable job and
 session correlation. Claim polling cannot renew, replace, retry, or overtake
 that row before BR-16 supplies a proved recovery policy.
+On each later active tick, Brain renews that same owner, validates the exact
+receiver tab identity, resolves the lifecycle-owned current native session, and
+constructs a frontend-neutral observation request. `BrainPanelState` invokes
+only that tab's `AgentController`; the coordinator never calls a concrete
+adapter or snapshot reader. It rebuilds the opaque cursor from the durable
+revision and accepted, progressing, and completed timestamps, so restart and
+session rotation resume from durable facts. One newer normalized result is
+applied through one fresh-time exact-owner transaction. Multiple missed
+boundaries commit atomically, and the revision advances once. Evidence
+timestamps remain producer facts and never authorize an expired claim.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
@@ -924,8 +934,8 @@ Which session to run is decided by the **lock + recency** model in
    phase after a later one, or make the emitted timestamp stream decrease. A
    higher revision can still recover genuinely missed intermediate boundaries;
    a prior rotated or placeholder session cannot advance the lifecycle. This
-   operation only reads evidence. Durable receiver transitions and polling
-   remain outside this contract.
+   operation only reads evidence. The active receiver coordinator owns polling
+   and converts only these normalized results into durable transitions.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
@@ -961,16 +971,18 @@ Which session to run is decided by the **lock + recency** model in
    cannot substitute its new active session; the old artifact and run remain
    retryable instead. Process spawn and screen activity are never acceptance or
    completion evidence. On a valid terminal completion, Brain sends the
-   channel-specific reply, moves the exact launch directly to `done`, releases
+   channel-specific reply, moves the exact launched or progressed job to `done`, releases
    that remote session owner, shuts down its controller once, removes only its
    tab, reloads tasks, and starts an immediate sync push. Direct
    `launching`-to-`done` remains forbidden. Exact completion may move a
-   `launched` job directly to `done` when intermediate observations were missed;
-   later controller work owns parsing, polling, and durable application of
-   snapshots that did arrive. If the receiver child exits without that exact
+   `launched` job directly to `done` when intermediate observations were missed.
+   Lifecycle-only completion uses the same exact owner and identity gates, may
+   also finish directly without inventing a response body, and never delivers
+   twice when an artifact is valid in the same tick. If the receiver child exits without that exact
    artifact, Brain shuts down and removes only local resources while retaining
    the `launched` job and its durable registration unchanged. Claim-renewal loss
-   follows the same local-only rule.
+   follows the same local-only rule. BR-16 owns stalled-run recovery, while
+   BR-17 owns answer persistence and delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.

@@ -79,6 +79,25 @@ pub struct ReceiverObservation {
     pub authorized_at_unix_ms: u64,
 }
 
+/// Every newly represented lifecycle boundary from one normalized snapshot.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ReceiverObservationSet {
+    pub token: ReceiverJobToken,
+    pub instance: String,
+    pub session_id: String,
+    pub revision: u64,
+    pub accepted_at_unix_ms: Option<u64>,
+    pub progressing_at_unix_ms: Option<u64>,
+    pub completed_at_unix_ms: Option<u64>,
+    pub authorized_at_unix_ms: u64,
+}
+
+impl std::fmt::Debug for ReceiverObservationSet {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverObservationSet(<redacted>)")
+    }
+}
+
 /// Immutable identifier for one workspace-scoped receiver job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobId(Uuid);

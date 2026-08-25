@@ -281,6 +281,54 @@ fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
 }
 
 #[test]
+fn durable_cursor_rebuild_emits_only_boundaries_not_already_persisted() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(2);
+    value["phase"] = serde_json::json!("progressing");
+    value["completed_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let cursor = AgentObservationCursor::from_durable(1, Some(1_000), None, None)
+        .expect("valid accepted durable cursor");
+
+    let result = read_normalized_snapshot(&AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(SESSION).expect("session"),
+        cursor,
+    ))
+    .expect("newer progress observation");
+
+    assert_eq!(
+        result.boundaries(),
+        &[AgentObservationBoundary::new(
+            AgentObservationPhase::Progressing,
+            1_100,
+        )]
+    );
+}
+
+#[test]
+fn durable_cursor_rebuild_rejects_impossible_persisted_lifecycles() {
+    for (label, revision, accepted, progressing, completed) in [
+        ("revision without evidence", 1, None, None, None),
+        ("evidence without revision", 0, Some(100), None, None),
+        ("progress without acceptance", 2, None, Some(200), None),
+        ("descending progress", 2, Some(200), Some(100), None),
+        ("descending completion", 3, Some(100), Some(300), Some(200)),
+    ] {
+        assert_eq!(
+            AgentObservationCursor::from_durable(revision, accepted, progressing, completed),
+            Err(AgentObservationError::AmbiguousLifecycle),
+            "{label}"
+        );
+    }
+    assert!(AgentObservationCursor::from_durable(1, None, None, Some(300)).is_ok());
+}
+
+#[test]
 fn higher_revision_cannot_rewrite_a_prior_timestamp_or_decrease_the_stream() {
     let temporary = tempfile::tempdir().expect("temporary observation");
     let path = observation_directory(&temporary).join("snapshot.json");

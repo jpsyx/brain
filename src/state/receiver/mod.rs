@@ -15,7 +15,8 @@ pub use model::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance, ReceiverClaim, ReceiverCompletionRequest,
     ReceiverConversation, ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverJobToken,
     ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
-    ReceiverObservation, ReceiverObservationPhase, ReceiverRunClaim, ReceiverSessionAttribution,
-    ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverObservation, ReceiverObservationPhase, ReceiverObservationSet, ReceiverRunClaim,
+    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
+    ReceiverSessionPlan,
 };
 use model::{ReceiverObservationMetadata, ReceiverRetryMetadata};

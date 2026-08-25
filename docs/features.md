@@ -1515,12 +1515,25 @@ focus; ordinary interactive input remains available on the user's selected
 tab. There is no receiver screen sampling, panel-activity wait, warm-panel
 lease, or local-input lock.
 
-The current BR-14 boundary treats an exact lifecycle completion artifact from
-the exact locked remote instance as terminal evidence and otherwise treats
-child exit as a bounded pre-acceptance launch failure. It does not yet prove
-the distinct `accepted` and `processing` phases (BR-15), reconcile a proven
-accepted but stalled run after restart (BR-16), or persist an answer separately
-from retryable provider delivery (BR-17). Provider replies currently use the
+Each active tick renews the exact claim, resolves the lifecycle-owned native
+session for the isolated receiver tab, and asks that tab's `AgentController`
+for one bounded content-free observation. Missing evidence remains pending.
+Token-, instance-, session-, and owner-matched newer evidence durably proves
+`accepted` and `processing`; one snapshot containing both facts applies them
+atomically and advances its revision once. The poll cursor is rebuilt from the
+durable revision and evidence timestamps on every tick, so process restart does
+not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
+or regressed evidence leaves the job unchanged.
+
+An exact lifecycle completion artifact and lifecycle-only completion are both
+terminal evidence. A valid artifact wins when both appear in one tick, so its
+private response is delivered once through the existing exact completion path.
+Lifecycle-only completion can move `launched` or `accepted` directly to `done`
+without inventing missed intermediate timestamps or a response body. Child exit
+or orderly shutdown after `launched` without terminal evidence cleans only local
+resources and never replays the prompt. BR-16 still owns recovery for a proven
+stalled run, and BR-17 still owns durable answer and delivery-only recovery.
+Provider replies currently use the
 exact acceptance-time channel and recipient context on a bounded background
 worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
 failure is not yet a durable delivery-only retry. BR-18 still owns final schema
@@ -1567,7 +1580,7 @@ BR-12 established the storage contract, BR-13 moved authenticated provider
 admission onto it, and BR-14 made the isolated TUI coordinator its sole
 execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
-BR-15 through BR-18 complete acceptance/progress evidence, stalled-run
+BR-15 added acceptance/progress evidence. BR-16 through BR-18 retain stalled-run
 recovery, durable answer/delivery separation, final migration, and reporting.
 
 ### Steering the receiver from SMS or email

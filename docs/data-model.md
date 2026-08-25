@@ -1093,6 +1093,11 @@ exact accepted/progressing/completed timestamps already observed. A later poll
 may add only phases that follow the cursor's lifecycle order while preserving
 every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
 emission order fail conservatively before any durable receiver mutation.
+The TUI rebuilds this opaque cursor from `observation_revision` plus the three
+durable evidence timestamps before every poll. Revision zero means no
+post-launch evidence, while a positive revision must correspond to a possible
+lifecycle. Completion-only evidence is valid; progress without acceptance,
+timestamp reversal, and revision/evidence disagreement are rejected.
 
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
 are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
@@ -1157,15 +1162,23 @@ intent prevents only a new claim while the local run is idle. It still renews
 and manages an exact pending or active claim through completion, child exit, or
 cleanup, including across a later re-enable. Later arrivals remain `queued` and
 unclaimed until that run closes; the next tick
-again selects by `received_at_unix_ms, job_id`. A valid completion currently
-moves `launching` directly to `done` because BR-15 has not yet added accepted or
-processing proof. That terminal compare-and-swap shares one immediate
+again selects by `received_at_unix_ms, job_id`. A post-spawn launch first commits
+`launching` to `launched`. Newer exact lifecycle evidence can then move it to
+`accepted` or `processing`. Every boundary from one normalized snapshot is
+written in one exact-owner transaction, the current lifecycle session replaces
+the launch placeholder only when that session remains locked to the exact
+instance, and `observation_revision` advances once. Equal revision, expired or
+replaced ownership, identity mismatch, and state mismatch mutate no field.
+
+A valid completion can move `launched`, `accepted`, or `processing` directly to
+`done` without fabricating missing accepted or progressing timestamps. Artifact
+completion's terminal compare-and-swap shares one immediate
 transaction with exact lifecycle-native binding proof and persistence. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
 passes it directly into the terminal transaction, so validation cannot outlive
 the owner's lease. A binding mismatch, concurrent lifecycle rotation, or
 storage error rolls the
-whole attempt back, so the run remains `launching` with its claim,
+whole attempt back, so the run remains nonterminal with its claim,
 registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote

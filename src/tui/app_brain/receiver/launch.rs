@@ -32,6 +32,14 @@ fn cleanup_unregistered(controller: &mut AgentController) {
 }
 
 impl App {
+    pub(super) fn receiver_observation_path(&self, instance: &str) -> std::path::PathBuf {
+        self.context
+            .workspace()
+            .paths()
+            .receiver_observations_dir()
+            .join(format!("{instance}.json"))
+    }
+
     pub(super) fn launch_claimed_receiver_run_with_attachments(
         &mut self,
         claimed: ClaimedReceiverRun,

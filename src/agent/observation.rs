@@ -39,6 +39,51 @@ impl AgentObservationCursor {
         }
     }
 
+    /// Rebuild the opaque poll position from durable receiver evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentObservationError::AmbiguousLifecycle`] when the durable
+    /// revision cannot be represented by the snapshot contract.
+    pub fn from_durable(
+        revision: u64,
+        accepted_at_unix_ms: Option<u64>,
+        progressing_at_unix_ms: Option<u64>,
+        completed_at_unix_ms: Option<u64>,
+    ) -> Result<Self, AgentObservationError> {
+        let revision =
+            i64::try_from(revision).map_err(|_| AgentObservationError::AmbiguousLifecycle)?;
+        let has_evidence = accepted_at_unix_ms.is_some()
+            || progressing_at_unix_ms.is_some()
+            || completed_at_unix_ms.is_some();
+        let ordered = accepted_at_unix_ms
+            .zip(progressing_at_unix_ms)
+            .is_none_or(|(accepted, progressing)| accepted <= progressing)
+            && accepted_at_unix_ms
+                .zip(completed_at_unix_ms)
+                .is_none_or(|(accepted, completed)| accepted <= completed)
+            && progressing_at_unix_ms
+                .zip(completed_at_unix_ms)
+                .is_none_or(|(progressing, completed)| progressing <= completed);
+        if (revision == 0) == has_evidence
+            || progressing_at_unix_ms.is_some() && accepted_at_unix_ms.is_none()
+            || !ordered
+        {
+            return Err(AgentObservationError::AmbiguousLifecycle);
+        }
+        let represented = LAUNCHED_BIT
+            | (ACCEPTED_BIT * u8::from(accepted_at_unix_ms.is_some()))
+            | (PROGRESSING_BIT * u8::from(progressing_at_unix_ms.is_some()))
+            | (COMPLETED_BIT * u8::from(completed_at_unix_ms.is_some()));
+        Ok(Self {
+            revision,
+            represented,
+            accepted_at_unix_ms,
+            progressing_at_unix_ms,
+            completed_at_unix_ms,
+        })
+    }
+
     #[cfg(test)]
     pub(crate) const fn at_revision(
         revision: i64,
@@ -172,6 +217,13 @@ impl AgentObservationResult {
     #[must_use]
     pub const fn next_cursor(&self) -> AgentObservationCursor {
         self.next_cursor
+    }
+
+    /// Snapshot revision represented by this successful bounded poll.
+    #[must_use]
+    pub fn snapshot_revision(&self) -> u64 {
+        u64::try_from(self.next_cursor.revision)
+            .expect("validated observation revisions are nonnegative")
     }
 }
 
