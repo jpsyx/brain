@@ -356,6 +356,16 @@ first move is a failing test that reproduces it, *then* the fix.
   artifact-body delivery once versus no lifecycle-only delivery; exact-instance
   response, snapshot, and lock cleanup for all five exit routes; stable
   content-free diagnostics; and FIFO release to the next durable job.
+  The final BR-15 parity matrix drives the real Claude and Codex hook bridge and
+  the real OpenCode plugin through acceptance-before-progress, duplicates,
+  completion-first, and normal completion. Replacement tests reject symlinks,
+  permissive modes, wrong tokens, truncation, and revision regression while
+  preserving the durable row and active tab. A fresh-App restart test proves
+  `launched`, `accepted`, and `processing` rows are neither reclaimed nor
+  replayed, and producer saturation preserves the last valid snapshot. A
+  privacy guard scans the complete observation path, verifies redacted token,
+  request, observation-set, error, and diagnostic formatting, and proves
+  submitted canary content never reaches the snapshot.
   Existing exit and shutdown cases prove that no terminal evidence means local
   cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +

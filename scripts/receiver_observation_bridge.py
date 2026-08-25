@@ -14,6 +14,7 @@ import uuid
 
 VERSION = 1
 MAX_SNAPSHOT_BYTES = 4096
+MAX_REVISION = (1 << 63) - 1
 FIELDS = {
     "version",
     "revision",
@@ -162,6 +163,8 @@ def next_snapshot(
             "completed_at_unix_ms": now,
         }
     if current is None or not same_scope(current, token, instance, session):
+        return None
+    if current["revision"] >= MAX_REVISION:
         return None
     if phase == "progressing" and current.get("phase") == "accepted":
         updated = dict(current)

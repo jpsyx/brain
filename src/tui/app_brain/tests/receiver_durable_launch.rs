@@ -351,7 +351,7 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
 
     assert!(app.brain.receiver_run_observations().is_empty());
     assert!(transport.launch_specs().is_empty());
-    assert_eq!(transport.shutdowns(), 1);
+    assert_eq!(transport.shutdowns(), 0);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Processing

@@ -1523,13 +1523,16 @@ Token-, instance-, session-, and owner-matched newer evidence durably proves
 atomically and advances its revision once. The poll cursor is rebuilt from the
 durable revision and evidence timestamps on every tick, so process restart does
 not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
-or regressed evidence leaves the job unchanged.
+or regressed evidence leaves the job unchanged. Producer revision saturation
+also preserves the last valid snapshot rather than emitting an unrepresentable
+revision.
 
 An exact lifecycle completion artifact and lifecycle-only completion are both
 terminal evidence. A valid artifact wins when both appear in one tick, so its
 private response is delivered once through the existing exact completion path.
-Lifecycle-only completion can move `launched` or `accepted` directly to `done`
-without inventing missed intermediate timestamps or a response body. Its
+Lifecycle-only completion can move `launched`, `accepted`, or `processing`
+directly to `done` without inventing missed intermediate timestamps or a
+response body. Its
 terminal transaction also replaces the conversation binding with the exact
 lifecycle-reported native session; if that binding cannot be persisted, the job
 remains retryable instead of becoming `done`. Terminal completion, child exit,
@@ -1555,8 +1558,10 @@ model. It preserves immutable accepted inputs,
 provider delivery IDs, explicit queued through terminal lifecycle states,
 bounded retry metadata, and expiring claim ownership across Brain or machine
 restarts. Claims never pop a job from storage. If a consumer crashes, another
-owner can replace the expired lease; progressed jobs keep the state and retry
-evidence needed to decide whether to recover their native session.
+owner can replace an eligible pre-acceptance or delivery lease. Expired
+`launched`, `accepted`, and `processing` rows preserve their complete ownership,
+state, and retry evidence and block FIFO replay until BR-16 decides whether to
+recover their native session.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

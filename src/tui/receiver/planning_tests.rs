@@ -600,6 +600,7 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
                 plan.session_plan(),
                 Some(prompt),
             );
+            let marker = format!("<!-- brain:receiver-job-token={} -->", job.token());
 
             assert!(
                 prompt.len() <= SHELL_INLINE_VALUE_BUDGET_BYTES,
@@ -612,6 +613,9 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
             assert!(prompt.contains(&paths[0].display().to_string()));
             assert!(prompt.contains("[Current authenticated message truncated]"));
             assert!(prompt.contains("[Additional local attachment files omitted]"));
+            assert_eq!(prompt.lines().last(), Some(marker.as_str()));
+            assert_eq!(prompt.matches(&marker).count(), 1);
+            assert_eq!(command.matches(&marker).count(), 1);
             assert!(
                 command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
                 "{} with {binding:?} shell command was {} bytes",

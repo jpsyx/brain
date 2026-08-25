@@ -1146,8 +1146,10 @@ then atomically moves it to `launching`. An expired `launching` row is still
 pre-acceptance: the claim transaction removes only its stale exact registration
 and session lock, records an immediately due bounded spawn retry, and assigns
 the replacement owner. Exhaustion marks that row `failed`, so a later tick may
-select the next FIFO row. Accepted through delivering jobs keep their state,
-retry count, retry schedule, and last error while only the lease is replaced.
+select the next FIFO row. Expired `launched`, `accepted`, and `processing` jobs
+are not reclaimed: their owner, lease, lifecycle, retry metadata, and FIFO
+position remain unchanged until BR-16. Answer-ready and delivery phases retain
+their existing phase-specific replacement behavior for BR-17.
 Pre-acceptance planning, registration, allocation, and spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
@@ -1192,8 +1194,9 @@ registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
-lifecycle, reply, session, and job mutation. A reclaimed Accepted or later
-progressed state is left unchanged for BR-16 rather than launched again.
+lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
+or `processing` row remains wholly unchanged for BR-16 rather than being
+reclaimed or launched again.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.

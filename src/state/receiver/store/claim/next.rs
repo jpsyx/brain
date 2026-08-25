@@ -58,7 +58,10 @@ impl Db {
         let Some(candidate) = candidate else {
             return Ok(None);
         };
-        if candidate.state == "launched" {
+        if matches!(
+            candidate.state.as_str(),
+            "launched" | "accepted" | "processing"
+        ) {
             return Ok(None);
         }
         if candidate.state == "launching" {

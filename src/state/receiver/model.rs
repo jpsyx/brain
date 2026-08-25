@@ -120,7 +120,7 @@ impl Display for ReceiverJobId {
 }
 
 /// Opaque correlation identity for the complete lifetime of one receiver job.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobToken(Uuid);
 
 impl ReceiverJobToken {
@@ -141,6 +141,12 @@ impl ReceiverJobToken {
 impl Display for ReceiverJobToken {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+impl std::fmt::Debug for ReceiverJobToken {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverJobToken(<redacted>)")
     }
 }
 

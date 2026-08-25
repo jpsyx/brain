@@ -2559,12 +2559,24 @@ producer timestamps remain evidence only. Completion can be the first observed
 phase, so direct `launched` or `accepted` to `done` is valid and leaves absent
 intermediate timestamps null.
 
+SQLite stores the durable observation revision as a signed integer. Producers
+therefore stop at that same maximum and preserve the last valid snapshot at
+saturation. Writing a larger JSON integer would create evidence the durable
+transaction cannot represent and would turn an otherwise valid observation
+file into a permanent poll failure.
+
 Artifact validation remains independent because lifecycle evidence deliberately
 contains no response text. When both terminal forms arrive together, the exact
 artifact path wins and delivers once. Lifecycle-only completion closes the job
 without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
 does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns
 durable answer and delivery-only recovery.
+
+Process restart does not by itself prove a stalled native run. Claim selection
+therefore leaves expired `launched`, `accepted`, and `processing` rows exactly
+unchanged and stops FIFO at that row. Replacing their owner or relaunching from
+the prompt would risk duplicate work; BR-16 must establish a positive recovery
+policy before either action is allowed.
 
 ## Historical: the pre-durable receiver tick used ordered decisions and effects
 

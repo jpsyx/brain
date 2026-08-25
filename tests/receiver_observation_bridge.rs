@@ -352,3 +352,60 @@ fn completion_first_writes_revision_one_with_null_intermediate_boundaries() {
     assert!(value["progressing_at_unix_ms"].is_null());
     assert!(value["completed_at_unix_ms"].as_u64().is_some());
 }
+
+#[test]
+fn revision_saturation_preserves_the_last_valid_snapshot_for_later_events() {
+    let cases = [
+        (
+            serde_json::json!({
+                "version": 1,
+                "revision": i64::MAX,
+                "phase": "accepted",
+                "job_token": JOB_TOKEN,
+                "instance_id": INSTANCE_ID,
+                "session_id": SESSION_ID,
+                "turn_id": null,
+                "accepted_at_unix_ms": 1_000,
+                "progressing_at_unix_ms": null,
+                "completed_at_unix_ms": null,
+            }),
+            progress_payload(SESSION_ID, "turn-after-saturation"),
+        ),
+        (
+            serde_json::json!({
+                "version": 1,
+                "revision": i64::MAX,
+                "phase": "progressing",
+                "job_token": JOB_TOKEN,
+                "instance_id": INSTANCE_ID,
+                "session_id": SESSION_ID,
+                "turn_id": "turn-before-saturation",
+                "accepted_at_unix_ms": 1_000,
+                "progressing_at_unix_ms": 1_100,
+                "completed_at_unix_ms": null,
+            }),
+            serde_json::json!({
+                "hook_event_name": "Stop",
+                "session_id": SESSION_ID,
+                "turn_id": "turn-after-saturation",
+            }),
+        ),
+    ];
+
+    for (index, (before, event)) in cases.into_iter().enumerate() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = temporary.path().join(format!("saturated-{index}.json"));
+        std::fs::write(&path, before.to_string()).expect("saturated snapshot");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only saturated snapshot");
+
+        let output = run_bridge(&path, &event);
+
+        assert!(output.status.success(), "bridge failed: {output:?}");
+        assert_eq!(
+            snapshot(&path),
+            before,
+            "case {index} replaced the last representable revision"
+        );
+    }
+}

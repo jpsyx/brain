@@ -1,10 +1,8 @@
 #[test]
-fn every_expired_nonterminal_lease_can_be_reclaimed() {
+fn preacceptance_and_delivery_leases_can_be_reclaimed() {
     for state in [
         "claimed",
         "launching",
-        "accepted",
-        "processing",
         "answer-ready",
         "delivering",
         "retrying",
@@ -35,10 +33,8 @@ fn every_expired_nonterminal_lease_can_be_reclaimed() {
 }
 
 #[test]
-fn reclaiming_progressed_job_preserves_recovery_evidence_and_replaces_lease() {
+fn reclaiming_delivery_job_preserves_recovery_evidence_and_replaces_lease() {
     for (state, stored_state) in [
-        (ReceiverJobState::Accepted, "accepted"),
-        (ReceiverJobState::Processing, "processing"),
         (ReceiverJobState::AnswerReady, "answer-ready"),
         (ReceiverJobState::Delivering, "delivering"),
     ] {
@@ -214,6 +210,57 @@ fn expired_launched_lease_remains_exactly_unchanged_and_blocks_replay() {
         correlation_before,
         "lease expiry must preserve exact durable session correlation"
     );
+}
+
+#[test]
+fn expired_observed_lifecycles_remain_unchanged_until_stalled_recovery_exists() {
+    for (state, revision, progressing_at_unix_ms) in
+        [("accepted", 1_i64, None), ("processing", 2_i64, Some(1_040_i64))]
+    {
+        let db = Db::open_in_memory().expect("receiver state");
+        let job = receiver_job(None, 100);
+        let identity =
+            ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+        let accepted = db
+            .accept_receiver_job(&job, &identity)
+            .expect("accept receiver job");
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs
+                 SET state = ?1, claim_owner = 'crashed-worker',
+                     claim_expires_at_unix_ms = 1_100,
+                     launched_at_unix_ms = 1_020, accepted_at_unix_ms = 1_030,
+                     progressing_at_unix_ms = ?2,
+                     observation_instance = '11111111-1111-4111-8111-111111111111',
+                     observation_session_id = 'native-session', observation_revision = ?3
+                 WHERE job_id = ?4",
+                rusqlite::params![
+                    state,
+                    progressing_at_unix_ms,
+                    revision,
+                    accepted.job_id().to_string(),
+                ],
+            )
+            .expect("seed observed lifecycle");
+        let before = db
+            .receiver_job(accepted.job_id())
+            .expect("load observed job")
+            .expect("observed job");
+
+        assert!(
+            db.claim_next_receiver_run("fresh-process", 1_100, 1_200)
+                .expect("poll expired observed job")
+                .is_none(),
+            "{state} must not be reclaimed or replayed before stalled recovery exists"
+        );
+        assert_eq!(
+            db.receiver_job(accepted.job_id())
+                .expect("reload observed job")
+                .expect("observed job remains durable"),
+            before,
+            "{state} lifecycle evidence changed during restart polling"
+        );
+    }
 }
 
 #[test]

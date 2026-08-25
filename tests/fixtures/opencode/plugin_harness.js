@@ -484,6 +484,61 @@ const resumedObservationScenario = async (BrainPlugin) => {
   assert.deepEqual(fake.calls, [], "resumed evidence must not fetch message history");
 };
 
+const externalObservationScenario = async (BrainPlugin) => {
+  const root = process.env.BRAIN_ROOT;
+  const token = process.env.BRAIN_RECEIVER_JOB_TOKEN;
+  const observationPath = process.env.BRAIN_RECEIVER_OBSERVATION_PATH;
+  const sessionID = process.env.TEST_RECEIVER_SESSION_ID;
+  assert(root, "BRAIN_ROOT is required");
+  assert(token, "BRAIN_RECEIVER_JOB_TOKEN is required");
+  assert(observationPath, "BRAIN_RECEIVER_OBSERVATION_PATH is required");
+  assert(sessionID, "TEST_RECEIVER_SESSION_ID is required");
+  const hookDirectory = path.join(root, ".brain", "hooks");
+  fs.mkdirSync(hookDirectory, { recursive: true });
+  fs.copyFileSync(
+    path.join(path.dirname(pluginPath), "receiver_observation_bridge.py"),
+    path.join(hookDirectory, "receiver_observation_bridge.py"),
+  );
+  const fake = sdk();
+  const plugin = await BrainPlugin({ client: fake.client, directory: root });
+  await dispatch(plugin, updated({ id: sessionID }));
+
+  const beforeReorderedProgress = fs.existsSync(observationPath)
+    ? fs.readFileSync(observationPath)
+    : undefined;
+  await plugin["tool.execute.after"]({ sessionID, messageID: "turn-before-acceptance" });
+  if (beforeReorderedProgress === undefined) {
+    assert.equal(fs.existsSync(observationPath), false, "reordered progress must not accept");
+  } else {
+    assert.deepEqual(
+      fs.readFileSync(observationPath),
+      beforeReorderedProgress,
+      "reordered progress must not mutate prior evidence",
+    );
+  }
+
+  const messageID = "user-current";
+  const marker = `<!-- brain:receiver-job-token=${token} -->`;
+  await dispatch(plugin, messageUpdated({ id: messageID, sessionID, role: "user" }));
+  const part = {
+    id: "part-current",
+    sessionID,
+    messageID,
+    type: "text",
+    text: `synthetic\n${marker}`,
+  };
+  await dispatch(plugin, partUpdated(part));
+  await dispatch(plugin, partUpdated(part));
+  await plugin["tool.execute.after"]({ sessionID, messageID: "turn-current" });
+  await plugin["tool.execute.after"]({ sessionID, messageID: "turn-duplicate" });
+
+  const snapshot = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(snapshot.phase, "progressing");
+  assert.equal(snapshot.revision, 2);
+  assert.equal(snapshot.session_id, sessionID);
+  assert.deepEqual(fake.calls, [], "incremental observation must not fetch history");
+};
+
 (async () => {
   const BrainPlugin = await loadPlugin();
   const scenarios = {
@@ -495,6 +550,7 @@ const resumedObservationScenario = async (BrainPlugin) => {
     new_session: newSessionScenario,
     observations: observationScenario,
     resumed_observations: resumedObservationScenario,
+    external_observation: externalObservationScenario,
   };
   const run = scenarios[scenario];
   if (!run) throw new Error(`unknown scenario: ${scenario}`);

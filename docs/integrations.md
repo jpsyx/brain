@@ -291,7 +291,8 @@ pre-acceptance retry path. Once `launched` is durable, a child exit, orderly
 shutdown, or expired lease is ambiguous: Brain cleans local controller, tab,
 artifact, and staged-file resources but preserves the complete durable job and
 session correlation. Claim polling cannot renew, replace, retry, or overtake
-that row before BR-16 supplies a proved recovery policy.
+expired `launched`, `accepted`, or `processing` rows before BR-16 supplies a
+proved recovery policy.
 On each later active tick, Brain renews that same owner, validates the exact
 receiver tab identity, resolves the lifecycle-owned current native session, and
 constructs a frontend-neutral observation request. `BrainPanelState` invokes
@@ -904,9 +905,13 @@ Which session to run is decided by the **lock + recency** model in
    boundary timestamps. Writers serialize, flush an owner-only same-directory
    temporary file, and atomically replace the snapshot. Revisions increase
    only on `accepted`, `progressing`, or `completed` transitions, and each
-   later snapshot retains earlier timestamps. It stores no prompt, marker,
-   tool, response, sender, recipient, path, cwd, credential, or transcript
-   content. If submit and post-tool evidence was delayed or missed, an exact
+   later snapshot retains earlier timestamps. Revision is capped at SQLite's
+   maximum signed integer; a saturated producer preserves the last valid
+   snapshot instead of writing an unrepresentable revision. It stores no
+   prompt, marker, tool, response, sender, recipient, path, cwd, credential, or
+   transcript content. The opaque token's Debug representation is a fixed redacted
+   placeholder, so derived observation values cannot reveal the token. If
+   submit and post-tool evidence was delayed or missed, an exact
    Stop event may create revision 1 directly at `completed`; its accepted and
    progressing timestamps remain null while the completed timestamp is set.
    `AgentController::observe` is the only consumer facade for these snapshots.
@@ -1009,10 +1014,10 @@ Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress
 ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
-An expired progressed lease changes ownership without erasing its lifecycle or
-retry evidence. The current receiver consumer deliberately does not rerun a
-reclaimed progressed state. It cleans up the tentative registration and leaves
-that evidence intact for BR-16 recovery policy.
+Expired `launched`, `accepted`, and `processing` leases do not change ownership.
+They retain their complete lifecycle and retry evidence and block FIFO replay
+until BR-16 supplies recovery policy. Eligible pre-acceptance and delivery
+leases may still be replaced under their existing phase-specific rules.
 
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
@@ -1311,7 +1316,8 @@ The stage is idempotent. After an unclean exit, the FIFO claim transaction
 atomically converts only an expired `launching` row into an immediately due
 bounded Spawn retry while removing its stale exact registration and session
 lock. An exhausted row becomes `failed`, and only a later tick may select the
-next FIFO job. Accepted and later states remain untouched for BR-16.
+next FIFO job. Expired `launched`, `accepted`, and `processing` rows remain
+untouched for BR-16; answer-ready and delivery recovery remain BR-17 work.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in
