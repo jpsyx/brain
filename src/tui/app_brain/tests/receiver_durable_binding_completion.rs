@@ -1,9 +1,118 @@
 use super::receiver_durable_support::{
-    accept_email_job, publish_valid_completion, publish_valid_rotated_completion,
+    ReceiverClock, accept_email_job, publish_valid_completion, publish_valid_rotated_completion,
 };
 use super::*;
 
 use crate::state::ReceiverJobState;
+
+#[test]
+fn completion_validated_after_claim_expiry_cannot_finalize_or_run_terminal_effects() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    let clock = ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "complete at the lease boundary", 100);
+    let transport = TransportRecording::default();
+    app.brain.replace_receiver_transport(transport.transport());
+    app.tick_receiver();
+    let attribution = app
+        .receiver
+        .active_durable_run()
+        .expect("active receiver")
+        .attribution
+        .clone();
+    let completion_path = publish_valid_completion(&app, "stale owner response");
+    let before = (
+        app.shell.main_view(),
+        app.effective_brain_tab(),
+        app.shell.focus(),
+    );
+    app.receiver
+        .install_after_completion_validation_hook(Box::new(move || {
+            clock.advance(std::time::Duration::from_secs(31));
+        }));
+
+    app.tick_receiver();
+
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Launching,
+        "an observation older than the lease must not authorize terminal commit"
+    );
+    assert!(
+        db.receiver_conversation(accepted.conversation_id())
+            .unwrap()
+            .unwrap()
+            .binding()
+            .is_none(),
+        "the stale owner must not persist its native binding"
+    );
+    assert!(completion_path.exists());
+    assert_eq!(transport.shutdowns(), 0);
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert!(
+        app.services
+            .locked_session_for_instance(attribution.instance(), attribution.scope())
+            .is_some()
+    );
+    assert_eq!(
+        (
+            app.shell.main_view(),
+            app.effective_brain_tab(),
+            app.shell.focus(),
+        ),
+        before
+    );
+}
+
+#[test]
+fn completion_validated_before_owner_replacement_cannot_finalize_for_the_old_owner() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    let clock = ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "complete across owner replacement", 100);
+    let transport = TransportRecording::default();
+    app.brain.replace_receiver_transport(transport.transport());
+    app.tick_receiver();
+    let completion_path = publish_valid_completion(&app, "old owner response");
+    let workspace = Arc::clone(&app.context.command().workspace);
+    app.receiver
+        .install_after_completion_validation_hook(Box::new(move || {
+            clock.advance(std::time::Duration::from_secs(31));
+            let now = clock.unix_ms();
+            Db::open(&workspace)
+                .expect("replacement state DB")
+                .claim_next_receiver_run("replacement-owner", now, now + 30_000)
+                .expect("replacement claim")
+                .expect("expired launching run is reclaimable");
+        }));
+
+    app.tick_receiver();
+
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Retrying,
+        "the replacement owner may recover the expired launch, but the old owner cannot finish it"
+    );
+    assert!(
+        db.receiver_conversation(accepted.conversation_id())
+            .unwrap()
+            .unwrap()
+            .binding()
+            .is_none()
+    );
+    assert!(completion_path.exists());
+    assert_eq!(transport.shutdowns(), 0);
+}
 
 #[test]
 fn native_binding_mismatch_keeps_exact_completion_retryable() {

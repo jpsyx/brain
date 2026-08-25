@@ -2467,6 +2467,10 @@ or valid mismatch. Instead, any mismatch or database error rolls back the
 whole attempt and the event loop retains the active run for another tick.
 Replies, session release, and tab cleanup begin only after that transaction
 commits. This does not add BR-15 phase proof or BR-16/BR-17 recovery policy.
+Artifact and lifecycle validation can itself outlive the lease. The coordinator
+therefore samples the clock again only after that validation and passes the new
+observation directly to the transaction. The old owner cannot bind, finish, or
+deliver after expiry or replacement.
 
 The registered ID has two meanings that the durable conversation distinguishes.
 A fresh run registers Brain's launch ID: Claude may use it directly, while
@@ -2480,11 +2484,28 @@ SessionStart rotation cannot bind its new active session to the old artifact.
 The same durability principle applies to jobs. A claim records expiring owner
 authority on the row instead of popping it. On crash, queued work becomes
 claimed. Due-retry work keeps `retrying` while its consumed schedule clears, so
-the new live owner can resume either launching or delivering. Work already
-launching, accepted, processing, answer-ready, or delivering keeps that
-progressed state as its lease changes owners. Erasing those states to claimed
-would prevent the later recovery policy from knowing whether a same-session
-recovery attempt is appropriate. Failed and done remain terminal.
+the new live owner can resume either launching or delivering. `launching` is
+still pre-acceptance in BR-14, so its expired claim transaction atomically
+removes the stale exact registration/session lock and records a bounded due
+Spawn retry. Exhaustion fails that row before a later tick selects the next FIFO
+job. Accepted, processing, answer-ready, and delivering keep their progressed
+state as the lease changes owners. Erasing those states to claimed would
+prevent the later recovery policy from knowing whether a same-session recovery
+attempt is appropriate. Failed and done remain terminal.
+
+Orderly shutdown uses the same authority rule. The receiver-specific stage runs
+before generic controller shutdown, cancels claimed staging, releases only a
+still-owned active registration, removes exact local resources, then samples a
+fresh clock for the Planning or Spawn retry CAS. Repetition is a no-op; lost
+ownership permits local cleanup only.
+
+Attachment cancellation owns the provider process, not just a Boolean request.
+One shared token follows Resend refresh and every sequential media download,
+publishes one process group at a time, and closes cancellation races by refusing
+or killing before publication completes. Shutdown kills and reaps the group,
+then joins the unblocked staging thread. Downloads remain `.part` files until
+atomic rename succeeds. One directory guard transfers from worker result to
+prepared run, so unread results and every rollback remove private files.
 
 BR-12 intentionally stopped at this model boundary, and BR-13 adopted it for
 provider ingress, including durable deduplication and queued capacity. BR-14 now

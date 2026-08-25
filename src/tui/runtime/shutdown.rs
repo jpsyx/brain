@@ -20,6 +20,7 @@ const ACQUISITION_ORDER: [AcquisitionStage; 6] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ShutdownStage {
     StopServerLease,
+    ShutdownReceiverRuntime,
     ShutdownAgentControllers,
     StopPeriodicPuller,
     StopWatcher,
@@ -27,8 +28,9 @@ pub(super) enum ShutdownStage {
     RestoreTerminal,
 }
 
-const SHUTDOWN_ORDER: [ShutdownStage; 6] = [
+const SHUTDOWN_ORDER: [ShutdownStage; 7] = [
     ShutdownStage::StopServerLease,
+    ShutdownStage::ShutdownReceiverRuntime,
     ShutdownStage::ShutdownAgentControllers,
     ShutdownStage::StopPeriodicPuller,
     ShutdownStage::StopWatcher,
@@ -208,6 +210,7 @@ mod tests {
             lifecycle.begin_shutdown(),
             vec![
                 ShutdownStage::StopServerLease,
+                ShutdownStage::ShutdownReceiverRuntime,
                 ShutdownStage::ShutdownAgentControllers,
                 ShutdownStage::StopPeriodicPuller,
                 ShutdownStage::StopWatcher,

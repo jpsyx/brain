@@ -246,7 +246,11 @@ read proves the exact owner is still live and receiver intent remains enabled;
 lost, expired, disabled, or mismatched-generation results are discarded and
 their local files are cleaned without mutating the job. It accepts at most ten
 regular files of at most 40 MiB each, canonicalizes every staged path beneath
-that inbox, and bounds sanitized per-batch filenames to 128 bytes. Resumed
+that inbox, and bounds sanitized per-batch filenames to 128 bytes. Each
+download targets a `.part` file and atomically renames only after success. One
+owning batch guard transfers from the worker result into the prepared run, so
+dropping an unread result or any rollback removes the entire exact job
+directory. Resumed
 launches carry only the current authenticated message and those local file
 paths. Fresh launches carry the same current inputs after a separate
 portable-transcript section. The raw receiver prompt is bounded to 47 KiB
@@ -1115,7 +1119,10 @@ controller before insertion, without moving the user.
 
 The active tick renews only its exact claim. A second arrival stays durable and
 unclaimed until the active run closes, then the next tick applies the same FIFO
-order. Completion requires the exact artifact and exact locked remote session;
+order. Completion requires the exact artifact and exact locked remote session.
+After validating both, the coordinator reads the injected clock again
+immediately before the terminal transaction. Thus validation cannot authorize
+completion after the exact lease expires or changes owners;
 the immediate binding/terminal transaction rechecks that the artifact's
 validated session is still that locked row and still `completed`. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
@@ -1168,8 +1175,13 @@ IDs, then the TUI's single bounded staging worker downloads and validates each
 local inbox file before its durable launch planner can start an agent. The
 event loop polls this worker without waiting, renews the staged job ahead of
 later FIFO work, and revalidates fresh ownership and intent after the result.
-Cancellation and application teardown request worker shutdown without joining
-a blocked provider call; any late output is generation-checked and cleaned.
+The staging worker passes one race-safe cancellation authority through Resend
+attachment refresh and every media download. It publishes at most one curl
+process group at a time; cancel-before-publication refuses or immediately kills
+the child. Receiver-first application teardown kills and reaps the published
+group and joins only the now-unblocked staging worker, so no provider child or
+private partial file can outlive Brain. Any unread queued result owns and drops
+its exact staging directory.
 Authenticated SMS media uses the same staging boundary with Twilio credentials
 supplied through the provider request configuration. Processing plus final
 replies preserve the original subject and message lineage without widening
@@ -1181,6 +1193,17 @@ standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
 bounded background delivery worker, preserving reply order without blocking
 keyboard input or shell shutdown.
+
+Orderly TUI shutdown handles the receiver before generic controllers. A claimed
+staging run is cancelled and records one fresh-clock Planning retry. A still-
+owned active run releases its exact registration, shuts down and removes only
+its receiver tab, removes the exact artifact and staged directory, then records
+one fresh-clock Spawn retry. Lost ownership permits those local removals only.
+The stage is idempotent. After an unclean exit, the FIFO claim transaction
+atomically converts only an expired `launching` row into an immediately due
+bounded Spawn retry while removing its stale exact registration and session
+lock. An exhausted row becomes `failed`, and only a later tick may select the
+next FIFO job. Accepted and later states remain untouched for BR-16.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

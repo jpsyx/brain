@@ -160,7 +160,6 @@ impl AppServices {
         self.receiver_attachment_coordinator.cancel(job_id);
     }
 
-    #[cfg(test)]
     pub(crate) fn shutdown_receiver_attachments(&mut self) {
         self.receiver_attachment_coordinator.shutdown();
     }

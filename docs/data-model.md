@@ -1035,9 +1035,13 @@ The FIFO claim transaction refuses another job while any workspace job has a
 live lease and returns the immutable job plus logical conversation without
 deleting either row. Launch preparation accepts only the exact unexpired owner
 of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
-then atomically moves it to `launching`. A progressed launching through delivering job keeps its
-state, retry count, retry schedule, and last error while only the lease is
-replaced. Pre-acceptance planning, registration, allocation, and spawn failures
+then atomically moves it to `launching`. An expired `launching` row is still
+pre-acceptance: the claim transaction removes only its stale exact registration
+and session lock, records an immediately due bounded spawn retry, and assigns
+the replacement owner. Exhaustion marks that row `failed`, so a later tick may
+select the next FIFO row. Accepted through delivering jobs keep their state,
+retry count, retry schedule, and last error while only the lease is replaced.
+Pre-acceptance planning, registration, allocation, and spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
 Retries originating at `accepted`, `processing`, or delivery phases cannot be
@@ -1054,15 +1058,18 @@ unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A valid completion currently
 moves `launching` directly to `done` because BR-15 has not yet added accepted or
 processing proof. That terminal compare-and-swap shares one immediate
-transaction with exact lifecycle-native binding proof and persistence. A
-binding mismatch, concurrent lifecycle rotation, or storage error rolls the
+transaction with exact lifecycle-native binding proof and persistence. The
+coordinator samples a fresh clock after artifact and lifecycle validation and
+passes it directly into the terminal transaction, so validation cannot outlive
+the owner's lease. A binding mismatch, concurrent lifecycle rotation, or
+storage error rolls the
 whole attempt back, so the run remains `launching` with its claim,
 registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
-lifecycle, reply, session, and job mutation. A reclaimed progressed state is
-left unchanged for BR-16 rather than launched again.
+lifecycle, reply, session, and job mutation. A reclaimed Accepted or later
+progressed state is left unchanged for BR-16 rather than launched again.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.
@@ -1096,7 +1103,7 @@ visible only after both writes can commit.
 The BR-14 launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
-session supplied by the caller. That fresh plan carries a 64 KiB maximum recovery
+session supplied by the caller. That fresh plan carries a 47 KiB maximum recovery
 prompt with the newest UTF-8-safe transcript suffix, a distinct current-message
 section, and the accepted attachment references. A resumed plan carries only
 the current message and attachment references. The planner owns no tab,
@@ -1119,6 +1126,15 @@ the receiver schema and returns a v6 DB to v5.
 Task 5 changes only process-local ownership and removes obsolete consumers; it
 does not change this binding or database schema. BR-18 still owns the remaining
 representation cleanup and any schema migration or reconciliation it requires.
+
+Receiver attachment staging owns one exact job directory. Downloads write only
+`.part` files and rename after success. The owning batch moves from the worker
+result into the prepared run; dropping either removes the whole directory,
+including unread queued results and partial files. Orderly receiver shutdown
+runs before generic controller shutdown. It cancels and reaps the one published
+provider process group, releases exact lifecycle state only for a still-live
+owner, removes local tab, artifact, and staged resources, then records a
+fresh-clock Planning or Spawn retry. Repeated shutdown is a no-op.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the

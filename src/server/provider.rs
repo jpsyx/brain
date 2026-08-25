@@ -2,6 +2,7 @@
 
 use std::io::{Read as _, Write};
 use std::process::{Command, ExitStatus, Output, Stdio};
+use std::sync::{Arc, Mutex};
 
 pub(super) fn get(command: &crate::workspace::CommandContext, stored_name: &str) -> Option<String> {
     crate::env::get(command, stored_name)
@@ -14,6 +15,126 @@ pub(super) struct CurlRequest {
 pub(super) struct LimitedOutput {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct CurlCancellation {
+    state: Arc<Mutex<CurlCancellationState>>,
+}
+
+#[derive(Default)]
+struct CurlCancellationState {
+    cancelled: bool,
+    active_process_group: Option<i32>,
+}
+
+impl CurlCancellation {
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn cancel(&self) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.cancelled = true;
+        if let Some(pid) = state.active_process_group {
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.state.lock().map_or(true, |state| state.cancelled)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_cancelled_for_test(&self) -> bool {
+        self.is_cancelled()
+    }
+
+    fn spawn_with_hook(
+        &self,
+        mut command: Command,
+        after_spawn: impl FnOnce(u32),
+    ) -> std::io::Result<std::process::Child> {
+        use std::os::unix::process::CommandExt as _;
+
+        if self.lock_state()?.cancelled {
+            return Err(interrupted());
+        }
+        command.process_group(0);
+        let mut child = command.spawn()?;
+        after_spawn(child.id());
+        let pid = i32::try_from(child.id())
+            .map_err(|_| std::io::Error::other("curl process ID is outside platform range"))?;
+        let mut state = self.lock_state()?;
+        if state.cancelled {
+            drop(state);
+            terminate_and_reap(&mut child);
+            return Err(interrupted());
+        }
+        state.active_process_group = Some(pid);
+        drop(state);
+        Ok(child)
+    }
+
+    fn finish(&self, pid: u32) {
+        let Ok(pid) = i32::try_from(pid) else {
+            return;
+        };
+        if let Ok(mut state) = self.state.lock()
+            && state.active_process_group == Some(pid)
+        {
+            state.active_process_group = None;
+        }
+    }
+
+    fn lock_state(&self) -> std::io::Result<std::sync::MutexGuard<'_, CurlCancellationState>> {
+        self.state
+            .lock()
+            .map_err(|_| std::io::Error::other("curl cancellation state is unavailable"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_for_test(
+        &self,
+        command: Command,
+        after_spawn: impl FnOnce(u32),
+    ) -> std::io::Result<ExitStatus> {
+        let mut child = self.spawn_with_hook(command, after_spawn)?;
+        let pid = child.id();
+        let status = child.wait();
+        self.finish(pid);
+        if self.lock_state()?.cancelled {
+            return Err(interrupted());
+        }
+        status
+    }
+}
+
+fn interrupted() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::Interrupted,
+        "curl request was cancelled",
+    )
+}
+
+fn terminate_and_reap(child: &mut std::process::Child) {
+    let killed = i32::try_from(child.id()).is_ok_and(|pid| {
+        nix::sys::signal::killpg(
+            nix::unistd::Pid::from_raw(pid),
+            nix::sys::signal::Signal::SIGKILL,
+        )
+        .is_ok()
+    });
+    if !killed {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
 }
 
 impl CurlRequest {
@@ -59,32 +180,47 @@ impl CurlRequest {
     }
 
     pub(super) fn output(self) -> std::io::Result<Output> {
-        let mut child = Self::command().spawn()?;
-        let write_result = child
-            .stdin
-            .take()
-            .ok_or_else(|| std::io::Error::other("curl stdin was not piped"))
-            .and_then(|mut stdin| stdin.write_all(self.config.as_bytes()));
-        if let Err(error) = write_result {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-        child.wait_with_output()
+        self.output_cancellable(&CurlCancellation::new())
     }
 
-    pub(super) fn output_limited(self, limit: usize) -> std::io::Result<LimitedOutput> {
-        let mut command = Self::command();
-        command.stderr(Stdio::null());
-        let mut child = command.spawn()?;
+    pub(super) fn output_cancellable(
+        self,
+        cancellation: &CurlCancellation,
+    ) -> std::io::Result<Output> {
+        let mut child = cancellation.spawn_with_hook(Self::command(), |_| {})?;
+        let pid = child.id();
         let write_result = child
             .stdin
             .take()
             .ok_or_else(|| std::io::Error::other("curl stdin was not piped"))
             .and_then(|mut stdin| stdin.write_all(self.config.as_bytes()));
         if let Err(error) = write_result {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_and_reap(&mut child);
+            cancellation.finish(pid);
+            return Err(error);
+        }
+        let output = child.wait_with_output();
+        cancellation.finish(pid);
+        output
+    }
+
+    pub(super) fn output_limited_cancellable(
+        self,
+        limit: usize,
+        cancellation: &CurlCancellation,
+    ) -> std::io::Result<LimitedOutput> {
+        let mut command = Self::command();
+        command.stderr(Stdio::null());
+        let mut child = cancellation.spawn_with_hook(command, |_| {})?;
+        let pid = child.id();
+        let write_result = child
+            .stdin
+            .take()
+            .ok_or_else(|| std::io::Error::other("curl stdin was not piped"))
+            .and_then(|mut stdin| stdin.write_all(self.config.as_bytes()));
+        if let Err(error) = write_result {
+            terminate_and_reap(&mut child);
+            cancellation.finish(pid);
             return Err(error);
         }
         let read_result = child
@@ -95,12 +231,13 @@ impl CurlRequest {
         let stdout = match read_result {
             Ok(stdout) => stdout,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_and_reap(&mut child);
+                cancellation.finish(pid);
                 return Err(error);
             }
         };
         let status = child.wait()?;
+        cancellation.finish(pid);
         Ok(LimitedOutput { status, stdout })
     }
 
@@ -134,13 +271,55 @@ mod tests {
 
     use serde_json::{Map, json};
 
-    use super::{CurlRequest, get, read_limited};
+    use super::{CurlCancellation, CurlRequest, get, read_limited};
     use crate::workspace::{
         CommandContext, MachineRegistry, RegistryStore, WorkspaceContext, WorkspaceId,
         WorkspaceName, WorkspaceRecord,
     };
 
     const PROVIDER_ENV_CHILD: &str = "BRAIN_PROVIDER_ENV_ISOLATION_CHILD";
+
+    #[test]
+    fn cancelled_provider_work_refuses_to_start_a_subprocess() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let marker = temporary.path().join("provider-ran");
+        let cancellation = CurlCancellation::new();
+        cancellation.cancel();
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", &format!("touch {}", marker.display())]);
+
+        let error = cancellation
+            .run_for_test(command, |_| {})
+            .expect_err("cancelled work must not spawn");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn cancellation_between_spawn_and_publish_terminates_and_reaps_the_process_group() {
+        let cancellation = CurlCancellation::new();
+        let mut command = std::process::Command::new("/bin/sh");
+        command
+            .args(["-c", "read _"])
+            .stdin(std::process::Stdio::piped());
+        let mut published_pid = None;
+
+        let error = cancellation
+            .run_for_test(command, |pid| {
+                published_pid = Some(pid);
+                cancellation.cancel();
+            })
+            .expect_err("cancel during publication must interrupt the child");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        let pid = i32::try_from(published_pid.expect("spawned process ID")).expect("PID range");
+        assert_eq!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH),
+            "cancelled provider child must be reaped before returning"
+        );
+    }
 
     fn workspace_record(
         workspace_id: &str,

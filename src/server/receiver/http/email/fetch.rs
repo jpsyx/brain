@@ -48,6 +48,20 @@ fn ensure_response_limit(response: &[u8]) -> Result<(), ProviderError> {
 }
 
 fn fetch_resend_json(key: &str, url: &str, limit: usize) -> Result<Vec<u8>, ProviderError> {
+    fetch_resend_json_cancellable(
+        key,
+        url,
+        limit,
+        &crate::server::provider::CurlCancellation::new(),
+    )
+}
+
+fn fetch_resend_json_cancellable(
+    key: &str,
+    url: &str,
+    limit: usize,
+    cancellation: &crate::server::provider::CurlCancellation,
+) -> Result<Vec<u8>, ProviderError> {
     let max_time = RESEND_FETCH_TIMEOUT_SECONDS.to_string();
     let output = crate::server::provider::CurlRequest::new()
         .flag("silent")
@@ -58,7 +72,7 @@ fn fetch_resend_json(key: &str, url: &str, limit: usize) -> Result<Vec<u8>, Prov
         .option("max-time", &max_time)
         .option("header", &format!("Authorization: Bearer {key}"))
         .option("url", url)
-        .output_limited(limit)
+        .output_limited_cancellable(limit, cancellation)
         .map_err(|_| ProviderError::Upstream("fetching Resend receiving API failed"))?;
     if !output.status.success() {
         // The provider is told only that an upstream call failed. The owner
@@ -67,7 +81,7 @@ fn fetch_resend_json(key: &str, url: &str, limit: usize) -> Result<Vec<u8>, Prov
         // and a missing status is a network fault rather than a refusal.
         crate::logging::log(format!(
             "receiver email fetch rejected {} url={url}",
-            upstream_status(key, url).map_or_else(
+            upstream_status(key, url, cancellation).map_or_else(
                 || "with no HTTP status (could not reach Resend)".to_owned(),
                 |status| format!("with HTTP {status}{}", resend_status_hint(status)),
             )
@@ -93,7 +107,11 @@ pub(super) fn resend_status_hint(status: u16) -> &'static str {
 
 /// Re-ask for just the status of a refused fetch. The request is a GET, so
 /// repeating it is safe, and it keeps the success path's parsing untouched.
-fn upstream_status(key: &str, url: &str) -> Option<u16> {
+fn upstream_status(
+    key: &str,
+    url: &str,
+    cancellation: &crate::server::provider::CurlCancellation,
+) -> Option<u16> {
     let max_time = RESEND_FETCH_TIMEOUT_SECONDS.to_string();
     let output = crate::server::provider::CurlRequest::new()
         .flag("silent")
@@ -103,7 +121,7 @@ fn upstream_status(key: &str, url: &str) -> Option<u16> {
         .option("max-time", &max_time)
         .option("header", &format!("Authorization: Bearer {key}"))
         .option("url", url)
-        .output_limited(16)
+        .output_limited_cancellable(16, cancellation)
         .ok()?;
     String::from_utf8(output.stdout).ok()?.trim().parse().ok()
 }
@@ -111,6 +129,7 @@ fn upstream_status(key: &str, url: &str) -> Option<u16> {
 pub(in crate::server::receiver) fn refresh_attachment_access(
     command: &crate::workspace::CommandContext,
     message: &crate::server::receiver::InboundJob,
+    cancellation: &crate::server::provider::CurlCancellation,
 ) -> Result<Vec<AttachmentRef>, ProviderError> {
     let Some(reply) = &message.email_reply else {
         return Ok(message.attachments.clone());
@@ -125,7 +144,7 @@ pub(in crate::server::receiver) fn refresh_attachment_access(
         &reply.provider_email_id,
         &key,
         &message.attachments,
-        |url, limit| fetch_resend_json(&key, url, limit),
+        |url, limit| fetch_resend_json_cancellable(&key, url, limit, cancellation),
     )
 }
 

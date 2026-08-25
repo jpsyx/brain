@@ -48,12 +48,13 @@ impl App {
         if let Some(completion) = self.exact_receiver_completion(&active, &path) {
             #[cfg(test)]
             self.receiver.run_after_completion_validation_hook();
+            let completion_observed_at = self.receiver_now_unix_ms();
             self.finish_completed_receiver_run(
                 active,
                 &completion.session,
                 &completion.message,
                 &path,
-                now,
+                completion_observed_at,
             );
         } else if observation.exited {
             self.retry_exited_receiver_run(&active, &path);

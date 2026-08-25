@@ -254,7 +254,7 @@ fn disabling_pending_staging_cancels_and_app_shutdown_stops_the_worker() {
     app.services.shutdown_receiver_attachments();
     assert_eq!(worker.shutdowns(), 1);
     drop(app);
-    assert_eq!(worker.shutdowns(), 2);
+    assert_eq!(worker.shutdowns(), 1);
 }
 
 #[test]

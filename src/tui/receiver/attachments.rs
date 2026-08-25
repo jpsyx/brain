@@ -1,10 +1,8 @@
 //! Bounded background staging for durable receiver attachments.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 
-use crate::server::receiver::{InboundJob, StagedAttachment};
+use crate::server::receiver::{InboundJob, StagedAttachment, StagedAttachmentBatch};
 use crate::state::ReceiverJobId;
 use crate::workspace::{CommandContext, WorkspaceContext};
 
@@ -44,7 +42,7 @@ impl ReceiverAttachmentRequest {
 }
 
 enum ReceiverAttachmentWorkerOutcome {
-    Ready(Vec<StagedAttachment>),
+    Ready(StagedAttachmentBatch),
     Failed,
     Cancelled,
 }
@@ -60,7 +58,7 @@ impl ReceiverAttachmentWorkerResult {
     pub(crate) fn success(stage: ReceiverAttachmentStage, staged: Vec<StagedAttachment>) -> Self {
         Self {
             stage,
-            outcome: ReceiverAttachmentWorkerOutcome::Ready(staged),
+            outcome: ReceiverAttachmentWorkerOutcome::Ready(StagedAttachmentBatch::unowned(staged)),
         }
     }
 
@@ -87,24 +85,20 @@ pub(crate) enum ReceiverAttachmentEffect {
 }
 
 pub(crate) struct PreparedReceiverAttachments {
-    staged: Vec<StagedAttachment>,
+    batch: StagedAttachmentBatch,
 }
 
 impl PreparedReceiverAttachments {
     #[must_use]
     pub(crate) const fn empty() -> Self {
-        Self { staged: Vec::new() }
+        Self {
+            batch: StagedAttachmentBatch::empty(),
+        }
     }
 
     #[must_use]
     pub(crate) fn staged(&self) -> &[StagedAttachment] {
-        &self.staged
-    }
-}
-
-impl Drop for PreparedReceiverAttachments {
-    fn drop(&mut self) {
-        cleanup_staged_attachments(&self.staged);
+        self.batch.staged()
     }
 }
 
@@ -112,6 +106,7 @@ pub(crate) struct ReceiverAttachmentCoordinator {
     runtime: Box<dyn ReceiverAttachmentRuntime>,
     active: Option<ReceiverAttachmentStage>,
     next_generation: u64,
+    stopped: bool,
 }
 
 impl ReceiverAttachmentCoordinator {
@@ -121,6 +116,7 @@ impl ReceiverAttachmentCoordinator {
             runtime: Box::new(SystemReceiverAttachmentRuntime::new()),
             active: None,
             next_generation: 1,
+            stopped: false,
         }
     }
 
@@ -130,6 +126,9 @@ impl ReceiverAttachmentCoordinator {
         command: &CommandContext,
         message: &InboundJob,
     ) -> ReceiverAttachmentEffect {
+        if self.stopped {
+            return ReceiverAttachmentEffect::Failed;
+        }
         if message.attachments.is_empty() {
             return ReceiverAttachmentEffect::Ready(PreparedReceiverAttachments::empty());
         }
@@ -144,7 +143,6 @@ impl ReceiverAttachmentCoordinator {
                 return ReceiverAttachmentEffect::Pending;
             };
             if result.stage != active {
-                cleanup_worker_outcome(result.outcome);
                 return ReceiverAttachmentEffect::Pending;
             }
             self.active = None;
@@ -160,7 +158,7 @@ impl ReceiverAttachmentCoordinator {
             };
         }
         if let Some(stale) = self.runtime.poll() {
-            cleanup_worker_outcome(stale.outcome);
+            drop(stale);
             return ReceiverAttachmentEffect::Pending;
         }
         let stage = ReceiverAttachmentStage {
@@ -187,9 +185,7 @@ impl ReceiverAttachmentCoordinator {
         if self.active.is_some_and(|active| active.job_id == job_id) {
             self.runtime.cancel();
             self.active = None;
-            if let Some(result) = self.runtime.poll() {
-                cleanup_worker_outcome(result.outcome);
-            }
+            drop(self.runtime.poll());
         }
     }
 
@@ -198,9 +194,14 @@ impl ReceiverAttachmentCoordinator {
         self.runtime.shutdown();
         self.runtime = runtime;
         self.active = None;
+        self.stopped = false;
     }
 
     pub(crate) fn shutdown(&mut self) {
+        if self.stopped {
+            return;
+        }
+        self.stopped = true;
         self.runtime.shutdown();
         self.active = None;
     }
@@ -214,9 +215,9 @@ impl Drop for ReceiverAttachmentCoordinator {
 
 struct SystemAttachmentWorker {
     stage: ReceiverAttachmentStage,
-    cancel: Arc<AtomicBool>,
+    cancel: crate::server::provider::CurlCancellation,
     results: mpsc::Receiver<ReceiverAttachmentWorkerResult>,
-    _thread: std::thread::JoinHandle<()>,
+    thread: std::thread::JoinHandle<()>,
 }
 
 pub(crate) struct SystemReceiverAttachmentRuntime {
@@ -235,52 +236,53 @@ impl ReceiverAttachmentRuntime for SystemReceiverAttachmentRuntime {
             return Ok(false);
         }
         let stage = request.stage;
-        let cancel = Arc::new(AtomicBool::new(false));
-        let worker_cancel = Arc::clone(&cancel);
+        let cancel = crate::server::provider::CurlCancellation::new();
+        let worker_cancel = cancel.clone();
         let (sender, results) = mpsc::sync_channel(1);
         let worker = std::thread::Builder::new()
             .name("brain-receiver-attachments".to_owned())
             .spawn(move || {
-                let outcome = if worker_cancel.load(Ordering::Acquire) {
+                let outcome = if worker_cancel.is_cancelled() {
                     ReceiverAttachmentWorkerOutcome::Cancelled
                 } else {
-                    match crate::server::receiver::stage_attachments(
+                    match crate::server::receiver::stage_attachments_cancellable(
                         request.command.workspace.as_ref(),
                         &request.command,
                         &request.message,
+                        &worker_cancel,
                     ) {
-                        Ok(staged) if worker_cancel.load(Ordering::Acquire) => {
-                            cleanup_staged_attachments(&staged);
+                        Ok(staged) if worker_cancel.is_cancelled() => {
+                            drop(staged);
                             ReceiverAttachmentWorkerOutcome::Cancelled
                         }
                         Ok(staged) => ReceiverAttachmentWorkerOutcome::Ready(staged),
                         Err(_) => ReceiverAttachmentWorkerOutcome::Failed,
                     }
                 };
-                if let Err(error) = sender.send(ReceiverAttachmentWorkerResult { stage, outcome }) {
-                    cleanup_worker_outcome(error.0.outcome);
-                }
+                let _ = sender.send(ReceiverAttachmentWorkerResult { stage, outcome });
             })?;
         self.worker = Some(SystemAttachmentWorker {
             stage,
             cancel,
             results,
-            _thread: worker,
+            thread: worker,
         });
         Ok(true)
     }
 
     fn poll(&mut self) -> Option<ReceiverAttachmentWorkerResult> {
-        let worker = self.worker.as_ref()?;
-        match worker.results.try_recv() {
+        let received = self.worker.as_ref()?.results.try_recv();
+        match received {
             Ok(result) => {
-                self.worker = None;
+                let worker = self.worker.take().expect("attachment worker exists");
+                let _ = worker.thread.join();
                 Some(result)
             }
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
+                let worker = self.worker.take().expect("attachment worker exists");
                 let stage = worker.stage;
-                self.worker = None;
+                let _ = worker.thread.join();
                 Some(ReceiverAttachmentWorkerResult::failure(stage))
             }
         }
@@ -288,13 +290,15 @@ impl ReceiverAttachmentRuntime for SystemReceiverAttachmentRuntime {
 
     fn cancel(&mut self) {
         if let Some(worker) = &self.worker {
-            worker.cancel.store(true, Ordering::Release);
+            worker.cancel.cancel();
         }
     }
 
     fn shutdown(&mut self) {
-        self.cancel();
-        self.worker = None;
+        if let Some(worker) = self.worker.take() {
+            worker.cancel.cancel();
+            let _ = worker.thread.join();
+        }
     }
 }
 
@@ -307,7 +311,7 @@ impl Drop for SystemReceiverAttachmentRuntime {
 fn validate_staged_attachments(
     workspace: &WorkspaceContext,
     message: &InboundJob,
-    mut staged: Vec<StagedAttachment>,
+    mut batch: StagedAttachmentBatch,
 ) -> anyhow::Result<PreparedReceiverAttachments> {
     let validation = (|| {
         anyhow::ensure!(
@@ -315,12 +319,12 @@ fn validate_staged_attachments(
             "receiver attachment count exceeds limit"
         );
         anyhow::ensure!(
-            staged.len() == message.attachments.len(),
+            batch.staged().len() == message.attachments.len(),
             "receiver attachment staging result count differs from accepted input"
         );
         let inbox = std::fs::canonicalize(workspace.paths().inbox_dir())
             .map_err(|_| anyhow::anyhow!("receiver attachment inbox is unavailable"))?;
-        for attachment in &mut staged {
+        for attachment in batch.staged_mut() {
             anyhow::ensure!(
                 attachment.error.is_none(),
                 "receiver attachment staging failed"
@@ -350,23 +354,86 @@ fn validate_staged_attachments(
         }
         Ok(())
     })();
-    if let Err(error) = validation {
-        cleanup_staged_attachments(&staged);
-        return Err(error);
-    }
-    Ok(PreparedReceiverAttachments { staged })
+    validation?;
+    Ok(PreparedReceiverAttachments { batch })
 }
 
-fn cleanup_worker_outcome(outcome: ReceiverAttachmentWorkerOutcome) {
-    if let ReceiverAttachmentWorkerOutcome::Ready(staged) = outcome {
-        cleanup_staged_attachments(&staged);
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn cleanup_staged_attachments(staged: &[StagedAttachment]) {
-    for attachment in staged {
-        if let Some(path) = &attachment.path {
-            let _ = std::fs::remove_file(path);
-        }
+    #[test]
+    fn dropping_an_unread_ready_result_removes_its_exact_batch_directory() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let job_dir = temporary.path().join("unread-job");
+        std::fs::create_dir(&job_dir).expect("job directory");
+        let staged_path = job_dir.join("private.txt");
+        let partial_path = job_dir.join("other.part");
+        std::fs::write(&staged_path, b"private staged media").expect("staged media");
+        std::fs::write(&partial_path, b"private partial media").expect("partial media");
+        let stage = ReceiverAttachmentStage {
+            job_id: uuid::Uuid::new_v4().into(),
+            generation: 1,
+        };
+        let result = ReceiverAttachmentWorkerResult {
+            stage,
+            outcome: ReceiverAttachmentWorkerOutcome::Ready(StagedAttachmentBatch::new(
+                job_dir.clone(),
+                vec![StagedAttachment {
+                    source: "provider-id".to_owned(),
+                    path: Some(staged_path),
+                    error: None,
+                }],
+            )),
+        };
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.send(result).expect("queue worker result");
+
+        drop(receiver);
+
+        assert!(!job_dir.exists());
+    }
+
+    #[test]
+    fn system_runtime_shutdown_kills_and_reaps_the_published_provider_group() {
+        let cancellation = crate::server::provider::CurlCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (published_sender, published_receiver) = mpsc::sync_channel(1);
+        let (result_sender, results) = mpsc::sync_channel(1);
+        let stage = ReceiverAttachmentStage {
+            job_id: uuid::Uuid::new_v4().into(),
+            generation: 1,
+        };
+        let thread = std::thread::spawn(move || {
+            let mut command = std::process::Command::new("/bin/sh");
+            command
+                .args(["-c", "read _"])
+                .stdin(std::process::Stdio::piped());
+            let _ = worker_cancellation.run_for_test(command, |pid| {
+                published_sender.send(pid).expect("publish provider PID");
+            });
+            let _ = result_sender.send(ReceiverAttachmentWorkerResult {
+                stage,
+                outcome: ReceiverAttachmentWorkerOutcome::Cancelled,
+            });
+        });
+        let published = published_receiver.recv().expect("published provider PID");
+        let mut runtime = SystemReceiverAttachmentRuntime {
+            worker: Some(SystemAttachmentWorker {
+                stage,
+                cancel: cancellation,
+                results,
+                thread,
+            }),
+        };
+
+        ReceiverAttachmentRuntime::shutdown(&mut runtime);
+
+        assert!(runtime.worker.is_none());
+        let pid = i32::try_from(published).expect("PID range");
+        assert_eq!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
     }
 }

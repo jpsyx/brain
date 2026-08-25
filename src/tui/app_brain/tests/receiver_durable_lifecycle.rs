@@ -161,7 +161,7 @@ fn child_exit_without_valid_completion_releases_registration_and_retries_durably
 }
 
 #[test]
-fn lost_claim_stops_local_child_without_mutating_session_or_job_lifecycle() {
+fn lost_claim_stops_local_child_without_mutating_replacement_owner_state() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
@@ -185,20 +185,24 @@ fn lost_claim_stops_local_child_without_mutating_session_or_job_lifecycle() {
     db.claim_next_receiver_run("replacement-owner", now, now + 30_000)
         .expect("replacement claim")
         .expect("expired active job is recoverable");
+    let after_replacement = db
+        .receiver_job(accepted.job_id())
+        .expect("load replacement state")
+        .expect("replacement job");
 
     app.tick_receiver();
 
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(transport.shutdowns(), 1);
     assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Launching
+        db.receiver_job(accepted.job_id()).unwrap().unwrap(),
+        after_replacement
     );
     assert!(
         app.services
             .locked_session_for_instance(attribution.instance(), attribution.scope())
-            .is_some(),
-        "lost ownership must not release exact lifecycle state"
+            .is_none(),
+        "the replacement transaction owns stale lifecycle cleanup"
     );
 }
 

@@ -69,6 +69,9 @@ impl TuiRuntime {
                         ));
                     }
                 }
+                ShutdownStage::ShutdownReceiverRuntime => {
+                    self.app.shutdown_receiver_runtime();
+                }
                 ShutdownStage::ShutdownAgentControllers => {
                     for error in self.app.shutdown_agent_controllers() {
                         crate::logging::log(format!("agent controller shutdown failed: {error}"));
