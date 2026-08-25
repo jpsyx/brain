@@ -30,8 +30,7 @@ impl MethodIndex {
         &self,
         owner: &str,
         method: &str,
-        module: &str,
-        imports: Option<&HashMap<String, Vec<String>>>,
+        mut trait_is_visible: impl FnMut(&str) -> bool,
     ) -> Option<String> {
         let unqualified = method_target(owner, None, method);
         if self.inherent.contains(&unqualified) {
@@ -41,7 +40,7 @@ impl MethodIndex {
             .traits
             .get(&unqualified)?
             .iter()
-            .filter(|trait_name| trait_is_visible(trait_name, module, imports));
+            .filter(|trait_name| trait_is_visible(trait_name));
         let trait_name = visible.next()?;
         if visible.next().is_some() {
             return None;
@@ -55,15 +54,4 @@ pub(super) fn method_target(owner: &str, trait_name: Option<&str>, method: &str)
         || format!("{owner}::{method}"),
         |trait_name| format!("<{owner} as {trait_name}>::{method}"),
     )
-}
-
-fn trait_is_visible(
-    trait_name: &str,
-    module: &str,
-    imports: Option<&HashMap<String, Vec<String>>>,
-) -> bool {
-    trait_name
-        .rsplit_once("::")
-        .is_some_and(|(trait_module, _)| trait_module == module)
-        || imports.is_some_and(|imports| imports.values().any(|path| path.join("::") == trait_name))
 }

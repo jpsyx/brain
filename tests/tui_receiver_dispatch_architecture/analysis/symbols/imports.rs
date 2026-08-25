@@ -7,6 +7,8 @@ use collect::{CollectedUse, collect_use_tree, is_exported, item_declaration, res
 mod collect;
 #[path = "imports/lexical.rs"]
 mod lexical;
+#[path = "imports/visibility.rs"]
+mod visibility;
 
 pub(crate) use lexical::LexicalScope;
 
@@ -147,16 +149,6 @@ impl ImportIndex {
             }
         };
         self.canonicalize(resolved)
-    }
-
-    pub(super) fn visible_named(
-        &self,
-        module: &str,
-        lexical: &LexicalScope,
-    ) -> HashMap<String, Vec<String>> {
-        let mut visible = self.named.get(module).cloned().unwrap_or_default();
-        lexical.extend_named(&mut visible);
-        visible
     }
 
     fn canonicalize(&self, mut resolved: Vec<String>) -> Vec<String> {

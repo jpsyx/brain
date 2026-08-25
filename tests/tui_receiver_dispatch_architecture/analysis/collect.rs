@@ -9,8 +9,8 @@ mod scope;
 mod symbols;
 
 use super::{
-    FunctionNode, Program, RawCall, TypeFact, classify_operation, is_receiver_tick_call,
-    receiver_owned_module,
+    FunctionNode, Program, RawCall, TypeFact, classify_operation, is_global_inbound_consumer,
+    is_receiver_tick_call, receiver_owned_module,
 };
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
 use scope::Scope;
@@ -163,6 +163,7 @@ fn collect_function(
         variables,
         calls: Vec::new(),
         violations: Vec::new(),
+        global_consumer_violations: Vec::new(),
         receiver_tick_calls: 0,
     };
     visitor.visit_block(block);
@@ -174,6 +175,7 @@ fn collect_function(
             receiver_owned: audited_orphan || receiver_owned_module(&scope.module),
             calls: visitor.calls,
             violations: visitor.violations,
+            global_consumer_violations: visitor.global_consumer_violations,
         },
     );
 }
@@ -184,6 +186,7 @@ struct BodyVisitor<'scope, 'symbols> {
     variables: Vec<HashMap<String, TypeFact>>,
     calls: Vec<RawCall>,
     violations: Vec<String>,
+    global_consumer_violations: Vec<String>,
     receiver_tick_calls: usize,
 }
 
@@ -235,7 +238,7 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
                 self.receiver_tick_calls += 1;
             }
             if let Some(violation) = classify_operation(&owner, &name) {
-                self.violations.push(violation.to_owned());
+                self.record_operation(&owner, &name, violation);
             } else if owner
                 .canonical
                 .as_deref()
@@ -269,7 +272,7 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
             self.receiver_tick_calls += 1;
         }
         if let Some(violation) = classify_operation(&owner, &name) {
-            self.violations.push(violation.to_owned());
+            self.record_operation(&owner, &name, violation);
         }
         let exact_target = owner.canonical.as_ref().and_then(|owner| {
             self.scope
@@ -283,6 +286,13 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
 }
 
 impl BodyVisitor<'_, '_> {
+    fn record_operation(&mut self, owner: &TypeFact, method: &str, violation: &str) {
+        self.violations.push(violation.to_owned());
+        if is_global_inbound_consumer(owner, method) {
+            self.global_consumer_violations.push(violation.to_owned());
+        }
+    }
+
     fn expression_fact(&self, expression: &syn::Expr) -> TypeFact {
         match expression {
             syn::Expr::Path(path) if path.path.segments.len() == 1 => self

@@ -32,6 +32,7 @@ pub(super) struct FunctionNode {
     pub(super) receiver_owned: bool,
     pub(super) calls: Vec<RawCall>,
     pub(super) violations: Vec<String>,
+    pub(super) global_consumer_violations: Vec<String>,
 }
 
 #[derive(Default)]
@@ -76,6 +77,12 @@ pub(super) fn receiver_violations(root: &Path) -> Vec<String> {
                 .map(|violation| format!("{}: {violation}", function.id))
         })
         .collect::<Vec<_>>();
+    violations.extend(program.functions.values().flat_map(|function| {
+        function
+            .global_consumer_violations
+            .iter()
+            .map(|violation| format!("{}: {violation}", function.id))
+    }));
     violations.sort();
     violations.dedup();
     violations
@@ -136,17 +143,27 @@ pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'sta
     if owner.unix_stream && matches!(method, "read" | "read_exact" | "read_to_end" | "read_line") {
         return Some("Unix socket read");
     }
-    if owner.channel_receiver
-        && owner.inbound_job
-        && matches!(method, "recv" | "try_recv" | "recv_timeout")
-    {
+    if is_inbound_channel_consumer(owner, method) {
         return Some("in-memory receiver channel consume");
     }
-    if owner.memory_queue
-        && owner.inbound_job
-        && matches!(method, "pop_front" | "pop_back" | "remove" | "drain")
-    {
+    if is_inbound_queue_consumer(owner, method) {
         return Some("in-memory receiver queue consume");
     }
     None
+}
+
+pub(super) fn is_global_inbound_consumer(owner: &TypeFact, method: &str) -> bool {
+    is_inbound_channel_consumer(owner, method) || is_inbound_queue_consumer(owner, method)
+}
+
+fn is_inbound_channel_consumer(owner: &TypeFact, method: &str) -> bool {
+    owner.channel_receiver
+        && owner.inbound_job
+        && matches!(method, "recv" | "try_recv" | "recv_timeout")
+}
+
+fn is_inbound_queue_consumer(owner: &TypeFact, method: &str) -> bool {
+    owner.memory_queue
+        && owner.inbound_job
+        && matches!(method, "pop_front" | "pop_back" | "remove" | "drain")
 }

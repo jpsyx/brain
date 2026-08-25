@@ -238,9 +238,9 @@ impl Symbols {
         method: &str,
         lexical: &LexicalScope,
     ) -> Option<String> {
-        let module = module.join("::");
-        let visible = self.imports.visible_named(&module, lexical);
-        self.methods.resolve(owner, method, &module, Some(&visible))
+        self.methods.resolve(owner, method, |trait_name| {
+            self.imports.trait_is_visible(module, lexical, trait_name)
+        })
     }
 
     pub(super) fn is_control_capability(&self, target: &str) -> bool {

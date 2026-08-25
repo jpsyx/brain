@@ -20,8 +20,8 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         "AppServices must own receiver sync effects"
     );
     assert!(
-        services.contains("receiver_attachment_runtime: Box<dyn ReceiverAttachmentRuntime>"),
-        "AppServices must own receiver attachment effects"
+        services.contains("receiver_attachment_coordinator: ReceiverAttachmentCoordinator"),
+        "AppServices must own the receiver attachment coordinator"
     );
     assert!(
         services.contains("receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>"),
@@ -102,6 +102,8 @@ fn receiver_runtime_contains_no_cross_feature_effect_adapters_or_io() {
             "SystemReceiverSyncRuntime",
             "ReceiverAttachmentRuntime",
             "attachment_runtime",
+            "ReceiverAttachmentCoordinator",
+            "receiver_attachment_coordinator",
             "WorkspacePaths",
             "WorkspaceContext",
             "Journal::open",

@@ -133,14 +133,41 @@ fn a_dangerous_server_client_method_remains_reachable() {
 
 #[test]
 fn exact_typed_server_refresh_remains_a_control_capability() {
-    let fixture = server_client_fixture(
-        "pub fn dispatch(client: &crate::server::control::ServerClient, generation: crate::server::lifecycle::ServerGeneration, workspace_id: crate::workspace::WorkspaceId) { client.refresh_enabled_generation(generation, workspace_id); }\n",
-    );
+    let fixture = exact_refresh_fixture();
 
     assert!(
         fixture_receiver_violations(fixture.path()).is_empty(),
         "the exact typed receiver-intent refresh remains an outbound control capability"
     );
+}
+
+fn exact_refresh_fixture() -> tempfile::TempDir {
+    rust_fixture(&[
+        ("lib.rs", "mod receiver;\nmod server;\nmod workspace;\n"),
+        (
+            "receiver.rs",
+            "pub fn dispatch(client: &crate::server::control::ServerClient, generation: crate::server::lifecycle::ServerGeneration, workspace_id: crate::workspace::WorkspaceId) { client.refresh_enabled_generation(generation, workspace_id); }\n",
+        ),
+        ("server.rs", "pub mod control;\npub mod lifecycle;\n"),
+        (
+            "server/lifecycle.rs",
+            "mod state;\npub use state::ServerGeneration;\n",
+        ),
+        (
+            "server/lifecycle/state.rs",
+            "pub struct ServerGeneration;\n",
+        ),
+        (
+            "server/control.rs",
+            "mod client;\npub use client::ServerClient;\n",
+        ),
+        (
+            "server/control/client.rs",
+            "pub struct ServerClient;\nimpl ServerClient { pub fn refresh_enabled_generation(&self, _generation: crate::server::lifecycle::ServerGeneration, _workspace_id: crate::workspace::WorkspaceId) {} }\n",
+        ),
+        ("workspace.rs", "mod id;\npub use id::WorkspaceId;\n"),
+        ("workspace/id.rs", "pub struct WorkspaceId;\n"),
+    ])
 }
 
 #[test]

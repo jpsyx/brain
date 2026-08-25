@@ -136,6 +136,9 @@ impl LexicalScope {
 
     pub(super) fn extend_named(&self, visible: &mut HashMap<String, Vec<String>>) {
         for layer in &self.layers {
+            for declaration in &layer.declarations {
+                visible.remove(declaration);
+            }
             visible.extend(layer.named.clone());
         }
     }
