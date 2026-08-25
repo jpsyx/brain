@@ -129,6 +129,17 @@ pub(super) fn test_app(
     })
 }
 
+pub(super) fn test_app_with_agent_command(
+    temporary: &tempfile::TempDir,
+    task_options: impl Into<crate::tasks::view::TaskViewOptions>,
+    agent_kind: AgentKind,
+    agent_command: &str,
+) -> App {
+    let mut app = test_app(temporary, task_options, agent_kind);
+    app.context = app.context.replacing_agent_command_for_test(agent_command);
+    app
+}
+
 pub(super) fn sms_actor() -> crate::actor::ActorContext {
     let users = crate::users::Users {
         schema_version: crate::users::USERS_SCHEMA_VERSION,

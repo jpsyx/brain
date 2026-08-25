@@ -133,6 +133,22 @@ impl AppContext {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn replacing_agent_command_for_test(&self, agent_command: &str) -> Self {
+        Self {
+            command: self.command.clone(),
+            config: self.config.clone(),
+            agent_kind: self.agent_kind,
+            agent_command: agent_command.to_owned(),
+            csv_path: self.csv_path.clone(),
+            brain_root: self.brain_root.clone(),
+            db_path: self.db_path.clone(),
+            log_path: self.log_path.clone(),
+            server_ingress: self.server_ingress,
+            server_local_capability: self.server_local_capability,
+        }
+    }
+
     #[must_use]
     pub(crate) fn habits_url(&self, port: u16) -> String {
         crate::server::habits_url(port, self.server_ingress, self.server_local_capability)

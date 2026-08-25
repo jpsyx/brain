@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 
 use crate::{
-    agent::{AgentController, AgentSession, SessionPlan},
+    agent::{AgentSession, SessionPlan},
     state::{ReceiverConversation, ReceiverJob},
 };
 
@@ -41,21 +41,12 @@ impl ReceiverLaunchPlan {
 }
 
 pub(crate) fn plan_receiver_launch(
-    controller: &AgentController,
     job: &ReceiverJob,
     conversation: &ReceiverConversation,
     fresh_session: AgentSession,
-    claim_resume: impl FnOnce(&AgentSession) -> anyhow::Result<bool>,
+    resume_session: Option<AgentSession>,
 ) -> ReceiverLaunchPlan {
     let (message_body, attachment_references) = current_message_parts(job);
-    let resume_session = conversation
-        .binding()
-        .filter(|binding| binding.frontend() == controller.kind())
-        .and_then(|binding| AgentSession::new(binding.native_session_id()).ok());
-    let resume_session = resume_session.filter(|session| {
-        controller.resume_candidate_exists(session).unwrap_or(false)
-            && claim_resume(session).unwrap_or(false)
-    });
 
     if let Some(session) = resume_session {
         return ReceiverLaunchPlan {

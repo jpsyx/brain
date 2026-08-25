@@ -239,7 +239,7 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
             "resume_candidate_exists",
         ),
         (
-            include_str!("../src/tui/receiver/planning.rs"),
+            include_str!("../src/tui/app_brain/receiver/resume.rs"),
             "resume_candidate_exists",
         ),
     ];
@@ -268,6 +268,10 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
         (
             "receiver planning",
             include_str!("../src/tui/receiver/planning.rs"),
+        ),
+        (
+            "receiver resume decision",
+            include_str!("../src/tui/app_brain/receiver/resume.rs"),
         ),
     ];
     for adapter_detail in [

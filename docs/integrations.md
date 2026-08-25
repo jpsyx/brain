@@ -229,9 +229,13 @@ interactive launch.
 The isolated receiver-run path uses a frontend-neutral planning seam. A
 matching durable conversation binding is
 offered only to the selected `AgentController`; `Resume(session_id)` is chosen
-only when the adapter confirms that native history and an injected exact-session
-claim succeeds. Missing history, a frontend change, a probe error, or a failed
-claim produces `Fresh(session_id)`. After receiver sync freshness completes,
+only when the adapter confirms that native history and an exact-session claim
+succeeds. After native validation, and again after exact resume registration,
+the coordinator re-reads the injected clock and renews the exact durable owner.
+Missing history, a frontend change, a probe error, or a rejected resume claim
+produces `Fresh(session_id)` only while that owner remains live. Lost or
+deferred ownership is a distinct outcome that stops the attempt and can never
+fall through to Fresh. After receiver sync freshness completes,
 the launch boundary refreshes delayed email attachment access from stable
 Resend IDs and downloads email or authenticated SMS media into the exact
 workspace's receiver inbox before agent planning. One bounded background
@@ -264,7 +268,9 @@ Immediately after every such boundary, the coordinator reads the injected
 clock again and renews the exact durable owner before proceeding. A lost or
 expired owner cleans only the local controller, tab, registration, and staged
 files created by that attempt. It cannot launch a later effect or mutate the
-job's lifecycle or retry state. When a boundary fails under the exact owner,
+job's lifecycle or retry state. In particular, validation false/error and an
+unavailable exact resume registration may choose portable Fresh recovery only
+after this renewal succeeds. When a boundary fails under the exact owner,
 cleanup finishes first; the coordinator then takes a new clock observation
 immediately before the retry CAS. This keeps retry timestamps and lease checks
 independent of slow cleanup.

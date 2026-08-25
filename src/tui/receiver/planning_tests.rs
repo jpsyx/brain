@@ -1,11 +1,7 @@
-use std::{path::Path, sync::Arc};
-
 use crate::{
     actor::{ActorContext, RequestIdentity},
     agent::{
-        AgentAction, AgentController, AgentError, AgentFrontend, AgentKind, AgentSession,
-        AgentTransport, CompletionStrategy, HookMetadata, InputSequence, LaunchRequest, LaunchSpec,
-        SessionPlan, build_command,
+        AgentKind, AgentSession, SessionPlan, build_command,
         frontend::{SHELL_COMMAND_ARGUMENT_BUDGET_BYTES, SHELL_INLINE_VALUE_BUDGET_BYTES},
     },
     server::receiver::{AttachmentRef, Channel, InboundJob},
@@ -13,7 +9,7 @@ use crate::{
         Db, ReceiverConversation, ReceiverConversationIdentity, ReceiverJob, ReceiverSessionBinding,
     },
     users::{PhoneIdentity, USERS_SCHEMA_VERSION, User, UserId, Users},
-    workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
+    workspace::WorkspaceId,
 };
 
 use super::planning::{RECOVERY_PROMPT_BUDGET_BYTES, plan_receiver_launch};
@@ -32,20 +28,6 @@ const RESUME_PROMPT: &str = concat!(
     "provider_id=\"media-1\", content_type=\"image/png\", filename=\"photo.png\"",
 );
 
-#[derive(Clone, Copy)]
-enum ProbeOutcome {
-    Exists,
-    Missing,
-    Error,
-}
-
-#[derive(Clone, Copy)]
-enum ClaimOutcome {
-    Claimed,
-    Rejected,
-    Error,
-}
-
 #[derive(Clone, Copy, Debug)]
 enum BindingKind {
     Matching,
@@ -56,76 +38,8 @@ enum BindingKind {
 struct PlanningCase {
     name: &'static str,
     binding: BindingKind,
-    probe: ProbeOutcome,
-    claim: ClaimOutcome,
     transcript: &'static str,
     expects_resume: bool,
-}
-
-struct ProbeFrontend {
-    kind: AgentKind,
-    outcome: ProbeOutcome,
-}
-
-impl AgentFrontend for ProbeFrontend {
-    fn kind(&self) -> AgentKind {
-        self.kind
-    }
-
-    fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
-        Ok(LaunchSpec::new(
-            "receiver-test-agent",
-            request.workspace().root().to_path_buf(),
-            Vec::new(),
-            HookMetadata::none(),
-        ))
-    }
-
-    fn input_for(&self, _action: AgentAction<'_>) -> Result<InputSequence, AgentError> {
-        Ok(InputSequence::bytes([]))
-    }
-
-    fn completion_strategy(&self) -> Result<CompletionStrategy, AgentError> {
-        Ok(CompletionStrategy::Hook)
-    }
-
-    fn resume_candidate_exists(&self, _session: &AgentSession) -> Result<bool, AgentError> {
-        match self.outcome {
-            ProbeOutcome::Exists => Ok(true),
-            ProbeOutcome::Missing => Ok(false),
-            ProbeOutcome::Error => Err(AgentError::Frontend("history probe failed".to_owned())),
-        }
-    }
-
-    fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {
-        Ok(session.as_str().to_owned())
-    }
-
-    fn can_resume_response_session(&self, _session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(false)
-    }
-}
-
-struct NullTransport;
-
-impl AgentTransport for NullTransport {
-    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
-        Ok(())
-    }
-
-    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
-        Ok(())
-    }
-
-    fn snapshot(&self) -> String {
-        String::new()
-    }
-
-    fn is_alive(&self) -> bool {
-        false
-    }
-
-    fn shutdown(&mut self) {}
 }
 
 fn workspace_id() -> WorkspaceId {
@@ -155,27 +69,6 @@ fn receiver_actor() -> ActorContext {
         &users,
     )
     .expect("receiver actor")
-}
-
-fn controller(kind: AgentKind, probe: ProbeOutcome) -> AgentController {
-    let workspace = WorkspaceContext::new(
-        Path::new("/home/tester"),
-        workspace_id(),
-        WorkspaceName::parse("family").expect("workspace name"),
-        Path::new("/workspaces/family"),
-        "test-user",
-        Path::new("/home/tester"),
-    )
-    .expect("workspace context");
-    AgentController::new(
-        Arc::new(workspace),
-        receiver_actor(),
-        Box::new(ProbeFrontend {
-            kind,
-            outcome: probe,
-        }),
-        Box::new(NullTransport),
-    )
 }
 
 fn other_frontend(kind: AgentKind) -> AgentKind {
@@ -276,62 +169,29 @@ fn fresh_session() -> AgentSession {
     AgentSession::new("fresh-session").expect("fresh session")
 }
 
+fn selected_resume(binding: BindingKind) -> Option<AgentSession> {
+    matches!(binding, BindingKind::Matching)
+        .then(|| AgentSession::new("native-session").expect("native session"))
+}
+
 #[test]
-fn receiver_launch_planning_is_conservative_for_every_frontend() {
+fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_frontend() {
     let cases = [
         PlanningCase {
             name: "matching resumable binding",
             binding: BindingKind::Matching,
-            probe: ProbeOutcome::Exists,
-            claim: ClaimOutcome::Claimed,
             transcript: "old portable context",
             expects_resume: true,
         },
         PlanningCase {
-            name: "missing or invalid native history",
-            binding: BindingKind::Matching,
-            probe: ProbeOutcome::Missing,
-            claim: ClaimOutcome::Claimed,
-            transcript: "old portable context",
-            expects_resume: false,
-        },
-        PlanningCase {
-            name: "frontend change",
+            name: "fresh fallback selected after frontend change",
             binding: BindingKind::OtherFrontend,
-            probe: ProbeOutcome::Exists,
-            claim: ClaimOutcome::Claimed,
-            transcript: "old portable context",
-            expects_resume: false,
-        },
-        PlanningCase {
-            name: "resumability probe error",
-            binding: BindingKind::Matching,
-            probe: ProbeOutcome::Error,
-            claim: ClaimOutcome::Claimed,
-            transcript: "old portable context",
-            expects_resume: false,
-        },
-        PlanningCase {
-            name: "matching session cannot be claimed",
-            binding: BindingKind::Matching,
-            probe: ProbeOutcome::Exists,
-            claim: ClaimOutcome::Rejected,
-            transcript: "old portable context",
-            expects_resume: false,
-        },
-        PlanningCase {
-            name: "session claim error",
-            binding: BindingKind::Matching,
-            probe: ProbeOutcome::Exists,
-            claim: ClaimOutcome::Error,
             transcript: "old portable context",
             expects_resume: false,
         },
         PlanningCase {
             name: "empty transcript",
             binding: BindingKind::Absent,
-            probe: ProbeOutcome::Exists,
-            claim: ClaimOutcome::Claimed,
             transcript: "",
             expects_resume: false,
         },
@@ -339,16 +199,13 @@ fn receiver_launch_planning_is_conservative_for_every_frontend() {
 
     for kind in AgentKind::ALL {
         for case in &cases {
-            let controller = controller(kind, case.probe);
             let (job, conversation) = durable_fixture(kind, case.binding, case.transcript);
-            let plan =
-                plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-                    match case.claim {
-                        ClaimOutcome::Claimed => Ok(true),
-                        ClaimOutcome::Rejected => Ok(false),
-                        ClaimOutcome::Error => anyhow::bail!("session claim failed"),
-                    }
-                });
+            let plan = plan_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(case.binding),
+            );
 
             if case.expects_resume {
                 assert_eq!(
@@ -407,11 +264,8 @@ fn receiver_launch_recovery_prompt_is_utf8_safe_bounded_and_keeps_newest_context
     );
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Missing);
         let (job, conversation) = durable_fixture(kind, BindingKind::Absent, &transcript);
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
 
         assert!(
@@ -434,16 +288,13 @@ fn receiver_launch_recovery_prompt_preserves_attachments_when_message_is_oversiz
     let oversized_message = "oversized-message-🙂".repeat(RECOVERY_PROMPT_BUDGET_BYTES);
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Missing);
         let (job, conversation) = durable_fixture_with_prompt(
             kind,
             BindingKind::Absent,
             "portable context",
             &oversized_message,
         );
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
 
         assert!(
@@ -468,7 +319,6 @@ fn receiver_launch_recovery_prompt_bounds_oversized_attachment_metadata() {
     );
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Missing);
         let (job, conversation) = durable_fixture_with_input(
             kind,
             BindingKind::Absent,
@@ -481,9 +331,7 @@ fn receiver_launch_recovery_prompt_bounds_oversized_attachment_metadata() {
                 filename: Some(oversized_filename.clone()),
             }],
         );
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
 
         assert!(
@@ -511,7 +359,6 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
         .collect();
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Missing);
         let (job, conversation) = durable_fixture_with_input(
             kind,
             BindingKind::Absent,
@@ -519,9 +366,7 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
             CURRENT_PROMPT,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
         let (_, recovery_sections) = prompt
             .split_once("## Portable transcript\n")
@@ -564,7 +409,6 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
         .collect();
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Missing);
         let (job, conversation) = durable_fixture_with_input(
             kind,
             BindingKind::Absent,
@@ -572,9 +416,7 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
             &message,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(&job, &conversation, fresh_session(), None);
         let prompt = plan.initial_prompt();
         let (_, recovery_sections) = prompt
             .split_once("## Portable transcript\n")
@@ -606,13 +448,14 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
 #[test]
 fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Exists);
         for binding in [BindingKind::Matching, BindingKind::Absent] {
             let (job, conversation) = durable_fixture(kind, binding, "portable transcript context");
-            let plan =
-                plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-                    Ok(true)
-                });
+            let plan = plan_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(binding),
+            );
 
             assert_eq!(
                 plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count(),
@@ -644,7 +487,6 @@ fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
         .collect();
 
     for kind in AgentKind::ALL {
-        let controller = controller(kind, ProbeOutcome::Exists);
         let (job, conversation) = durable_fixture_with_input(
             kind,
             BindingKind::Matching,
@@ -652,9 +494,12 @@ fn receiver_launch_resume_prompt_bounds_utf8_message_and_attachment_metadata() {
             &message,
             attachments.clone(),
         );
-        let plan = plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-            Ok(true)
-        });
+        let plan = plan_receiver_launch(
+            &job,
+            &conversation,
+            fresh_session(),
+            selected_resume(BindingKind::Matching),
+        );
         let prompt = plan.initial_prompt();
 
         assert_eq!(
@@ -695,7 +540,6 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
 
     for kind in AgentKind::ALL {
         for binding in [BindingKind::Matching, BindingKind::Absent] {
-            let controller = controller(kind, ProbeOutcome::Exists);
             let (job, conversation) = durable_fixture_with_input(
                 kind,
                 binding,
@@ -703,10 +547,12 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
                 &message,
                 attachments.clone(),
             );
-            let plan =
-                plan_receiver_launch(&controller, &job, &conversation, fresh_session(), |_| {
-                    Ok(true)
-                });
+            let plan = plan_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(binding),
+            );
             let prompt = plan.initial_prompt();
             let command = build_command(
                 kind,

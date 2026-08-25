@@ -178,7 +178,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v8 schema; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/claim.rs` owns FIFO leases, launch CAS, transitions, and bounded retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` creates a conservative frontend-neutral launch plan; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker and exact generation coordinator; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `launch.rs` owns planning, validation, registration, and launch preparation; `launch_effects.rs` owns controller spawn and background-tab allocation; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker and exact generation coordinator; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn and background-tab allocation; `ownership.rs` owns fresh-clock exact-owner renewal and retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal and terminal cleanup; `artifact.rs` owns content-free exact completion correlation; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -221,13 +221,18 @@ native ID, so every frontend may confirm that same ID when the exact durable
 conversation binding proves the resume lineage.
 Registration and session ownership are created in one transaction, and binding
 replacement must match that complete durable tuple.
-`tui::receiver::planning` treats that binding only as a candidate. It asks the
-selected `AgentController` to validate the native history, requires the
-injected exact-session claim to succeed, and otherwise returns a fresh plan
-with a UTF-8-safe recovery prompt capped at 64 KiB. The isolated-tab coordinator
+`app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
+the selected `AgentController` to validate the native history, then renews the
+exact durable owner before interpreting missing history or a validation error
+as a Fresh fallback. A validated candidate is claimed through its exact session
+registration and followed by another renewal before a rejected claim may fall
+back Fresh. Lost and deferred ownership are separate typed outcomes and can
+never become Fresh. `tui::receiver::planning` renders that already-authorized
+choice with a UTF-8-safe recovery prompt capped at 47 KiB. The isolated-tab coordinator
 uses these operations from the one recurring `App::tick_receiver` call.
 `app_brain/receiver/dispatch.rs` owns claim, freshness, and durable controls;
-`launch.rs` owns planning, validation, registration, and launch preparation;
+`resume.rs` owns resume validation and registration; `launch.rs` owns capability
+checks, fresh registration, planning, and launch preparation;
 `launch_effects.rs` owns controller spawn and background insertion; and
 `ownership.rs` owns the semantic fresh-clock exact-owner gates used after slow
 effects and before retry mutation. `attachment_dispatch.rs` owns nonblocking
@@ -1042,7 +1047,9 @@ discard the result and clean any local files without advancing the job.
 The later capability-plan, frontend-probe, resume-validation, registration,
 spawn, and tab-allocation boundaries use the same semantic owner gate: each
 effect is followed by a new injected-clock observation and exact renewal before
-the next effect can begin. Failure cleanup completes before the coordinator
+the next effect can begin. Resume validation false/error and exact resume
+registration rejection choose portable Fresh recovery only after that renewal;
+lost or deferred ownership stops the attempt instead. Failure cleanup completes before the coordinator
 samples the observation supplied to the exact-owner retry CAS. Losing or
 expiring the claim therefore permits local resource cleanup but no durable job
 or retry mutation.

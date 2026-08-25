@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::agent::{AgentController, HookMetadata, LaunchRequest, SessionPlan};
+use crate::agent::{AgentController, HookMetadata, LaunchRequest};
 use crate::pty_pane::PtyPane;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
@@ -106,79 +106,61 @@ impl App {
             self.context.workspace().id(),
             actor.clone(),
         );
-        let mut resume_registration = None;
-        let mut resume_owner_block = None;
-        let mut resume_registration_failed = false;
         #[cfg(test)]
         let receiver = &mut self.receiver;
-        let services = &self.services;
-        let plan = crate::tui::receiver::planning::plan_receiver_launch(
+        let resume = super::resume::decide(
             &controller,
+            &self.services,
+            &claimed,
+            pid,
+            &scope,
+            |boundary| {
+                #[cfg(test)]
+                receiver.run_launch_boundary_hook(match boundary {
+                    super::resume::ReceiverResumeBoundary::Validation => {
+                        crate::tui::receiver::ReceiverLaunchBoundary::ResumeValidation
+                    }
+                    super::resume::ReceiverResumeBoundary::Registration => {
+                        crate::tui::receiver::ReceiverLaunchBoundary::Registration
+                    }
+                });
+                #[cfg(not(test))]
+                let _ = boundary;
+            },
+        );
+        let (resume_session, resume_registration) = match resume {
+            super::resume::ReceiverResumeDecision::Fresh => (None, None),
+            super::resume::ReceiverResumeDecision::Registered {
+                session,
+                registration,
+            } => (Some(session), Some(registration)),
+            super::resume::ReceiverResumeDecision::Lost => {
+                cleanup_unregistered(&mut controller);
+                return;
+            }
+            super::resume::ReceiverResumeDecision::Deferred => {
+                cleanup_unregistered(&mut controller);
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+            super::resume::ReceiverResumeDecision::RegistrationFailed => {
+                cleanup_unregistered(&mut controller);
+                let _ = self
+                    .retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Registration);
+                return;
+            }
+        };
+        let plan = crate::tui::receiver::planning::plan_receiver_launch(
             claimed.claim.job(),
             claimed.claim.conversation(),
             claimed.remote.placeholder().clone(),
-            |session| {
-                #[cfg(test)]
-                receiver.run_launch_boundary_hook(
-                    crate::tui::receiver::ReceiverLaunchBoundary::ResumeValidation,
-                );
-                match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => {
-                        resume_owner_block = Some(super::ownership::ReceiverOwnerBlock::Lost);
-                        return Ok(false);
-                    }
-                    Err(error) => {
-                        crate::logging::log(format!(
-                            "receiver post-resume-validation claim check failed: {error:#}"
-                        ));
-                        resume_owner_block = Some(super::ownership::ReceiverOwnerBlock::Deferred);
-                        return Ok(false);
-                    }
-                }
-                let registration = ReceiverSessionRegistration::claim_resume(
-                    services,
-                    claimed.claim.job().conversation_id(),
-                    &claimed.remote,
-                    session,
-                    pid,
-                    &scope,
-                );
-                #[cfg(test)]
-                receiver.run_launch_boundary_hook(
-                    crate::tui::receiver::ReceiverLaunchBoundary::Registration,
-                );
-                let registration = match registration {
-                    Ok(registration) => registration,
-                    Err(error) => {
-                        crate::logging::log(format!(
-                            "receiver resume registration failed: {error:#}"
-                        ));
-                        resume_registration_failed = true;
-                        return Ok(false);
-                    }
-                };
-                let was_claimed = registration.is_some();
-                resume_registration = registration;
-                Ok(was_claimed)
-            },
+            resume_session,
         );
-        if let Some(block) = resume_owner_block {
-            cleanup_unregistered(&mut controller);
-            if matches!(block, super::ownership::ReceiverOwnerBlock::Deferred) {
-                self.receiver
-                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
-            }
-            return;
-        }
-        if resume_registration_failed {
-            cleanup_unregistered(&mut controller);
-            let _ =
-                self.retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Registration);
-            return;
-        }
 
-        let registration = if matches!(plan.session_plan(), SessionPlan::Fresh(_)) {
+        let registration = if let Some(registration) = resume_registration {
+            registration
+        } else {
             let registration = ReceiverSessionRegistration::register_fresh(
                 &self.services,
                 claimed.claim.job().conversation_id(),
@@ -218,14 +200,6 @@ impl App {
                     return;
                 }
             }
-        } else {
-            let Some(registration) = resume_registration else {
-                cleanup_unregistered(&mut controller);
-                let _ = self
-                    .retry_receiver_owner_now(&claimed.claim, ReceiverLaunchFailure::Registration);
-                return;
-            };
-            registration
         };
 
         let owner = match self.authorize_receiver_owner_now(&claimed.claim) {
