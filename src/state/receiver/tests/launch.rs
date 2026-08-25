@@ -508,6 +508,44 @@ fn generic_transition_cannot_launch_retries_from_progressed_states() {
 }
 
 #[test]
+fn generic_transition_cannot_advance_accepted_work_without_progress_evidence() {
+    let fixture = launched_observation_fixture();
+    assert!(fixture
+        .db
+        .apply_receiver_observation(
+            fixture.job_id,
+            "owner",
+            &observation(
+                fixture.token,
+                "instance-a",
+                "session-a",
+                ReceiverObservationPhase::Accepted,
+                1,
+                1_300,
+            ),
+        )
+        .expect("record accepted evidence"));
+    let before = persisted_observation_job(&fixture);
+
+    let error = fixture
+        .db
+        .transition_receiver_job(
+            fixture.job_id,
+            "owner",
+            ReceiverJobState::Accepted,
+            ReceiverJobState::Processing,
+            1_400,
+        )
+        .expect_err("generic processing transition must require progress evidence");
+
+    assert_eq!(
+        error.to_string(),
+        "invalid receiver job transition accepted -> processing"
+    );
+    assert_eq!(persisted_observation_job(&fixture), before);
+}
+
+#[test]
 fn pre_acceptance_launch_failures_schedule_only_a_bounded_number_of_durable_retries() {
     let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());

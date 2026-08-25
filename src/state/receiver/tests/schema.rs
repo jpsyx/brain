@@ -241,3 +241,105 @@ fn damaged_v9_token_contract_is_rebuilt_but_current_v9_rows_reconcile_idempotent
     super::super::schema::up(&db.conn, 9).expect("reconcile already-current v9 schema");
     assert!(token_column_is_not_null(&db));
 }
+
+#[test]
+fn damaged_v9_reconciliation_preserves_every_observation_field() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let jobs = [
+        ("damaged-launched", "launched", 11_i64),
+        ("damaged-accepted", "accepted", 12_i64),
+        ("damaged-processing", "processing", 13_i64),
+    ]
+    .into_iter()
+    .map(|(provider_id, state, revision)| {
+        let accepted = db
+            .accept_receiver_job(&receiver_job(Some(provider_id), 100), &identity)
+            .expect("accept receiver job");
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs
+                 SET state = ?1, launched_at_unix_ms = ?2, accepted_at_unix_ms = ?3,
+                     progressing_at_unix_ms = ?4, completed_at_unix_ms = ?5,
+                     observation_instance = ?6, observation_session_id = ?7,
+                     observation_revision = ?8
+                 WHERE job_id = ?9",
+                rusqlite::params![
+                    state,
+                    1_000 + revision,
+                    2_000 + revision,
+                    3_000 + revision,
+                    4_000 + revision,
+                    format!("instance-{revision}"),
+                    format!("session-{revision}"),
+                    revision,
+                    accepted.job_id().to_string(),
+                ],
+            )
+            .expect("seed v9 observation evidence");
+        accepted.job_id()
+    })
+    .collect::<Vec<_>>();
+    let evidence = |db: &Db| {
+        let mut statement = db
+            .conn
+            .prepare(
+                "SELECT job_id, job_token, launched_at_unix_ms, accepted_at_unix_ms,
+                        progressing_at_unix_ms, completed_at_unix_ms, observation_instance,
+                        observation_session_id, observation_revision
+                 FROM receiver_jobs ORDER BY job_id",
+            )
+            .expect("prepare observation evidence query");
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, i64>(8)?,
+                ))
+            })
+            .expect("query observation evidence")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("collect observation evidence")
+    };
+    let before = evidence(&db);
+    let current_sql: String = db
+        .conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'receiver_jobs'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("current receiver schema");
+    let damaged_sql = current_sql.replacen(
+        "job_token                 TEXT NOT NULL UNIQUE",
+        "job_token                 TEXT",
+        1,
+    );
+    db.conn
+        .execute_batch(&format!(
+            "DROP INDEX IF EXISTS receiver_jobs_ready;
+             ALTER TABLE receiver_jobs RENAME TO receiver_jobs_current;
+             {damaged_sql};
+             INSERT INTO receiver_jobs SELECT * FROM receiver_jobs_current;
+             DROP TABLE receiver_jobs_current;
+             PRAGMA user_version = 9;"
+        ))
+        .expect("stage damaged v9 receiver jobs");
+
+    super::super::schema::up(&db.conn, 9).expect("repair damaged v9 receiver jobs");
+
+    assert_eq!(evidence(&db), before);
+    for job_id in jobs {
+        assert!(db
+            .receiver_job(job_id)
+            .expect("load reconciled receiver job")
+            .is_some());
+    }
+}

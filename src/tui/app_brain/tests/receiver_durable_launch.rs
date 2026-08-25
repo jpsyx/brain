@@ -275,15 +275,38 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
         )
         .expect("commit previous launch")
     );
-    for (expected, next) in [
-        (ReceiverJobState::Launched, ReceiverJobState::Accepted),
-        (ReceiverJobState::Accepted, ReceiverJobState::Processing),
-    ] {
-        assert!(
-            db.transition_receiver_job(accepted.job_id(), "previous-owner", expected, next, now)
-                .expect("advance progressed job")
-        );
-    }
+    assert!(
+        db.apply_receiver_observation(
+            accepted.job_id(),
+            "previous-owner",
+            &crate::state::ReceiverObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                phase: crate::state::ReceiverObservationPhase::Accepted,
+                revision: 1,
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
+        )
+        .expect("record accepted evidence")
+    );
+    assert!(
+        db.apply_receiver_observation(
+            accepted.job_id(),
+            "previous-owner",
+            &crate::state::ReceiverObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                phase: crate::state::ReceiverObservationPhase::Progressing,
+                revision: 2,
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
+        )
+        .expect("record progressing evidence")
+    );
     clock.advance(std::time::Duration::from_secs(2));
     let transport = TransportRecording::default();
     app.brain.replace_receiver_transport(transport.transport());

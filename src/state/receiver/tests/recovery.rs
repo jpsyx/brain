@@ -221,18 +221,44 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
     assert!(db
         .commit_receiver_job_launch(accepted.job_id(), "worker-a", &launch_observation(token, "instance-a", "session-a", 1_020))
         .expect("commit delivery launch"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(),
+            "worker-a",
+            &observation(
+                token,
+                "instance-a",
+                "session-a",
+                ReceiverObservationPhase::Accepted,
+                1,
+                1_030,
+            ),
+        )
+        .expect("record delivery acceptance"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(),
+            "worker-a",
+            &observation(
+                token,
+                "instance-a",
+                "session-a",
+                ReceiverObservationPhase::Progressing,
+                2,
+                1_040,
+            ),
+        )
+        .expect("record delivery progress"));
     for (expected, next, observed_at) in [
-        (ReceiverJobState::Launched, ReceiverJobState::Accepted, 1_020),
-        (ReceiverJobState::Accepted, ReceiverJobState::Processing, 1_030),
         (
             ReceiverJobState::Processing,
             ReceiverJobState::AnswerReady,
-            1_040,
+            1_050,
         ),
         (
             ReceiverJobState::AnswerReady,
             ReceiverJobState::Delivering,
-            1_050,
+            1_060,
         ),
     ] {
         assert!(
@@ -251,7 +277,7 @@ fn due_delivery_retry_keeps_retrying_state_until_the_new_owner_resumes_delivery(
             accepted.job_id(),
             "worker-a",
             ReceiverJobState::Delivering,
-            1_060,
+            1_070,
             2_000,
             "delivery-unavailable",
         )

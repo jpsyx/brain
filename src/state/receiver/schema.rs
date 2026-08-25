@@ -90,7 +90,26 @@ fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
     if !has_column(connection, "job_id")? || is_v9_receiver_jobs(connection)? {
         return Ok(());
     }
-    connection.execute_batch(
+    let observation_values = [
+        ("launched_at_unix_ms", "NULL"),
+        ("accepted_at_unix_ms", "NULL"),
+        ("progressing_at_unix_ms", "NULL"),
+        ("completed_at_unix_ms", "NULL"),
+        ("observation_instance", "NULL"),
+        ("observation_session_id", "NULL"),
+        ("observation_revision", "0"),
+    ]
+    .into_iter()
+    .map(|(column, fallback)| {
+        Ok(if has_column(connection, column)? {
+            column
+        } else {
+            fallback
+        })
+    })
+    .collect::<Result<Vec<_>>>()?
+    .join(", ");
+    connection.execute_batch(&format!(
         "DROP INDEX IF EXISTS receiver_jobs_ready;
          ALTER TABLE receiver_jobs RENAME TO receiver_jobs_v8;
          CREATE TABLE receiver_jobs (
@@ -113,13 +132,16 @@ fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
          INSERT INTO receiver_jobs
            (job_id, job_token, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
             received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
-            retry_count, retry_at_unix_ms, retry_from_state, last_error)
+            retry_count, retry_at_unix_ms, retry_from_state, last_error,
+            launched_at_unix_ms, accepted_at_unix_ms, progressing_at_unix_ms, completed_at_unix_ms,
+            observation_instance, observation_session_id, observation_revision)
          SELECT job_id, job_token, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
             received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
-            retry_count, retry_at_unix_ms, retry_from_state, last_error FROM receiver_jobs_v8;
+            retry_count, retry_at_unix_ms, retry_from_state, last_error,
+            {observation_values} FROM receiver_jobs_v8;
          DROP TABLE receiver_jobs_v8;
-         CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
-    )?;
+         CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);"
+    ))?;
     Ok(())
 }
 
