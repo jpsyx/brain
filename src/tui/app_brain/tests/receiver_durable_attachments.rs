@@ -1,12 +1,15 @@
 use super::*;
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::main_view::MainView;
 use crate::server::receiver::{AttachmentRef, EmailReplyContext, InboundJob, StagedAttachment};
 use crate::state::{EmailLineage, ReceiverConversationIdentity, ReceiverJobState};
 use crate::tui::model::{BrainTab, Panel};
-use crate::tui::receiver::attachments::ReceiverAttachmentRuntime;
+use crate::tui::receiver::attachments::{
+    ReceiverAttachmentRequest, ReceiverAttachmentRuntime, ReceiverAttachmentWorkerResult,
+};
 
 use super::receiver_sync::{TestReceiverSyncRuntime, configure_receiver_sync};
 
@@ -14,6 +17,7 @@ use super::receiver_sync::{TestReceiverSyncRuntime, configure_receiver_sync};
 struct TestAttachmentRuntime {
     outcome: TestAttachmentOutcome,
     messages: Arc<Mutex<Vec<InboundJob>>>,
+    completions: Arc<Mutex<VecDeque<ReceiverAttachmentWorkerResult>>>,
 }
 
 #[derive(Clone)]
@@ -31,6 +35,7 @@ impl TestAttachmentRuntime {
         Self {
             outcome: TestAttachmentOutcome::Paths(paths),
             messages: Arc::new(Mutex::new(Vec::new())),
+            completions: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -38,6 +43,7 @@ impl TestAttachmentRuntime {
         Self {
             outcome: TestAttachmentOutcome::Failure,
             messages: Arc::new(Mutex::new(Vec::new())),
+            completions: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -78,6 +84,7 @@ fn attachment_refresh_failure_retries_without_launch_or_private_error_persistenc
     app.services
         .replace_receiver_attachment_runtime(Box::new(TestAttachmentRuntime::failure()));
 
+    app.tick_receiver();
     app.tick_receiver();
 
     assert!(transport.launch_specs().is_empty());
@@ -128,6 +135,7 @@ fn durable_dispatch_retries_when_stager_returns_a_path_outside_the_receiver_inbo
         .replace_receiver_attachment_runtime(Box::new(TestAttachmentRuntime::success(outside)));
 
     app.tick_receiver();
+    app.tick_receiver();
 
     assert!(transport.launch_specs().is_empty());
     let job = db
@@ -171,6 +179,7 @@ fn durable_dispatch_retries_when_a_download_exceeds_the_attachment_size_limit() 
         .replace_receiver_attachment_runtime(Box::new(TestAttachmentRuntime::success(oversized)));
 
     app.tick_receiver();
+    app.tick_receiver();
 
     assert!(transport.launch_specs().is_empty());
     let job = db
@@ -182,28 +191,45 @@ fn durable_dispatch_retries_when_a_download_exceeds_the_attachment_size_limit() 
 }
 
 impl ReceiverAttachmentRuntime for TestAttachmentRuntime {
-    fn stage(
-        &self,
-        _workspace: &crate::workspace::WorkspaceContext,
-        _command: &crate::workspace::CommandContext,
-        message: &InboundJob,
-    ) -> anyhow::Result<Vec<StagedAttachment>> {
+    fn start(&mut self, request: ReceiverAttachmentRequest) -> anyhow::Result<bool> {
+        let message = request.message();
         self.messages
             .lock()
             .expect("attachment messages")
             .push(message.clone());
-        match &self.outcome {
-            TestAttachmentOutcome::Paths(paths) => Ok(paths
-                .iter()
-                .map(|path| StagedAttachment {
-                    source: "refreshed-provider-reference".to_owned(),
-                    path: Some(path.clone()),
-                    error: None,
-                })
-                .collect()),
-            TestAttachmentOutcome::Failure => anyhow::bail!("private provider credential"),
-        }
+        let result = match &self.outcome {
+            TestAttachmentOutcome::Paths(paths) => ReceiverAttachmentWorkerResult::success(
+                request.stage(),
+                paths
+                    .iter()
+                    .map(|path| StagedAttachment {
+                        source: "refreshed-provider-reference".to_owned(),
+                        path: Some(path.clone()),
+                        error: None,
+                    })
+                    .collect(),
+            ),
+            TestAttachmentOutcome::Failure => {
+                ReceiverAttachmentWorkerResult::failure(request.stage())
+            }
+        };
+        self.completions
+            .lock()
+            .expect("attachment completions")
+            .push_back(result);
+        Ok(true)
     }
+
+    fn poll(&mut self) -> Option<ReceiverAttachmentWorkerResult> {
+        self.completions
+            .lock()
+            .expect("attachment completions")
+            .pop_front()
+    }
+
+    fn cancel(&mut self) {}
+
+    fn shutdown(&mut self) {}
 }
 
 #[test]
@@ -235,6 +261,7 @@ fn durable_dispatch_retries_without_staging_an_unbounded_attachment_batch() {
     app.services
         .replace_receiver_attachment_runtime(Box::new(attachments.clone()));
 
+    app.tick_receiver();
     app.tick_receiver();
 
     assert!(attachments.messages().is_empty());
@@ -296,6 +323,7 @@ fn durable_dispatch_downloads_authenticated_media_before_agent_launch() {
     app.services
         .replace_receiver_attachment_runtime(Box::new(attachments.clone()));
 
+    app.tick_receiver();
     app.tick_receiver();
 
     let specifications = transport.launch_specs();
@@ -386,6 +414,11 @@ fn receiver_freshness_finishes_before_attachment_refresh_and_background_launch()
     );
 
     sync.finish_pull();
+    app.tick_receiver();
+
+    assert_eq!(attachments.messages(), vec![inbound.clone()]);
+    assert!(transport.launch_specs().is_empty());
+
     app.tick_receiver();
 
     assert_eq!(attachments.messages(), vec![inbound]);

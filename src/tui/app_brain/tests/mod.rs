@@ -61,6 +61,8 @@ mod opencode_launch;
 mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
+mod receiver_attachment_worker_support;
+mod receiver_durable_attachment_worker;
 mod receiver_durable_attachments;
 mod receiver_durable_binding_completion;
 mod receiver_durable_control_race;

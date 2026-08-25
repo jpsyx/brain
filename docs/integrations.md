@@ -234,7 +234,13 @@ claim succeeds. Missing history, a frontend change, a probe error, or a failed
 claim produces `Fresh(session_id)`. After receiver sync freshness completes,
 the launch boundary refreshes delayed email attachment access from stable
 Resend IDs and downloads email or authenticated SMS media into the exact
-workspace's receiver inbox before agent planning. It accepts at most ten
+workspace's receiver inbox before agent planning. One bounded background
+worker owns that staging generation, so the event-loop tick returns without
+blocking keyboard input, changing focus, or launching an agent. Pending ticks
+renew the exact durable claim. A result is planned only after a fresh clock
+read proves the exact owner is still live and receiver intent remains enabled;
+lost, expired, disabled, or mismatched-generation results are discarded and
+their local files are cleaned without mutating the job. It accepts at most ten
 regular files of at most 40 MiB each, canonicalizes every staged path beneath
 that inbox, and bounds sanitized per-batch filenames to 128 bytes. Resumed
 launches carry only the current authenticated message and those local file
@@ -1136,11 +1142,16 @@ duplicate, which receives 503 until pending acceptance resolves; invalid
 signatures remain authentication failures, and
 internal 500/502 outcomes remain failures rather than provider success.
 Delayed email dispatch refreshes signed attachment access from stable provider
-IDs, then the TUI downloads and validates each local inbox file before its
-durable launch planner can start an agent. Authenticated SMS media uses the
-same staging boundary with Twilio credentials supplied through the provider
-request configuration. Processing plus final replies preserve the original
-subject and message lineage without widening recipients. Receiving-API
+IDs, then the TUI's single bounded staging worker downloads and validates each
+local inbox file before its durable launch planner can start an agent. The
+event loop polls this worker without waiting, renews the staged job ahead of
+later FIFO work, and revalidates fresh ownership and intent after the result.
+Cancellation and application teardown request worker shutdown without joining
+a blocked provider call; any late output is generation-checked and cleaned.
+Authenticated SMS media uses the same staging boundary with Twilio credentials
+supplied through the provider request configuration. Processing plus final
+replies preserve the original subject and message lineage without widening
+recipients. Receiving-API
 rejection or malformed provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through

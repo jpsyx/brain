@@ -6,10 +6,13 @@ use crate::agent::{HookMetadata, LaunchRequest, SessionPlan};
 use crate::pty_pane::PtyPane;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
+use crate::tui::receiver::attachments::PreparedReceiverAttachments;
 use crate::tui::receiver::{
     ClaimedReceiverRun, DurableReceiverRun, ReceiverRemoteSession, ReceiverSessionRegistration,
     rollback_receiver_launch,
 };
+
+use super::attachment_dispatch::localize_attachment_references;
 
 pub(super) const CLAIM_LIFETIME_MS: u64 = 30_000;
 pub(super) const RETRY_DELAY_MS: u64 = 5_000;
@@ -55,14 +58,18 @@ impl App {
             now.saturating_add(CLAIM_LIFETIME_MS),
         ) {
             Ok(Some(claim)) => {
-                self.continue_claimed_receiver_run(ClaimedReceiverRun { claim, remote });
+                self.continue_claimed_receiver_run(ClaimedReceiverRun {
+                    claim,
+                    remote,
+                    freshness_ready: false,
+                });
             }
             Ok(None) => {}
             Err(error) => crate::logging::log(format!("durable receiver claim failed: {error:#}")),
         }
     }
 
-    fn continue_claimed_receiver_run(&mut self, claimed: ClaimedReceiverRun) {
+    fn continue_claimed_receiver_run(&mut self, mut claimed: ClaimedReceiverRun) {
         let now = self.receiver_now_unix_ms();
         match self.services.renew_receiver_claim(
             claimed.claim.job().id(),
@@ -71,7 +78,11 @@ impl App {
             now.saturating_add(CLAIM_LIFETIME_MS),
         ) {
             Ok(true) => {}
-            Ok(false) => return,
+            Ok(false) => {
+                self.services
+                    .cancel_receiver_attachment_stage(claimed.claim.job().id());
+                return;
+            }
             Err(error) => {
                 crate::logging::log(format!("receiver pending claim renewal failed: {error:#}"));
                 self.receiver
@@ -79,12 +90,15 @@ impl App {
                 return;
             }
         }
-        if self.execute_receiver_sync_freshness_effect()
-            == crate::tui::receiver::ReceiverEffectOutcome::FreshnessPending
-        {
-            self.receiver
-                .store_durable_run(DurableReceiverRun::Claimed(claimed));
-            return;
+        if !claimed.freshness_ready {
+            if self.execute_receiver_sync_freshness_effect()
+                == crate::tui::receiver::ReceiverEffectOutcome::FreshnessPending
+            {
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+            claimed.freshness_ready = true;
         }
         if crate::server::receiver::parse_control_command(&claimed.claim.job().inbound().prompt)
             == Some(crate::server::receiver::ControlCommand::NewSession)
@@ -92,29 +106,24 @@ impl App {
             self.complete_receiver_new_session(claimed);
             return;
         }
-        self.launch_claimed_receiver_run(claimed);
-    }
-
-    fn launch_claimed_receiver_run(&mut self, claimed: ClaimedReceiverRun) {
-        let now = self.receiver_now_unix_ms();
-        let retry_at = now.saturating_add(RETRY_DELAY_MS);
-        let Ok(staged_attachments) = self.services.stage_receiver_attachments(
-            self.context.workspace(),
-            self.context.command(),
-            claimed.claim.job().inbound(),
-        ) else {
-            crate::logging::log("receiver attachment preparation failed");
-            self.retry_unregistered_receiver(&claimed, ReceiverLaunchFailure::Planning, now);
-            return;
-        };
-        if staged_attachments
-            .iter()
-            .any(|attachment| attachment.path.is_none() || attachment.error.is_some())
-        {
-            crate::logging::log("receiver attachment preparation failed");
-            self.retry_unregistered_receiver(&claimed, ReceiverLaunchFailure::Planning, now);
+        if !self.receiver.is_enabled() && !claimed.claim.job().inbound().attachments.is_empty() {
+            self.services
+                .cancel_receiver_attachment_stage(claimed.claim.job().id());
+            self.receiver
+                .store_durable_run(DurableReceiverRun::Claimed(claimed));
             return;
         }
+        self.stage_claimed_receiver_run(claimed);
+    }
+
+    pub(super) fn launch_claimed_receiver_run_with_attachments(
+        &mut self,
+        claimed: ClaimedReceiverRun,
+        staged_attachments: PreparedReceiverAttachments,
+        now: u64,
+    ) {
+        let staged_attachment_work = !staged_attachments.staged().is_empty();
+        let retry_at = now.saturating_add(RETRY_DELAY_MS);
         let capability_plan = match self.launch_capability_plan() {
             Ok(plan) => plan,
             Err(error) => {
@@ -207,10 +216,42 @@ impl App {
             registration
         };
 
+        let prepare_now = self.receiver_now_unix_ms();
+        let still_owned = self.services.renew_receiver_claim(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            prepare_now,
+            prepare_now.saturating_add(CLAIM_LIFETIME_MS),
+        );
+        match still_owned {
+            Ok(true) if self.receiver.is_enabled() || !staged_attachment_work => {}
+            Ok(true) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+            Ok(false) => {
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver pre-launch claim validation failed: {error:#}"
+                ));
+                let _ = registration.cleanup();
+                let _ = controller.shutdown();
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                return;
+            }
+        }
         match self.services.prepare_receiver_launch(
             claimed.claim.job().id(),
             claimed.claim.claim().owner(),
-            now,
+            prepare_now,
         ) {
             Ok(true) => {}
             Ok(false) => {
@@ -227,7 +268,7 @@ impl App {
         }
 
         let Some(initial_prompt) =
-            localize_attachment_references(plan.initial_prompt(), &staged_attachments)
+            localize_attachment_references(plan.initial_prompt(), staged_attachments.staged())
         else {
             crate::logging::log("receiver attachment prompt preparation failed");
             let _ = rollback_receiver_launch(
@@ -300,6 +341,7 @@ impl App {
                 claim: claimed.claim,
                 attribution,
                 tab_id,
+                _attachments: staged_attachments,
             },
         ));
     }
@@ -354,25 +396,4 @@ impl App {
     pub(super) fn receiver_now_unix_ms(&self) -> u64 {
         u64::try_from(self.services.utc_now().timestamp_millis()).unwrap_or(0)
     }
-}
-
-fn localize_attachment_references(
-    prompt: &str,
-    attachments: &[crate::server::receiver::StagedAttachment],
-) -> Option<String> {
-    if attachments.is_empty() {
-        return Some(prompt.to_owned());
-    }
-    let marker = "\n\nAttachment references:";
-    let start = prompt.rfind(marker)?;
-    let mut localized = prompt[..start].to_owned();
-    localized.push_str("\n\nLocal attachment files:");
-    for attachment in attachments {
-        use std::fmt::Write as _;
-
-        let path = attachment.path.as_ref()?;
-        let encoded = serde_json::to_string(&path.display().to_string()).ok()?;
-        let _ = write!(localized, "\n- path={encoded}");
-    }
-    Some(localized)
 }

@@ -5,9 +5,9 @@ use crate::command::server::{ReceiverActionOutcome, ReceiverIntentRefresher};
 use crate::state::{Db, PanelSide};
 use crate::sync::args::Direction;
 use crate::tui::app_sync::ReceiverSyncRuntime;
-use crate::tui::receiver::attachments::{
-    ReceiverAttachmentRuntime, SystemReceiverAttachmentRuntime,
-};
+#[cfg(test)]
+use crate::tui::receiver::attachments::ReceiverAttachmentRuntime;
+use crate::tui::receiver::attachments::{ReceiverAttachmentCoordinator, ReceiverAttachmentEffect};
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
@@ -25,7 +25,7 @@ pub(crate) struct AppServices {
     db: Db,
     receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
-    receiver_attachment_runtime: Box<dyn ReceiverAttachmentRuntime>,
+    receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
 }
 
 impl AppServices {
@@ -36,7 +36,7 @@ impl AppServices {
             db: init.db,
             receiver_intent_refresher: init.receiver_intent_refresher,
             receiver_sync_runtime: init.receiver_sync_runtime,
-            receiver_attachment_runtime: Box::new(SystemReceiverAttachmentRuntime),
+            receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
         }
     }
 
@@ -146,18 +146,23 @@ impl AppServices {
             .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
     }
 
-    pub(crate) fn stage_receiver_attachments(
-        &self,
-        workspace: &crate::workspace::WorkspaceContext,
+    pub(crate) fn poll_receiver_attachment_stage(
+        &mut self,
+        job_id: crate::state::ReceiverJobId,
         command: &CommandContext,
         message: &crate::server::receiver::InboundJob,
-    ) -> Result<Vec<crate::server::receiver::StagedAttachment>> {
-        crate::tui::receiver::attachments::stage_receiver_attachments_with(
-            self.receiver_attachment_runtime.as_ref(),
-            workspace,
-            command,
-            message,
-        )
+    ) -> ReceiverAttachmentEffect {
+        self.receiver_attachment_coordinator
+            .poll_or_start(job_id, command, message)
+    }
+
+    pub(crate) fn cancel_receiver_attachment_stage(&mut self, job_id: crate::state::ReceiverJobId) {
+        self.receiver_attachment_coordinator.cancel(job_id);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shutdown_receiver_attachments(&mut self) {
+        self.receiver_attachment_coordinator.shutdown();
     }
 
     pub(crate) fn renew_receiver_claim(
@@ -261,7 +266,7 @@ impl AppServices {
         &mut self,
         runtime: Box<dyn ReceiverAttachmentRuntime>,
     ) {
-        self.receiver_attachment_runtime = runtime;
+        self.receiver_attachment_coordinator.replace(runtime);
     }
 
     #[cfg(test)]

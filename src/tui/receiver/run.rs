@@ -18,10 +18,12 @@ pub(crate) enum DurableReceiverRun {
 pub(crate) struct ClaimedReceiverRun {
     pub(crate) claim: ReceiverRunClaim,
     pub(crate) remote: super::ReceiverRemoteSession,
+    pub(crate) freshness_ready: bool,
 }
 
 pub(crate) struct ActiveReceiverRun {
     pub(crate) claim: ReceiverRunClaim,
     pub(crate) attribution: ReceiverSessionAttribution,
     pub(crate) tab_id: SessionTabId,
+    pub(crate) _attachments: super::attachments::PreparedReceiverAttachments,
 }
