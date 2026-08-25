@@ -52,6 +52,17 @@ fn column_exists(path: &Path, table: &str, column: &str) -> bool {
         .any(|name| name.expect("column name") == column)
 }
 
+fn table_sql(path: &Path, table: &str) -> String {
+    rusqlite::Connection::open(path)
+        .expect("state database")
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )
+        .expect("table schema")
+}
+
 #[test]
 fn receiver_migration_defers_until_legacy_registry_bootstrap_finishes() {
     let fixture = Fixture::new();
@@ -240,6 +251,43 @@ fn explicit_down_migration_removes_only_the_receiver_launch_retry_origin() {
     ] {
         let path = fixture.state_db(workspace_id);
         assert!(table_exists(&path, "receiver_jobs"));
+        assert!(!column_exists(&path, "receiver_jobs", "retry_from_state"));
+        assert_eq!(state_schema_version(&path), 6);
+    }
+}
+
+#[test]
+fn observation_down_rebuilds_a_v8_compatible_table_before_the_remaining_down_chain() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let up = fixture.run(&["server", "status"]);
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        env!("CARGO_PKG_VERSION"),
+        "--to-version",
+        "0.74.4",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        let receiver_jobs = table_sql(&path, "receiver_jobs");
+        assert!(!receiver_jobs.contains("job_token"));
+        assert!(!receiver_jobs.contains("'launched'"));
         assert!(!column_exists(&path, "receiver_jobs", "retry_from_state"));
         assert_eq!(state_schema_version(&path), 6);
     }

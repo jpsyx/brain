@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 
 pub(super) const VERSION: i32 = 9;
 const REGISTRATION_VERSION: i32 = 8;
@@ -94,7 +94,7 @@ fn rebuild_v8_jobs_for_observations(connection: &Connection) -> Result<()> {
         "DROP INDEX IF EXISTS receiver_jobs_ready;
          ALTER TABLE receiver_jobs RENAME TO receiver_jobs_v8;
          CREATE TABLE receiver_jobs (
-           job_id TEXT PRIMARY KEY, job_token TEXT, workspace_id TEXT NOT NULL,
+           job_id TEXT PRIMARY KEY, job_token TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL,
            conversation_id TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
            channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')), provider_id TEXT,
            inbound_json TEXT NOT NULL,
@@ -127,6 +127,7 @@ fn ensure_token_column(connection: &Connection) -> Result<()> {
     if !has_column(connection, "job_token")? && has_column(connection, "job_id")? {
         connection.execute_batch("ALTER TABLE receiver_jobs ADD COLUMN job_token TEXT;")?;
     }
+    populate_job_tokens(connection)?;
     Ok(())
 }
 
@@ -138,6 +139,7 @@ fn is_v9_receiver_jobs(connection: &Connection) -> Result<bool> {
     )?;
     Ok(sql.is_some_and(|sql| {
         sql.contains("'launched'")
+            && has_non_null_token_column(connection).unwrap_or(false)
             && [
                 "job_token",
                 "launched_at_unix_ms",
@@ -151,6 +153,17 @@ fn is_v9_receiver_jobs(connection: &Connection) -> Result<bool> {
             .iter()
             .all(|column| sql.contains(column))
     }))
+}
+
+fn has_non_null_token_column(connection: &Connection) -> Result<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT \"notnull\" FROM pragma_table_info('receiver_jobs') WHERE name = 'job_token'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
 }
 
 fn ensure_observation_columns(connection: &Connection) -> Result<()> {
@@ -173,6 +186,14 @@ fn ensure_observation_columns(connection: &Connection) -> Result<()> {
             ))?;
         }
     }
+    populate_job_tokens(connection)?;
+    connection.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS receiver_jobs_job_token ON receiver_jobs(job_token);",
+    )?;
+    Ok(())
+}
+
+fn populate_job_tokens(connection: &Connection) -> Result<()> {
     let mut statement = connection
         .prepare("SELECT job_id FROM receiver_jobs WHERE job_token IS NULL OR job_token = ''")?;
     let ids = statement
@@ -185,9 +206,6 @@ fn ensure_observation_columns(connection: &Connection) -> Result<()> {
             rusqlite::params![uuid::Uuid::new_v4().to_string(), job_id],
         )?;
     }
-    connection.execute_batch(
-        "CREATE UNIQUE INDEX IF NOT EXISTS receiver_jobs_job_token ON receiver_jobs(job_token);",
-    )?;
     Ok(())
 }
 
