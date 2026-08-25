@@ -16,6 +16,8 @@ pub struct StagedAttachment {
 pub struct StagedAttachmentBatch {
     directory: Option<PathBuf>,
     staged: Vec<StagedAttachment>,
+    #[cfg(test)]
+    after_cleanup: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl StagedAttachmentBatch {
@@ -23,6 +25,8 @@ impl StagedAttachmentBatch {
         Self {
             directory: Some(directory),
             staged,
+            #[cfg(test)]
+            after_cleanup: None,
         }
     }
 
@@ -31,6 +35,7 @@ impl StagedAttachmentBatch {
         Self {
             directory: None,
             staged,
+            after_cleanup: None,
         }
     }
 
@@ -38,7 +43,15 @@ impl StagedAttachmentBatch {
         Self {
             directory: None,
             staged: Vec::new(),
+            #[cfg(test)]
+            after_cleanup: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe_cleanup(mut self, after_cleanup: Box<dyn FnOnce() + Send>) -> Self {
+        self.after_cleanup = Some(after_cleanup);
+        self
     }
 
     pub(crate) fn staged(&self) -> &[StagedAttachment] {
@@ -54,12 +67,16 @@ impl Drop for StagedAttachmentBatch {
     fn drop(&mut self) {
         if let Some(directory) = &self.directory {
             let _ = std::fs::remove_dir_all(directory);
-            return;
-        }
-        for attachment in &self.staged {
-            if let Some(path) = &attachment.path {
-                let _ = std::fs::remove_file(path);
+        } else {
+            for attachment in &self.staged {
+                if let Some(path) = &attachment.path {
+                    let _ = std::fs::remove_file(path);
+                }
             }
+        }
+        #[cfg(test)]
+        if let Some(after_cleanup) = self.after_cleanup.take() {
+            after_cleanup();
         }
     }
 }

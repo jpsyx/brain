@@ -1800,10 +1800,11 @@ shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.
 Orderly shell teardown runs the receiver-specific stage before generic agent
-controller shutdown. It cancels and reaps attachment work, releases an active
-exact registration only while the durable owner is live, removes the exact
-receiver tab and artifact, and records one Planning or Spawn retry from a fresh
-post-cleanup clock. An expired `launching` row left by an unclean exit is
+controller shutdown. It cancels, reaps, and joins attachment work, releases an
+active exact registration only while the durable owner is live, removes the
+exact receiver tab and artifact, and drops the prepared attachment directory.
+Only then does it sample the clock for one exact Planning or Spawn retry. An
+expired `launching` row left by an unclean exit is
 handled inside the next FIFO claim transaction: stale exact lifecycle lineage
 is removed and a due bounded Spawn retry is assigned, or exhaustion marks the
 row failed before a later tick selects the next FIFO job. Accepted and later

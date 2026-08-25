@@ -2495,9 +2495,10 @@ attempt is appropriate. Failed and done remain terminal.
 
 Orderly shutdown uses the same authority rule. The receiver-specific stage runs
 before generic controller shutdown, cancels claimed staging, releases only a
-still-owned active registration, removes exact local resources, then samples a
-fresh clock for the Planning or Spawn retry CAS. Repetition is a no-op; lost
-ownership permits local cleanup only.
+still-owned active registration, removes exact local resources, and explicitly
+drops the owning attachment batch. Provider kill/reap/join and that final Drop
+all precede the fresh clock sampled for the Planning or Spawn retry CAS.
+Repetition is a no-op; lost ownership permits local cleanup only.
 
 Attachment cancellation owns the provider process, not just a Boolean request.
 One shared token follows Resend refresh and every sequential media download,

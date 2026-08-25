@@ -20,6 +20,7 @@ struct ControlledAttachmentState {
     cancellations: usize,
     shutdowns: usize,
     advance_on_poll: Option<(ReceiverClock, std::time::Duration)>,
+    advance_on_shutdown: Option<(ReceiverClock, std::time::Duration)>,
 }
 
 impl ControlledAttachmentWorker {
@@ -51,6 +52,28 @@ impl ControlledAttachmentWorker {
             .push_back(ReceiverAttachmentWorkerResult::success(stage, staged));
     }
 
+    pub(super) fn complete_with_cleanup_clock(
+        &self,
+        stage: ReceiverAttachmentStage,
+        directory: std::path::PathBuf,
+        staged: Vec<crate::server::receiver::StagedAttachment>,
+        clock: ReceiverClock,
+        duration: std::time::Duration,
+    ) {
+        self.state
+            .lock()
+            .expect("attachment worker")
+            .completions
+            .push_back(
+                ReceiverAttachmentWorkerResult::success_with_owned_cleanup_observer(
+                    stage,
+                    directory,
+                    staged,
+                    Box::new(move || clock.advance(duration)),
+                ),
+            );
+    }
+
     pub(super) fn fail(&self, stage: ReceiverAttachmentStage) {
         self.state
             .lock()
@@ -64,6 +87,13 @@ impl ControlledAttachmentWorker {
             .lock()
             .expect("attachment worker")
             .advance_on_poll = Some((clock, duration));
+    }
+
+    pub(super) fn advance_on_shutdown(&self, clock: ReceiverClock, duration: std::time::Duration) {
+        self.state
+            .lock()
+            .expect("attachment worker")
+            .advance_on_shutdown = Some((clock, duration));
     }
 }
 
@@ -99,6 +129,13 @@ impl ReceiverAttachmentRuntime for ControlledAttachmentWorker {
     }
 
     fn shutdown(&mut self) {
-        self.state.lock().expect("attachment worker").shutdowns += 1;
+        let advance = {
+            let mut state = self.state.lock().expect("attachment worker");
+            state.shutdowns += 1;
+            state.advance_on_shutdown.take()
+        };
+        if let Some((clock, duration)) = advance {
+            clock.advance(duration);
+        }
     }
 }

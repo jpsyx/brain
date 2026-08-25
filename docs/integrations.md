@@ -1195,10 +1195,11 @@ bounded background delivery worker, preserving reply order without blocking
 keyboard input or shell shutdown.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
-staging run is cancelled and records one fresh-clock Planning retry. A still-
-owned active run releases its exact registration, shuts down and removes only
-its receiver tab, removes the exact artifact and staged directory, then records
-one fresh-clock Spawn retry. Lost ownership permits those local removals only.
+staging run is cancelled, reaped, and joined before the clock for its exact
+Planning retry is sampled. A still-owned active run releases its exact
+registration, shuts down and removes only its receiver tab, removes the exact
+artifact, and drops the owning staged directory before sampling the clock for
+one exact Spawn retry. Lost ownership permits those local removals only.
 The stage is idempotent. After an unclean exit, the FIFO claim transaction
 atomically converts only an expired `launching` row into an immediately due
 bounded Spawn retry while removing its stale exact registration and session

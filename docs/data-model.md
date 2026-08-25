@@ -1132,9 +1132,10 @@ Receiver attachment staging owns one exact job directory. Downloads write only
 result into the prepared run; dropping either removes the whole directory,
 including unread queued results and partial files. Orderly receiver shutdown
 runs before generic controller shutdown. It cancels and reaps the one published
-provider process group, releases exact lifecycle state only for a still-live
-owner, removes local tab, artifact, and staged resources, then records a
-fresh-clock Planning or Spawn retry. Repeated shutdown is a no-op.
+provider process group and joins its worker, releases exact lifecycle state only
+for a still-live owner, removes the local tab and artifact, and drops the owning
+staging-directory guard. The retry clock is sampled only after those cleanup
+steps for the exact Planning or Spawn CAS. Repeated shutdown is a no-op.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the

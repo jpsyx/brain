@@ -62,6 +62,21 @@ impl ReceiverAttachmentWorkerResult {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn success_with_owned_cleanup_observer(
+        stage: ReceiverAttachmentStage,
+        directory: std::path::PathBuf,
+        staged: Vec<StagedAttachment>,
+        after_cleanup: Box<dyn FnOnce() + Send>,
+    ) -> Self {
+        Self {
+            stage,
+            outcome: ReceiverAttachmentWorkerOutcome::Ready(
+                StagedAttachmentBatch::new(directory, staged).observe_cleanup(after_cleanup),
+            ),
+        }
+    }
+
     #[must_use]
     pub(crate) const fn failure(stage: ReceiverAttachmentStage) -> Self {
         Self {

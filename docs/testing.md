@@ -433,7 +433,10 @@ first move is a failing test that reproduces it, *then* the fix.
   claimed shutdown, reply delivery, task reload, and sync push. Attachment tests
   prove shared Resend/download cancellation authority, cancellation during
   process publication, process-group kill and reap, `.part` rename, unread-result
-  directory cleanup, and idempotent worker shutdown without fixed sleeps. A
+  directory cleanup, and idempotent worker shutdown without fixed sleeps.
+  Deterministic teardown observers advance the injected clock during worker
+  shutdown and only after an owned directory Drop, proving each retry timestamp
+  is sampled after all cleanup. A
   focused tab test proves
   that a second simultaneous receiver controller is rejected and shut down
   without changing the user's selected tab, view, visibility, or focus.
