@@ -191,6 +191,18 @@ impl ReceiverSessionAttribution {
     }
 }
 
+/// Exact durable identity and timings required to complete one receiver job.
+#[derive(Debug, Clone, Copy)]
+pub struct ReceiverCompletionRequest<'a> {
+    pub job_id: ReceiverJobId,
+    pub token: ReceiverJobToken,
+    pub owner: &'a str,
+    pub registration: &'a ReceiverSessionAttribution,
+    pub completed_session: &'a crate::agent::AgentSession,
+    pub observed_at_unix_ms: u64,
+    pub authorized_at_unix_ms: u64,
+}
+
 /// Current frontend-owned native session attached to a logical conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceiverSessionBinding {

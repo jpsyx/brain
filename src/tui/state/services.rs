@@ -201,15 +201,16 @@ impl AppServices {
         completed_session: &crate::agent::AgentSession,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
-        self.db.complete_receiver_job_with_binding(
-            job_id,
-            token,
-            owner,
-            registration,
-            completed_session,
-            observed_at_unix_ms,
-            observed_at_unix_ms,
-        )
+        self.db
+            .complete_receiver_job_with_binding(&crate::state::ReceiverCompletionRequest {
+                job_id,
+                token,
+                owner,
+                registration,
+                completed_session,
+                observed_at_unix_ms,
+                authorized_at_unix_ms: observed_at_unix_ms,
+            })
     }
 
     #[must_use]

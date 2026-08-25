@@ -269,6 +269,20 @@ struct CompletionFixture {
     completed_session: crate::agent::AgentSession,
 }
 
+impl CompletionFixture {
+    fn request(&self) -> ReceiverCompletionRequest<'_> {
+        ReceiverCompletionRequest {
+            job_id: self.job_id,
+            token: self.token,
+            owner: "owner",
+            registration: &self.registration,
+            completed_session: &self.completed_session,
+            observed_at_unix_ms: 1_500,
+            authorized_at_unix_ms: 1_500,
+        }
+    }
+}
+
 fn completion_fixture(state: ReceiverJobState) -> CompletionFixture {
     use crate::agent::{AgentKind, AgentSession, SessionScope};
 
@@ -278,7 +292,7 @@ fn completion_fixture(state: ReceiverJobState) -> CompletionFixture {
     let accepted = db
         .accept_receiver_job(&job, &identity)
         .expect("accept receiver job");
-    let scope = SessionScope::new(AgentKind::Codex, receiver_workspace_id(), job.actor.clone());
+    let scope = SessionScope::new(AgentKind::Codex, receiver_workspace_id(), job.actor);
     let placeholder = AgentSession::new("pending-completion").expect("placeholder");
     let registration = db
         .register_receiver_session(
@@ -375,15 +389,7 @@ fn exact_completion_accepts_launched_accepted_and_processing_without_fabricating
 
         assert!(fixture
             .db
-            .complete_receiver_job_with_binding(
-                fixture.job_id,
-                fixture.token,
-                "owner",
-                &fixture.registration,
-                &fixture.completed_session,
-                1_500,
-                1_500,
-            )
+            .complete_receiver_job_with_binding(&fixture.request())
             .expect("complete exact receiver job"));
 
         let job = fixture
@@ -403,54 +409,42 @@ fn exact_completion_rejects_a_wrong_durable_token() {
     let fixture = completion_fixture(ReceiverJobState::Launched);
     let wrong_token = ReceiverJobToken::parse("00000000-0000-4000-8000-000000000001")
         .expect("wrong token");
+    let request = ReceiverCompletionRequest {
+        token: wrong_token,
+        ..fixture.request()
+    };
 
     assert!(!fixture
         .db
-        .complete_receiver_job_with_binding(
-            fixture.job_id,
-            wrong_token,
-            "owner",
-            &fixture.registration,
-            &fixture.completed_session,
-            1_500,
-            1_500,
-        )
+        .complete_receiver_job_with_binding(&request)
         .expect("reject wrong token"));
 }
 
 #[test]
 fn exact_completion_rejects_a_stale_owner() {
     let fixture = completion_fixture(ReceiverJobState::Launched);
+    let request = ReceiverCompletionRequest {
+        owner: "other-owner",
+        ..fixture.request()
+    };
 
     assert!(!fixture
         .db
-        .complete_receiver_job_with_binding(
-            fixture.job_id,
-            fixture.token,
-            "other-owner",
-            &fixture.registration,
-            &fixture.completed_session,
-            1_500,
-            1_500,
-        )
+        .complete_receiver_job_with_binding(&request)
         .expect("reject stale owner"));
 }
 
 #[test]
 fn exact_completion_uses_fresh_authorization_time_for_lease_validation() {
     let fixture = completion_fixture(ReceiverJobState::Launched);
+    let request = ReceiverCompletionRequest {
+        authorized_at_unix_ms: 2_000,
+        ..fixture.request()
+    };
 
     assert!(!fixture
         .db
-        .complete_receiver_job_with_binding(
-            fixture.job_id,
-            fixture.token,
-            "owner",
-            &fixture.registration,
-            &fixture.completed_session,
-            1_500,
-            2_000,
-        )
+        .complete_receiver_job_with_binding(&request)
         .expect("reject expired lease despite backdated evidence"));
 }
 
@@ -463,18 +457,14 @@ fn exact_completion_rejects_a_wrong_instance() {
         fixture.registration.registered_session().clone(),
         fixture.registration.scope().clone(),
     );
+    let request = ReceiverCompletionRequest {
+        registration: &wrong_registration,
+        ..fixture.request()
+    };
 
     assert!(!fixture
         .db
-        .complete_receiver_job_with_binding(
-            fixture.job_id,
-            fixture.token,
-            "owner",
-            &wrong_registration,
-            &fixture.completed_session,
-            1_500,
-            1_500,
-        )
+        .complete_receiver_job_with_binding(&request)
         .expect("reject wrong instance"));
 }
 
@@ -484,18 +474,14 @@ fn exact_completion_rejects_a_wrong_native_session() {
 
     let fixture = completion_fixture(ReceiverJobState::Launched);
     let wrong_session = AgentSession::new("other-completed-session").expect("wrong session");
+    let request = ReceiverCompletionRequest {
+        completed_session: &wrong_session,
+        ..fixture.request()
+    };
 
     assert!(!fixture
         .db
-        .complete_receiver_job_with_binding(
-            fixture.job_id,
-            fixture.token,
-            "owner",
-            &fixture.registration,
-            &wrong_session,
-            1_500,
-            1_500,
-        )
+        .complete_receiver_job_with_binding(&request)
         .expect("reject wrong native session"));
     assert_eq!(
         fixture

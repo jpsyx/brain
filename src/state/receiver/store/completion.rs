@@ -1,29 +1,22 @@
 use anyhow::Result;
 
 use super::{to_i64, validated_owner};
-use crate::agent::AgentSession;
-use crate::state::{Db, ReceiverJobId, ReceiverJobToken, ReceiverSessionAttribution};
+use crate::state::{Db, ReceiverCompletionRequest};
 
 impl Db {
     /// Commit the exact native binding and terminal job transition together.
     pub fn complete_receiver_job_with_binding(
         &self,
-        job_id: ReceiverJobId,
-        token: ReceiverJobToken,
-        owner: &str,
-        registration: &ReceiverSessionAttribution,
-        completed_session: &AgentSession,
-        observed_at_unix_ms: u64,
-        authorized_at_unix_ms: u64,
+        request: &ReceiverCompletionRequest<'_>,
     ) -> Result<bool> {
-        let owner = validated_owner(owner)?;
+        let owner = validated_owner(request.owner)?;
         anyhow::ensure!(
-            registration.scope().workspace_id().to_string() == self.workspace_id,
+            request.registration.scope().workspace_id().to_string() == self.workspace_id,
             "receiver session scope belongs to another workspace"
         );
-        let observed = to_i64(observed_at_unix_ms, "receiver completion time")?;
+        let observed = to_i64(request.observed_at_unix_ms, "receiver completion time")?;
         let authorized = to_i64(
-            authorized_at_unix_ms,
+            request.authorized_at_unix_ms,
             "receiver completion authorization time",
         )?;
         let transaction = rusqlite::Transaction::new_unchecked(
@@ -42,13 +35,13 @@ impl Db {
                AND conversation_id = ?8",
             rusqlite::params![
                 self.workspace_id,
-                job_id.to_string(),
-                token.to_string(),
+                request.job_id.to_string(),
+                request.token.to_string(),
                 observed,
                 owner,
                 authorized,
-                registration.instance(),
-                registration.conversation_id().to_string(),
+                request.registration.instance(),
+                request.registration.conversation_id().to_string(),
             ],
         )?;
         if changed != 1 {
@@ -57,9 +50,9 @@ impl Db {
         if !super::session::replace_receiver_binding_in_transaction(
             &transaction,
             &self.workspace_id,
-            registration,
-            super::session::ReceiverBindingTarget::ExactCompleted(completed_session),
-            observed_at_unix_ms,
+            request.registration,
+            super::session::ReceiverBindingTarget::ExactCompleted(request.completed_session),
+            request.observed_at_unix_ms,
         )? {
             return Ok(false);
         }
