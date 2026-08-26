@@ -795,6 +795,24 @@ Successful evidence is cached only for the configured command and current
 Brain process. This gives users an actionable compatibility error when a future
 release changes a required surface while keeping doctor and launch honest.
 
+## Why Claude has a minimum compatibility version
+
+Receiver progress must prove that an event belongs to the exact accepted root
+turn. Claude Code did not expose the required `prompt_id` hook field before
+2.1.196, so artifact-only health could call an older executable healthy while
+every receiver prompt failed closed before acceptance. Session identity is not
+an acceptable fallback because a later unrelated turn can reuse that session.
+
+The registry therefore owns a Claude `--version` compatibility probe and the
+Claude adapter invokes it through `AgentController` before any frontend
+operation. Brain accepts 2.1.196 and newer numeric releases, rejects older or
+malformed output, and reports an unavailable configured command with exact
+upgrade and `claude_cmd` remediation. Claude and OpenCode share one bounded,
+process-group-aware runner with disposable HOME/XDG state, while keeping their
+compatibility policies and successful-command caches separate. Codex remains
+unchanged because its exact `turn_id` hook contract does not require this
+Claude capability floor.
+
 Inherited `OPENCODE_CONFIG_CONTENT` is merged rather than replaced because it
 may contain unrelated user choices. Brain owns only its named agent, default
 agent selection, generated `brain_ws_*` MCP namespace, and selected skill-path

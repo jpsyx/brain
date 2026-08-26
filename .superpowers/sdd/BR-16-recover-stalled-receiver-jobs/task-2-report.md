@@ -574,3 +574,255 @@ change, or partial-target substitution occurred.
 - Claude's exact `prompt_id` hook field requires Claude Code 2.1.196 or later.
   Older Claude versions now fail closed for receiver acceptance/progress rather
   than accepting session-only evidence. No Task 2 correctness concern remains.
+
+## Fix round 2
+
+### Status
+
+DONE
+
+### Summary
+
+Claude compatibility is now a registry-owned health and controller preflight
+contract. Brain runs the exact configured `claude_cmd` with `--version` through
+the same isolated, bounded, process-group-aware runner used by OpenCode. It
+accepts Claude Code 2.1.196 and newer numeric releases, while versions below the
+`prompt_id` floor, malformed output, and unavailable commands fail closed with
+an actionable upgrade or `claude_cmd` diagnostic that never exposes the
+configured command.
+
+The registry requires compatibility for Claude and OpenCode while leaving
+Codex unchanged. `AgentController` delegates Claude availability to the probe,
+and doctor both announces and reports Claude compatibility alongside its
+existing registry-declared lifecycle health. The shared subprocess runner was
+extracted from OpenCode without changing its timeout, output bound, disposable
+HOME/XDG, wrapper, config-probe, or read-only session behavior.
+
+Host-dependent Claude and doctor test fixtures discovered by the serial gate
+were made hermetic. The crate version moved from 0.84.4 to 0.84.5 for this fix
+commit.
+
+### RED evidence
+
+#### Registry owns the Claude compatibility requirement
+
+Command:
+
+```text
+cargo test --release agent::registry::tests::registry_probes_claude_and_opencode_compatibility_but_leaves_codex_unchanged -- --exact --nocapture
+```
+
+Observed failure excerpt:
+
+```text
+Claude receiver hooks require the prompt_id compatibility floor
+test result: FAILED. 0 passed; 1 failed
+```
+
+The Claude registration declared lifecycle artifacts but no compatibility
+probe, so registry health could not distinguish an older executable.
+
+#### Below-minimum, exact-minimum, newer, malformed, and unavailable commands
+
+Command:
+
+```text
+cargo test --release agent::registry::tests::claude_compatibility_ -- --nocapture
+```
+
+Observed failures against the initial registry declaration:
+
+```text
+claude_compatibility_rejects_the_version_before_prompt_id_support ... FAILED
+claude_compatibility_accepts_the_exact_prompt_id_minimum ... FAILED
+claude_compatibility_accepts_a_newer_version ... FAILED
+claude_compatibility_rejects_malformed_version_output ... FAILED
+claude_compatibility_rejects_an_unavailable_command ... FAILED
+test result: FAILED. 0 passed; 5 failed
+```
+
+The temporary registry seam returned no report and accepted every command, so
+all five executable-fixture cases proved the missing policy before the probe
+implementation was added.
+
+#### AgentController enforces the floor before launch
+
+Command:
+
+```text
+cargo test --release agent::controller::tests::configured_claude_controller_rejects_a_version_without_prompt_id_hooks -- --exact --nocapture
+```
+
+Observed failure excerpt:
+
+```text
+old Claude must fail controller preflight: ()
+test result: FAILED. 0 passed; 1 failed
+```
+
+The controller called Claude's default no-op availability implementation until
+the adapter delegated to the registry-owned probe.
+
+#### Doctor announces and requires Claude compatibility
+
+Commands:
+
+```text
+cargo test --release --test doctor_integration diagnosis_is_ok_when_all_checks_pass -- --exact --nocapture
+cargo test --release tasks::doctor::tests::doctor_plan_names_every_check_before_running -- --exact --nocapture
+```
+
+Observed failures:
+
+```text
+assertion failed: diag.is_ok()
+test result: FAILED. 0 passed; 1 failed
+
+Checking brain task environment
+  state DB: /tmp/state.db
+  SessionStart hook: /tmp/settings.json
+  OpenCode: probing configured command
+  rclone: probing PATH
+  sync config: reading brain env
+test result: FAILED. 0 passed; 1 failed
+```
+
+The doctor fixture supplied only OpenCode compatibility, and the progress plan
+did not name the newly required Claude probe.
+
+### GREEN and refactor evidence
+
+Compatibility policy and controller facade:
+
+```text
+cargo test --release agent::registry::tests::claude_compatibility_ -- --nocapture
+test result: ok. 5 passed; 0 failed
+
+cargo test --release agent::controller::tests::configured_claude_controller_rejects_a_version_without_prompt_id_hooks -- --exact --nocapture
+test result: ok. 1 passed; 0 failed
+
+cargo test --release agent:: -- --test-threads=1
+test result: ok. 115 passed; 0 failed
+```
+
+Doctor, launch, and unchanged frontend behavior:
+
+```text
+cargo test --release tasks::doctor::tests -- --test-threads=1
+test result: ok. 5 passed; 0 failed
+
+cargo test --release --test doctor_integration -- --test-threads=1
+test result: ok. 11 passed; 0 failed
+
+cargo test --release tui::app_brain::tests::launch::app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_frontend -- --exact --nocapture
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --test workspace_capabilities -- --test-threads=1
+test result: ok. 35 passed; 0 failed
+```
+
+Shared runner, formatting, and lint gates:
+
+```text
+cargo test --release agent::opencode::probe::tests -- --test-threads=1
+test result: ok. 13 passed; 0 failed
+
+cargo fmt --all -- --check
+exit code: 0
+
+cargo clippy --release --all-targets -- -D warnings
+Finished `release` profile; exit code 0
+
+git diff --check
+exit code: 0
+```
+
+The OpenCode wrapper retains its configured output limit for the longer config
+probe after extraction. Successful compatibility evidence remains cached only
+for the exact configured command; failures remain retryable and actionable.
+
+### Serial-gate debugging and final uninterrupted suite
+
+Three earlier serial attempts exposed test fixtures whose original subject did
+not include executable compatibility. Systematic inspection preceded every
+change and rerun:
+
+- `agent_access_adapter` used an argv-capture command that returned no version.
+  Its version branch now recognizes `--version` after configured prefix flags,
+  while normal Claude and Codex argv capture remains unchanged.
+- `status_read_only` prepared managed artifacts but inherited host Claude and
+  OpenCode commands. Its ready-workspace fixture now declares deterministic
+  compatible commands, preserving the test's filesystem read-only subject.
+- `workspace_capabilities` left Claude commands host-dependent. Its hermetic
+  executable has the required `claude` basename so strict-versus-advisory
+  command classification remains exactly the behavior under test.
+
+Each discovered regression was first rerun as its exact focused test and
+observed green before the next serial invocation. The final required command
+was then run once without interruption:
+
+```text
+cargo test --release -- --test-threads=1
+```
+
+Final result:
+
+```text
+library: 2261 passed; 0 failed
+all integration targets: passed
+doc tests: 0 passed; 0 failed
+process exit code: 0
+```
+
+No code, fixture, timeout policy, or test selection changed during that clean
+invocation.
+
+### Commit
+
+- `fix(agent): require compatible Claude hooks` contains the 0.84.5 product,
+  tests, docs, fixtures, and this round-2 report. The final hash is supplied in
+  the task handoff because embedding a commit's own hash in its contents would
+  change that hash.
+
+### Files changed
+
+- Release metadata: `Cargo.toml`, `Cargo.lock`.
+- Product documentation: `docs/architecture.md`, `docs/decisions.md`,
+  `docs/features.md`, `docs/integrations.md`, `docs/testing.md`.
+- Shared and frontend compatibility policy: `src/agent/command_probe.rs`,
+  `src/agent/claude/probe.rs`, `src/agent/claude.rs`, `src/agent/mod.rs`,
+  `src/agent/opencode/probe/runner.rs`, `src/agent/registry.rs`.
+- Controller and doctor coverage: `src/agent/controller/tests.rs`,
+  `src/tasks/doctor/mod.rs`, `src/tasks/doctor/tests.rs`,
+  `tests/doctor_integration.rs`.
+- Hermetic compatibility fixtures: `tests/fixtures/claude/claude`,
+  `tests/agent_access_adapter.rs`,
+  `tests/status_read_only_sections/run_log_liveness.rs`,
+  `tests/workspace_capabilities/support.rs`,
+  `src/tui/app_brain/tests/fixtures.rs`.
+- Delivery record:
+  `.superpowers/sdd/BR-16-recover-stalled-receiver-jobs/task-2-report.md`.
+
+### Self-review
+
+- The minimum is exactly 2.1.196, the first Claude Code release supplying the
+  `prompt_id` hook field required by Task 2's exact-turn authorization.
+- Numeric `major.minor.patch` comparison accepts the exact floor and newer
+  releases without pinning Brain to one current Claude version.
+- Missing, nonzero, timed-out, and malformed commands all fail closed before
+  controller transport work. Diagnostics name the upgrade and supported
+  configuration remedy without echoing the configured command.
+- The probe executes the exact configured command plus its existing wrapper
+  flags and appends only `--version`, through disposable HOME/XDG roots and
+  bounded process-group execution.
+- Registry declarations remain the single source for doctor and controller
+  compatibility. No receiver-specific process probing bypasses
+  `AgentController` or the registry.
+- Codex remains unprobed and OpenCode retains its full feature probe, isolation,
+  output bounds, successful-command cache, and plugin-load checks.
+- This fix adds no recurring reconciler, recovery launch, App recovery effect,
+  parallel liveness state, or claim-expiry behavior.
+
+### Concerns
+
+None.

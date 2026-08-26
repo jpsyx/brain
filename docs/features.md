@@ -1254,7 +1254,11 @@ lifecycle artifact independently. Hook events must contain the current
 session-start and session-stop bridge commands; bridge and plugin files must
 exactly match Brain's bundled bytes. OpenCode compatibility additionally checks
 the configured command's version, required TUI flags, JSON session listing,
-generated capability schema, and plugin load in disposable HOME/XDG roots. It reports the rclone
+generated capability schema, and plugin load in disposable HOME/XDG roots.
+Claude compatibility requires a runnable, parseable Claude Code 2.1.196 or
+later because receiver observation depends on its `prompt_id` hook field. An
+older, malformed, or unavailable configured Claude command is reported with an
+upgrade or `claude_cmd` remediation before Brain attempts a launch. It reports the rclone
 probe, and appends the same redacted requirements matrix used by other status
 surfaces. Missing rclone with sync off is informational and does not fail
 doctor. After the common startup migration has reconciled lifecycle artifacts,

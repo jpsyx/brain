@@ -6,6 +6,7 @@
 
 mod claude;
 mod codex;
+mod command_probe;
 mod controller;
 pub mod default_frontend;
 pub(crate) mod frontend;
@@ -38,6 +39,7 @@ pub use session::{
 
 pub(crate) use claude::ClaudeFrontend;
 pub(crate) use claude::DEFAULT_COMMAND as DEFAULT_CLAUDE_COMMAND;
+pub(crate) use claude::compatibility_version as claude_compatibility_version;
 pub(crate) use claude::project_dir_name as claude_project_dir_name;
 pub(crate) use codex::CodexFrontend;
 pub(crate) use codex::DEFAULT_COMMAND as DEFAULT_CODEX_COMMAND;

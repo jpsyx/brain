@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+printf '2.1.196 (Claude Code)\n'

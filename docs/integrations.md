@@ -64,14 +64,14 @@ helpers and shell-outs live in the tasks modules:
   which excludes habits entirely) never pass that flag.
 - **`brain tasks doctor`**: prints a progress plan before checking the selected
   UUID-scoped state DB schema, every registry-declared lifecycle artifact,
-  OpenCode executable compatibility, `rclone version`, and the centralized
+  Claude and OpenCode executable compatibility, `rclone version`, and the centralized
   selected-workspace requirements. Hook commands are checked by event and
   current script suffix; Brain-owned bridge and plugin files require exact
   bundled contents, so stale files fail independently. It
   opens SQLite through an immutable read-only URI so a WAL database cannot be
   checkpointed by observation, passes an explicit no-config path to the rclone
   probe, and does not create cache, config, lock, journal, or rendered-skill state.
-  OpenCode probes use disposable HOME/XDG roots and remove them afterward.
+  Agent compatibility probes use disposable HOME/XDG roots and remove them afterward.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits`**: when no TUI is open, elects the shared process in
   background mode, attaches a temporary browser-only workspace lease, and
@@ -204,6 +204,16 @@ evidence, and any compatibility probe. TUI, setup, doctor, status, and
 compatibility helpers consume that registry instead of growing parallel
 frontend branches. All frontend operations are fallible so the controller can
 reject availability and setup before a transport side effect.
+
+Claude receiver observation requires the content-free `prompt_id` field added
+in Claude Code 2.1.196. Before controller operations, and during doctor, Brain
+runs the configured `claude_cmd` with `--version` through the registry-owned
+bounded compatibility runner. Versions below 2.1.196, malformed version output,
+and commands that cannot run fail closed with an actionable upgrade or
+`claude_cmd` remediation. The check uses a disposable HOME/XDG root, accepts an
+exact configured wrapper plus its existing flags, caches only successful
+evidence for that exact command, and never exposes the configured command in a
+diagnostic.
 
 OpenCode compatibility is a supported-feature policy, not a promise about
 every future release. Before launch, and during doctor, Brain checks the
@@ -900,7 +910,8 @@ Which session to run is decided by the **lock + recency** model in
    `receiver_observation_bridge.py` handles Claude and Codex
    `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
    token's exact marker as the prompt's final line and binds the content-free
-   accepted turn using Claude's `prompt_id` or Codex's `turn_id`. Progress
+   accepted turn using Claude's `prompt_id` (Claude Code 2.1.196 or later) or
+   Codex's `turn_id`. Progress
    requires that same accepted turn, token, remote instance, and native session;
    `tool_use_id` identifies each distinct pulse. A later non-marker root prompt
    in that session clears the turn authority before any later tool event can

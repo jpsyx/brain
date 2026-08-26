@@ -257,7 +257,14 @@ first move is a failing test that reproduces it, *then* the fix.
   blank compatibility-plan session IDs), and `env_for`. The command matrix
   lives here once; the integration characterization suite keeps only its real
   hook and environment boundaries.
-- **OpenCode compatibility and acceptance boundaries.** `tests/opencode_smoke.rs`
+- **Agent compatibility and acceptance boundaries.** Registry and controller
+  tests run executable Claude fixtures below, at, and above the 2.1.196
+  `prompt_id` floor, plus malformed output and an unavailable command. They
+  prove doctor requires Claude compatibility, the controller rejects an old
+  Claude before transport work, configured commands stay redacted, Codex
+  remains unprobed, and OpenCode retains its existing feature probe. Shared
+  bounded-runner characterization still covers timeout, output, wrapper, and
+  process-group behavior. `tests/opencode_smoke.rs`
   covers `--open-code`,
   normalized `-oc`, mutually exclusive selection, adapter command generation,
   trusted named-agent configuration, semantic input translation, session

@@ -1,6 +1,48 @@
 include!("test_support.rs");
 
 #[test]
+fn configured_claude_controller_rejects_a_version_without_prompt_id_hooks() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let temporary = tempfile::tempdir().expect("temporary Claude command");
+    let script = temporary.path().join("old-claude");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\n[ \"$1\" = --version ] || exit 64\nprintf '%s\\n' '2.1.195 (Claude Code)'\n",
+    )
+    .expect("write old Claude command");
+    let mut permissions = std::fs::metadata(&script)
+        .expect("old Claude metadata")
+        .permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(&script, permissions).expect("make old Claude executable");
+    let command = crate::agent::frontend::shell_quote(&script.display().to_string());
+    let workspace = workspace();
+    let actor = crate::actor::test_actor("pablo");
+    let recording = Recording::default();
+    let controller = AgentController::for_workspace_with_command(
+        workspace,
+        AgentKind::Claude,
+        command,
+        actor,
+        Box::new(RecordingTransport {
+            recording: recording.clone(),
+            pending_text: None,
+        }),
+    );
+
+    let error = controller
+        .ensure_available()
+        .expect_err("old Claude must fail controller preflight");
+
+    assert_eq!(
+        error.to_string(),
+        "frontend error: Claude is incompatible: version 2.1.195 does not provide the required `prompt_id` hook field. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+    );
+    assert!(recording.events().is_empty());
+}
+
+#[test]
 fn semantic_operations_deliver_follow_up_without_timer_ticks() {
     let (mut controller, recording, _, _) = controller();
 

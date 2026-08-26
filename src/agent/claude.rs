@@ -1,5 +1,7 @@
 //! Claude Code translation behind the frontend-neutral agent facade.
 
+mod probe;
+
 use std::path::PathBuf;
 
 use crate::agent::{
@@ -9,6 +11,10 @@ use crate::agent::{
 };
 
 pub(crate) const DEFAULT_COMMAND: &str = "claude --dangerously-skip-permissions";
+
+pub(crate) fn compatibility_version(command: &str) -> Result<Option<String>, AgentError> {
+    probe::compatibility(command)
+}
 
 /// Claude Code command, input, completion, and transcript conventions.
 pub(crate) struct ClaudeFrontend {
@@ -119,6 +125,10 @@ pub(crate) fn project_dir_name(workspace_root: &std::path::Path) -> String {
 impl AgentFrontend for ClaudeFrontend {
     fn kind(&self) -> AgentKind {
         AgentKind::Claude
+    }
+
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        probe::ensure_compatible(&self.command)
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {

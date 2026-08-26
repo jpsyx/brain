@@ -10,8 +10,11 @@ fn make_db(path: &std::path::Path) {
     brain::state::Db::open_path(path).expect("open");
 }
 
-fn compatible_opencode() -> [(AgentKind, Result<Option<String>, brain::agent::AgentError>); 1] {
-    [(AgentKind::OpenCode, Ok(Some("1.18.14".to_owned())))]
+fn compatible_frontends() -> [(AgentKind, Result<Option<String>, brain::agent::AgentError>); 2] {
+    [
+        (AgentKind::Claude, Ok(Some("2.1.196".to_owned()))),
+        (AgentKind::OpenCode, Ok(Some("1.18.14".to_owned()))),
+    ]
 }
 
 fn install_bridge_files(settings_dir: &std::path::Path) {
@@ -76,7 +79,7 @@ fn doctor_reports_db_missing_when_path_does_not_exist() {
     let tmp = tempfile::TempDir::new().unwrap();
     let missing: PathBuf = tmp.path().join("nope.db");
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&missing, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&missing, &settings_dir, false, &compatible_frontends());
     assert!(!diag.db_present, "db should be reported missing");
     // Schema check is N/A when the file isn't there.
     assert!(diag.db_schema_ok, "schema check is vacuously OK");
@@ -88,7 +91,7 @@ fn doctor_reports_db_schema_ok_when_db_freshly_opened() {
     let db_path = tmp.path().join("state.db");
     make_db(&db_path);
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(diag.db_present);
     assert!(diag.db_schema_ok);
 }
@@ -99,7 +102,7 @@ fn doctor_reports_hook_missing_when_settings_file_absent() {
     let db_path = tmp.path().join("state.db");
     make_db(&db_path);
     let settings_dir = tmp.path().join("brain").join(".claude");
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(
         !diag.frontend_ready(AgentKind::Claude),
         "no settings file => no hook"
@@ -118,7 +121,7 @@ fn doctor_reports_hook_missing_when_settings_lacks_session_start_entry() {
         r#"{"hooks": {"PreToolUse": []}}"#,
     )
     .unwrap();
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(!diag.frontend_ready(AgentKind::Claude));
 }
 
@@ -132,7 +135,7 @@ fn doctor_reports_hook_installed_when_session_start_entry_references_script() {
     // Both frontends use the project-relative script installed by Brain.
     std::fs::write(settings_dir.join("settings.json"), hook_settings()).unwrap();
     install_bridge_files(&settings_dir);
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(diag.frontend_ready(AgentKind::Claude), "diag={diag:?}");
 }
 
@@ -152,7 +155,7 @@ fn doctor_requires_the_complete_start_and_stop_hook_pair() {
     .unwrap();
     install_bridge_files(&settings_dir);
 
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
 
     assert!(!diag.frontend_ready(AgentKind::Claude));
 }
@@ -168,7 +171,7 @@ fn doctor_rejects_stale_opencode_plugin_and_bridge_contents() {
     std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
     std::fs::write(&plugin, "stale plugin").unwrap();
 
-    let stale_plugin = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let stale_plugin = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(!stale_plugin.frontend_ready(AgentKind::OpenCode));
 
     std::fs::write(&plugin, include_str!("../scripts/opencode_brain_plugin.js")).unwrap();
@@ -180,7 +183,7 @@ fn doctor_rejects_stale_opencode_plugin_and_bridge_contents() {
         "stale bridge",
     )
     .unwrap();
-    let stale_bridge = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let stale_bridge = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(!stale_bridge.frontend_ready(AgentKind::OpenCode));
 
     install_bridge_files(&settings_dir);
@@ -192,7 +195,7 @@ fn doctor_rejects_stale_opencode_plugin_and_bridge_contents() {
         "stale observation bridge",
     )
     .unwrap();
-    let stale_observation = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let stale_observation = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(!stale_observation.frontend_ready(AgentKind::OpenCode));
 }
 
@@ -210,7 +213,7 @@ fn a_legacy_tasks_hook_alone_does_not_count_as_installed() {
       {"type":"command","command":"/home/me/scripts/rc/tasks/scripts/claude_session_start_hook.py"}
     ]}]}}"#;
     std::fs::write(settings_dir.join("settings.json"), json).unwrap();
-    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    let diag = run_doctor(&db_path, &settings_dir, false, &compatible_frontends());
     assert!(
         !diag.frontend_ready(AgentKind::Claude),
         "a legacy tasks-path hook is not ours"
@@ -247,7 +250,7 @@ fn diagnosis_is_ok_when_all_checks_pass() {
         &settings_dir,
         &codex_hooks,
         false,
-        &compatible_opencode(),
+        &compatible_frontends(),
     );
     assert!(diag.frontend_ready(AgentKind::Claude));
     assert!(diag.frontend_ready(AgentKind::Codex));
@@ -282,7 +285,7 @@ fn doctor_requires_all_functional_frontend_integrations() {
         &settings_dir,
         &codex_hooks,
         false,
-        &compatible_opencode(),
+        &compatible_frontends(),
     );
 
     assert!(diag.frontend_ready(AgentKind::Claude));

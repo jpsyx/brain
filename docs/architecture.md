@@ -172,7 +172,7 @@ rule applies across the large runtime families:
 
 | Boundary | Coordinator / public seam | Focused implementation modules |
 | --- | --- | --- |
-| Agent compatibility | `agent/opencode/probe.rs` | `probe/runner.rs` owns bounded subprocess execution; `probe/tests.rs` owns characterization |
+| Agent compatibility | `agent/{claude,opencode}/probe.rs` | `agent/command_probe.rs` owns shared bounded subprocess execution; each frontend probe owns policy, caching, and characterization |
 | Ordinary task commands | `command/tasks.rs` | `tasks/set.rs` owns field mutation; `tasks/browse.rs` owns query resolution and browser launch |
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
@@ -497,9 +497,11 @@ each adapter returns the complete native text and final-key sequence.
 feature and schema probes, discovers resumable sessions for the exact selected
 root, and translates semantic controller actions to OpenCode's native input.
 Its compatibility probe runs version, TUI-option, session-list, generated-config,
-and plugin-load checks in disposable HOME/XDG roots. `probe/runner.rs` owns the
-bounded process-group runner and read-only command capture; `probe.rs` retains
-only compatibility policy and caching. Successful reports are
+and plugin-load checks in disposable HOME/XDG roots. Claude's compatibility
+probe uses that same isolated runner to require the `prompt_id` hook capability
+represented by Claude Code 2.1.196 or later. `agent/command_probe.rs` owns the
+bounded process-group runner and read-only command capture; each frontend's
+`probe.rs` retains only compatibility policy and caching. Successful reports are
 cached by configured command for the process; failed probes remain actionable
 and are not cached as compatibility evidence. Session discovery runs
 `session list --format json` in the selected root and admits only non-archived,
