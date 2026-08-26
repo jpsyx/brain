@@ -57,6 +57,26 @@ fn session_store_tracks_attribution_and_completion_for_each_frontend() {
 
 /// Insert a session row directly with an explicit `last_active`,
 /// bypassing the clock, for ordering tests.
+fn seed_with_source(
+    db: &Db,
+    id: &str,
+    instance: &str,
+    locked: Option<i32>,
+    last_active: i64,
+    source: &str,
+) {
+    db.conn
+        .execute(
+            "INSERT INTO brain_sessions
+                   (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
+                    workspace_id, actor_id, channel, created_at, last_active_at)
+                 VALUES ('claude', ?1, ?2, ?3, ?5, '8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b',
+                         'test-user', 'interactive', ?4, ?4)",
+            rusqlite::params![id, instance, locked, last_active, source],
+        )
+        .unwrap();
+}
+
 fn seed(db: &Db, id: &str, instance: &str, locked: Option<i32>, last_active: i64) {
     db.conn
         .execute(
@@ -85,6 +105,16 @@ fn free_sessions_are_ordered_newest_first_and_skip_locked() {
     // The locked one is newer but held by a live shell, so it's excluded;
     // the rest come newest-first.
     assert_eq!(db.sessions_by_recency(&scope()), vec!["new", "old"]);
+}
+
+#[test]
+fn forked_sessions_never_enter_the_resume_queue() {
+    let db = Db::open_in_memory().unwrap();
+    seed(&db, "panel", "i1", None, 100);
+    seed_with_source(&db, "background-agent", "i1", None, 200, "fork");
+    // The fork is newer, but it is some other agent's conversation — the panel
+    // resumes the newest session that is actually its own.
+    assert_eq!(db.sessions_by_recency(&scope()), vec!["panel"]);
 }
 
 #[test]

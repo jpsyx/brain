@@ -190,6 +190,18 @@ fn read_session(
     .ok()
 }
 
+/// The SessionStart payload a *forked* session sends. Background agents fork
+/// the panel's conversation and inherit its `BRAIN_*` environment, so this is
+/// what reaches the hook when one starts.
+fn fork_input(session_id: &str) -> String {
+    serde_json::json!({
+        "session_id": session_id,
+        "source": "fork",
+        "hook_event_name": "SessionStart",
+    })
+    .to_string()
+}
+
 fn start_input(session_id: &str) -> String {
     serde_json::json!({
         "session_id": session_id,

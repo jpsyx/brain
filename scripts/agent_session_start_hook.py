@@ -32,7 +32,9 @@ hook rather than this SessionStart hook.
 
 The hook updates an exact registered tuple or rotates an already registered
 live lineage to the frontend-reported id, then frees any other session this
-instance held. Receiver tuples additionally require their exact durable
+instance held. A forked session is ignored outright: it is a branch into a new
+conversation, not a continuation of this lineage's, and background agents
+inherit the panel's environment when they fork it. Receiver tuples additionally require their exact durable
 registration and live lock. Ambient, forged, or released workspace/session
 tuples are ignored.
 
@@ -78,6 +80,12 @@ def main() -> None:
     if not session_id:
         return
     source = data.get("source")
+    # A fork branches into a *new* conversation rather than continuing this
+    # one. Background agents fork the panel's session and inherit its BRAIN_*
+    # environment, so without this the fork would take over the lineage's
+    # registration and free the panel's own row.
+    if source == "fork":
+        return
 
     pid_raw = os.environ.get("BRAIN_PID", "")
     pid = int(pid_raw) if pid_raw.isdigit() else None

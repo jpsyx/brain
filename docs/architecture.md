@@ -1473,8 +1473,8 @@ without panicking.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`. Claude
-validates transcripts and its live-session registry, OpenCode validates
-exact-root live sessions, and Codex
+validates that a transcript holds a real conversation no live process is still
+in, OpenCode validates exact-root live sessions, and Codex
 validates its exact on-disk rollout; each resumes or starts fresh from that
 adapter-owned evidence. `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. The sync-services

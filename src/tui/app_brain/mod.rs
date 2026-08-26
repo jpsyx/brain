@@ -1,6 +1,6 @@
 //! Brain-panel controller ownership and orchestration.
 
-mod launch;
+pub(crate) mod launch;
 mod lifecycle;
 mod receiver;
 

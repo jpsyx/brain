@@ -43,7 +43,13 @@ shell.
 the focused panel's border brightens and the unfocused one dims. The shell
 starts focused on the tasks view so task navigation works immediately; the
 brain panel is still spawned at startup with the selected frontend ready
-one `Alt+`-switch away. `Alt+U` / `Alt+D` scroll the focused panel a half-page
+one `Alt+`-switch away. It resumes your most recent conversation in that
+workspace, skipping any the frontend can't reopen — one that never got a real
+exchange, one another live agent is still in, and any belonging to a background
+agent you started from the panel. If a resume is refused anyway the agent quits
+at once, so brain opens a fresh session in its place and tells you *"couldn't
+resume your last conversation; started a new brain chat"*: you always get a live
+panel, never a dead one. `Alt+U` / `Alt+D` scroll the focused panel a half-page
 up / down (the brain panel by half its visible rows, the search panel by a page
 of its match list): a keyboard-only alternative to the wheel that fires even
 while the selected agent has focus or the filter is being typed. macOS

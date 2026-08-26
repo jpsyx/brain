@@ -31,9 +31,10 @@ pub(crate) struct BrainPanelState {
     interactive_actor: ActorContext,
     interactive_response_id: Option<String>,
     interactive_agent_session_id: Option<String>,
+    resume_refusals: crate::tui::app_brain::launch::arrival::ResumeRefusals,
     session_actor: Option<ActorContext>,
     #[cfg(test)]
-    brain_transport_override: Option<Box<dyn AgentTransport>>,
+    brain_transport_override: std::collections::VecDeque<Box<dyn AgentTransport>>,
     #[cfg(test)]
     session_done_url_override: Option<String>,
     #[cfg(test)]
@@ -53,9 +54,10 @@ impl BrainPanelState {
             interactive_actor: init.interactive_actor,
             interactive_response_id: None,
             interactive_agent_session_id: None,
+            resume_refusals: crate::tui::app_brain::launch::arrival::ResumeRefusals::default(),
             session_actor: None,
             #[cfg(test)]
-            brain_transport_override: None,
+            brain_transport_override: std::collections::VecDeque::new(),
             #[cfg(test)]
             session_done_url_override: None,
             #[cfg(test)]
@@ -132,6 +134,38 @@ impl BrainPanelState {
 
     pub(crate) fn record_interactive_agent_session(&mut self, session_id: String) {
         self.interactive_agent_session_id = Some(session_id);
+    }
+
+    /// Start the clock on a resumed launch: if its agent dies before the clock
+    /// runs out, the frontend refused the resume.
+    pub(crate) fn arm_resume_arrival(&mut self, session_id: String) {
+        self.resume_refusals.arm(session_id);
+    }
+
+    /// The resumed session and how long it has been running, while the arrival
+    /// window is still armed.
+    #[must_use]
+    pub(crate) fn resume_arrival(&self) -> Option<(&str, std::time::Duration)> {
+        self.resume_refusals.arrival()
+    }
+
+    pub(crate) fn disarm_resume_arrival(&mut self) {
+        self.resume_refusals.disarm();
+    }
+
+    /// Never offer this id again for the rest of the run.
+    pub(crate) fn refuse_resume_id(&mut self, session_id: String) {
+        self.resume_refusals.refuse(session_id);
+    }
+
+    #[must_use]
+    pub(crate) fn resume_was_refused(&self, session_id: &str) -> bool {
+        self.resume_refusals.was_refused(session_id)
+    }
+
+    /// Claim this run's single panel relaunch.
+    pub(crate) fn claim_resume_retry(&mut self) -> bool {
+        self.resume_refusals.claim_retry()
     }
 
     #[must_use]
@@ -296,14 +330,17 @@ impl BrainPanelState {
         self.ephemeral_tabs.next_id()
     }
 
+    /// Queue a transport for the next panel launch. Successive calls line up in
+    /// order, so a test can drive a launch *and* the relaunch that follows a
+    /// refused resume.
     #[cfg(test)]
     pub(crate) fn replace_brain_transport(&mut self, transport: Box<dyn AgentTransport>) {
-        self.brain_transport_override = Some(transport);
+        self.brain_transport_override.push_back(transport);
     }
 
     #[cfg(test)]
     pub(crate) fn take_brain_transport(&mut self) -> Option<Box<dyn AgentTransport>> {
-        self.brain_transport_override.take()
+        self.brain_transport_override.pop_front()
     }
 
     #[cfg(test)]

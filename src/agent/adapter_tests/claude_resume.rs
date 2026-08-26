@@ -7,8 +7,25 @@ use std::path::PathBuf;
 
 use crate::agent::{
     AgentFrontend, AgentSession, ClaudeFrontend,
-    claude::{SessionClaim, session_is_held_by_live_process},
+    claude::{SessionClaim, session_is_held_by_live_process, transcript_has_conversation},
 };
+
+/// One real exchange, the shape `claude --resume` needs to find.
+const CONVERSATION: &str = concat!(
+    r#"{"type":"user","message":{"role":"user","content":"hi"}}"#,
+    "\n",
+    r#"{"type":"assistant","message":{"role":"assistant","content":"hello"}}"#,
+    "\n",
+);
+
+/// What Claude leaves behind for a session that was named but never spoken in
+/// — a background agent's fork stub, for instance.
+const METADATA_ONLY: &str = concat!(
+    r#"{"type":"ai-title","aiTitle":"Locate the privacy policy"}"#,
+    "\n",
+    r#"{"type":"agent-name","agentName":"Locate the privacy policy"}"#,
+    "\n",
+);
 
 const fn always_alive(_pid: i32) -> bool {
     true
@@ -31,7 +48,7 @@ fn claude_home(session: &str, claims: &[(i32, &str)]) -> tempfile::TempDir {
     let home = tempfile::tempdir().expect("claude home");
     let project = home.path().join("projects").join("-workspaces-family brain");
     std::fs::create_dir_all(&project).expect("project dir");
-    std::fs::write(project.join(format!("{session}.jsonl")), "{}\n").expect("transcript");
+    std::fs::write(project.join(format!("{session}.jsonl")), CONVERSATION).expect("transcript");
     let sessions = home.path().join("sessions");
     std::fs::create_dir_all(&sessions).expect("sessions dir");
     for (pid, claimed) in claims {
@@ -51,6 +68,34 @@ fn frontend(home: &tempfile::TempDir, pid_alive: crate::state::PidAlive) -> Clau
         home.path().join("projects"),
     )
     .with_pid_probe(pid_alive)
+}
+
+#[test]
+fn only_a_real_exchange_counts_as_a_resumable_conversation() {
+    assert!(transcript_has_conversation(CONVERSATION));
+    assert!(
+        !transcript_has_conversation(METADATA_ONLY),
+        "a title and an agent name are not a conversation"
+    );
+    assert!(!transcript_has_conversation(""));
+    assert!(
+        !transcript_has_conversation("not json at all\n"),
+        "unreadable lines contribute no turn"
+    );
+}
+
+#[test]
+fn claude_refuses_to_resume_a_transcript_that_holds_no_conversation() {
+    let home = claude_home("stub", &[]);
+    let project = home.path().join("projects").join("-workspaces-family brain");
+    std::fs::write(project.join("stub.jsonl"), METADATA_ONLY).expect("stub transcript");
+
+    assert_eq!(
+        frontend(&home, never_alive)
+            .resume_candidate_exists(&AgentSession::new("stub").expect("stub session")),
+        Ok(false),
+        "`claude --resume` answers \"No conversation found\" for one of these"
+    );
 }
 
 #[test]
