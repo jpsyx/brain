@@ -1296,10 +1296,14 @@ without a manual `brain skills sync`.
 
 - `SessionStore::sessions_by_recency` selects free sessions only within the exact
   agent/workspace/actor/channel scope, newest (`last_active_at DESC`)
-  first. Claude walks them and resumes the first whose **transcript
-  exists** on disk (`ClaudeFrontend::resume_candidate_exists` +
-  `agent::claude::project_dir_name`); a session opened but never chatted in has a
-  DB row but no `<id>.jsonl`, and `claude --resume` can't find it, so it's
+  first. Claude walks them and resumes the first whose **transcript exists**
+  on disk *and* that **no live process still holds**
+  (`ClaudeFrontend::resume_candidate_exists` +
+  `agent::claude::project_dir_name` +
+  `agent::claude::session_registry`); a session opened but never chatted in has a
+  DB row but no `<id>.jsonl`, and `claude --resume` can't find it, while a
+  session a live Claude process owns (a background agent, or a second attached
+  CLI) is one `claude --resume` refuses outright. Either way the candidate is
   skipped (and the user gets a status-line alert when that forces a fresh
   chat). OpenCode snapshots `session list --format json` in the selected root
   and accepts only a live root session whose reported directory resolves to

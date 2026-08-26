@@ -15,6 +15,7 @@ use crate::{
     workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
 };
 
+mod claude_resume;
 mod contract;
 
 #[test]

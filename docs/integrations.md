@@ -814,7 +814,12 @@ Which session to run is decided by the **lock + recency** model in
    frontend/workspace/actor/channel scope
    and asks the selected adapter to validate each candidate. Claude requires
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl` (its project-dir
-   rule plus a fallback scan). OpenCode takes one read-only snapshot from
+   rule plus a fallback scan) **and** no live process holding that id in
+   Claude's session registry, `~/.claude/sessions/<pid>.json`: Claude refuses
+   `--resume` for a session another process is still in (a background agent,
+   or a second attached CLI), so a held id is not a candidate however complete
+   its transcript is. A registry entry whose PID is gone is a leftover file,
+   not a hold. OpenCode takes one read-only snapshot from
    `session list --format json` in the selected root and accepts only live,
    non-archived, non-deleted root sessions whose reported directory resolves
    to that exact root. Child sessions and another workspace's IDs are never
