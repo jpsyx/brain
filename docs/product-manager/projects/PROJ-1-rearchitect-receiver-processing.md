@@ -9,7 +9,7 @@ initiative:
 target_date:
 github:
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-26
 ---
 
 # PROJ-1: Rearchitect receiver processing
@@ -118,3 +118,8 @@ Out of scope:
   and email ingress now commits exact workspace-scoped jobs before provider
   success, with restart-safe deduplication, atomic capacity, and crash recovery.
   MS-1 is complete and BR-14 is the next execution step.
+- **2026-08-26: on-track**: BR-14 and BR-15 shipped through Brain 0.83.9.
+  Receiver jobs now run in dedicated resumable tabs and advance only from
+  bounded, exact token-matched frontend observations. BR-16 is next and will
+  recover stalled launched, accepted, or processing work without blindly
+  duplicating a prompt.

@@ -1,7 +1,7 @@
 ---
 id: BR-15
 title: Prove receiver job acceptance and progress
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [enhancement, server]
@@ -13,7 +13,7 @@ parent:
 github:
 blocked_by: []
 created: 2026-08-23
-updated: 2026-08-25
+updated: 2026-08-26
 ---
 
 # BR-15: Prove receiver job acceptance and progress
@@ -32,26 +32,26 @@ entire growing history. Completion remains a separate token-matched fact.
 
 ## Acceptance criteria
 
-- [ ] Every launch carries one unique job token in trusted launch metadata and
+- [x] Every launch carries one unique job token in trusted launch metadata and
       in the exact prompt content that frontend evidence can correlate.
-- [ ] `launched`, `accepted`, `progressing`, and `completed` are distinct
+- [x] `launched`, `accepted`, `progressing`, and `completed` are distinct
       observations with explicit persisted transitions.
-- [ ] An exact prompt-submit or transcript event is required before a job is
+- [x] An exact prompt-submit or transcript event is required before a job is
       marked accepted.
-- [ ] Claude, Codex, and OpenCode provide equivalent semantic observations
+- [x] Claude, Codex, and OpenCode provide equivalent semantic observations
       behind `AgentController`; frontend storage grammar does not leak into the
       receiver coordinator.
-- [ ] Observation is incremental and bounded for growing histories, and handles
+- [x] Observation is incremental and bounded for growing histories, and handles
       truncation, missing files, malformed entries, delayed writes, and session
       rotation conservatively.
-- [ ] A valid token-matched completion may advance directly even when an
+- [x] A valid token-matched completion may advance directly even when an
       intermediate observation was missed.
-- [ ] Diagnostic records name the job and lifecycle boundary without logging
+- [x] Diagnostic records name the job and lifecycle boundary without logging
       prompt contents, provider credentials, or private response text.
-- [ ] Red/green tests cover unobserved launch, exact acceptance, unrelated old
+- [x] Red/green tests cover unobserved launch, exact acceptance, unrelated old
       messages, progress, malformed/ambiguous evidence, rotation, and missed
       intermediate observations without fixed sleeps.
-- [ ] Agent, receiver, integration, architecture, decision, data-model, and
+- [x] Agent, receiver, integration, architecture, decision, data-model, and
       testing docs describe the evidence contract.
 
 ## Notes
@@ -285,3 +285,10 @@ whole-branch acceptance review before integration.
 - 2026-08-25 unblocked after BR-14 shipped isolated durable tabs. Current-code
   review replaced stale transcript and PTY pointers with a token-matched,
   fixed-size lifecycle evidence protocol and a five-task TDD plan.
+- 2026-08-26 completed in Brain 0.83.9 and merged to `main` as `65cc580`.
+  Claude, Codex, and OpenCode now publish and consume the same bounded,
+  token-matched lifecycle observations through `AgentController`; durable
+  receiver state distinguishes launch, acceptance, progress, and completion.
+  The final whole-branch review and scoped privacy rereview reported no open
+  findings. The serial release suite passed all 3,035 tests, strict Clippy,
+  formatting, privacy, structure, version, and diff checks.
