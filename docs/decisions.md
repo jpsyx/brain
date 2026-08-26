@@ -727,6 +727,38 @@ look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
+## Why a transcript on disk isn't enough to resume a Claude session
+
+A transcript proves the conversation *exists*; it says nothing about whether
+anyone is still in it. `claude --resume <id>` refuses a session another live
+process owns and exits immediately — *"Session … is currently running as a
+background agent (bg). Use `claude agents` to find and attach to it, or add
+--fork-session to branch off a copy."* Brain treated that as a launch failure,
+so the panel never appeared and every later "Message brain" had no session to
+talk to.
+
+The id gets there honestly. A background agent started *from* the brain panel
+inherits `BRAIN_INSTANCE_ID` and friends, so its `SessionStart` hook registers
+its own session in `brain_sessions` like any other. Being the newest row, it
+became the first resume candidate — and, being a long-lived daemon, it was
+still holding that session hours later.
+
+So Claude's resume evidence is now two-sided: the transcript must exist **and**
+no live process may hold the id. The second half reads Claude's own
+per-process registry, `~/.claude/sessions/<pid>.json`, which names the session
+each running Claude owns; a claim whose PID is gone is a leftover file, not a
+hold, so the liveness probe (`kill -0`, the same one the session locks use)
+decides. Absent or unparseable evidence contributes no claim, so a missing
+registry can never make a resumable session look held.
+
+We deliberately did *not* fix this by filtering background agents out at
+registration. Brain can't reliably tell one Claude lineage from another at hook
+time, and the same refusal happens for any second attached CLI — the general
+rule ("someone else is in this conversation") is both the smaller change and
+the more correct one. Because `open_or_focus_brain` already walks candidates by
+recency, rejecting the held id costs nothing: the panel falls through to the
+next eligible session and the user's real conversation comes back.
+
 ## Why the brain panel launch is frontend-aware
 
 The TUI and receiver call the `AgentController` facade's semantic launch,

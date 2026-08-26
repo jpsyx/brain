@@ -19,7 +19,8 @@ execution surfaces are a persistent TUI and short-lived command families:
   persists across a switch and closing it makes the main view full-width. The
   process owns the terminal until you quit and keeps UUID-scoped SQLite state
   for frontend sessions, completion delivery, and panel layout. Claude may
-  resume an eligible transcript, OpenCode may resume an eligible live root
+  resume an eligible transcript no live process holds, OpenCode may resume an
+  eligible live root
   session from the exact selected workspace, and Codex may resume when its
   exact rollout remains on disk. Each frontend starts fresh when its evidence
   is missing.
@@ -1472,7 +1473,8 @@ without panicking.
 The constructor derives its retained root and state-DB path from that context;
 callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
 then launches the selected frontend through an `AgentController`. Claude
-validates transcripts, OpenCode validates exact-root live sessions, and Codex
+validates transcripts and its live-session registry, OpenCode validates
+exact-root live sessions, and Codex
 validates its exact on-disk rollout; each resumes or starts fresh from that
 adapter-owned evidence. `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. The sync-services
