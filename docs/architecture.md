@@ -1876,12 +1876,19 @@ advisory-locked JSON snapshot is at most
 revision safe across duplicate or concurrent delivery. It retains accepted,
 progressing, and completed timestamps but never stores prompt, tool, response,
 sender, recipient, attachment, cwd, credential, or transcript content.
+Before deriving a later phase, the writer opens any prior snapshot without
+following links and in nonblocking mode where supported. It validates the same
+regular owner-only descriptor, byte bound, exact schema, lifecycle, and
+token/instance/session lineage before and after one bounded read. A replaced,
+malformed, or ambiguous entry is preserved and cannot be normalized into
+trusted evidence by a later hook.
 Revisions stop at SQLite's maximum signed integer. Once saturated, later
 producer events preserve the last valid snapshot instead of writing evidence
 the durable store cannot represent.
 Completion may create revision 1 with null intermediate timestamps when submit
 and tool evidence was missed; private text remains separate. A
-verified completion launches an immediate push. Failed PTY launches
+verified artifact completion retains the strict lifecycle completion timestamp
+when the same poll observed it, then launches an immediate push. Failed PTY launches
 release the exact registration and claim, shut down the new controller once,
 and record a durable pre-acceptance retry with a clock observation sampled
 after cleanup, without changing the main panel. Once the post-spawn `launched`

@@ -1525,11 +1525,16 @@ durable revision and evidence timestamps on every tick, so process restart does
 not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
 or regressed evidence leaves the job unchanged. Producer revision saturation
 also preserves the last valid snapshot rather than emitting an unrepresentable
-revision.
+revision. A later producer event cannot repair or replace an untrusted prior
+entry: symlinks, non-owner-only files, malformed or truncated JSON, wrong
+identity, and ambiguous lifecycle shapes are preserved for the strict App poll
+to reject in its stable category.
 
 An exact lifecycle completion artifact and lifecycle-only completion are both
 terminal evidence. A valid artifact wins when both appear in one tick, so its
 private response is delivered once through the existing exact completion path.
+When the same poll contains a validated lifecycle completion, its producer
+timestamp remains the durable terminal evidence time.
 Lifecycle-only completion can move `launched`, `accepted`, or `processing`
 directly to `done` without inventing missed intermediate timestamps or a
 response body. Its

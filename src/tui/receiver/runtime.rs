@@ -45,6 +45,8 @@ pub(crate) struct ReceiverRuntime {
     before_observation_persistence_hook: Option<BeforeObservationPersistenceHook>,
     #[cfg(test)]
     launch_boundary_hooks: Vec<(ReceiverLaunchBoundary, Box<dyn FnOnce()>)>,
+    #[cfg(test)]
+    observation_diagnostics: std::cell::RefCell<Vec<String>>,
 }
 
 impl ReceiverRuntime {
@@ -65,6 +67,8 @@ impl ReceiverRuntime {
             before_observation_persistence_hook: None,
             #[cfg(test)]
             launch_boundary_hooks: Vec::new(),
+            #[cfg(test)]
+            observation_diagnostics: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -142,6 +146,16 @@ impl ReceiverRuntime {
         };
         let (_, hook) = self.launch_boundary_hooks.remove(index);
         hook();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_observation_diagnostic(&self, diagnostic: String) {
+        self.observation_diagnostics.borrow_mut().push(diagnostic);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn last_observation_diagnostic(&self) -> Option<String> {
+        self.observation_diagnostics.borrow().last().cloned()
     }
 
     pub(crate) fn take_durable_run(&mut self) -> DurableReceiverRun {

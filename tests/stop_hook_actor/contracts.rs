@@ -7,7 +7,13 @@ fn fresh_lifecycle(
     let temporary = tempfile::tempdir().unwrap();
     let state_db = temporary.path().join("state.db");
     let response_dir = temporary.path().join("responses");
-    let instance = format!("{agent_kind}-shell");
+    let instance = match agent_kind {
+        "claude" => "22222222-2222-4222-8222-222222222222",
+        "codex" => "33333333-3333-4333-8333-333333333333",
+        "opencode" => "44444444-4444-4444-8444-444444444444",
+        _ => unreachable!("complete frontend fixture"),
+    }
+    .to_owned();
     drop(brain::state::Db::open_path(&state_db).unwrap());
     register_session(&state_db, agent_kind, session_id, &instance);
     (temporary, state_db, response_dir, instance)

@@ -53,7 +53,19 @@ impl App {
         if let Some(completion) = self.exact_receiver_completion(&active, &path) {
             #[cfg(test)]
             self.receiver.run_after_completion_validation_hook();
-            let completion_observed_at = self.receiver_now_unix_ms();
+            let completion_observed_at = poll
+                .as_ref()
+                .ok()
+                .and_then(|(poll, _)| {
+                    poll.observation
+                        .boundaries()
+                        .iter()
+                        .find(|boundary| boundary.phase() == AgentObservationPhase::Completed)
+                })
+                .map_or_else(
+                    || self.receiver_now_unix_ms(),
+                    |boundary| boundary.observed_at_unix_ms(),
+                );
             let boundary = poll.as_ref().ok().and_then(|(poll, _)| {
                 poll.observation
                     .boundaries()
@@ -387,14 +399,18 @@ impl App {
             .ok()
             .flatten()
             .map_or(ReceiverJobState::Launched, |(state, _)| state);
-        crate::logging::log(receiver_observation_diagnostic(
+        let diagnostic = receiver_observation_diagnostic(
             active.claim.job().id(),
             active.attribution.instance(),
             active.attribution.scope().agent_kind(),
             prior,
             boundary,
             category,
-        ));
+        );
+        #[cfg(test)]
+        self.receiver
+            .record_observation_diagnostic(diagnostic.clone());
+        crate::logging::log(diagnostic);
     }
 
     fn receiver_completion_path(&self, instance: &str) -> std::path::PathBuf {

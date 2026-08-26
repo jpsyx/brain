@@ -911,6 +911,13 @@ Which session to run is decided by the **lock + recency** model in
    prompt, marker, tool, response, sender, recipient, path, cwd, credential, or
    transcript content. The opaque token's Debug representation is a fixed redacted
    placeholder, so derived observation values cannot reveal the token. If
+   a prior snapshot exists, the writer opens it no-follow and nonblocking where
+   supported, verifies the opened regular owner-only descriptor and exact byte
+   length before and after one bounded read, and accepts only the strict
+   ten-field schema, canonical token and instance, bounded session and turn,
+   valid revision/timestamps, and exact token/instance/session lineage. A bad
+   symlink, mode, body, identity, or lifecycle is left untouched; a later event
+   cannot launder it into a valid atomic replacement. If
    submit and post-tool evidence was delayed or missed, an exact
    Stop event may create revision 1 directly at `completed`; its accepted and
    progressing timestamps remain null while the completed timestamp is set.
@@ -986,7 +993,10 @@ Which session to run is decided by the **lock + recency** model in
    replaces the conversation binding with its exact observed native session.
    A binding persistence failure rolls back the terminal job update. A valid
    artifact still wins when both terminal forms exist in one tick and delivers
-   its exact body once. Lifecycle-only completion delivers nothing. Terminal
+   its exact body once. When that poll also contains a strict completed
+   boundary, its producer timestamp is retained as the durable completion time;
+   only an artifact without lifecycle completion evidence uses the poll time.
+   Lifecycle-only completion delivers nothing. Terminal
    completion, child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll

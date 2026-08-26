@@ -337,6 +337,7 @@ const observationScenario = async (BrainPlugin) => {
   Object.assign(process.env, {
     BRAIN_RECEIVER_JOB_TOKEN: token,
     BRAIN_RECEIVER_OBSERVATION_PATH: observationPath,
+    BRAIN_INSTANCE_ID: "22222222-2222-4222-8222-222222222222",
   });
   const fake = sdk();
   const plugin = await BrainPlugin({ client: fake.client, directory: root });
@@ -436,6 +437,7 @@ const resumedObservationScenario = async (BrainPlugin) => {
   Object.assign(process.env, {
     BRAIN_RECEIVER_JOB_TOKEN: token,
     BRAIN_RECEIVER_OBSERVATION_PATH: observationPath,
+    BRAIN_INSTANCE_ID: "22222222-2222-4222-8222-222222222222",
   });
   const fake = sdk();
   const plugin = await BrainPlugin({ client: fake.client, directory: root });
@@ -539,6 +541,94 @@ const externalObservationScenario = async (BrainPlugin) => {
   assert.deepEqual(fake.calls, [], "incremental observation must not fetch history");
 };
 
+const externalObservationStageScenario = async (BrainPlugin) => {
+  const root = process.env.BRAIN_ROOT;
+  const token = process.env.BRAIN_RECEIVER_JOB_TOKEN;
+  const observationPath = process.env.BRAIN_RECEIVER_OBSERVATION_PATH;
+  const sessionID = process.env.TEST_RECEIVER_SESSION_ID;
+  const stage = process.env.TEST_RECEIVER_STAGE;
+  assert(root, "BRAIN_ROOT is required");
+  assert(token, "BRAIN_RECEIVER_JOB_TOKEN is required");
+  assert(observationPath, "BRAIN_RECEIVER_OBSERVATION_PATH is required");
+  assert(sessionID, "TEST_RECEIVER_SESSION_ID is required");
+  assert(stage, "TEST_RECEIVER_STAGE is required");
+  const hookDirectory = path.join(root, ".brain", "hooks");
+  fs.mkdirSync(hookDirectory, { recursive: true });
+  for (const name of ["receiver_observation_bridge.py", "agent_session_stop_hook.py"]) {
+    fs.copyFileSync(path.join(path.dirname(pluginPath), name), path.join(hookDirectory, name));
+  }
+  const fake = sdk({
+    sessions: { [sessionID]: { id: sessionID } },
+    messages: { [sessionID]: [completedAssistant([textPart("matrix completion")])] },
+  });
+  const plugin = await BrainPlugin({ client: fake.client, directory: root });
+  await dispatch(plugin, updated({ id: sessionID }));
+
+  if (stage === "reordered_progress") {
+    await plugin["tool.execute.after"]({ sessionID, messageID: "turn-before-acceptance" });
+  } else if (stage === "accepted" || stage === "progressing") {
+    const messageID = "matrix-user";
+    const part = {
+      id: "matrix-part",
+      sessionID,
+      messageID,
+      type: "text",
+      text: `matrix\n<!-- brain:receiver-job-token=${token} -->`,
+    };
+    await dispatch(plugin, messageUpdated({ id: messageID, sessionID, role: "user" }));
+    await dispatch(plugin, partUpdated(part));
+    if (stage === "progressing") {
+      await plugin["tool.execute.after"]({ sessionID, messageID: "matrix-turn" });
+    }
+  } else if (stage === "completed") {
+    await dispatch(plugin, idle(sessionID));
+  } else {
+    throw new Error(`unknown receiver stage: ${stage}`);
+  }
+  assert.deepEqual(fake.logs, []);
+};
+
+const externalObservationPrivacyScenario = async (BrainPlugin) => {
+  const root = process.env.BRAIN_ROOT;
+  const token = process.env.BRAIN_RECEIVER_JOB_TOKEN;
+  const sessionID = process.env.TEST_RECEIVER_SESSION_ID;
+  const promptCanary = process.env.TEST_PROMPT_CANARY;
+  const responseCanary = process.env.TEST_RESPONSE_CANARY;
+  assert(root && token && sessionID && promptCanary && responseCanary);
+  const hookDirectory = path.join(root, ".brain", "hooks");
+  fs.mkdirSync(hookDirectory, { recursive: true });
+  for (const name of ["receiver_observation_bridge.py", "agent_session_stop_hook.py"]) {
+    fs.copyFileSync(path.join(path.dirname(pluginPath), name), path.join(hookDirectory, name));
+  }
+  const fake = sdk({
+    sessions: { [sessionID]: { id: sessionID } },
+    messages: { [sessionID]: [completedAssistant([textPart(responseCanary)])] },
+  });
+  const plugin = await BrainPlugin({ client: fake.client, directory: root });
+  await dispatch(plugin, updated({ id: sessionID }));
+  const messageID = "privacy-user";
+  await dispatch(plugin, messageUpdated({ id: messageID, sessionID, role: "user" }));
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "privacy-part",
+      sessionID,
+      messageID,
+      type: "text",
+      text: `${promptCanary}\n<!-- brain:receiver-job-token=${token} -->`,
+    }),
+  );
+  await plugin["tool.execute.after"]({
+    sessionID,
+    messageID: "privacy-turn",
+    body: process.env.TEST_BODY_CANARY,
+    recipient: process.env.TEST_RECIPIENT_CANARY,
+    credential: process.env.TEST_CREDENTIAL_CANARY,
+  });
+  await dispatch(plugin, idle(sessionID));
+  assert.deepEqual(fake.logs, []);
+};
+
 (async () => {
   const BrainPlugin = await loadPlugin();
   const scenarios = {
@@ -551,6 +641,8 @@ const externalObservationScenario = async (BrainPlugin) => {
     observations: observationScenario,
     resumed_observations: resumedObservationScenario,
     external_observation: externalObservationScenario,
+    external_observation_stage: externalObservationStageScenario,
+    external_observation_privacy: externalObservationPrivacyScenario,
   };
   const run = scenarios[scenario];
   if (!run) throw new Error(`unknown scenario: ${scenario}`);

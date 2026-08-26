@@ -356,16 +356,27 @@ first move is a failing test that reproduces it, *then* the fix.
   artifact-body delivery once versus no lifecycle-only delivery; exact-instance
   response, snapshot, and lock cleanup for all five exit routes; stable
   content-free diagnostics; and FIFO release to the next durable job.
-  The final BR-15 parity matrix drives the real Claude and Codex hook bridge and
-  the real OpenCode plugin through acceptance-before-progress, duplicates,
-  completion-first, and normal completion. Replacement tests reject symlinks,
-  permissive modes, wrong tokens, truncation, and revision regression while
-  preserving the durable row and active tab. A fresh-App restart test proves
+  The final BR-15 parity matrix ticks the App separately after reordered
+  progress, exact submit, later progress, and terminal evidence for every
+  frontend. Claude and Codex finish through `agent_session_stop_hook.py`;
+  OpenCode finishes through its real `session.idle` to stop-hook path. Normal,
+  duplicate, and completion-first cases preserve every producer timestamp.
+  Replacement tests then send later progress after symlink, permissive,
+  malformed, truncated, wrong-token, and ambiguous same-scope entries, proving
+  the producer preserves each entry and the App retains the durable row and tab
+  while emitting only its stable category. A fresh-App restart test proves
   `launched`, `accepted`, and `processing` rows are neither reclaimed nor
-  replayed, and producer saturation preserves the last valid snapshot. A
-  privacy guard scans the complete observation path, verifies redacted token,
-  request, observation-set, error, and diagnostic formatting, and proves
-  submitted canary content never reaches the snapshot.
+  replayed. Exact `i64::MAX` characterization crosses the strict snapshot,
+  reader, controller, App, SQLite, reconstructed cursor, saturated producer,
+  and a subsequent no-newer poll without wrap or timestamp loss. The privacy
+  guard discovers relevant Rust, Python, JavaScript, completion, controller,
+  store, migration, and fixture surfaces by semantic markers, so a future
+  observation module joins the audit automatically. Runtime prompt, body,
+  response, recipient, and credential canaries cross submit, tool,
+  stop/completion, OpenCode idle, Debug, error, and diagnostic paths; snapshots
+  and emitted output contain none of them, token values stay redacted from
+  Debug and diagnostics, and trusted artifacts retain only their intentional
+  opaque identity fields and private completion body.
   Existing exit and shutdown cases prove that no terminal evidence means local
   cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +

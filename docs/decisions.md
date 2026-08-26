@@ -2567,10 +2567,22 @@ file into a permanent poll failure.
 
 Artifact validation remains independent because lifecycle evidence deliberately
 contains no response text. When both terminal forms arrive together, the exact
-artifact path wins and delivers once. Lifecycle-only completion closes the job
+artifact path wins and delivers once, while the completed boundary's validated
+producer timestamp remains the durable terminal evidence time. Poll time is the
+fallback only when an exact artifact has no lifecycle completion alongside it.
+Lifecycle-only completion closes the job
 without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
 does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns
 durable answer and delivery-only recovery.
+
+The producer treats an existing snapshot as untrusted input even though Brain
+created its path. Before deriving a later phase it performs a descriptor-bound,
+single-read validation equivalent to the consumer's file, schema, lifecycle,
+and exact-lineage checks. Failing open would let a later progress hook replace a
+symlink, permissive file, malformed body, or forged accepted frame with a valid
+owner-only snapshot, effectively turning tool activity into acceptance. The
+fail-closed writer preserves the bad entry so the coordinator can report its
+stable content-free category without changing durable state.
 
 Process restart does not by itself prove a stalled native run. Claim selection
 therefore leaves expired `launched`, `accepted`, and `processing` rows exactly

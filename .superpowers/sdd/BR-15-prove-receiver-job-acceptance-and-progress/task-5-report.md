@@ -226,3 +226,143 @@ No unresolved behavioral or privacy concern remains. The two transient
 unchanged process-fixture deadlines are recorded above; focused reproduction,
 their whole integration targets, and the authoritative final full rerun all
 passed.
+
+## Review fix round (2026-08-25)
+
+This section supersedes the pre-review parity, replacement, numeric-boundary,
+and privacy claims above. The sealed review found one critical and three
+important gaps; all four are closed in version 0.83.4.
+
+### RED and GREEN evidence
+
+- Replacement laundering RED: a same-scope accepted job followed by a real
+  `PostToolUse` event replaced an untrusted symlink snapshot with a new
+  revision-2 `processing` file. GREEN: the Python bridge now opens an existing
+  snapshot once with no-follow and nonblocking flags where available, verifies
+  the opened descriptor before and after one bounded read, and accepts only a
+  regular owner-only file no larger than 4096 bytes with the exact strict
+  ten-field schema-v1 and trusted token, instance, and session lineage. Invalid
+  symlink, permissive, malformed, truncated, wrong-identity, and ambiguous
+  snapshots are preserved. In every focused case the durable row and active
+  tab remain unchanged and the App emits only the expected stable,
+  content-free diagnostic category.
+- Final self-review found that Python's default JSON decoder collapsed
+  duplicate object fields. The focused duplicate-field RED advanced the
+  accepted snapshot to revision 2 even though the strict Rust reader rejected
+  the prior bytes. GREEN: strict object decoding now rejects every duplicate
+  field before schema validation, preserves the exact prior bytes, and emits
+  the stable `malformed-snapshot` category without changing the durable row or
+  active tab.
+- Real-producer matrix RED: exact completion artifacts could persist the later
+  App poll time instead of the actual lifecycle producer boundary, a 53 ms
+  discrepancy in the Claude row. GREEN: when the same poll has an exact
+  `completed` lifecycle boundary, artifact consumption persists that producer
+  timestamp. The matrix now drives `launched`, `accepted`, `processing`, and
+  `done` separately for Claude, Codex, and OpenCode. Claude and Codex terminate
+  through `agent_session_stop_hook.py`; OpenCode terminates through its real
+  `session.idle` plugin route into the stop hook. Normal and completion-first
+  orderings, duplicate idempotence, and exact non-invented timestamps pass for
+  all three frontends.
+- Exact maximum revision characterization crossed the strict producer,
+  reader/parser, `AgentController`, App conversion, SQLite persistence,
+  durable-cursor reconstruction, and a subsequent no-newer-event poll on its
+  first run. No production gap or manufactured RED was found. Revision
+  `i64::MAX` remains exact and nonnegative, and its phase and timestamps remain
+  intact after a saturated later producer event.
+- The privacy runtime canaries passed on their first behavioral run, so no
+  production privacy RED was manufactured. The structural guard initially
+  reported two deliberately generic fixture-path false positives; its path
+  heuristic was narrowed to the actual private-path pattern and then passed.
+  Discovery is now recursive and semantic, has an explicit minimum breadth,
+  and requires the stop hook, bridge, reader, completion producer/route/store,
+  App controller/runtime/diagnostics, OpenCode harness, and all Task 5
+  observation surfaces. Runtime canaries cross submit, tool, stop/completion,
+  OpenCode plugin, Debug, error, and diagnostic paths. Private prompt, body,
+  response, recipient, and credential values never enter snapshots or
+  diagnostics; tokens remain absent from Debug and diagnostics while trusted
+  observation and completion artifacts retain their intentional opaque
+  identity fields.
+- The stricter canonical-instance contract exposed synthetic non-UUID fixture
+  identities in the bridge, OpenCode, and stop-hook tests. These were
+  fixture-only failures. The fixtures now use stable canonical UUIDs, and the
+  corresponding targets pass 8 of 8, 7 of 7, and 10 of 10.
+- Strict Clippy found a test-only diagnostic capture method taking an
+  unnecessary mutable receiver. The test seam now uses interior mutability
+  behind `cfg(test)` and preserves an immutable production API.
+
+### Final verification
+
+Focused release verification:
+
+- Receiver durable state: 63 passed, 0 failed.
+- Python observation bridge: 8 passed, 0 failed.
+- Observation privacy guard: 4 passed, 0 failed.
+- OpenCode plugin: 7 passed, 0 failed.
+- Agent observation reader and cursor: 21 passed, 0 failed.
+- All-frontend adapter/controller contract: 6 passed, 0 failed.
+- Durable App receiver behavior: 78 passed, 0 failed.
+- Schema and startup migrations: 14 passed, 0 failed.
+- Lifecycle hook integration: 22 passed, 0 failed.
+- Completion and stop-hook continuity: 10 passed, 0 failed.
+
+Repository-wide verification:
+
+- `cargo test --release -- --test-threads=1`: 3,010 tests inventoried; all
+  library, integration, and documentation targets passed. The library target
+  passed 2,224 tests, 0 failed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- `cargo fmt --all -- --check`: passed.
+- `cargo test --release --test module_structure`: 1 passed, 0 failed.
+- `cargo test --release --test agent_registry_boundary`: 6 passed, 0 failed.
+- `cargo test --release --test tui_receiver_runtime_architecture`: 4 passed,
+  0 failed.
+- `cargo test --release --test tui_receiver_dispatch_architecture`: 168 passed,
+  0 failed.
+- `cargo test --release --test tui_dependencies_architecture`: 8 passed,
+  0 failed.
+- `cargo test --release --test tui_state_aggregates_architecture`: 5 passed,
+  0 failed.
+- `cargo test --release --test tui_construction_boundary`: 3 passed, 0 failed.
+- `cargo test --release --test access_boundary`: 6 passed, 0 failed.
+
+The first full rerun after the duplicate-field GREEN passed all 2,224 library
+tests, then the unchanged
+`one_shared_process_routes_the_same_sender_to_two_exact_durable_queues` process
+fixture missed its startup deadline. The exact test passed 1 of 1 and the whole
+`receiver_workspace_isolation` target passed 24 of 24 immediately, with no code
+change. The authoritative clean single-thread rerun then passed all 3,010
+inventoried tests, including that target.
+
+Final formatting, diff, changed-file, marker-limit, no-fixed-sleep, no-unsafe,
+no-em-dash, provider-neutrality, and privacy audits passed. No
+`docs/product-manager/**`, sealed review, or rereview artifact changed. The
+bridge remains portable without unsafe Rust, the exact ten-field and 4096-byte
+limits remain enforced, saturation still never reclaims, and BR-16, BR-17,
+and BR-18 behavior remains excluded.
+
+### Review fix changed files
+
+- `Cargo.toml`
+- `Cargo.lock`
+- `scripts/receiver_observation_bridge.py`
+- `src/tui/app_brain/receiver/active.rs`
+- `src/tui/app_brain/tests/receiver_durable_diagnostics.rs`
+- `src/tui/app_brain/tests/receiver_durable_observation_composed.rs`
+- `src/tui/app_brain/tests/receiver_durable_observation_replacement.rs`
+- `src/tui/app_brain/tests/receiver_durable_producer_matrix.rs`
+- `src/tui/receiver/runtime.rs`
+- `tests/fixtures/opencode/plugin_harness.js`
+- `tests/receiver_observation_bridge.rs`
+- `tests/receiver_observation_privacy.rs`
+- `tests/stop_hook_actor/contracts.rs`
+- `docs/architecture.md`
+- `docs/features.md`
+- `docs/integrations.md`
+- `docs/data-model.md`
+- `docs/decisions.md`
+- `docs/testing.md`
+- `.superpowers/sdd/BR-15-prove-receiver-job-acceptance-and-progress/task-5-report.md`
+
+### Remaining concerns
+
+No unresolved finding remains.

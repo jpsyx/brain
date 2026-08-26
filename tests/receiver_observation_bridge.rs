@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 const JOB_TOKEN: &str = "11111111-1111-4111-8111-111111111111";
-const INSTANCE_ID: &str = "receiver-instance-1";
+const INSTANCE_ID: &str = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID: &str = "receiver-session-1";
 
 fn bridge_path() -> PathBuf {

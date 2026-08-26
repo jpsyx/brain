@@ -1098,6 +1098,10 @@ durable evidence timestamps before every poll. Revision zero means no
 post-launch evidence, while a positive revision must correspond to a possible
 lifecycle. Completion-only evidence is valid; progress without acceptance,
 timestamp reversal, and revision/evidence disagreement are rejected.
+The exact signed SQLite maximum is a valid nonnegative revision across JSON
+parsing, controller normalization, App conversion, SQLite storage, and cursor
+reconstruction. At that value, an equal snapshot is no-change and producers
+retain the existing bytes rather than wrapping or manufacturing newer evidence.
 
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
 are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
