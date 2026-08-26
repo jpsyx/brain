@@ -128,7 +128,7 @@ pub use receiver::{
     ReceiverRecoveryDecision, ReceiverRecoverySnapshot, ReceiverRunClaim,
     ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
     ReceiverSessionPlan, decide_receiver_recovery, receiver_acceptance_expires_at,
-    receiver_launch_expires_at,
+    receiver_launch_expires_at, receiver_recovery_expires_at,
 };
 #[cfg(test)]
 mod tests;

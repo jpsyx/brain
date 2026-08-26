@@ -235,12 +235,10 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
         assert_eq!(job.recovery_count(), 0);
         assert!(!job.pending_unavailable_notice());
         match provider_id {
-            "claimed" => assert_eq!(job.launch_expires_at_unix_ms(), Some(121_000)),
-            "launching" => assert_eq!(job.launch_expires_at_unix_ms(), Some(122_000)),
-            "launched" => {
-                assert_eq!(job.acceptance_expires_at_unix_ms(), Some(93_000));
+            "claimed" | "launching" => {
+                assert_eq!(job.launch_expires_at_unix_ms(), Some(0));
             }
-            "ambiguous-launched" => {
+            "launched" | "ambiguous-launched" => {
                 assert_eq!(job.acceptance_expires_at_unix_ms(), Some(0));
             }
             "accepted" => {
@@ -258,6 +256,61 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
             _ => unreachable!("known migration fixture"),
         }
     }
+}
+
+#[test]
+fn v9_upgrade_does_not_derive_launch_authority_from_a_renewed_claim_timestamp() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&receiver_job(Some("renewed-v9-claim"), 100), &identity)
+        .expect("accept receiver job");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET state = 'claimed', updated_at_unix_ms = 900_000,
+                 claim_owner = 'renewed-owner', claim_expires_at_unix_ms = 930_000
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("seed renewed v9 claim");
+    stage_v9_receiver_jobs(&db);
+
+    super::super::schema::up(&db.conn, 9).expect("upgrade renewed v9 claim");
+
+    let upgraded = db
+        .receiver_job(accepted.job_id())
+        .expect("load upgraded job")
+        .expect("upgraded job");
+    assert_eq!(upgraded.launch_expires_at_unix_ms(), Some(0));
+}
+
+#[test]
+fn v9_upgrade_does_not_derive_acceptance_authority_from_future_launch_evidence() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&receiver_job(Some("future-v9-launch"), 100), &identity)
+        .expect("accept receiver job");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET state = 'launched', updated_at_unix_ms = 1_000,
+                 launched_at_unix_ms = 900_000,
+                 claim_owner = 'launch-owner', claim_expires_at_unix_ms = 30_000
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("seed future v9 launch evidence");
+    stage_v9_receiver_jobs(&db);
+
+    super::super::schema::up(&db.conn, 9).expect("upgrade future v9 launch");
+
+    let upgraded = db
+        .receiver_job(accepted.job_id())
+        .expect("load upgraded job")
+        .expect("upgraded job");
+    assert_eq!(upgraded.acceptance_expires_at_unix_ms(), Some(0));
 }
 
 #[test]

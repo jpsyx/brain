@@ -159,6 +159,20 @@ pub const fn receiver_launch_expires_at(authorized_at_unix_ms: u64) -> u64 {
     authorized_at_unix_ms.saturating_add(RECEIVER_LAUNCH_LEASE_MS)
 }
 
+/// Bound one recovery attempt by both progress policy and the original absolute limit.
+#[must_use]
+pub const fn receiver_recovery_expires_at(
+    authorized_at_unix_ms: u64,
+    absolute_work_expires_at_unix_ms: u64,
+) -> u64 {
+    let policy_expiry = authorized_at_unix_ms.saturating_add(RECEIVER_PROGRESS_LEASE_MS);
+    if policy_expiry < absolute_work_expires_at_unix_ms {
+        policy_expiry
+    } else {
+        absolute_work_expires_at_unix_ms
+    }
+}
+
 /// Establish the post-spawn acceptance deadline from trusted authorization time.
 #[must_use]
 pub const fn receiver_acceptance_expires_at(authorized_at_unix_ms: u64) -> u64 {

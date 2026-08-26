@@ -1174,6 +1174,16 @@ uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
 `launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
 lease, registration, lifecycle, retry metadata, and FIFO position until the
 recurring recovery transaction is wired.
+The explicit recovery-claim seam is separate from ordinary FIFO claim. In one
+immediate transaction it reloads the current accepted snapshot, requires the
+pure policy to authorize same-session recovery and the prior writer fence to be
+expired, then compare-and-swaps the row to a claimed `recovery` attempt. It
+increments only `recovery_count`, preserves the job token, conversation,
+immutable inbound identity, absolute limit, and first accepted/progress facts,
+clears the prior attempt's instance, session cursor, revision, and progress
+evidence, and establishes a new two-minute launch limit plus a five-minute
+recovery limit clamped by the original absolute limit. A failed comparison
+commits nothing. The recurring coordinator does not invoke this seam yet.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures

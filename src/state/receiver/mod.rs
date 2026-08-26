@@ -27,5 +27,5 @@ use model::{
 pub use recovery_policy::{
     MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverAttemptKind, ReceiverLifecycleDeadlines,
     ReceiverRecoveryDecision, ReceiverRecoverySnapshot, decide_receiver_recovery,
-    receiver_acceptance_expires_at, receiver_launch_expires_at,
+    receiver_acceptance_expires_at, receiver_launch_expires_at, receiver_recovery_expires_at,
 };

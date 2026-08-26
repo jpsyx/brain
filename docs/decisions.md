@@ -2494,10 +2494,18 @@ current-attempt accepted/progressing fields plus revision form the polling
 cursor. A recovery process can therefore begin at revision zero under the same
 job token, conversation, and immutable inbound identity. Terminal completion
 merges against the current attempt and preserves the lifetime facts atomically.
+The recovery-claim store seam materializes that boundary in one immediate
+transaction. It reloads and evaluates the current snapshot under the write
+lock, requires an expired prior writer fence, consumes only the one recovery
+count, resets the current-attempt cursor, and establishes launch plus recovery
+deadlines capped by the original absolute limit. Its guarded update either
+publishes the complete recovery attempt and claim or leaves the row unchanged.
 
-Automatic v9 upgrade derives finite deadlines from stored evidence and update
-times. Ambiguous active rows get an immediate deadline, and reconciliation of a
-partial v10 table also fails missing active deadlines closed. A v10 downgrade
+Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
+available evidence and update time. Claimed and launching update times can come
+from writer-fence renewal, and launched evidence is producer time, so those
+mixed-provenance pre-acceptance rows always get an immediate deadline. Repair of
+a partial v10 table also fails missing active deadlines closed. A v10 downgrade
 keeps representable ordinary v9 work but terminalizes a nonterminal recovery
 attempt before removing the new columns, because v9 cannot distinguish that
 attempt from replayable ordinary work.

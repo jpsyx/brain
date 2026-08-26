@@ -51,6 +51,13 @@ mod recovery_state {
     include!("tests/recovery_state.rs");
 }
 
+mod recovery_claim {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/recovery_claim.rs");
+}
+
 mod binding {
     use super::support::*;
     use super::*;

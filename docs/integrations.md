@@ -1205,9 +1205,11 @@ workspaces receive the current schema on their first `Db::open`. The automatic
 its down operation removes only that column and returns the state DB to v6. No
 manual migration command is part of receiver setup.
 The automatic 0.84.0 migration advances existing receiver state to schema v10.
-It derives finite lifecycle deadlines conservatively from v9 evidence and
-trusted stored update times; ambiguous active rows receive an immediate deadline
-instead of an unlimited lease. Reconciliation restores missing v10 columns and
+It derives finite accepted-work deadlines conservatively from v9 evidence and
+the earliest available stored time. Claimed and launching update times may be
+claim renewals, while launched evidence may be producer-skewed, so those
+mixed-provenance pre-acceptance rows always receive an immediate deadline rather
+than new lifecycle authority. Reconciliation restores missing v10 columns and
 fails active missing-deadline state closed without extending valid deadlines.
 Its down operation returns ordinary rows to v9 unchanged where representable and
 terminalizes any nonterminal recovery attempt so an older coordinator cannot

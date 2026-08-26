@@ -168,7 +168,7 @@ fn replace_candidate_lease(
     )? == 1)
 }
 
-fn commit_loaded_claim(
+pub(super) fn commit_loaded_claim(
     transaction: rusqlite::Transaction<'_>,
     workspace_id: &str,
     candidate: &str,

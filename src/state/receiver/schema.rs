@@ -307,23 +307,11 @@ fn migrate_v9_recovery_metadata(connection: &Connection) -> Result<()> {
              attempt_progressing_at_unix_ms = progressing_at_unix_ms,
              latest_progress_at_unix_ms = progressing_at_unix_ms,
              launch_expires_at_unix_ms = CASE
-               WHEN state IN ('claimed', 'launching') THEN
-                 CASE
-                   WHEN updated_at_unix_ms < 0 THEN 0
-                   WHEN updated_at_unix_ms > 9223372036854655807
-                     THEN 9223372036854775807
-                   ELSE updated_at_unix_ms + 120000
-                 END
+               WHEN state IN ('claimed', 'launching') THEN 0
                ELSE NULL
              END,
              acceptance_expires_at_unix_ms = CASE
-               WHEN state = 'launched' THEN
-                 CASE
-                   WHEN launched_at_unix_ms IS NULL OR launched_at_unix_ms < 0 THEN 0
-                   WHEN launched_at_unix_ms > 9223372036854685807
-                     THEN 9223372036854775807
-                   ELSE launched_at_unix_ms + 90000
-                 END
+               WHEN state = 'launched' THEN 0
                ELSE NULL
              END,
              progress_expires_at_unix_ms = CASE

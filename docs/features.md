@@ -1598,10 +1598,14 @@ trusted local authorization time, never from a future-skewed producer timestamp.
 The pure policy can classify a durable snapshot as wait, safe pre-acceptance
 requeue, one same-session recovery, terminal failure, or an incomplete legacy
 completion state. Recovery count and attempt kind remain separate from the
-existing three-attempt launch retry budget. The current Task 1 foundation does
-not yet execute those semantic effects, so expired `launching`, `launched`,
-`accepted`, and `processing` rows still preserve their complete ownership,
-state, and retry evidence and block FIFO replay.
+existing three-attempt launch retry budget. A policy-checked store transaction
+can atomically claim the single recovery, preserve lifetime identity and first
+facts, reset the current-attempt cursor, and establish launch and recovery
+deadlines without changing the ordinary retry counter. The current Task 1
+foundation does not yet invoke that transaction from the recurring coordinator
+or execute App effects, so expired `launching`, `launched`, `accepted`, and
+`processing` rows still preserve their complete ownership, state, and retry
+evidence and block FIFO replay.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only
