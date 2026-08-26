@@ -370,13 +370,22 @@ first move is a failing test that reproduces it, *then* the fix.
   reader, controller, App, SQLite, reconstructed cursor, saturated producer,
   and a subsequent no-newer poll without wrap or timestamp loss. The privacy
   guard discovers relevant Rust, Python, JavaScript, completion, controller,
-  store, migration, and fixture surfaces by semantic markers, so a future
-  observation module joins the audit automatically. Runtime prompt, body,
-  response, recipient, and credential canaries cross submit, tool,
-  stop/completion, OpenCode idle, Debug, error, and diagnostic paths; snapshots
-  and emitted output contain none of them, token values stay redacted from
-  Debug and diagnostics, and trusted artifacts retain only their intentional
-  opaque identity fields and private completion body.
+  store, migration, and fixture surfaces by both semantic markers and
+  observation/receiver-completion path names, so a future module joins the audit
+  before it copies an existing symbol. Its quoted-literal policy rejects
+  non-generic macOS, Unix, and Windows home paths, non-reserved email domains,
+  and URL or host literals outside localhost, loopback, and reserved example,
+  test, or invalid namespaces. Mutation tests prove each new private category
+  fails while generic fixtures pass. Runtime prompt, body, response, sender,
+  recipient, credential, local-path, and private-host canaries cross submit,
+  tool, direct stop-hook completion, OpenCode `session.idle`, Debug, error, and
+  diagnostic paths. Snapshots, logs, diagnostics, and process output contain
+  none of them; token values stay redacted from Debug and diagnostics, while
+  trusted artifacts retain only their intentional opaque identity fields and
+  private completion body. The exact-artifact test also places a valid producer
+  completion timestamp beyond the renewed lease, proving the producer time is
+  persisted as evidence while a separately sampled post-validation App time
+  authorizes one commit, delivery, and cleanup.
   Existing exit and shutdown cases prove that no terminal evidence means local
   cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +

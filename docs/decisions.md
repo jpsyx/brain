@@ -2570,6 +2570,11 @@ contains no response text. When both terminal forms arrive together, the exact
 artifact path wins and delivers once, while the completed boundary's validated
 producer timestamp remains the durable terminal evidence time. Poll time is the
 fallback only when an exact artifact has no lifecycle completion alongside it.
+Evidence time and authority time are separate: after renewal plus artifact and
+lifecycle validation, the coordinator samples a fresh App clock for the lease
+comparison and passes both values to the transaction. A valid future producer
+timestamp therefore remains evidence without delaying or authorizing the
+commit.
 Lifecycle-only completion closes the job
 without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
 does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns

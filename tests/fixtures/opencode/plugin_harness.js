@@ -594,20 +594,64 @@ const externalObservationPrivacyScenario = async (BrainPlugin) => {
   const sessionID = process.env.TEST_RECEIVER_SESSION_ID;
   const promptCanary = process.env.TEST_PROMPT_CANARY;
   const responseCanary = process.env.TEST_RESPONSE_CANARY;
-  assert(root && token && sessionID && promptCanary && responseCanary);
+  const senderCanary = process.env.TEST_SENDER_CANARY;
+  const localPathCanary = process.env.TEST_LOCAL_PATH_CANARY;
+  const privateHostCanary = process.env.TEST_PRIVATE_HOST_CANARY;
+  assert(
+    root &&
+      token &&
+      sessionID &&
+      promptCanary &&
+      responseCanary &&
+      senderCanary &&
+      localPathCanary &&
+      privateHostCanary,
+  );
   const hookDirectory = path.join(root, ".brain", "hooks");
   fs.mkdirSync(hookDirectory, { recursive: true });
   for (const name of ["receiver_observation_bridge.py", "agent_session_stop_hook.py"]) {
     fs.copyFileSync(path.join(path.dirname(pluginPath), name), path.join(hookDirectory, name));
   }
   const fake = sdk({
-    sessions: { [sessionID]: { id: sessionID } },
-    messages: { [sessionID]: [completedAssistant([textPart(responseCanary)])] },
+    sessions: {
+      [sessionID]: {
+        id: sessionID,
+        sender: senderCanary,
+        directory: localPathCanary,
+        host: privateHostCanary,
+      },
+    },
+    messages: {
+      [sessionID]: [
+        completedAssistant(
+          [textPart(responseCanary, { localPath: localPathCanary, host: privateHostCanary })],
+          { sender: senderCanary },
+        ),
+      ],
+    },
   });
   const plugin = await BrainPlugin({ client: fake.client, directory: root });
-  await dispatch(plugin, updated({ id: sessionID }));
+  await dispatch(
+    plugin,
+    updated({
+      id: sessionID,
+      sender: senderCanary,
+      directory: localPathCanary,
+      host: privateHostCanary,
+    }),
+  );
   const messageID = "privacy-user";
-  await dispatch(plugin, messageUpdated({ id: messageID, sessionID, role: "user" }));
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: messageID,
+      sessionID,
+      role: "user",
+      sender: senderCanary,
+      directory: localPathCanary,
+      host: privateHostCanary,
+    }),
+  );
   await dispatch(
     plugin,
     partUpdated({
@@ -616,6 +660,9 @@ const externalObservationPrivacyScenario = async (BrainPlugin) => {
       messageID,
       type: "text",
       text: `${promptCanary}\n<!-- brain:receiver-job-token=${token} -->`,
+      sender: senderCanary,
+      localPath: localPathCanary,
+      host: privateHostCanary,
     }),
   );
   await plugin["tool.execute.after"]({
@@ -624,6 +671,9 @@ const externalObservationPrivacyScenario = async (BrainPlugin) => {
     body: process.env.TEST_BODY_CANARY,
     recipient: process.env.TEST_RECIPIENT_CANARY,
     credential: process.env.TEST_CREDENTIAL_CANARY,
+    sender: senderCanary,
+    localPath: localPathCanary,
+    host: privateHostCanary,
   });
   await dispatch(plugin, idle(sessionID));
   assert.deepEqual(fake.logs, []);

@@ -7,77 +7,26 @@ use brain::agent::{
 };
 use brain::state::{ReceiverJobToken, ReceiverObservationSet};
 
+#[path = "receiver_observation_privacy/policy.rs"]
+mod policy;
+
 const TOKEN: &str = "11111111-1111-4111-8111-111111111111";
 const INSTANCE: &str = "22222222-2222-4222-8222-222222222222";
 const WORKSPACE: &str = "33333333-3333-4333-8333-333333333333";
 const SESSION: &str = "privacy-native-session";
+const SENDER_CANARY: &str = "sender-canary-cafe@private.corp";
+const LOCAL_PATH_CANARY: &str = "/Users/private-runtime-owner/receiver-secret";
+const PRIVATE_HOST_CANARY: &str = "https://receiver.runtime.private.lan/callback";
 const PRIVATE_CANARIES: &[&str] = &[
     "prompt-canary-7e7b",
     "body-canary-8f8c",
     "response-canary-9a9d",
     "recipient-canary-acde",
     "credential-canary-bdef",
+    SENDER_CANARY,
+    LOCAL_PATH_CANARY,
+    PRIVATE_HOST_CANARY,
 ];
-
-#[test]
-fn every_semantically_relevant_observation_and_completion_source_is_audited() {
-    let root = repository_root();
-    let audited = discover_relevant_sources(root);
-    for required in [
-        "scripts/receiver_observation_bridge.py",
-        "scripts/agent_session_stop_hook.py",
-        "scripts/opencode_brain_plugin.js",
-        "src/agent/observation.rs",
-        "src/agent/observation/snapshot.rs",
-        "src/agent/observation/snapshot/file.rs",
-        "src/state/receiver/store/completion.rs",
-        "src/state/receiver/store/observation.rs",
-        "src/state/session_store.rs",
-        "src/tui/state/services.rs",
-        "src/tui/app_brain/receiver/active.rs",
-        "src/tui/app_brain/receiver/artifact.rs",
-        "src/tui/app_brain/receiver/diagnostic.rs",
-        "src/tui/receiver/runtime.rs",
-        "tests/fixtures/opencode/plugin_harness.js",
-        "src/tui/app_brain/tests/receiver_durable_observation_composed.rs",
-        "src/tui/app_brain/tests/receiver_durable_observation_replacement.rs",
-        "src/tui/app_brain/tests/receiver_durable_producer_matrix.rs",
-    ] {
-        assert!(
-            audited.contains(&PathBuf::from(required)),
-            "missing audit surface {required}"
-        );
-    }
-    assert!(
-        audited.len() >= 50,
-        "semantic discovery unexpectedly narrowed: {audited:?}"
-    );
-
-    let forbidden = [
-        "/Users/juanpablosarmiento/",
-        "@gmail.",
-        "@icloud.",
-        "@proton.",
-        "sk_live_",
-        "sk-proj-",
-        "xoxb-",
-        "ghp_",
-        "AKIA",
-        "corp.internal",
-        "private-host",
-    ];
-    for relative in audited {
-        let source = std::fs::read_to_string(root.join(&relative))
-            .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
-        for value in forbidden {
-            assert!(
-                !source.contains(value),
-                "{} contains a private literal matching {value:?}",
-                relative.display()
-            );
-        }
-    }
-}
 
 #[test]
 fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
@@ -87,7 +36,7 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
     let request = AgentObservationRequest::new(
         TOKEN,
         INSTANCE,
-        PathBuf::from(format!("/opaque/{}.json", PRIVATE_CANARIES[1])),
+        PathBuf::from(PRIVATE_CANARIES.join("/")),
         session,
         AgentObservationCursor::launched(),
     );
@@ -129,6 +78,11 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
         "sender",
         "recipient",
         "credential",
+        "path",
+        "url",
+        "uri",
+        "host",
+        "address",
         "snapshot",
         "transcript",
     ] {
@@ -155,6 +109,9 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
         "response": PRIVATE_CANARIES[2],
         "recipient": PRIVATE_CANARIES[3],
         "credential": PRIVATE_CANARIES[4],
+        "sender": SENDER_CANARY,
+        "local_path": LOCAL_PATH_CANARY,
+        "private_host": PRIVATE_HOST_CANARY,
     });
     assert_safe_process(&run_bridge(&observation, "claude", &submit));
     assert_safe_snapshot(&observation);
@@ -168,6 +125,9 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
         "response": PRIVATE_CANARIES[2],
         "recipient": PRIVATE_CANARIES[3],
         "credential": PRIVATE_CANARIES[4],
+        "sender": SENDER_CANARY,
+        "local_path": LOCAL_PATH_CANARY,
+        "private_host": PRIVATE_HOST_CANARY,
     });
     assert_safe_process(&run_bridge(&observation, "claude", &tool));
     assert_safe_snapshot(&observation);
@@ -180,6 +140,9 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
         "body": PRIVATE_CANARIES[1],
         "recipient": PRIVATE_CANARIES[3],
         "credential": PRIVATE_CANARIES[4],
+        "sender": SENDER_CANARY,
+        "local_path": LOCAL_PATH_CANARY,
+        "private_host": PRIVATE_HOST_CANARY,
     });
     let output = run_stop_hook(&observation, &state_db, &responses, "claude", &stop);
     assert_safe_process(&output);
@@ -188,8 +151,7 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
         &std::fs::read(responses.join(format!("{INSTANCE}.json"))).expect("completion artifact"),
     )
     .expect("completion JSON");
-    assert_eq!(artifact["message"], PRIVATE_CANARIES[2]);
-    assert_eq!(artifact["job_token"], TOKEN);
+    assert_trusted_completion_artifact(&artifact);
 }
 
 #[test]
@@ -225,6 +187,9 @@ fn opencode_plugin_submit_tool_and_idle_paths_do_not_log_or_snapshot_private_con
         .env("TEST_RESPONSE_CANARY", PRIVATE_CANARIES[2])
         .env("TEST_RECIPIENT_CANARY", PRIVATE_CANARIES[3])
         .env("TEST_CREDENTIAL_CANARY", PRIVATE_CANARIES[4])
+        .env("TEST_SENDER_CANARY", SENDER_CANARY)
+        .env("TEST_LOCAL_PATH_CANARY", LOCAL_PATH_CANARY)
+        .env("TEST_PRIVATE_HOST_CANARY", PRIVATE_HOST_CANARY)
         .output()
         .expect("run OpenCode privacy harness");
     assert!(
@@ -237,60 +202,7 @@ fn opencode_plugin_submit_tool_and_idle_paths_do_not_log_or_snapshot_private_con
         &std::fs::read(responses.join(format!("{INSTANCE}.json"))).expect("completion artifact"),
     )
     .expect("completion JSON");
-    assert_eq!(artifact["message"], PRIVATE_CANARIES[2]);
-    assert_eq!(artifact["job_token"], TOKEN);
-}
-
-fn discover_relevant_sources(root: &Path) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    collect_sources(&root.join("src"), &mut candidates);
-    collect_sources(&root.join("scripts"), &mut candidates);
-    collect_sources(&root.join("tests"), &mut candidates);
-    candidates
-        .into_iter()
-        .filter_map(|path| {
-            let relative = path
-                .strip_prefix(root)
-                .expect("repository source")
-                .to_path_buf();
-            if relative == Path::new("tests/receiver_observation_privacy.rs") {
-                return None;
-            }
-            let source = std::fs::read_to_string(&path).ok()?;
-            let relevant = [
-                "AgentObservation",
-                "ReceiverObservation",
-                "receiver_observation",
-                "BRAIN_RECEIVER_",
-                "completion_status",
-                "ReceiverCompletion",
-                "complete_receiver_job_with_binding",
-                "agent_session_stop_hook",
-            ]
-            .into_iter()
-            .any(|marker| source.contains(marker));
-            relevant.then_some(relative)
-        })
-        .collect()
-}
-
-fn collect_sources(directory: &Path, output: &mut Vec<PathBuf>) {
-    let mut entries = std::fs::read_dir(directory)
-        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
-        .collect::<Result<Vec<_>, _>>()
-        .expect("source directory entries");
-    entries.sort_by_key(std::fs::DirEntry::file_name);
-    for entry in entries {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_sources(&path, output);
-        } else if matches!(
-            path.extension().and_then(|value| value.to_str()),
-            Some("rs" | "py" | "js")
-        ) {
-            output.push(path);
-        }
-    }
+    assert_trusted_completion_artifact(&artifact);
 }
 
 fn run_bridge(path: &Path, kind: &str, payload: &serde_json::Value) -> Output {
@@ -379,6 +291,23 @@ fn assert_safe_snapshot(path: &Path) {
     assert_eq!(value.as_object().expect("snapshot object").len(), 10);
     assert_eq!(value["job_token"], TOKEN);
     assert_eq!(value["instance_id"], INSTANCE);
+    assert_eq!(value["session_id"], SESSION);
+}
+
+fn assert_trusted_completion_artifact(artifact: &serde_json::Value) {
+    assert_eq!(artifact["message"], PRIVATE_CANARIES[2]);
+    assert_eq!(artifact["job_token"], TOKEN);
+    let serialized = artifact.to_string();
+    for canary in PRIVATE_CANARIES
+        .iter()
+        .copied()
+        .filter(|canary| *canary != PRIVATE_CANARIES[2])
+    {
+        assert!(
+            !serialized.contains(canary),
+            "completion artifact leaked {canary}"
+        );
+    }
 }
 
 fn assert_safe_process(output: &Output) {

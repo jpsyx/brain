@@ -366,3 +366,109 @@ and BR-18 behavior remains excluded.
 ### Remaining concerns
 
 No unresolved finding remains.
+
+## Review fix round 2
+
+### Evidence time and lease authorization
+
+- RED: the exact-artifact precedence test supplied a schema-valid completed
+  lifecycle boundary 60 seconds beyond the renewed lease. The job remained
+  `launched`, proving that producer evidence time was also being used as lease
+  authority.
+- GREEN: after claim renewal and exact artifact/lifecycle validation, the App
+  now samples a fresh clock for `authorized_at_unix_ms`. A validated completed
+  boundary independently supplies `observed_at_unix_ms`; when that boundary is
+  absent, the same fresh post-validation App time is the evidence fallback.
+- The focused test now proves that the future producer timestamp is persisted
+  exactly, fresh App time authorizes the commit, the response is delivered
+  exactly once, the controller shuts down once, and the exact artifact is
+  cleaned up.
+
+### Generic privacy policy
+
+- Mutation REDs proved that the prior curated guard accepted a private macOS
+  home path, Unix home path, escaped Windows home path, email domain, and host
+  literal in a newly discovered observation module. Additional REDs found that
+  path-only future surfaces and a home identity with a generic-looking prefix
+  could escape the first structural implementation.
+- GREEN: recursive semantic and path discovery now audits observation and
+  receiver-completion sources across Rust, Python, and JavaScript. The generic
+  quoted-literal policy rejects non-generic macOS, Unix, and Windows home
+  identities; email domains outside reserved test namespaces; and URL, host,
+  and IP literals outside localhost, loopback, documentation networks, and
+  reserved example namespaces. Only the guard's own policy and runtime-canary
+  modules are excluded from self-audit.
+- Runtime sender, local-path, and private-host canaries now cross direct submit,
+  tool, stop-hook completion, OpenCode submit/tool/`session.idle`, Debug, error,
+  diagnostic, log, and process-output paths. Normalized snapshots and emitted
+  output retain none of them. Trusted observation artifacts retain only opaque
+  identity fields, and trusted completion artifacts retain only opaque identity
+  plus the intentional private final response.
+- Runtime privacy characterization passed on its first behavioral run, so no
+  production privacy failure was manufactured.
+
+### Fix-round-2 verification
+
+Focused release verification:
+
+- Future producer evidence versus fresh lease authorization: 1 passed,
+  0 failed.
+- Receiver durable state: 63 passed, 0 failed.
+- Agent observation reader and cursor: 21 passed, 0 failed.
+- Durable App receiver behavior: 78 passed, 0 failed.
+- Python observation bridge: 8 passed, 0 failed.
+- Observation privacy policy and runtime canaries: 7 passed, 0 failed.
+- OpenCode plugin: 7 passed, 0 failed.
+- Lifecycle hook integration: 22 passed, 0 failed.
+- Completion and stop-hook continuity: 10 passed, 0 failed.
+- Schema and startup migrations: 14 passed, 0 failed.
+- All-frontend adapter/controller contract: 6 passed, 0 failed.
+
+Repository-wide verification:
+
+- `cargo test --release -- --test-threads=1`: 3,013 tests inventoried and
+  passed, including 2,224 library tests; 0 failed.
+- `cargo clippy --release --all-targets -- -D warnings`: passed.
+- `cargo fmt --all -- --check`: passed.
+- `cargo test --release --test module_structure`: 1 passed, 0 failed.
+- `cargo test --release --test agent_registry_boundary`: 6 passed, 0 failed.
+- `cargo test --release --test tui_receiver_runtime_architecture`: 4 passed,
+  0 failed.
+- `cargo test --release --test tui_receiver_dispatch_architecture`: 168 passed,
+  0 failed.
+- `cargo test --release --test tui_dependencies_architecture`: 8 passed,
+  0 failed.
+- `cargo test --release --test tui_state_aggregates_architecture`: 5 passed,
+  0 failed.
+- `cargo test --release --test tui_construction_boundary`: 3 passed, 0 failed.
+- `cargo test --release --test access_boundary`: 6 passed, 0 failed.
+
+Version 0.83.5 is recorded in both Cargo manifests. Final formatting, diff,
+changed-file, structural-discovery, privacy, marker-limit, no-fixed-sleep,
+no-unsafe, no-em-dash, and provider-neutrality audits passed. No
+`docs/product-manager/**` or sealed review artifact changed. Saturation remains
+no-reclaim, session continuity and exact cleanup remain intact, and BR-16,
+BR-17, and BR-18 behavior remains excluded.
+
+### Fix-round-2 changed files
+
+- `Cargo.toml`
+- `Cargo.lock`
+- `src/tui/app_brain/receiver/active.rs`
+- `src/tui/app_brain/tests/opencode_receiver.rs`
+- `src/tui/state/services.rs`
+- `tests/fixtures/opencode/plugin_harness.js`
+- `tests/receiver_observation_privacy.rs`
+- `tests/receiver_observation_privacy/policy.rs`
+- `tests/receiver_observation_privacy/policy/literals.rs`
+- `docs/architecture.md`
+- `docs/features.md`
+- `docs/integrations.md`
+- `docs/data-model.md`
+- `docs/decisions.md`
+- `docs/testing.md`
+- `.superpowers/sdd/BR-15-prove-receiver-job-acceptance-and-progress/task-5-report.md`
+
+### Fix-round-2 remaining concerns
+
+No unresolved finding remains.

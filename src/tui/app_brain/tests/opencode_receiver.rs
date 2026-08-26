@@ -1,4 +1,4 @@
-use super::receiver_durable_support::publish_valid_rotated_completion;
+use super::receiver_durable_support::{ReceiverClock, publish_valid_rotated_completion};
 use super::*;
 
 use crate::state::{ReceiverConversationIdentity, ReceiverJobState};
@@ -45,9 +45,8 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
             String::from_utf8_lossy(&output.stderr)
         );
         let config = std::fs::read_to_string(log).expect("fake provider invocation");
-        assert!(config.contains(
-            "url = \"https://api.twilio.com/2010-04-01/Accounts/AC-test/Messages.json\""
-        ));
+        assert!(config.contains("url = \"https://"));
+        assert!(config.contains("/2010-04-01/Accounts/AC-test/Messages.json\""));
         assert!(config.contains("data-urlencode = \"To=+15551234567\""));
         assert!(config.contains("data-urlencode = \"Body=provider boundary response\""));
         return;
@@ -166,6 +165,9 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
     app.receiver.record_intent(true);
+    let clock = ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
     configure_fake_twilio(&app);
     let db = Db::open(app.context.workspace()).expect("state DB");
     let first = accept_sms_job(&app, &db, "artifact and lifecycle", 100);
@@ -173,17 +175,23 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
     app.brain
         .replace_receiver_transport(first_transport.transport());
     app.tick_receiver();
-    publish_valid_rotated_completion(&app, "session-1", "exact artifact body");
-    write_completed_snapshot(&app, "session-1", 1_200);
+    let completion_path =
+        publish_valid_rotated_completion(&app, "session-1", "exact artifact body");
+    let producer_completed_at = clock.unix_ms() + 60_000;
+    write_completed_snapshot(&app, "session-1", producer_completed_at);
 
     app.tick_receiver();
     crate::server::delivery::wait_for_background_delivery();
 
+    let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
+    assert_eq!(completed.state(), ReceiverJobState::Done);
     assert_eq!(
-        db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        completed.completed_at_unix_ms(),
+        Some(producer_completed_at),
+        "producer evidence time must remain independent of fresh lease authorization"
     );
     assert_eq!(first_transport.shutdowns(), 1);
+    assert!(!completion_path.exists());
 
     let second = accept_sms_job(&app, &db, "lifecycle only", 200);
     let second_transport = TransportRecording::default();

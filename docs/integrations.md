@@ -948,6 +948,19 @@ Which session to run is decided by the **lock + recency** model in
    a prior rotated or placeholder session cannot advance the lifecycle. This
    operation only reads evidence. The active receiver coordinator owns polling
    and converts only these normalized results into durable transitions.
+
+   The repository privacy guard recursively discovers observation and receiver
+   completion surfaces by semantic markers and observation/completion path
+   names. Its quoted-literal policy rejects non-generic macOS, Unix, and Windows
+   home paths; email domains outside reserved example, test, and invalid
+   namespaces; and URL or host values outside localhost, loopback, and reserved
+   example namespaces. Only the guard's own policy and runtime-canary modules
+   are excluded from self-audit. Runtime prompt, body, response, sender,
+   recipient, credential, local-path, and private-host canaries cross direct
+   submit/tool/stop-hook and OpenCode submit/tool/`session.idle` paths. They are
+   absent from normalized snapshots, Debug, errors, diagnostics, logs, and
+   process output; trusted artifacts retain only their intentional opaque
+   identity fields and private final response.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
@@ -995,7 +1008,11 @@ Which session to run is decided by the **lock + recency** model in
    artifact still wins when both terminal forms exist in one tick and delivers
    its exact body once. When that poll also contains a strict completed
    boundary, its producer timestamp is retained as the durable completion time;
-   only an artifact without lifecycle completion evidence uses the poll time.
+   the timestamp is evidence only and may be later than the current lease.
+   After claim renewal and exact artifact/lifecycle validation, Brain samples a
+   fresh App clock and passes it independently as terminal lease authorization.
+   Only an artifact without lifecycle completion evidence uses that same fresh
+   post-validation App time as its durable completion fallback.
    Lifecycle-only completion delivers nothing. Terminal
    completion, child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling

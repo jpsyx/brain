@@ -53,7 +53,7 @@ impl App {
         if let Some(completion) = self.exact_receiver_completion(&active, &path) {
             #[cfg(test)]
             self.receiver.run_after_completion_validation_hook();
-            let completion_observed_at = poll
+            let producer_completed_at = poll
                 .as_ref()
                 .ok()
                 .and_then(|(poll, _)| {
@@ -62,10 +62,9 @@ impl App {
                         .iter()
                         .find(|boundary| boundary.phase() == AgentObservationPhase::Completed)
                 })
-                .map_or_else(
-                    || self.receiver_now_unix_ms(),
-                    |boundary| boundary.observed_at_unix_ms(),
-                );
+                .map(|boundary| boundary.observed_at_unix_ms());
+            let completion_authorized_at = self.receiver_now_unix_ms();
+            let completion_observed_at = producer_completed_at.unwrap_or(completion_authorized_at);
             let boundary = poll.as_ref().ok().and_then(|(poll, _)| {
                 poll.observation
                     .boundaries()
@@ -78,6 +77,7 @@ impl App {
                 &completion.session,
                 &completion.message,
                 completion_observed_at,
+                completion_authorized_at,
             );
             return;
         }
@@ -305,16 +305,19 @@ impl App {
         active: ActiveReceiverRun,
         completed_session: &AgentSession,
         message: &str,
-        now: u64,
+        observed_at_unix_ms: u64,
+        authorized_at_unix_ms: u64,
     ) {
-        let completed = self.services.complete_receiver_job_with_binding(
-            active.claim.job().id(),
-            active.claim.job().token(),
-            active.claim.claim().owner(),
-            &active.attribution,
+        let request = crate::state::ReceiverCompletionRequest {
+            job_id: active.claim.job().id(),
+            token: active.claim.job().token(),
+            owner: active.claim.claim().owner(),
+            registration: &active.attribution,
             completed_session,
-            now,
-        );
+            observed_at_unix_ms,
+            authorized_at_unix_ms,
+        };
+        let completed = self.services.complete_receiver_job_with_binding(&request);
         match completed {
             Ok(true) => {}
             Ok(false) => {

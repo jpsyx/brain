@@ -1888,7 +1888,12 @@ the durable store cannot represent.
 Completion may create revision 1 with null intermediate timestamps when submit
 and tool evidence was missed; private text remains separate. A
 verified artifact completion retains the strict lifecycle completion timestamp
-when the same poll observed it, then launches an immediate push. Failed PTY launches
+when the same poll observed it, even when that producer evidence is later than
+the renewed lease. After claim renewal and exact artifact/lifecycle validation,
+the App samples a separate fresh clock for terminal authorization. The producer
+timestamp never participates in the lease comparison; when no completed
+lifecycle boundary exists, that fresh App time is also the durable fallback.
+The committed completion then launches an immediate push. Failed PTY launches
 release the exact registration and claim, shut down the new controller once,
 and record a durable pre-acceptance retry with a clock observation sampled
 after cleanup, without changing the main panel. Once the post-spawn `launched`

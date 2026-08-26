@@ -1534,7 +1534,11 @@ An exact lifecycle completion artifact and lifecycle-only completion are both
 terminal evidence. A valid artifact wins when both appear in one tick, so its
 private response is delivered once through the existing exact completion path.
 When the same poll contains a validated lifecycle completion, its producer
-timestamp remains the durable terminal evidence time.
+timestamp remains the durable terminal evidence time, even if it is later than
+the renewed lease. Producer evidence never authorizes completion. After exact
+artifact and lifecycle validation, Brain samples a fresh App clock for the
+lease check; without a lifecycle completion boundary, that same fresh value is
+also the durable completion-time fallback.
 Lifecycle-only completion can move `launched`, `accepted`, or `processing`
 directly to `done` without inventing missed intermediate timestamps or a
 response body. Its

@@ -1190,8 +1190,12 @@ commit. Both paths therefore make `done`, claim clearing, and conversation
 continuity one atomic fact; any binding write failure preserves the prior job,
 claim, registration, and binding for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
-passes it directly into the terminal transaction, so validation cannot outlive
-the owner's lease. A binding mismatch, concurrent lifecycle rotation, or
+passes it independently into the terminal transaction as authorization, so
+validation cannot outlive the owner's lease. A validated completed producer
+timestamp remains the durable evidence time even when it is later than that
+lease; it is never reused for authorization. Without a completed lifecycle
+boundary, the same fresh App time is the durable fallback. A binding mismatch,
+concurrent lifecycle rotation, or
 storage error rolls the
 whole attempt back, so the run remains nonterminal with its claim,
 registration, tab, and completion artifact available for another tick. The
