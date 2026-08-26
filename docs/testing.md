@@ -397,12 +397,16 @@ first move is a failing test that reproduces it, *then* the fix.
   quoted-literal policy rejects non-generic macOS, Unix, and Windows home paths,
   non-reserved email domains, and URL or IP literals outside localhost,
   loopback, documentation, and reserved example, test, or invalid namespaces.
+  Valid percent-encoded IPv6 zone identifiers are classified with their address
+  before legitimate placeholder syntax is considered.
   Path-discovered observation and receiver-completion producers additionally
-  reject a standalone non-reserved bare hostname, hostname with port, and bare
-  private IPv6 address based only on the literal,
+  reject a standalone non-reserved bare hostname with or without its final DNS
+  root dot, a hostname with port even when its valid TLD resembles a repository
+  filename extension, and a bare private IPv6 address based only on the literal,
   independent of variable names or surrounding context words. Mutation tests
-  use a neutral binding to prove each new private category fails while generic
-  fixtures and dotted lifecycle identifiers pass. Runtime prompt, body, response, sender,
+  use a neutral binding to prove each private category fails while ordinary
+  repository filenames, generic fixtures, and dotted lifecycle identifiers pass.
+  Runtime prompt, body, response, sender,
   recipient, credential, local-path, and private-host canaries cross submit,
   tool, direct stop-hook completion, OpenCode `session.idle`, Debug, error, and
   diagnostic paths. Snapshots, logs, diagnostics, and process output contain

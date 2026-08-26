@@ -973,11 +973,14 @@ Which session to run is decided by the **lock + recency** model in
    names. Across every discovered surface, its quoted-literal policy rejects
    non-generic macOS, Unix, and Windows home paths; email domains outside
    reserved example, test, and invalid namespaces; and URL or IP values outside
-   localhost, loopback, documentation, and reserved example namespaces.
+   localhost, loopback, documentation, and reserved example namespaces. A valid
+   percent-encoded IPv6 zone identifier is classified with its address before
+   generic placeholder syntax is considered.
    Path-discovered observation and receiver-completion producers also reject a
-   standalone non-reserved bare hostname, hostname with a numeric port, or bare
-   IPv6 address from the literal alone, without using its binding name or
-   surrounding source words. This keeps external dotted
+   standalone non-reserved bare hostname with or without its final DNS root dot,
+   a hostname with a numeric port even when its valid TLD resembles a repository
+   filename extension, or a bare IPv6 address from the literal alone, without
+   using its binding name or surrounding source words. This keeps external dotted
    lifecycle identifiers in semantic-only consumers from being mistaken for
    hosts. Only the guard's own policy and runtime-canary modules are excluded
    from self-audit. Runtime prompt, body, response, sender,

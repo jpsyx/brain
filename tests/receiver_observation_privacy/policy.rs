@@ -75,7 +75,34 @@ fn newly_discovered_observation_sources_reject_private_home_email_and_host_liter
         ("email", "PRIVATE_LITERAL", r"sender@private.corp"),
         ("host", "VALUE", r"receiver.private.lan"),
         ("host-port", "VALUE", r"receiver.private.lan:8443"),
+        ("host-root-dot", "VALUE", r"receiver.private.lan."),
+        ("host-root-dot-port", "VALUE", r"receiver.private.lan.:8443"),
+        (
+            "host-file-tld-rs-port",
+            "VALUE",
+            r"receiver.private.rs:8443",
+        ),
+        (
+            "host-file-tld-sh-port",
+            "VALUE",
+            r"receiver.private.sh:8443",
+        ),
+        (
+            "host-file-tld-md-port",
+            "VALUE",
+            r"receiver.private.md:8443",
+        ),
+        (
+            "host-file-tld-py-port",
+            "VALUE",
+            r"receiver.private.py:8443",
+        ),
         ("bare-private-ipv6", "VALUE", r"fd12:3456:789a::1"),
+        (
+            "scoped-private-ipv6-url",
+            "VALUE",
+            r"http://[fe80::1%25en0]:8080/callback",
+        ),
     ] {
         let temporary = tempfile::tempdir().expect("temporary repository");
         for directory in ["src", "scripts", "tests"] {

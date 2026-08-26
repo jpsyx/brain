@@ -62,7 +62,9 @@ pub(super) fn source_privacy_violations(
         }
         if reject_bare_hosts {
             if let Some(host) = bare_host(&literal, &HOST) {
-                if !is_reserved_host(host) && !looks_like_filename(host) {
+                if !(is_reserved_host(host.value)
+                    || host.may_be_filename && looks_like_filename(host.value))
+                {
                     violations.push("non-generic host");
                 }
             }
@@ -139,14 +141,14 @@ fn is_reserved_host(host: &str) -> bool {
     let normalized = host.trim_end_matches('.').to_ascii_lowercase();
     if normalized
         .chars()
-        .any(|character| matches!(character, '<' | '>' | '{' | '}' | '$' | '%'))
+        .any(|character| matches!(character, '<' | '>' | '{' | '}' | '$'))
     {
         return true;
     }
     if normalized == "localhost" || normalized.ends_with(".localhost") {
         return true;
     }
-    if let Ok(address) = normalized.parse::<std::net::IpAddr>() {
+    if let Some(address) = parse_ip_host(&normalized) {
         return match address {
             std::net::IpAddr::V4(address) => {
                 address.is_loopback()
@@ -161,6 +163,9 @@ fn is_reserved_host(host: &str) -> bool {
             }
         };
     }
+    if normalized.contains('%') {
+        return true;
+    }
     ["test", "example", "invalid"]
         .into_iter()
         .any(|suffix| normalized == suffix || normalized.ends_with(&format!(".{suffix}")))
@@ -169,9 +174,63 @@ fn is_reserved_host(host: &str) -> bool {
             .any(|domain| normalized == domain || normalized.ends_with(&format!(".{domain}")))
 }
 
-fn bare_host<'source>(literal: &'source str, host: &Regex) -> Option<&'source str> {
-    if host.is_match(literal) || literal.parse::<std::net::Ipv6Addr>().is_ok() {
-        return Some(literal);
+fn parse_ip_host(host: &str) -> Option<std::net::IpAddr> {
+    if let Ok(address) = host.parse::<std::net::Ipv4Addr>() {
+        return Some(std::net::IpAddr::V4(address));
+    }
+    parse_ipv6_host(host).map(std::net::IpAddr::V6)
+}
+
+fn parse_ipv6_host(host: &str) -> Option<std::net::Ipv6Addr> {
+    if let Ok(address) = host.parse::<std::net::Ipv6Addr>() {
+        return Some(address);
+    }
+    let (address, zone) = host.split_once("%25")?;
+    if !is_valid_zone_identifier(zone) {
+        return None;
+    }
+    address.parse::<std::net::Ipv6Addr>().ok()
+}
+
+fn is_valid_zone_identifier(zone: &str) -> bool {
+    if zone.is_empty() {
+        return false;
+    }
+    let bytes = zone.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            index += 1;
+        } else if byte == b'%'
+            && bytes.get(index + 1).is_some_and(u8::is_ascii_hexdigit)
+            && bytes.get(index + 2).is_some_and(u8::is_ascii_hexdigit)
+        {
+            index += 3;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+struct BareHost<'source> {
+    value: &'source str,
+    may_be_filename: bool,
+}
+
+fn bare_host<'source>(literal: &'source str, host: &Regex) -> Option<BareHost<'source>> {
+    if let Some(candidate) = dns_host(literal, host) {
+        return Some(BareHost {
+            value: candidate,
+            may_be_filename: !literal.ends_with('.'),
+        });
+    }
+    if parse_ipv6_host(literal).is_some() {
+        return Some(BareHost {
+            value: literal,
+            may_be_filename: false,
+        });
     }
     let (candidate, port) = literal.rsplit_once(':')?;
     if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -181,8 +240,17 @@ fn bare_host<'source>(literal: &'source str, host: &Regex) -> Option<&'source st
         .strip_prefix('[')
         .and_then(|value| value.strip_suffix(']'))
         .unwrap_or(candidate);
-    (host.is_match(candidate) || candidate.parse::<std::net::Ipv6Addr>().is_ok())
-        .then_some(candidate)
+    (dns_host(candidate, host).is_some() || parse_ipv6_host(candidate).is_some()).then_some(
+        BareHost {
+            value: candidate.strip_suffix('.').unwrap_or(candidate),
+            may_be_filename: false,
+        },
+    )
+}
+
+fn dns_host<'source>(candidate: &'source str, host: &Regex) -> Option<&'source str> {
+    let normalized = candidate.strip_suffix('.').unwrap_or(candidate);
+    host.is_match(normalized).then_some(normalized)
 }
 
 fn looks_like_filename(host: &str) -> bool {
@@ -285,4 +353,82 @@ fn raw_string_literal(bytes: &[u8], index: usize) -> Option<(String, usize)> {
         cursor += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trailing_dns_root_dot_is_a_host_with_or_without_a_port() {
+        for literal in ["receiver.private.lan.", "receiver.private.lan.:8443"] {
+            let source = format!(r#"const VALUE: &str = "{literal}";"#);
+
+            assert_eq!(
+                source_privacy_violations(&source, true),
+                vec!["non-generic host"],
+                "literal: {literal}"
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_port_disambiguates_valid_tld_hosts_from_filenames() {
+        for literal in [
+            "receiver.private.rs:8443",
+            "receiver.private.sh:8443",
+            "receiver.private.md:8443",
+            "receiver.private.py:8443",
+        ] {
+            let source = format!(r#"const VALUE: &str = "{literal}";"#);
+
+            assert_eq!(
+                source_privacy_violations(&source, true),
+                vec!["non-generic host"],
+                "literal: {literal}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_repository_paths_and_filenames_are_not_hosts() {
+        let source = r#"
+            const RUST_MODULE: &str = "receiver.private.rs";
+            const PYTHON_SCRIPT: &str = "receiver_observation_bridge.py";
+            const NESTED_RUST_MODULE: &str = "src/tui/receiver/private.rs";
+            const SHELL_SCRIPT: &str = "hooks.sh";
+            const MARKDOWN_FILE: &str = "schema.md";
+            const DATABASE_FILE: &str = "state.db";
+        "#;
+
+        assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn percent_encoded_ipv6_zone_is_not_a_placeholder() {
+        for literal in [
+            "http://[fe80::1%25en0]:8080/callback",
+            "http://[fe80::1%25en%2D0]:8080/callback",
+        ] {
+            let source = format!(r#"const VALUE: &str = "{literal}";"#);
+
+            assert_eq!(
+                source_privacy_violations(&source, true),
+                vec!["non-generic URL host"],
+                "literal: {literal}"
+            );
+        }
+    }
+
+    #[test]
+    fn placeholder_hosts_and_reserved_scoped_ipv6_hosts_remain_allowed() {
+        let source = r#"
+            const BRACKET_PLACEHOLDER: &str = "http://[fe80::1%ZONE%]:8080/callback";
+            const HOST_PLACEHOLDER: &str = "https://%HOST%.private.lan/callback";
+            const LOOPBACK_ZONE: &str = "http://[::1%25lo0]:8080/callback";
+            const DOCUMENTATION_ZONE: &str = "http://[2001:db8::1%25en0]:8080/callback";
+        "#;
+
+        assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
+    }
 }
