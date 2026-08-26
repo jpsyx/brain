@@ -9,10 +9,12 @@ use crate::agent::{
 };
 
 mod session_registry;
+mod transcript;
 
 #[cfg(test)]
 pub(crate) use session_registry::SessionClaim;
 pub(crate) use session_registry::session_is_held_by_live_process;
+pub(crate) use transcript::transcript_has_conversation;
 use session_registry::read_session_claims;
 
 pub(crate) const DEFAULT_COMMAND: &str = "claude --dangerously-skip-permissions";
@@ -121,6 +123,14 @@ impl ClaudeFrontend {
                 .join(project)
                 .join(format!("{}.jsonl", session.as_str())),
         )
+    }
+
+    /// A transcript Claude can actually resume: present *and* holding at least
+    /// one real turn.
+    fn resumable_transcript(&self, session: &AgentSession) -> Option<PathBuf> {
+        let path = self.existing_transcript(session)?;
+        let contents = std::fs::read_to_string(&path).ok()?;
+        transcript_has_conversation(&contents).then_some(path)
     }
 
     fn existing_transcript(&self, session: &AgentSession) -> Option<PathBuf> {
@@ -236,7 +246,7 @@ impl AgentFrontend for ClaudeFrontend {
     }
 
     fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(self.existing_transcript(session).is_some() && !self.session_is_held_elsewhere(session))
+        Ok(self.resumable_transcript(session).is_some() && !self.session_is_held_elsewhere(session))
     }
 
     fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {

@@ -99,6 +99,27 @@ fn new_rotation_frees_the_prior_session_for_the_same_instance() {
 }
 
 #[test]
+fn a_forked_session_never_displaces_the_panel_it_branched_from() {
+    let (_tmp, db) = fresh_db();
+    register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);
+    run_hook(&db, Some(("inst-1", 4242)), &start_input("sess-A"));
+    // A background agent forks the panel's conversation and inherits its
+    // BRAIN_* env, so SessionStart fires here with a brand-new id.
+    run_hook(&db, Some(("inst-1", 4242)), &fork_input("sess-fork"));
+
+    assert!(
+        read_session(&db, "sess-fork").is_none(),
+        "a fork branches into its own conversation; it is never this lineage's session"
+    );
+    let a = read_session(&db, "sess-A").expect("A still present");
+    assert_eq!(
+        a.1,
+        Some(4242),
+        "the panel keeps its lock instead of being freed by someone else's fork"
+    );
+}
+
+#[test]
 fn re_firing_the_same_session_keeps_it_locked() {
     let (_tmp, db) = fresh_db();
     register_session(&db, "claude", "pablo", "sess-A", "inst-1", 4242);

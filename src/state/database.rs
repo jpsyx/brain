@@ -260,13 +260,18 @@ impl Db {
         Ok(())
     }
 
-    /// Free sessions restricted to one immutable workspace/actor/frontend/channel scope.
+    /// Free sessions restricted to one immutable workspace/actor/frontend/channel
+    /// scope. Forked rows are excluded: a fork is a branch into some other
+    /// agent's conversation (a background agent forking the panel's session),
+    /// never this lineage's own, and older DBs still carry rows recorded before
+    /// the session-start bridge learned to ignore them.
     #[must_use]
     pub fn sessions_by_recency(&self, scope: &SessionScope) -> Vec<String> {
         let Ok(mut statement) = self.conn.prepare(
             "SELECT agent_session_id FROM brain_sessions
              WHERE agent_kind = ?1 AND workspace_id = ?2 AND actor_id = ?3
                AND channel = ?4 AND locked_pid IS NULL
+               AND (source IS NULL OR source <> 'fork')
              ORDER BY last_active_at DESC, rowid DESC",
         ) else {
             return Vec::new();

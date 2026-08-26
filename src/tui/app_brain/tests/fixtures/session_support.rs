@@ -119,7 +119,16 @@ impl ClaudeTranscript {
             .join(session::project_dir_name(brain_root));
         std::fs::create_dir_all(&project_dir).expect("create transcript directory");
         let path = project_dir.join(format!("{session_id}.jsonl"));
-        std::fs::write(&path, "{}\n").expect("write Claude transcript");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"user","message":{"role":"user","content":"hi"}}"#,
+                "\n",
+                r#"{"type":"assistant","message":{"role":"assistant","content":"hello"}}"#,
+                "\n",
+            ),
+        )
+        .expect("write Claude transcript");
         Self { path, project_dir }
     }
 }

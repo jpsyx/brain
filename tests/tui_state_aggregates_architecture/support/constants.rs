@@ -127,6 +127,7 @@ pub(crate) const BRAIN_FIELDS: &[&str] = &[
     "interactive_actor",
     "interactive_response_id",
     "interactive_agent_session_id",
+    "resume_refusals",
     "session_actor",
     "brain_transport_override",
     "session_done_url_override",

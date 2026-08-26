@@ -6,6 +6,8 @@ use crate::tui::model::{BrainTab, Panel};
 
 use crossterm::event::KeyCode;
 
+pub(crate) mod arrival;
+
 use crate::agent::{AgentController, SessionStore};
 use crate::pty_pane::PtyPane;
 

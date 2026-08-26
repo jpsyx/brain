@@ -78,6 +78,10 @@ impl App {
                 let Ok(candidate) = crate::agent::AgentSession::new(&id) else {
                     continue;
                 };
+                if self.brain.resume_was_refused(&id) {
+                    skipped_missing = true;
+                    continue;
+                }
                 if !controller
                     .resume_candidate_exists(&candidate)
                     .unwrap_or(false)
@@ -117,6 +121,7 @@ impl App {
         let session_id = match &plan {
             Plan::Resume(id) | Plan::Fresh(id) => id.clone(),
         };
+        let session_id_for_arrival = session_id.clone();
         let agent_session = crate::agent::AgentSession::new(&session_id)
             .expect("selected session IDs are non-blank");
         let response_id = match resume {
@@ -194,6 +199,11 @@ impl App {
         match launch_result {
             Ok(()) => {
                 self.brain.install_main(controller);
+                if fresh_session {
+                    self.brain.disarm_resume_arrival();
+                } else {
+                    self.brain.arm_resume_arrival(session_id_for_arrival);
+                }
                 if prompt.is_some_and(|value| !value.trim().is_empty()) {
                     self.mark_brain_turn_started();
                 }

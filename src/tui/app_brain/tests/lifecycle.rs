@@ -56,6 +56,60 @@ fn controller_drives_interactive_submit_queued_work_and_single_shutdown() {
 }
 
 #[test]
+fn a_resume_the_frontend_refuses_reopens_as_a_fresh_session() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let scope = SessionScope::new(
+        AgentKind::Claude,
+        app.context.workspace().id(),
+        app.brain.interactive_actor().clone(),
+    );
+    let refused_id = "refused-resume";
+    let session = AgentSession::new(refused_id).expect("candidate session");
+    SessionStore::register(&app.services, &session, "prior-shell", 42, &scope)
+        .expect("register candidate");
+    SessionStore::release(&app.services, "prior-shell").expect("release candidate");
+    let _transcript = ClaudeTranscript::create(app.context.workspace().root(), refused_id);
+
+    // The panel resumes it, and the agent quits at once — the frontend refused.
+    let resumed = TransportRecording::default();
+    app.brain.replace_brain_transport(resumed.transport());
+    let retried = TransportRecording::default();
+    app.brain.replace_brain_transport(retried.transport());
+    assert!(app.open_or_focus_brain(None));
+    assert_eq!(app.brain.interactive_response_id(), Some(refused_id));
+    resumed.set_alive(false);
+
+    assert!(
+        app.close_exited_brain_panel(),
+        "the dead panel is handled by the lifecycle tick"
+    );
+
+    assert!(
+        app.brain.main_controller().is_some(),
+        "the user is left with a live panel, not a closed one"
+    );
+    assert_ne!(
+        app.brain.interactive_response_id(),
+        Some(refused_id),
+        "the refused id is not offered again"
+    );
+    assert_eq!(retried.launch_specs().len(), 1, "a second launch happened");
+    assert!(
+        retried.launch_specs()[0].command.contains("--session-id"),
+        "and it is a fresh session, not another resume: {}",
+        retried.launch_specs()[0].command
+    );
+    assert!(
+        app.status
+            .alert()
+            .is_some_and(|message| message.contains("started a new brain chat")),
+        "the user is told their conversation didn't carry over"
+    );
+}
+
+#[test]
 fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
