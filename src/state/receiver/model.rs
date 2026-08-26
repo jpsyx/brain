@@ -3,7 +3,9 @@ use std::fmt::{Display, Formatter};
 
 use uuid::Uuid;
 
-use super::{ReceiverConversationIdentity, ReceiverJobState};
+use super::{
+    ReceiverAttemptKind, ReceiverConversationIdentity, ReceiverJobState, ReceiverRecoverySnapshot,
+};
 
 /// Maximum pre-acceptance process-launch attempts for one durable job.
 pub const MAX_RECEIVER_LAUNCH_ATTEMPTS: u32 = 3;
@@ -362,6 +364,17 @@ pub struct ReceiverJob {
     observation_instance: Option<String>,
     observation_session_id: Option<String>,
     observation_revision: u64,
+    attempt_accepted_at_unix_ms: Option<u64>,
+    attempt_progressing_at_unix_ms: Option<u64>,
+    latest_progress_at_unix_ms: Option<u64>,
+    launch_expires_at_unix_ms: Option<u64>,
+    acceptance_expires_at_unix_ms: Option<u64>,
+    progress_expires_at_unix_ms: Option<u64>,
+    recovery_expires_at_unix_ms: Option<u64>,
+    absolute_work_expires_at_unix_ms: Option<u64>,
+    recovery_count: u32,
+    attempt_kind: ReceiverAttemptKind,
+    pending_unavailable_notice: bool,
 }
 
 pub(super) struct ReceiverRetryMetadata {
@@ -371,16 +384,27 @@ pub(super) struct ReceiverRetryMetadata {
     pub(super) last_error: Option<String>,
 }
 
+pub(super) struct ReceiverStoredMetadata {
+    pub(super) state: ReceiverJobState,
+    pub(super) retry: ReceiverRetryMetadata,
+    pub(super) observation: ReceiverObservationMetadata,
+    pub(super) recovery: ReceiverRecoveryMetadata,
+}
+
 impl ReceiverJob {
     pub(super) fn from_stored(
         id: ReceiverJobId,
         token: ReceiverJobToken,
         conversation_id: ReceiverConversationId,
         inbound: crate::server::receiver::InboundJob,
-        state: ReceiverJobState,
-        retry: ReceiverRetryMetadata,
-        evidence: ReceiverObservationMetadata,
+        metadata: ReceiverStoredMetadata,
     ) -> Self {
+        let ReceiverStoredMetadata {
+            state,
+            retry,
+            observation,
+            recovery,
+        } = metadata;
         Self {
             id,
             token,
@@ -391,13 +415,24 @@ impl ReceiverJob {
             retry_at_unix_ms: retry.at_unix_ms,
             retry_from_state: retry.from_state,
             last_error: retry.last_error,
-            launched_at_unix_ms: evidence.launched_at_unix_ms,
-            accepted_at_unix_ms: evidence.accepted_at_unix_ms,
-            progressing_at_unix_ms: evidence.progressing_at_unix_ms,
-            completed_at_unix_ms: evidence.completed_at_unix_ms,
-            observation_instance: evidence.instance,
-            observation_session_id: evidence.session_id,
-            observation_revision: evidence.revision,
+            launched_at_unix_ms: observation.launched_at_unix_ms,
+            accepted_at_unix_ms: observation.accepted_at_unix_ms,
+            progressing_at_unix_ms: observation.progressing_at_unix_ms,
+            completed_at_unix_ms: observation.completed_at_unix_ms,
+            observation_instance: observation.instance,
+            observation_session_id: observation.session_id,
+            observation_revision: observation.revision,
+            attempt_accepted_at_unix_ms: observation.attempt_accepted_at_unix_ms,
+            attempt_progressing_at_unix_ms: observation.attempt_progressing_at_unix_ms,
+            latest_progress_at_unix_ms: recovery.latest_progress_at_unix_ms,
+            launch_expires_at_unix_ms: recovery.launch_expires_at_unix_ms,
+            acceptance_expires_at_unix_ms: recovery.acceptance_expires_at_unix_ms,
+            progress_expires_at_unix_ms: recovery.progress_expires_at_unix_ms,
+            recovery_expires_at_unix_ms: recovery.recovery_expires_at_unix_ms,
+            absolute_work_expires_at_unix_ms: recovery.absolute_work_expires_at_unix_ms,
+            recovery_count: recovery.recovery_count,
+            attempt_kind: recovery.attempt_kind,
+            pending_unavailable_notice: recovery.pending_unavailable_notice,
         }
     }
 
@@ -474,6 +509,80 @@ impl ReceiverJob {
     pub const fn observation_revision(&self) -> u64 {
         self.observation_revision
     }
+    /// Rebuild the frontend-neutral cursor for only the current attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the persisted current-attempt evidence is not representable.
+    pub fn observation_cursor(
+        &self,
+    ) -> Result<crate::agent::AgentObservationCursor, crate::agent::AgentObservationError> {
+        crate::agent::AgentObservationCursor::from_durable(
+            self.observation_revision,
+            self.attempt_accepted_at_unix_ms,
+            self.attempt_progressing_at_unix_ms,
+            self.completed_at_unix_ms,
+        )
+    }
+    #[must_use]
+    pub const fn attempt_accepted_at_unix_ms(&self) -> Option<u64> {
+        self.attempt_accepted_at_unix_ms
+    }
+    #[must_use]
+    pub const fn attempt_progressing_at_unix_ms(&self) -> Option<u64> {
+        self.attempt_progressing_at_unix_ms
+    }
+    #[must_use]
+    pub const fn latest_progress_at_unix_ms(&self) -> Option<u64> {
+        self.latest_progress_at_unix_ms
+    }
+    #[must_use]
+    pub const fn launch_expires_at_unix_ms(&self) -> Option<u64> {
+        self.launch_expires_at_unix_ms
+    }
+    #[must_use]
+    pub const fn acceptance_expires_at_unix_ms(&self) -> Option<u64> {
+        self.acceptance_expires_at_unix_ms
+    }
+    #[must_use]
+    pub const fn progress_expires_at_unix_ms(&self) -> Option<u64> {
+        self.progress_expires_at_unix_ms
+    }
+    #[must_use]
+    pub const fn recovery_expires_at_unix_ms(&self) -> Option<u64> {
+        self.recovery_expires_at_unix_ms
+    }
+    #[must_use]
+    pub const fn absolute_work_expires_at_unix_ms(&self) -> Option<u64> {
+        self.absolute_work_expires_at_unix_ms
+    }
+    #[must_use]
+    pub const fn recovery_count(&self) -> u32 {
+        self.recovery_count
+    }
+    #[must_use]
+    pub const fn attempt_kind(&self) -> ReceiverAttemptKind {
+        self.attempt_kind
+    }
+    #[must_use]
+    pub const fn pending_unavailable_notice(&self) -> bool {
+        self.pending_unavailable_notice
+    }
+    #[must_use]
+    pub const fn recovery_snapshot(&self, now_unix_ms: u64) -> ReceiverRecoverySnapshot {
+        ReceiverRecoverySnapshot {
+            state: self.state,
+            attempt_kind: self.attempt_kind,
+            launch_attempt_count: self.retry_count,
+            recovery_count: self.recovery_count,
+            now_unix_ms,
+            launch_expires_at_unix_ms: self.launch_expires_at_unix_ms,
+            acceptance_expires_at_unix_ms: self.acceptance_expires_at_unix_ms,
+            progress_expires_at_unix_ms: self.progress_expires_at_unix_ms,
+            recovery_expires_at_unix_ms: self.recovery_expires_at_unix_ms,
+            absolute_work_expires_at_unix_ms: self.absolute_work_expires_at_unix_ms,
+        }
+    }
 }
 
 pub(super) struct ReceiverObservationMetadata {
@@ -484,6 +593,20 @@ pub(super) struct ReceiverObservationMetadata {
     pub(super) instance: Option<String>,
     pub(super) session_id: Option<String>,
     pub(super) revision: u64,
+    pub(super) attempt_accepted_at_unix_ms: Option<u64>,
+    pub(super) attempt_progressing_at_unix_ms: Option<u64>,
+}
+
+pub(super) struct ReceiverRecoveryMetadata {
+    pub(super) latest_progress_at_unix_ms: Option<u64>,
+    pub(super) launch_expires_at_unix_ms: Option<u64>,
+    pub(super) acceptance_expires_at_unix_ms: Option<u64>,
+    pub(super) progress_expires_at_unix_ms: Option<u64>,
+    pub(super) recovery_expires_at_unix_ms: Option<u64>,
+    pub(super) absolute_work_expires_at_unix_ms: Option<u64>,
+    pub(super) recovery_count: u32,
+    pub(super) attempt_kind: ReceiverAttemptKind,
+    pub(super) pending_unavailable_notice: bool,
 }
 
 /// One live FIFO claim with the immutable job and logical conversation it owns.

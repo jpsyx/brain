@@ -38,6 +38,19 @@ mod recovery {
     include!("tests/recovery.rs");
 }
 
+mod recovery_policy {
+    use super::*;
+
+    include!("tests/recovery_policy.rs");
+}
+
+mod recovery_state {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/recovery_state.rs");
+}
+
 mod binding {
     use super::support::*;
     use super::*;

@@ -1070,6 +1070,17 @@ receiver_jobs(
   observation_instance      TEXT,
   observation_session_id    TEXT,
   observation_revision      INTEGER NOT NULL,
+  attempt_accepted_at_unix_ms   INTEGER,
+  attempt_progressing_at_unix_ms INTEGER,
+  latest_progress_at_unix_ms    INTEGER,
+  launch_expires_at_unix_ms     INTEGER,
+  acceptance_expires_at_unix_ms INTEGER,
+  progress_expires_at_unix_ms   INTEGER,
+  recovery_expires_at_unix_ms   INTEGER,
+  absolute_work_expires_at_unix_ms INTEGER,
+  recovery_count            INTEGER NOT NULL,
+  attempt_kind              TEXT NOT NULL,  -- ordinary | recovery
+  pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1093,10 +1104,14 @@ exact accepted/progressing/completed timestamps already observed. A later poll
 may add only phases that follow the cursor's lifecycle order while preserving
 every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
 emission order fail conservatively before any durable receiver mutation.
-The TUI rebuilds this opaque cursor from `observation_revision` plus the three
-durable evidence timestamps before every poll. Revision zero means no
-post-launch evidence, while a positive revision must correspond to a possible
-lifecycle. Completion-only evidence is valid; progress without acceptance,
+The TUI rebuilds this opaque cursor from `observation_revision`, the current
+attempt's accepted/progressing timestamps, and the terminal completion timestamp
+before every poll. The lifetime `accepted_at_unix_ms` and
+`progressing_at_unix_ms` fields retain the first facts across a recovery attempt
+and are not cursor input. Revision zero therefore means no evidence for the
+current process even when the job has lifetime accepted or progress proof. A
+positive revision must correspond to a possible lifecycle. Completion-only
+evidence is valid; progress without acceptance,
 timestamp reversal, and revision/evidence disagreement are rejected.
 The exact signed SQLite maximum is a valid nonnegative revision across JSON
 parsing, controller normalization, App conversion, SQLite storage, and cursor
@@ -1138,7 +1153,14 @@ cannot admit a sixty-fifth queued job.
 The stored lifecycle is `queued`, `claimed`, `launching`, `launched`, `accepted`,
 `processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.
 A claim stores a non-blank owner and millisecond expiry without deleting its
-job. Only the live exact owner may renew or transition it. After expiry,
+job. That short lease is only a writer fence; renewing it never extends a
+lifecycle deadline. Claiming ordinary or recovery work establishes a separate
+two-minute launch deadline. Exact post-spawn launch commit establishes a
+90-second acceptance deadline. Exact acceptance establishes a five-minute
+progress deadline and an immutable 30-minute accepted-work limit; later exact
+progress can renew only the progress deadline and must remain capped by that
+absolute limit. All expiries become due at `now >= expires_at`. Only the live
+exact owner may mutate the row. After claim expiry,
 queued work becomes claimed by the new owner. A due retry keeps `retrying`,
 retains its retry schedule and origin until a phase-specific compare-and-swap
 consumes them, and lets the live owner transition to the phase being retried.
@@ -1150,7 +1172,8 @@ then atomically moves it to `launching`. Only a proved synchronous spawn failure
 may turn that attempt into a bounded Spawn retry. Once spawn succeeds, an
 uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
 `launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
-lease, registration, lifecycle, retry metadata, and FIFO position until BR-16.
+lease, registration, lifecycle, retry metadata, and FIFO position until the
+recurring recovery transaction is wired.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures
@@ -1184,8 +1207,9 @@ registration-aware batch transaction below.
 
 A valid completion can move `launched`, `accepted`, or `processing` directly to
 `done` without fabricating missing accepted or progressing timestamps. Artifact
-and lifecycle-only completion use one immediate transaction. It validates both
-the stored and incoming timelines, merges every normalized boundary plus the
+and lifecycle-only completion use one immediate transaction. It validates the
+stored and incoming current-attempt timelines, preserves the first lifetime
+accepted/progress facts, merges every normalized boundary plus the
 revision/session cursor, requires the exact lifecycle-native session to remain
 locked and `completed`, persists that binding, and only then marks the job done
 and clears its claim. Artifact body delivery precedence does not discard

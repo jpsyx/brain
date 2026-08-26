@@ -127,7 +127,7 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         assert!(table_exists(&path, "receiver_conversations"));
         assert!(table_exists(&path, "receiver_jobs"));
         assert!(table_exists(&path, "receiver_session_registrations"));
-        assert_eq!(state_schema_version(&path), 9);
+        assert_eq!(state_schema_version(&path), 10);
     }
 
     let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
@@ -183,7 +183,51 @@ fn ordinary_startup_repairs_a_missing_launch_retry_column_in_damaged_v7_schema()
         "retry_from_state"
     ));
     assert!(table_exists(&family, "receiver_session_registrations"));
-    assert_eq!(state_schema_version(&family), 9);
+    assert_eq!(state_schema_version(&family), 10);
+}
+
+#[test]
+fn explicit_down_migration_removes_only_receiver_recovery_state() {
+    let fixture = Fixture::new();
+    fixture.seed_pre_receiver_state();
+    let up = fixture.run(&["server", "status"]);
+    assert!(
+        up.status.success(),
+        "{}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+
+    let down = fixture.run(&[
+        "__migrate",
+        "--from-version",
+        env!("CARGO_PKG_VERSION"),
+        "--to-version",
+        "0.83.9",
+    ]);
+
+    assert!(
+        down.status.success(),
+        "{}",
+        String::from_utf8_lossy(&down.stderr)
+    );
+    for workspace_id in [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+    ] {
+        let path = fixture.state_db(workspace_id);
+        assert!(!column_exists(&path, "receiver_jobs", "attempt_kind"));
+        assert!(!column_exists(
+            &path,
+            "receiver_jobs",
+            "launch_expires_at_unix_ms"
+        ));
+        assert!(column_exists(
+            &path,
+            "receiver_jobs",
+            "observation_revision"
+        ));
+        assert_eq!(state_schema_version(&path), 9);
+    }
 }
 
 #[test]

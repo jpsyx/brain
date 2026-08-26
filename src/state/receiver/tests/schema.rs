@@ -23,7 +23,7 @@ fn receiver_schema_enforces_conversation_foreign_keys() {
 }
 
 #[test]
-fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v9() {
+fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v10() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn
         .execute_batch("DROP TABLE receiver_jobs; PRAGMA user_version = 6;")
@@ -53,7 +53,7 @@ fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v9() {
             |row| row.get(0),
         )
         .expect("receiver registration table count");
-    assert_eq!(version, 9);
+    assert_eq!(version, 10);
     assert_eq!(retry_origin_columns, 1);
     assert_eq!(registration_tables, 1);
 }
@@ -90,6 +90,206 @@ fn stage_v8_receiver_jobs(db: &Db) {
              PRAGMA user_version = 8;",
         )
         .expect("stage v8 receiver jobs");
+}
+
+fn stage_v9_receiver_jobs(db: &Db) {
+    db.conn
+        .execute_batch(
+            "DROP INDEX IF EXISTS receiver_jobs_ready;
+             DROP INDEX IF EXISTS receiver_jobs_job_token;
+             ALTER TABLE receiver_jobs RENAME TO receiver_jobs_current;
+             CREATE TABLE receiver_jobs (
+               job_id TEXT PRIMARY KEY, job_token TEXT NOT NULL UNIQUE,
+               workspace_id TEXT NOT NULL,
+               conversation_id TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
+               channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')), provider_id TEXT,
+               inbound_json TEXT NOT NULL,
+               state TEXT NOT NULL CHECK (state IN (
+                 'queued', 'claimed', 'launching', 'launched', 'accepted', 'processing',
+                 'answer-ready', 'delivering', 'retrying', 'failed', 'done'
+               )),
+               received_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
+               claim_owner TEXT, claim_expires_at_unix_ms INTEGER,
+               retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+               retry_at_unix_ms INTEGER,
+               retry_from_state TEXT CHECK (retry_from_state IN (
+                 'claimed', 'launching', 'accepted', 'processing', 'delivering'
+               )),
+               last_error TEXT, launched_at_unix_ms INTEGER, accepted_at_unix_ms INTEGER,
+               progressing_at_unix_ms INTEGER, completed_at_unix_ms INTEGER,
+               observation_instance TEXT, observation_session_id TEXT,
+               observation_revision INTEGER NOT NULL DEFAULT 0 CHECK (observation_revision >= 0),
+               UNIQUE (workspace_id, channel, provider_id),
+               CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL))
+             );
+             INSERT INTO receiver_jobs
+               (job_id, job_token, workspace_id, conversation_id, channel, provider_id,
+                inbound_json, state, received_at_unix_ms, updated_at_unix_ms,
+                claim_owner, claim_expires_at_unix_ms, retry_count, retry_at_unix_ms,
+                retry_from_state, last_error, launched_at_unix_ms, accepted_at_unix_ms,
+                progressing_at_unix_ms, completed_at_unix_ms, observation_instance,
+                observation_session_id, observation_revision)
+             SELECT job_id, job_token, workspace_id, conversation_id, channel, provider_id,
+                inbound_json, state, received_at_unix_ms, updated_at_unix_ms,
+                claim_owner, claim_expires_at_unix_ms, retry_count, retry_at_unix_ms,
+                retry_from_state, last_error, launched_at_unix_ms, accepted_at_unix_ms,
+                progressing_at_unix_ms, completed_at_unix_ms, observation_instance,
+                observation_session_id, observation_revision
+             FROM receiver_jobs_current;
+             DROP TABLE receiver_jobs_current;
+             CREATE INDEX receiver_jobs_ready
+               ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);
+             PRAGMA user_version = 9;",
+        )
+        .expect("stage v9 receiver jobs");
+}
+
+#[test]
+fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let rows = [
+        ("claimed", "claimed", 1_000_i64, None, None, None),
+        (
+            "launching",
+            "launching",
+            2_000,
+            None,
+            None,
+            None,
+        ),
+        (
+            "launched",
+            "launched",
+            3_100,
+            Some(3_000),
+            None,
+            None,
+        ),
+        (
+            "ambiguous-launched",
+            "launched",
+            3_200,
+            None,
+            None,
+            None,
+        ),
+        (
+            "accepted",
+            "accepted",
+            4_000,
+            Some(3_000),
+            Some(500_000),
+            None,
+        ),
+        (
+            "processing",
+            "processing",
+            5_000,
+            Some(3_000),
+            Some(500_000),
+            Some(600_000),
+        ),
+    ]
+    .into_iter()
+    .map(|(provider_id, state, updated, launched, accepted, progressing)| {
+        let job = db
+            .accept_receiver_job(&receiver_job(Some(provider_id), 100), &identity)
+            .expect("accept receiver job");
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs
+                 SET state = ?1, updated_at_unix_ms = ?2, launched_at_unix_ms = ?3,
+                     accepted_at_unix_ms = ?4, progressing_at_unix_ms = ?5,
+                     observation_revision = CASE
+                       WHEN ?5 IS NOT NULL THEN 2 WHEN ?4 IS NOT NULL THEN 1 ELSE 0 END
+                 WHERE job_id = ?6",
+                rusqlite::params![
+                    state,
+                    updated,
+                    launched,
+                    accepted,
+                    progressing,
+                    job.job_id().to_string(),
+                ],
+            )
+            .expect("seed v9 lifecycle");
+        (provider_id, job.job_id())
+    })
+    .collect::<Vec<_>>();
+    stage_v9_receiver_jobs(&db);
+
+    super::super::schema::up(&db.conn, 9).expect("upgrade v9 receiver jobs");
+
+    let version: i64 = db
+        .conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("receiver schema version");
+    assert_eq!(version, 10);
+    for (provider_id, job_id) in rows {
+        let job = db
+            .receiver_job(job_id)
+            .expect("load upgraded job")
+            .expect("upgraded job");
+        assert_eq!(job.attempt_kind(), ReceiverAttemptKind::Ordinary);
+        assert_eq!(job.recovery_count(), 0);
+        assert!(!job.pending_unavailable_notice());
+        match provider_id {
+            "claimed" => assert_eq!(job.launch_expires_at_unix_ms(), Some(121_000)),
+            "launching" => assert_eq!(job.launch_expires_at_unix_ms(), Some(122_000)),
+            "launched" => {
+                assert_eq!(job.acceptance_expires_at_unix_ms(), Some(93_000));
+            }
+            "ambiguous-launched" => {
+                assert_eq!(job.acceptance_expires_at_unix_ms(), Some(0));
+            }
+            "accepted" => {
+                assert_eq!(job.attempt_accepted_at_unix_ms(), Some(500_000));
+                assert_eq!(job.progress_expires_at_unix_ms(), Some(304_000));
+                assert_eq!(job.absolute_work_expires_at_unix_ms(), Some(1_804_000));
+            }
+            "processing" => {
+                assert_eq!(job.attempt_accepted_at_unix_ms(), Some(500_000));
+                assert_eq!(job.attempt_progressing_at_unix_ms(), Some(600_000));
+                assert_eq!(job.latest_progress_at_unix_ms(), Some(600_000));
+                assert_eq!(job.progress_expires_at_unix_ms(), Some(305_000));
+                assert_eq!(job.absolute_work_expires_at_unix_ms(), Some(1_805_000));
+            }
+            _ => unreachable!("known migration fixture"),
+        }
+    }
+}
+
+#[test]
+fn current_v10_repair_restores_missing_active_deadlines_conservatively() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&receiver_job(Some("partial-v10"), 100), &identity)
+        .expect("accept receiver job");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET state = 'accepted', updated_at_unix_ms = 4_000,
+                 accepted_at_unix_ms = 3_000, attempt_accepted_at_unix_ms = 3_000,
+                 observation_revision = 1
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("seed accepted v10 job");
+    db.conn
+        .execute_batch("ALTER TABLE receiver_jobs DROP COLUMN progress_expires_at_unix_ms;")
+        .expect("stage missing v10 deadline");
+
+    super::super::schema::up(&db.conn, 10).expect("repair partial v10 receiver jobs");
+
+    let repaired = db
+        .receiver_job(accepted.job_id())
+        .expect("load repaired job")
+        .expect("repaired job");
+    assert_eq!(repaired.progress_expires_at_unix_ms(), Some(0));
+    assert_eq!(repaired.attempt_accepted_at_unix_ms(), Some(3_000));
+    assert_eq!(repaired.accepted_at_unix_ms(), Some(3_000));
 }
 
 fn token_column_is_not_null(db: &Db) -> bool {

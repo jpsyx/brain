@@ -4,7 +4,9 @@ use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
 use super::restart::has_ready_restart;
-use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim};
+use crate::state::{
+    Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim, receiver_launch_expires_at,
+};
 
 use super::super::{
     load::{load_receiver_conversation, load_receiver_job},
@@ -43,6 +45,10 @@ impl Db {
         );
         let now = to_i64(now_unix_ms, "receiver claim time")?;
         let expires = to_i64(expires_at_unix_ms, "receiver claim expiry")?;
+        let launch_expires = to_i64(
+            receiver_launch_expires_at(now_unix_ms),
+            "receiver launch expiry",
+        )?;
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
@@ -67,6 +73,7 @@ impl Db {
             owner,
             now,
             expires,
+            launch_expires,
         )? {
             return Ok(None);
         }
@@ -128,11 +135,16 @@ fn replace_candidate_lease(
     owner: &str,
     now: i64,
     expires: i64,
+    launch_expires: i64,
 ) -> Result<bool> {
     Ok(transaction.execute(
         "UPDATE receiver_jobs
          SET state = CASE WHEN state = 'queued' THEN 'claimed' ELSE state END,
              claim_owner = ?3, claim_expires_at_unix_ms = ?4,
+             launch_expires_at_unix_ms = CASE
+               WHEN state = 'queued'
+                 OR (state = 'retrying' AND retry_from_state IN ('claimed', 'launching'))
+               THEN ?6 ELSE launch_expires_at_unix_ms END,
              updated_at_unix_ms = ?2
          WHERE workspace_id = ?1 AND job_id = ?5
            AND (
@@ -152,7 +164,7 @@ fn replace_candidate_lease(
                AND live.claim_expires_at_unix_ms > ?2
                AND live.state NOT IN ('failed', 'done')
            )",
-        rusqlite::params![workspace_id, now, owner, expires, job_id],
+        rusqlite::params![workspace_id, now, owner, expires, job_id, launch_expires],
     )? == 1)
 }
 

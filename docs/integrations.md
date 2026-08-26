@@ -1080,8 +1080,9 @@ ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
 Expired `launched`, `accepted`, and `processing` leases do not change ownership.
 They retain their complete lifecycle and retry evidence and block FIFO replay
-until BR-16 supplies recovery policy. Eligible pre-acceptance and delivery
-leases may still be replaced under their existing phase-specific rules.
+until BR-16 wires the schema-v10 policy into the recurring reconciler. Eligible
+pre-acceptance and delivery leases may still be replaced under their existing
+phase-specific rules.
 
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
@@ -1203,6 +1204,14 @@ workspaces receive the current schema on their first `Db::open`. The automatic
 0.75.0 migration adds schema-v7 launch retry origins to existing receiver jobs;
 its down operation removes only that column and returns the state DB to v6. No
 manual migration command is part of receiver setup.
+The automatic 0.84.0 migration advances existing receiver state to schema v10.
+It derives finite lifecycle deadlines conservatively from v9 evidence and
+trusted stored update times; ambiguous active rows receive an immediate deadline
+instead of an unlimited lease. Reconciliation restores missing v10 columns and
+fails active missing-deadline state closed without extending valid deadlines.
+Its down operation returns ordinary rows to v9 unchanged where representable and
+terminalizes any nonterminal recovery attempt so an older coordinator cannot
+replay it.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1312,11 +1321,13 @@ step: it reauthorizes and commits `launched` before allocating the tab. Owner
 loss or a launch-commit error preserves the exact registration and fenced
 `launching` row; allocation failure or later owner loss preserves `launched`.
 Child exit, orderly shutdown, and lease expiry then permit local cleanup only;
-the durable job and exact session correlation remain unchanged for BR-16.
+the durable job and exact session correlation remain unchanged. Schema v10 now
+persists and classifies the independent lifecycle deadlines, but later BR-16
+tasks still own the atomic reconciler and its App effects.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
-exact-owner CAS. Progressed stale states are not rerun before
-BR-16 defines their recovery policy.
+exact-owner CAS. Progressed stale states are not rerun before later BR-16 tasks
+execute the schema-v10 recovery policy.
 BR-15 still owns exact accepted/progress observations, and BR-17 still owns
 atomic answer persistence plus delivery-only retry. BR-18 retains final
 schema/migration reconciliation, durable status and diagnostics, and deletion

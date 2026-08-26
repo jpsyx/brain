@@ -444,6 +444,59 @@ fn exact_completion_clamps_local_artifact_time_to_future_stored_progress() {
 }
 
 #[test]
+fn recovery_completion_preserves_first_facts_and_commits_its_own_cursor() {
+    let fixture = completion_fixture(ReceiverJobState::Launched);
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET accepted_at_unix_ms = 500, progressing_at_unix_ms = 600,
+                 attempt_accepted_at_unix_ms = NULL,
+                 attempt_progressing_at_unix_ms = NULL,
+                 latest_progress_at_unix_ms = 600,
+                 observation_revision = 0, attempt_kind = 'recovery', recovery_count = 1
+             WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("seed recovery lifetime evidence");
+    let observation = ReceiverObservationSet {
+        token: fixture.token,
+        instance: fixture.registration.instance().to_owned(),
+        session_id: fixture.completed_session.as_str().to_owned(),
+        revision: 3,
+        accepted_at_unix_ms: Some(1_300),
+        progressing_at_unix_ms: Some(1_400),
+        completed_at_unix_ms: Some(1_500),
+        authorized_at_unix_ms: 1_500,
+    };
+
+    assert!(fixture
+        .db
+        .apply_terminal_receiver_observation_set(
+            fixture.job_id,
+            "owner",
+            &observation,
+            &fixture.registration,
+            &fixture.completed_session,
+        )
+        .expect("complete recovery observation"));
+
+    let completed = fixture
+        .db
+        .receiver_job(fixture.job_id)
+        .expect("load completed recovery")
+        .expect("completed recovery");
+    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.accepted_at_unix_ms(), Some(500));
+    assert_eq!(completed.progressing_at_unix_ms(), Some(600));
+    assert_eq!(completed.attempt_accepted_at_unix_ms(), Some(1_300));
+    assert_eq!(completed.attempt_progressing_at_unix_ms(), Some(1_400));
+    assert_eq!(completed.latest_progress_at_unix_ms(), Some(1_400));
+    assert_eq!(completed.completed_at_unix_ms(), Some(1_500));
+}
+
+#[test]
 fn exact_completion_rejects_a_wrong_durable_token() {
     let fixture = completion_fixture(ReceiverJobState::Launched);
     let wrong_token = ReceiverJobToken::parse("00000000-0000-4000-8000-000000000001")

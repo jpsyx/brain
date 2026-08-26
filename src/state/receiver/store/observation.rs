@@ -4,8 +4,8 @@ use super::{to_i64, validated_owner};
 use crate::agent::AgentSession;
 use crate::state::{
     Db, ReceiverCompletionRequest, ReceiverJobId, ReceiverLaunchObservation,
-    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
-    ReceiverSessionAttribution,
+    ReceiverLifecycleDeadlines, ReceiverNonterminalObservationPhase, ReceiverObservation,
+    ReceiverObservationSet, ReceiverSessionAttribution, receiver_acceptance_expires_at,
 };
 
 impl Db {
@@ -27,11 +27,16 @@ impl Db {
             observation.authorized_at_unix_ms,
             "receiver launch authorization time",
         )?;
+        let acceptance_expires = to_i64(
+            receiver_acceptance_expires_at(observation.authorized_at_unix_ms),
+            "receiver acceptance expiry",
+        )?;
         Ok(self.conn.execute(
             "UPDATE receiver_jobs
              SET state = 'launched', launched_at_unix_ms = ?6,
                  observation_instance = ?4, observation_session_id = ?5,
-                 observation_revision = 0, updated_at_unix_ms = ?6
+                 observation_revision = 0, acceptance_expires_at_unix_ms = ?9,
+                 updated_at_unix_ms = ?6
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
                AND claim_owner = ?7 AND claim_expires_at_unix_ms > ?8
                AND state = 'launching'",
@@ -44,6 +49,7 @@ impl Db {
                 observed,
                 owner,
                 authorized,
+                acceptance_expires,
             ],
         )? == 1)
     }
@@ -103,6 +109,25 @@ impl Db {
             .completed_at_unix_ms
             .map(|value| to_i64(value, "receiver completed observation time"))
             .transpose()?;
+        let deadlines = ReceiverLifecycleDeadlines::after_acceptance(
+            observation.authorized_at_unix_ms,
+            observation
+                .accepted_at_unix_ms
+                .unwrap_or(observation.authorized_at_unix_ms),
+        );
+        let progress_expires = to_i64(
+            deadlines.progress_expires_at_unix_ms,
+            "receiver progress expiry",
+        )?;
+        let absolute_work_expires = observation
+            .accepted_at_unix_ms
+            .map(|_| {
+                to_i64(
+                    deadlines.absolute_work_expires_at_unix_ms,
+                    "receiver absolute-work expiry",
+                )
+            })
+            .transpose()?;
         anyhow::ensure!(
             accepted.is_some() || progressing.is_some() || completed.is_some(),
             "receiver observation set cannot be empty"
@@ -139,6 +164,15 @@ impl Db {
             "UPDATE receiver_jobs SET state = ?8,
                  accepted_at_unix_ms = COALESCE(accepted_at_unix_ms, ?10),
                  progressing_at_unix_ms = COALESCE(progressing_at_unix_ms, ?11),
+                 attempt_accepted_at_unix_ms = COALESCE(attempt_accepted_at_unix_ms, ?10),
+                 attempt_progressing_at_unix_ms = COALESCE(attempt_progressing_at_unix_ms, ?11),
+                 latest_progress_at_unix_ms = COALESCE(?11, latest_progress_at_unix_ms),
+                 progress_expires_at_unix_ms = MIN(
+                   ?13, COALESCE(absolute_work_expires_at_unix_ms, ?14, ?13)
+                 ),
+                 absolute_work_expires_at_unix_ms = COALESCE(
+                   absolute_work_expires_at_unix_ms, ?14
+                 ),
                  observation_revision = ?6, observation_session_id = ?9,
                  updated_at_unix_ms = ?7
                  WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3 AND claim_owner = ?4
@@ -177,6 +211,8 @@ impl Db {
                 accepted,
                 progressing,
                 authorized,
+                progress_expires,
+                absolute_work_expires,
             ],
         )?;
         if changed == 1 {

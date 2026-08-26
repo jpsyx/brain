@@ -200,15 +200,7 @@ impl AppServices {
         )>,
     > {
         self.db.receiver_job(job_id)?.map_or(Ok(None), |job| {
-            Ok(Some((
-                job.state(),
-                crate::agent::AgentObservationCursor::from_durable(
-                    job.observation_revision(),
-                    job.accepted_at_unix_ms(),
-                    job.progressing_at_unix_ms(),
-                    job.completed_at_unix_ms(),
-                )?,
-            )))
+            Ok(Some((job.state(), job.observation_cursor()?)))
         })
     }
 

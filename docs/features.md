@@ -1524,8 +1524,8 @@ Token-, instance-, session-, and owner-matched newer evidence durably proves
 atomically and advances its revision once. The same state transaction requires
 that exact session tuple to remain locked and registered to the conversation;
 stored observation-session continuity cannot substitute for a current lock.
-The poll cursor is rebuilt from the
-durable revision and evidence timestamps on every tick, so process restart does
+The poll cursor is rebuilt from the durable revision and the current attempt's
+evidence timestamps on every tick, so process restart does
 not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
 or regressed evidence leaves the job unchanged. The producer descriptor-confines
 its owner-only cache, observation directory, lock, temporary, and replacement
@@ -1589,10 +1589,19 @@ restarts. Claims never pop a job from storage. If a consumer crashes, another
 owner can replace an eligible proved-pre-spawn or delivery lease. Successful
 process spawn is the no-auto-replay boundary. Brain commits `launched` before
 tab allocation; any owner, allocation, or store failure after spawn preserves
-exact correlation rather than scheduling a retry. Expired `launching`,
-`launched`, `accepted`, and `processing` rows preserve their complete ownership,
-state, and retry evidence and block FIFO replay until BR-16 decides whether to
-recover their native session.
+exact correlation rather than scheduling a retry. Schema v10 separately
+persists the two-minute launch, 90-second acceptance, five-minute progress,
+recovery, and immutable 30-minute accepted-work deadlines. The renewable
+30-second claim remains only a writer fence. Exact claims, launch commits,
+acceptance, and progress establish the corresponding lifecycle limits from
+trusted local authorization time, never from a future-skewed producer timestamp.
+The pure policy can classify a durable snapshot as wait, safe pre-acceptance
+requeue, one same-session recovery, terminal failure, or an incomplete legacy
+completion state. Recovery count and attempt kind remain separate from the
+existing three-attempt launch retry budget. The current Task 1 foundation does
+not yet execute those semantic effects, so expired `launching`, `launched`,
+`accepted`, and `processing` rows still preserve their complete ownership,
+state, and retry evidence and block FIFO replay.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

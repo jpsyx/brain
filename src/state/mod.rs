@@ -115,16 +115,20 @@ mod receiver;
 mod session_store;
 pub(crate) use receiver::schema::down_observation_to_registration_path as receiver_observation_schema_down;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;
+pub(crate) use receiver::schema::down_recovery_to_observation_path as receiver_recovery_schema_down;
 pub(crate) use receiver::schema::down_registration_to_launch_path as receiver_registration_schema_down;
 pub(crate) use receiver::schema::down_to_previous_path as receiver_launch_schema_down;
 pub use receiver::{
-    EmailLineage, EmailLineageError, MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance,
-    ReceiverClaim, ReceiverCompletionRequest, ReceiverConversation, ReceiverConversationId,
-    ReceiverConversationIdentity, ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverJobToken,
-    ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
+    EmailLineage, EmailLineageError, MAX_RECEIVER_LAUNCH_ATTEMPTS, MAX_RECEIVER_RECOVERY_ATTEMPTS,
+    ReceiverAcceptance, ReceiverAttemptKind, ReceiverClaim, ReceiverCompletionRequest,
+    ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity, ReceiverJob,
+    ReceiverJobId, ReceiverJobState, ReceiverJobToken, ReceiverLaunchFailure,
+    ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverLifecycleDeadlines,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
-    ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverRecoveryDecision, ReceiverRecoverySnapshot, ReceiverRunClaim,
+    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
+    ReceiverSessionPlan, decide_receiver_recovery, receiver_acceptance_expires_at,
+    receiver_launch_expires_at,
 };
 #[cfg(test)]
 mod tests;

@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 use rusqlite::OptionalExtension as _;
 
-use super::super::{ReceiverObservationMetadata, ReceiverRetryMetadata};
+use super::super::{
+    ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,
+    ReceiverStoredMetadata,
+};
 use crate::state::{
-    ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity, ReceiverJob,
-    ReceiverJobId, ReceiverJobState, ReceiverSessionBinding,
+    ReceiverAttemptKind, ReceiverConversation, ReceiverConversationId,
+    ReceiverConversationIdentity, ReceiverJob, ReceiverJobId, ReceiverJobState,
+    ReceiverSessionBinding,
 };
 
 pub(super) fn load_receiver_job(
@@ -18,7 +22,12 @@ pub(super) fn load_receiver_job(
                     retry_at_unix_ms, retry_from_state, last_error,
                     launched_at_unix_ms, accepted_at_unix_ms, progressing_at_unix_ms,
                     completed_at_unix_ms, observation_instance, observation_session_id,
-                    observation_revision
+                    observation_revision, attempt_accepted_at_unix_ms,
+                    attempt_progressing_at_unix_ms, latest_progress_at_unix_ms,
+                    launch_expires_at_unix_ms, acceptance_expires_at_unix_ms,
+                    progress_expires_at_unix_ms, recovery_expires_at_unix_ms,
+                    absolute_work_expires_at_unix_ms, recovery_count, attempt_kind,
+                    pending_unavailable_notice
              FROM receiver_jobs WHERE workspace_id = ?1 AND job_id = ?2",
             rusqlite::params![workspace_id, job_id.to_string()],
             |row| {
@@ -38,6 +47,17 @@ pub(super) fn load_receiver_job(
                     row.get::<_, Option<String>>(12)?,
                     row.get::<_, Option<String>>(13)?,
                     row.get::<_, i64>(14)?,
+                    row.get::<_, Option<i64>>(15)?,
+                    row.get::<_, Option<i64>>(16)?,
+                    row.get::<_, Option<i64>>(17)?,
+                    row.get::<_, Option<i64>>(18)?,
+                    row.get::<_, Option<i64>>(19)?,
+                    row.get::<_, Option<i64>>(20)?,
+                    row.get::<_, Option<i64>>(21)?,
+                    row.get::<_, Option<i64>>(22)?,
+                    row.get::<_, i64>(23)?,
+                    row.get::<_, String>(24)?,
+                    row.get::<_, bool>(25)?,
                 ))
             },
         )
@@ -58,6 +78,17 @@ pub(super) fn load_receiver_job(
         instance,
         session_id,
         revision,
+        attempt_accepted,
+        attempt_progressing,
+        latest_progress,
+        launch_expires,
+        acceptance_expires,
+        progress_expires,
+        recovery_expires,
+        absolute_work_expires,
+        recovery_count,
+        attempt_kind,
+        pending_unavailable_notice,
     )) = stored
     else {
         return Ok(None);
@@ -70,36 +101,71 @@ pub(super) fn load_receiver_job(
         crate::state::ReceiverJobToken::parse(&token)?,
         ReceiverConversationId::parse(&conversation)?,
         inbound,
-        state,
-        ReceiverRetryMetadata {
-            count: u32::try_from(retry_count).context("receiver retry count is outside u32")?,
-            at_unix_ms: retry_at
-                .map(|value| from_i64(value, "receiver retry timestamp"))
-                .transpose()?,
-            from_state: retry_from
-                .map(|value| {
-                    ReceiverJobState::parse(&value)
-                        .ok_or_else(|| anyhow::anyhow!("unknown receiver retry origin {value:?}"))
-                })
-                .transpose()?,
-            last_error,
-        },
-        ReceiverObservationMetadata {
-            launched_at_unix_ms: launched
-                .map(|value| from_i64(value, "receiver launched timestamp"))
-                .transpose()?,
-            accepted_at_unix_ms: accepted
-                .map(|value| from_i64(value, "receiver accepted timestamp"))
-                .transpose()?,
-            progressing_at_unix_ms: progressing
-                .map(|value| from_i64(value, "receiver progressing timestamp"))
-                .transpose()?,
-            completed_at_unix_ms: completed
-                .map(|value| from_i64(value, "receiver completed timestamp"))
-                .transpose()?,
-            instance,
-            session_id,
-            revision: from_i64(revision, "receiver observation revision")?,
+        ReceiverStoredMetadata {
+            state,
+            retry: ReceiverRetryMetadata {
+                count: u32::try_from(retry_count).context("receiver retry count is outside u32")?,
+                at_unix_ms: retry_at
+                    .map(|value| from_i64(value, "receiver retry timestamp"))
+                    .transpose()?,
+                from_state: retry_from
+                    .map(|value| {
+                        ReceiverJobState::parse(&value).ok_or_else(|| {
+                            anyhow::anyhow!("unknown receiver retry origin {value:?}")
+                        })
+                    })
+                    .transpose()?,
+                last_error,
+            },
+            observation: ReceiverObservationMetadata {
+                launched_at_unix_ms: launched
+                    .map(|value| from_i64(value, "receiver launched timestamp"))
+                    .transpose()?,
+                accepted_at_unix_ms: accepted
+                    .map(|value| from_i64(value, "receiver accepted timestamp"))
+                    .transpose()?,
+                progressing_at_unix_ms: progressing
+                    .map(|value| from_i64(value, "receiver progressing timestamp"))
+                    .transpose()?,
+                completed_at_unix_ms: completed
+                    .map(|value| from_i64(value, "receiver completed timestamp"))
+                    .transpose()?,
+                instance,
+                session_id,
+                revision: from_i64(revision, "receiver observation revision")?,
+                attempt_accepted_at_unix_ms: attempt_accepted
+                    .map(|value| from_i64(value, "receiver attempt accepted timestamp"))
+                    .transpose()?,
+                attempt_progressing_at_unix_ms: attempt_progressing
+                    .map(|value| from_i64(value, "receiver attempt progressing timestamp"))
+                    .transpose()?,
+            },
+            recovery: ReceiverRecoveryMetadata {
+                latest_progress_at_unix_ms: latest_progress
+                    .map(|value| from_i64(value, "receiver latest progress timestamp"))
+                    .transpose()?,
+                launch_expires_at_unix_ms: launch_expires
+                    .map(|value| from_i64(value, "receiver launch expiry"))
+                    .transpose()?,
+                acceptance_expires_at_unix_ms: acceptance_expires
+                    .map(|value| from_i64(value, "receiver acceptance expiry"))
+                    .transpose()?,
+                progress_expires_at_unix_ms: progress_expires
+                    .map(|value| from_i64(value, "receiver progress expiry"))
+                    .transpose()?,
+                recovery_expires_at_unix_ms: recovery_expires
+                    .map(|value| from_i64(value, "receiver recovery expiry"))
+                    .transpose()?,
+                absolute_work_expires_at_unix_ms: absolute_work_expires
+                    .map(|value| from_i64(value, "receiver absolute-work expiry"))
+                    .transpose()?,
+                recovery_count: u32::try_from(recovery_count)
+                    .context("receiver recovery count is outside u32")?,
+                attempt_kind: ReceiverAttemptKind::parse(&attempt_kind).ok_or_else(|| {
+                    anyhow::anyhow!("unknown receiver attempt kind {attempt_kind:?}")
+                })?,
+                pending_unavailable_notice,
+            },
         },
     )))
 }

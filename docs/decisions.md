@@ -2468,6 +2468,40 @@ down migration therefore maps `launching`, `launched`, `accepted`, `processing`,
 clears lease and retry authority. Preserving automatic downgrade compatibility
 is useful, but preserving the no-replay guarantee is mandatory.
 
+## Why receiver lifecycle deadlines are separate from writer claims
+
+The renewable 30-second receiver claim answers only who may write. Using it as
+the liveness policy would let a healthy coordinator renew ambiguous work forever
+and would make a coordinator crash accidentally decide whether a native run is
+safe to replay. Schema v10 therefore stores independent launch, acceptance,
+progress, recovery, and absolute-work deadlines. The initial policy is two
+minutes for pre-spawn launch work, 90 seconds after exact launch for acceptance,
+five minutes without exact progress, and an immutable 30-minute limit after
+exact acceptance. Equality is expired. Deadlines are derived from trusted local
+authorization time with saturating arithmetic; producer timestamps remain
+evidence and cannot grant more runtime.
+
+The policy itself is a pure `ReceiverRecoverySnapshot` to
+`ReceiverRecoveryDecision` function. It distinguishes waiting, safe
+pre-acceptance requeue, one accepted same-session recovery, terminal failure,
+and an incomplete legacy completion state. The existing three launch attempts
+and the one accepted recovery are separate counters, so failure before exact
+acceptance never spends recovery authority.
+
+Recovery also needs a new observation stream without erasing history. The
+original accepted and progressing columns keep the first lifetime facts, while
+current-attempt accepted/progressing fields plus revision form the polling
+cursor. A recovery process can therefore begin at revision zero under the same
+job token, conversation, and immutable inbound identity. Terminal completion
+merges against the current attempt and preserves the lifetime facts atomically.
+
+Automatic v9 upgrade derives finite deadlines from stored evidence and update
+times. Ambiguous active rows get an immediate deadline, and reconciliation of a
+partial v10 table also fails missing active deadlines closed. A v10 downgrade
+keeps representable ordinary v9 work but terminalizes a nonterminal recovery
+attempt before removing the new columns, because v9 cannot distinguish that
+attempt from replayable ordinary work.
+
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
 admission protocol, and their execution policy. The remaining `jobs.sock`
