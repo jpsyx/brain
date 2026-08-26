@@ -92,6 +92,7 @@ fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
     let accepted = db
         .accept_receiver_job(&job, &identity)
         .expect("accept receiver job");
+    register_observation_session(&db, accepted.conversation_id(), &job, "instance-a", "session-a");
     db.claim_next_receiver_job("worker-a", 1_000, 1_100)
         .expect("claim job")
         .expect("claim available");
@@ -112,10 +113,52 @@ fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
         .renew_receiver_claim(accepted.job_id(), "worker-a", 1_050, 1_200)
         .expect("renew owned claim"));
 
+    assert!(db
+        .transition_receiver_job(
+            accepted.job_id(),
+            "worker-a",
+            ReceiverJobState::Claimed,
+            ReceiverJobState::Launching,
+            1_060,
+        )
+        .expect("prepare owned launch"));
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load launch")
+        .expect("job")
+        .token();
+    assert!(db
+        .commit_receiver_job_launch(accepted.job_id(), "worker-a", &launch_observation(token, "instance-a", "session-a", 1_060))
+        .expect("commit owned launch"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(),
+            "worker-a",
+            &observation(
+                token,
+                "instance-a",
+                "session-a",
+                ReceiverNonterminalObservationPhase::Accepted,
+                1,
+                1_061,
+            ),
+        )
+        .expect("record accepted evidence"));
+    assert!(db
+        .apply_receiver_observation(
+            accepted.job_id(),
+            "worker-a",
+            &observation(
+                token,
+                "instance-a",
+                "session-a",
+                ReceiverNonterminalObservationPhase::Progressing,
+                2,
+                1_062,
+            ),
+        )
+        .expect("record progressing evidence"));
     for (expected, next) in [
-        (ReceiverJobState::Claimed, ReceiverJobState::Launching),
-        (ReceiverJobState::Launching, ReceiverJobState::Accepted),
-        (ReceiverJobState::Accepted, ReceiverJobState::Processing),
         (ReceiverJobState::Processing, ReceiverJobState::AnswerReady),
         (ReceiverJobState::AnswerReady, ReceiverJobState::Delivering),
         (ReceiverJobState::Delivering, ReceiverJobState::Done),

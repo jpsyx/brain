@@ -73,3 +73,54 @@ pub(super) fn receiver_job(
         received_at_unix_ms,
     )
 }
+
+pub(super) fn launch_observation(
+    token: crate::state::ReceiverJobToken,
+    instance: &str,
+    session_id: &str,
+    at: u64,
+) -> crate::state::ReceiverLaunchObservation {
+    crate::state::ReceiverLaunchObservation {
+        token,
+        instance: instance.to_owned(),
+        session_id: session_id.to_owned(),
+        observed_at_unix_ms: at,
+        authorized_at_unix_ms: at,
+    }
+}
+
+pub(super) fn observation(
+    token: crate::state::ReceiverJobToken,
+    instance: &str,
+    session_id: &str,
+    phase: crate::state::ReceiverNonterminalObservationPhase,
+    revision: u64,
+    at: u64,
+) -> crate::state::ReceiverObservation {
+    crate::state::ReceiverObservation {
+        token,
+        instance: instance.to_owned(),
+        session_id: session_id.to_owned(),
+        phase,
+        revision,
+        observed_at_unix_ms: at,
+        authorized_at_unix_ms: at,
+    }
+}
+
+pub(super) fn register_observation_session(
+    db: &crate::state::Db,
+    conversation_id: crate::state::ReceiverConversationId,
+    job: &crate::server::receiver::InboundJob,
+    instance: &str,
+    session_id: &str,
+) {
+    let scope = crate::agent::SessionScope::new(
+        crate::agent::AgentKind::Codex,
+        job.workspace_id,
+        job.actor.clone(),
+    );
+    let session = crate::agent::AgentSession::new(session_id).expect("observation session");
+    db.register_receiver_session(conversation_id, &session, instance, 42, &scope)
+        .expect("register exact live observation session");
+}

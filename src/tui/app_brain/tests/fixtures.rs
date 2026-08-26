@@ -19,6 +19,8 @@ struct TestWorkspaceFixture {
 impl TestWorkspaceFixture {
     fn build(temporary: &tempfile::TempDir) -> Self {
         let root = temporary.path().join("family");
+        let canonical_home =
+            std::fs::canonicalize(temporary.path()).expect("canonical test home directory");
         std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
         std::fs::create_dir_all(root.join(".config")).expect("create config directory");
         std::fs::write(
@@ -43,12 +45,12 @@ impl TestWorkspaceFixture {
         )
         .expect("write test agent command");
         let workspace = WorkspaceContext::new(
-            temporary.path(),
+            &canonical_home,
             WorkspaceId::parse(WORKSPACE_ID).expect("valid workspace id"),
             WorkspaceName::parse("family").expect("valid workspace name"),
             &root,
             "pablo",
-            temporary.path(),
+            &canonical_home,
         )
         .expect("workspace context");
         let registry_store = RegistryStore::from_path(temporary.path().join("env.json"));

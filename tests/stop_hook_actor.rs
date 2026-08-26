@@ -7,6 +7,8 @@ const WORKSPACE_ID: &str = "11111111-1111-4111-8111-111111111111";
 
 #[path = "stop_hook_actor/contracts.rs"]
 mod contracts;
+#[path = "stop_hook_actor/ordering.rs"]
+mod ordering;
 
 fn hook_script(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -104,8 +106,9 @@ fn completion_status(state_db: &Path, session_id: &str) -> String {
 #[test]
 fn codex_completion_uses_the_job_response_id_and_preserves_actor_context() {
     let temp = tempfile::tempdir().unwrap();
-    let response_dir = temp.path().join("responses");
-    let state_db = temp.path().join("state.db");
+    let temporary_root = temp.path().canonicalize().unwrap();
+    let response_dir = temporary_root.join("responses");
+    let state_db = temporary_root.join("state.db");
     drop(brain::state::Db::open_path(&state_db).unwrap());
     let connection = rusqlite::Connection::open(&state_db).unwrap();
     connection

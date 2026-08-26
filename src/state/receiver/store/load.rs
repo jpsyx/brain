@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use rusqlite::OptionalExtension as _;
 
-use super::super::ReceiverRetryMetadata;
+use super::super::{ReceiverObservationMetadata, ReceiverRetryMetadata};
 use crate::state::{
     ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity, ReceiverJob,
     ReceiverJobId, ReceiverJobState, ReceiverSessionBinding,
@@ -14,8 +14,11 @@ pub(super) fn load_receiver_job(
 ) -> Result<Option<ReceiverJob>> {
     let stored = connection
         .query_row(
-            "SELECT conversation_id, inbound_json, state, retry_count,
-                    retry_at_unix_ms, retry_from_state, last_error
+            "SELECT job_token, conversation_id, inbound_json, state, retry_count,
+                    retry_at_unix_ms, retry_from_state, last_error,
+                    launched_at_unix_ms, accepted_at_unix_ms, progressing_at_unix_ms,
+                    completed_at_unix_ms, observation_instance, observation_session_id,
+                    observation_revision
              FROM receiver_jobs WHERE workspace_id = ?1 AND job_id = ?2",
             rusqlite::params![workspace_id, job_id.to_string()],
             |row| {
@@ -23,16 +26,39 @@ pub(super) fn load_receiver_job(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, Option<i64>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, Option<i64>>(10)?,
+                    row.get::<_, Option<i64>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, i64>(14)?,
                 ))
             },
         )
         .optional()?;
-    let Some((conversation, inbound_json, state, retry_count, retry_at, retry_from, last_error)) =
-        stored
+    let Some((
+        token,
+        conversation,
+        inbound_json,
+        state,
+        retry_count,
+        retry_at,
+        retry_from,
+        last_error,
+        launched,
+        accepted,
+        progressing,
+        completed,
+        instance,
+        session_id,
+        revision,
+    )) = stored
     else {
         return Ok(None);
     };
@@ -41,6 +67,7 @@ pub(super) fn load_receiver_job(
         .ok_or_else(|| anyhow::anyhow!("unknown durable receiver job state {state:?}"))?;
     Ok(Some(ReceiverJob::from_stored(
         job_id,
+        crate::state::ReceiverJobToken::parse(&token)?,
         ReceiverConversationId::parse(&conversation)?,
         inbound,
         state,
@@ -56,6 +83,23 @@ pub(super) fn load_receiver_job(
                 })
                 .transpose()?,
             last_error,
+        },
+        ReceiverObservationMetadata {
+            launched_at_unix_ms: launched
+                .map(|value| from_i64(value, "receiver launched timestamp"))
+                .transpose()?,
+            accepted_at_unix_ms: accepted
+                .map(|value| from_i64(value, "receiver accepted timestamp"))
+                .transpose()?,
+            progressing_at_unix_ms: progressing
+                .map(|value| from_i64(value, "receiver progressing timestamp"))
+                .transpose()?,
+            completed_at_unix_ms: completed
+                .map(|value| from_i64(value, "receiver completed timestamp"))
+                .transpose()?,
+            instance,
+            session_id,
+            revision: from_i64(revision, "receiver observation revision")?,
         },
     )))
 }

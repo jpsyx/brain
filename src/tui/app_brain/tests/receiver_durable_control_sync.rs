@@ -71,7 +71,7 @@ fn disabled_pending_new_finishes_its_boundary_without_claiming_following_work() 
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
     let specs = transport.launch_specs();
     assert_eq!(specs.len(), 1);

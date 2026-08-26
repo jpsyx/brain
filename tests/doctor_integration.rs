@@ -30,6 +30,11 @@ fn install_bridge_files(settings_dir: &std::path::Path) {
         include_str!("../scripts/agent_session_stop_hook.py"),
     )
     .unwrap();
+    std::fs::write(
+        hooks.join("receiver_observation_bridge.py"),
+        include_str!("../scripts/receiver_observation_bridge.py"),
+    )
+    .unwrap();
 }
 
 fn hook_settings() -> &'static str {
@@ -39,6 +44,12 @@ fn hook_settings() -> &'static str {
       ]}],
       "Stop":[{"hooks":[
         {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py\""}
+      ]}],
+      "UserPromptSubmit":[{"hooks":[
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py\""}
+      ]}],
+      "PostToolUse":[{"hooks":[
+        {"type":"command","command":"python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py\""}
       ]}]
     }}"#
 }
@@ -50,6 +61,12 @@ fn codex_hook_settings() -> &'static str {
       ]}],
       "Stop":[{"hooks":[
         {"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""}
+      ]}],
+      "UserPromptSubmit":[{"hooks":[
+        {"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""}
+      ]}],
+      "PostToolUse":[{"hooks":[
+        {"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""}
       ]}]
     }}"#
 }
@@ -165,6 +182,18 @@ fn doctor_rejects_stale_opencode_plugin_and_bridge_contents() {
     .unwrap();
     let stale_bridge = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
     assert!(!stale_bridge.frontend_ready(AgentKind::OpenCode));
+
+    install_bridge_files(&settings_dir);
+    std::fs::write(
+        settings_dir
+            .parent()
+            .unwrap()
+            .join(".brain/hooks/receiver_observation_bridge.py"),
+        "stale observation bridge",
+    )
+    .unwrap();
+    let stale_observation = run_doctor(&db_path, &settings_dir, false, &compatible_opencode());
+    assert!(!stale_observation.frontend_ready(AgentKind::OpenCode));
 }
 
 #[test]

@@ -71,6 +71,12 @@ impl WorkspacePaths {
         self.cache_dir.join("responses")
     }
 
+    /// Workspace-scoped content-free receiver lifecycle snapshots.
+    #[must_use]
+    pub fn receiver_observations_dir(&self) -> PathBuf {
+        self.cache_dir.join("receiver-observations")
+    }
+
     /// The workspace-scoped logs directory.
     #[must_use]
     pub fn logs_dir(&self) -> PathBuf {

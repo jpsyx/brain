@@ -12,8 +12,8 @@ pub(super) mod exhausted_tab_ids;
 
 use ephemeral::EphemeralTabs;
 pub(crate) use ephemeral::{
-    ReceiverRunObservation, ReceiverRunTabError, RemovedReceiverRun, RemovedSkillSession,
-    SkillSessionObservation, SkillSessionTabIdExhausted,
+    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunTabError,
+    RemovedReceiverRun, RemovedSkillSession, SkillSessionObservation, SkillSessionTabIdExhausted,
 };
 
 pub(crate) struct BrainPanelStateInit {
@@ -341,6 +341,17 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) fn receiver_run_observations(&self) -> Vec<ReceiverRunObservation> {
         self.ephemeral_tabs.receiver_run_observations()
+    }
+
+    pub(crate) fn poll_receiver_run(
+        &self,
+        id: SessionTabId,
+        job_id: ReceiverJobId,
+        instance: &str,
+        request: &crate::agent::AgentObservationRequest,
+    ) -> Result<ReceiverRunPoll, ReceiverRunPollError> {
+        self.ephemeral_tabs
+            .poll_receiver_run(id, job_id, instance, request)
     }
 
     pub(crate) fn add_receiver_run(

@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import sqlite3
+import subprocess
 import sys
 import tempfile
 
@@ -149,6 +150,37 @@ def rollback_publication(
         pass
 
 
+def publish_completed_observation(session_id: str, turn_id: object) -> bool:
+    token = os.environ.get("BRAIN_RECEIVER_JOB_TOKEN")
+    observation_path = os.environ.get("BRAIN_RECEIVER_OBSERVATION_PATH")
+    if not token and not observation_path:
+        return True
+    if not token or not observation_path:
+        return False
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": session_id,
+        "turn_id": turn_id if isinstance(turn_id, str) and turn_id else None,
+    }
+    try:
+        result = subprocess.run(
+            [
+                "python3",
+                pathlib.Path(__file__).with_name("receiver_observation_bridge.py"),
+                "--require-write",
+            ],
+            input=json.dumps(payload),
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def main() -> None:
     required = (
         "BRAIN_RESPONSE_DIR",
@@ -182,19 +214,20 @@ def main() -> None:
             return
         target_dir = pathlib.Path(launch["BRAIN_RESPONSE_DIR"])
         target = target_dir / f"{response_id}.json"
-        temporary = stage_response(
-            target,
-            json.dumps({
-                "session_id": session_id,
-                "response_id": response_id,
-                "frontend": launch["BRAIN_AGENT_KIND"],
-                "workspace_id": launch["BRAIN_WORKSPACE_ID"],
-                "actor_id": launch["BRAIN_ACTOR_ID"],
-                "channel": launch["BRAIN_CHANNEL"],
-                "completion_status": "completed",
-                "message": message,
-            }),
-        )
+        artifact = {
+            "session_id": session_id,
+            "response_id": response_id,
+            "frontend": launch["BRAIN_AGENT_KIND"],
+            "workspace_id": launch["BRAIN_WORKSPACE_ID"],
+            "actor_id": launch["BRAIN_ACTOR_ID"],
+            "channel": launch["BRAIN_CHANNEL"],
+            "completion_status": "completed",
+            "message": message,
+        }
+        job_token = os.environ.get("BRAIN_RECEIVER_JOB_TOKEN")
+        if job_token:
+            artifact["job_token"] = job_token
+        temporary = stage_response(target, json.dumps(artifact))
         scope = (
             launch["BRAIN_AGENT_KIND"],
             session_id,
@@ -224,6 +257,8 @@ def main() -> None:
         if not registered:
             conn.rollback()
             return
+        if not publish_completed_observation(session_id, payload.get("turn_id")):
+            raise RuntimeError("receiver completion observation was not published")
         updated = conn.execute(
             """
             UPDATE brain_sessions SET completion_status = 'completed'

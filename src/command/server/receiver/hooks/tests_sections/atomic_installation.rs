@@ -4,13 +4,13 @@ fn merge_is_idempotent_and_preserves_other_settings() {
     replace_entry(
         &mut settings,
         "SessionStart",
-        &["session.py"],
+        &["/tmp/session.py"],
         "/tmp/session.py",
     );
     replace_entry(
         &mut settings,
         "SessionStart",
-        &["session.py"],
+        &["/tmp/session.py"],
         "/tmp/session.py",
     );
     assert_eq!(
@@ -43,7 +43,7 @@ fn concurrent_workspace_registrations_and_unrelated_settings_survive() {
                 update_json_file(&path, |settings| {
                     let basename = format!("{workspace}.py");
                     let command = format!("python3 /workspaces/{workspace}/{basename}");
-                    replace_entry(settings, "SessionStart", &[&basename], &command);
+                    replace_entry(settings, "SessionStart", &[&command], &command);
                 })
                 .unwrap();
             });
@@ -69,27 +69,32 @@ fn concurrent_workspace_registrations_and_unrelated_settings_survive() {
 }
 
 #[test]
-fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() {
-    let mut settings = json!({
+fn merge_replaces_exact_managed_hooks_but_preserves_user_same_basename_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("family");
+    let home = temp.path().join("home");
+    let settings_path = root.join(".claude/settings.json");
+    std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+    std::fs::write(&settings_path, serde_json::to_vec(&json!({
         "hooks": {
             "SessionStart": [
-                {"hooks": [{"type": "command", "command": "python3 /old/claude_session_start_hook.py"}]},
-                {"hooks": [{"type": "command", "command": "python3 /old/agent_session_start_hook.py"}]},
+                {"hooks": [{"type": "command", "command": r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#}]},
+                {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"}]},
+                {"hooks": [{"type": "command", "command": "python3 /opt/user/agent_session_start_hook.py"}]},
+                {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_session_start_hook.py"}]},
                 {"hooks": [{"type": "command", "command": "python3 /keep/unrelated.py"}]}
+            ],
+            "Stop": [
+                {"hooks": [{"type": "command", "command": "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"}]},
+                {"hooks": [{"type": "command", "command": "python3 /opt/user/claude_stop_hook.py"}]}
             ]
         }
-    });
+    })).unwrap()).unwrap();
 
-    replace_entry(
-        &mut settings,
-        "SessionStart",
-        &[
-            "claude_session_start_hook.py",
-            "agent_session_start_hook.py",
-        ],
-        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
-    );
+    install_for_home(&root, &home).unwrap();
 
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(settings_path).unwrap()).unwrap();
     let commands = settings["hooks"]["SessionStart"]
         .as_array()
         .unwrap()
@@ -100,8 +105,24 @@ fn merge_removes_legacy_and_generic_brain_hooks_but_preserves_unrelated_hooks() 
     assert_eq!(
         commands,
         vec![
+            "python3 /opt/user/agent_session_start_hook.py",
+            "python3 /opt/user/claude_session_start_hook.py",
             "python3 /keep/unrelated.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
+        ]
+    );
+    let stop_commands = settings["hooks"]["Stop"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|entry| entry["hooks"].as_array().unwrap())
+        .map(|hook| hook["command"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stop_commands,
+        vec![
+            "python3 /opt/user/claude_stop_hook.py",
+            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
         ]
     );
 }

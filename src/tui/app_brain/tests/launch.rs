@@ -61,6 +61,15 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
             specs[0].clone()
         };
         assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
+        for forbidden in [
+            "BRAIN_RECEIVER_JOB_TOKEN",
+            "BRAIN_RECEIVER_OBSERVATION_PATH",
+        ] {
+            assert!(
+                spec.environment.iter().all(|(name, _)| name != forbidden),
+                "interactive launch gained receiver authority through {forbidden}"
+            );
+        }
         let response_id = app.brain.interactive_response_id().unwrap();
         let agent_session_id = app.brain.interactive_agent_session_id().unwrap();
         match kind {

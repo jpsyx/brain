@@ -101,7 +101,7 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
     );
     let following_job = db.receiver_job(following.job_id()).unwrap().unwrap();
     assert_ne!(following_job.conversation_id(), command.conversation_id());
-    assert_eq!(following_job.state(), ReceiverJobState::Launching);
+    assert_eq!(following_job.state(), ReceiverJobState::Launched);
     let retired = db
         .receiver_conversation(command.conversation_id())
         .unwrap()
@@ -211,7 +211,7 @@ fn durable_restart_cuts_prior_backlog_during_active_run_and_preserves_later_fres
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
     assert_eq!(
         db.receiver_job(dropped_same.job_id())

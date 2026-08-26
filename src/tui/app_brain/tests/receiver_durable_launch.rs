@@ -50,7 +50,7 @@ fn durable_receiver_launches_in_background_while_main_turn_is_busy() {
             .expect("load receiver job")
             .expect("receiver job")
             .state(),
-        ReceiverJobState::Launching
+        ReceiverJobState::Launched
     );
     assert_eq!(
         (
@@ -198,7 +198,43 @@ fn every_frontend_gets_an_isolated_controller_and_remote_instance() {
             .find(|(name, _)| name == "BRAIN_RESPONSE_ID")
             .map(|(_, value)| value.as_str())
             .expect("remote response environment");
+        let token = specs[0]
+            .environment
+            .iter()
+            .find(|(name, _)| name == "BRAIN_RECEIVER_JOB_TOKEN")
+            .map(|(_, value)| value.as_str())
+            .expect("receiver job-token environment");
+        let observation_path = specs[0]
+            .environment
+            .iter()
+            .find(|(name, _)| name == "BRAIN_RECEIVER_OBSERVATION_PATH")
+            .map(|(_, value)| value.as_str())
+            .expect("receiver observation-path environment");
         assert_eq!(instance, response);
+        assert_eq!(
+            token,
+            db.receiver_job(accepted.job_id())
+                .unwrap()
+                .unwrap()
+                .token()
+                .to_string()
+        );
+        assert_eq!(
+            observation_path,
+            app.context
+                .workspace()
+                .paths()
+                .cache_dir()
+                .join("receiver-observations")
+                .join(format!("{instance}.json"))
+                .display()
+                .to_string()
+        );
+        assert!(
+            specs[0]
+                .command
+                .contains(&format!("<!-- brain:receiver-job-token={token} -->"))
+        );
         assert_ne!(instance, "shell-under-test");
         assert_eq!(specs[0].cwd, app.context.workspace().root());
         assert!(specs[0].command.contains("frontend-neutral run"));
@@ -246,6 +282,20 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
     let db = Db::open(app.context.workspace()).expect("state DB");
     let accepted = accept_email_job(&app, &db, "already progressed", 100);
+    let previous_session = AgentSession::new("previous-session").expect("previous session");
+    let previous_scope = crate::agent::SessionScope::new(
+        AgentKind::Claude,
+        app.context.workspace().id(),
+        email_actor(),
+    );
+    db.register_receiver_session(
+        accepted.conversation_id(),
+        &previous_session,
+        "previous-instance",
+        42,
+        &previous_scope,
+    )
+    .expect("register previous lifecycle session");
     let now = clock.unix_ms();
     let claim = db
         .claim_next_receiver_run("previous-owner", now, now + 1_000)
@@ -256,15 +306,57 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
         db.prepare_receiver_job_launch(accepted.job_id(), "previous-owner", now)
             .expect("prepare previous launch")
     );
-    for (expected, next) in [
-        (ReceiverJobState::Launching, ReceiverJobState::Accepted),
-        (ReceiverJobState::Accepted, ReceiverJobState::Processing),
-    ] {
-        assert!(
-            db.transition_receiver_job(accepted.job_id(), "previous-owner", expected, next, now)
-                .expect("advance progressed job")
-        );
-    }
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load previous launch")
+        .expect("previous launch")
+        .token();
+    assert!(
+        db.commit_receiver_job_launch(
+            accepted.job_id(),
+            "previous-owner",
+            &crate::state::ReceiverLaunchObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
+        )
+        .expect("commit previous launch")
+    );
+    assert!(
+        db.apply_receiver_observation(
+            accepted.job_id(),
+            "previous-owner",
+            &crate::state::ReceiverObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                phase: crate::state::ReceiverNonterminalObservationPhase::Accepted,
+                revision: 1,
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
+        )
+        .expect("record accepted evidence")
+    );
+    assert!(
+        db.apply_receiver_observation(
+            accepted.job_id(),
+            "previous-owner",
+            &crate::state::ReceiverObservation {
+                token,
+                instance: "previous-instance".to_owned(),
+                session_id: "previous-session".to_owned(),
+                phase: crate::state::ReceiverNonterminalObservationPhase::Progressing,
+                revision: 2,
+                observed_at_unix_ms: now,
+                authorized_at_unix_ms: now,
+            },
+        )
+        .expect("record progressing evidence")
+    );
     clock.advance(std::time::Duration::from_secs(2));
     let transport = TransportRecording::default();
     app.brain.replace_receiver_transport(transport.transport());
@@ -273,7 +365,7 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
 
     assert!(app.brain.receiver_run_observations().is_empty());
     assert!(transport.launch_specs().is_empty());
-    assert_eq!(transport.shutdowns(), 1);
+    assert_eq!(transport.shutdowns(), 0);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Processing

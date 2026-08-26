@@ -158,7 +158,13 @@ fn open_triage_tab_launches_the_selected_ephemeral_untracked_controller() {
                 .iter()
                 .any(|(name, _)| name == crate::skill_session::prompt::TOKEN_ENV)
         );
-        for forbidden in ["BRAIN_INSTANCE_ID", "BRAIN_STATE_DB", "BRAIN_RESPONSE_ID"] {
+        for forbidden in [
+            "BRAIN_INSTANCE_ID",
+            "BRAIN_STATE_DB",
+            "BRAIN_RESPONSE_ID",
+            "BRAIN_RECEIVER_JOB_TOKEN",
+            "BRAIN_RECEIVER_OBSERVATION_PATH",
+        ] {
             assert!(
                 spec.environment.iter().all(|(name, _)| name != forbidden),
                 "an ephemeral skill session must omit {forbidden}"

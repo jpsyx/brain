@@ -271,7 +271,10 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
                 );
                 assert_eq!(
                     plan.initial_prompt(),
-                    RESUME_PROMPT,
+                    format!(
+                        "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
+                        job.token()
+                    ),
                     "{} for {} must omit portable transcript context",
                     case.name,
                     kind.label(),
@@ -472,6 +475,29 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
 }
 
 #[test]
+fn receiver_launch_appends_the_exact_job_token_marker_as_the_final_prompt_line() {
+    for kind in AgentKind::ALL {
+        for binding in [BindingKind::Matching, BindingKind::Absent] {
+            let (job, conversation) = durable_fixture(kind, binding, "synthetic context");
+            let plan = render_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(binding),
+            );
+            let expected = format!("<!-- brain:receiver-job-token={} -->", job.token());
+
+            assert_eq!(
+                plan.initial_prompt().lines().last(),
+                Some(expected.as_str())
+            );
+            assert_eq!(plan.initial_prompt().matches(&expected).count(), 1);
+            assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
+        }
+    }
+}
+
+#[test]
 fn receiver_launch_resume_prompt_bounds_utf8_message_and_local_attachment_paths() {
     let message = format!(
         "authenticated-message-start-{}-authenticated-message-end",
@@ -574,6 +600,7 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
                 plan.session_plan(),
                 Some(prompt),
             );
+            let marker = format!("<!-- brain:receiver-job-token={} -->", job.token());
 
             assert!(
                 prompt.len() <= SHELL_INLINE_VALUE_BUDGET_BYTES,
@@ -586,6 +613,9 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
             assert!(prompt.contains(&paths[0].display().to_string()));
             assert!(prompt.contains("[Current authenticated message truncated]"));
             assert!(prompt.contains("[Additional local attachment files omitted]"));
+            assert_eq!(prompt.lines().last(), Some(marker.as_str()));
+            assert_eq!(prompt.matches(&marker).count(), 1);
+            assert_eq!(command.matches(&marker).count(), 1);
             assert!(
                 command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
                 "{} with {binding:?} shell command was {} bytes",

@@ -211,6 +211,18 @@ fn services(db: Db) -> AppServices {
 }
 
 #[test]
+fn retryable_launch_failures_exclude_post_spawn_allocation() {
+    assert_eq!(
+        ReceiverLaunchFailure::ALL.as_slice(),
+        &[
+            ReceiverLaunchFailure::Planning,
+            ReceiverLaunchFailure::Registration,
+            ReceiverLaunchFailure::Spawn,
+        ]
+    );
+}
+
+#[test]
 fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote_ownership_and_retries()
  {
     for failure in ReceiverLaunchFailure::ALL {
@@ -231,10 +243,7 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
             .claim_receiver_run("receiver-claim", 1_000, 1_500)
             .expect("claim receiver job")
             .expect("ready receiver job");
-        if matches!(
-            failure,
-            ReceiverLaunchFailure::Allocation | ReceiverLaunchFailure::Spawn
-        ) {
+        if failure == ReceiverLaunchFailure::Spawn {
             assert!(
                 services
                     .prepare_receiver_launch(accepted.job_id(), "receiver-claim", 1_010)

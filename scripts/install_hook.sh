@@ -14,10 +14,12 @@
 # absolute root keeps synced settings portable across machines and across
 # workspace root locations.
 #
-# Both bridges:
+# The bridges:
 #   - SessionStart: records which frontend session the brain panel drives (resume).
 #   - Session stop: captures the final assistant message for authenticated receiver jobs
 #     (no-op unless $BRAIN_RESPONSE_DIR is set).
+#   - Receiver observation: records content-free acceptance and progress boundaries
+#     (no-op unless receiver-only observation authority is present).
 #
 # Safe to re-run. Bails (non-zero) if jq is missing; we lean on jq to merge so
 # we don't corrupt the user's settings.
@@ -27,6 +29,7 @@ set -euo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repo_session="${script_dir}/agent_session_start_hook.py"
 repo_stop="${script_dir}/agent_session_stop_hook.py"
+repo_observation="${script_dir}/receiver_observation_bridge.py"
 repo_opencode_plugin="${script_dir}/opencode_brain_plugin.js"
 
 if [[ $# -gt 1 ]]; then
@@ -56,6 +59,16 @@ sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_sessi
 stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py"'
 codex_sess_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py"'
 codex_stop_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py"'
+observe_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py"'
+codex_observe_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py"'
+legacy_sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py"'
+legacy_sess_alias_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py"'
+legacy_stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py"'
+legacy_stop_alias_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_stop_hook.py"'
+codex_legacy_sess_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py"'
+codex_legacy_sess_alias_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py"'
+codex_legacy_stop_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py"'
+codex_legacy_stop_alias_cmd='python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py"'
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "install_hook.sh: jq is required (brew install jq)" >&2
@@ -65,7 +78,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "install_hook.sh: python3 is required" >&2
   exit 1
 fi
-for f in "$repo_session" "$repo_stop" "$repo_opencode_plugin"; do
+for f in "$repo_session" "$repo_stop" "$repo_observation" "$repo_opencode_plugin"; do
   [[ -f "$f" ]] || { echo "install_hook.sh: hook script missing at $f" >&2; exit 1; }
 done
 
@@ -124,6 +137,7 @@ PY
 # artifact symlink outside the selected root.
 install_static_file "$repo_session" "$hook_dir/agent_session_start_hook.py" 0755
 install_static_file "$repo_stop" "$hook_dir/agent_session_stop_hook.py" 0755
+install_static_file "$repo_observation" "$hook_dir/receiver_observation_bridge.py" 0755
 
 opencode_plugin_dir="${selected_root}/.opencode/plugins"
 install_static_file "$repo_opencode_plugin" "$opencode_plugin_dir/brain.js" 0644
@@ -132,29 +146,42 @@ install_hook_settings() {
   local target_path="$1"
   local session_command="$2"
   local stop_command="$3"
+  local observation_command="$4"
+  local legacy_session_command="$5"
+  local legacy_session_alias_command="$6"
+  local legacy_stop_command="$7"
+  local legacy_stop_alias_command="$8"
   local tmp
 
   mkdir -p "$(dirname "$target_path")"
   [[ -f "$target_path" ]] || echo "{}" > "$target_path"
 
-  # Strip stale Brain entries by script basename, preserve unrelated settings,
+  # Strip exact current or explicitly known legacy Brain entries, preserve unrelated settings,
   # then install each canonical command exactly once.
   tmp="$(mktemp)"
-  jq --arg sess "$session_command" --arg stop "$stop_command" '
-    def strip($bases):
-      map(.hooks |= map(select((.command // "" | rtrimstr("\"") | rtrimstr("\u0027")) as $command | ($bases | any(. as $base | $command | endswith($base))) | not)))
+  jq --arg sess "$session_command" --arg stop "$stop_command" --arg observe "$observation_command" \
+     --arg legacy_sess "$legacy_session_command" --arg legacy_sess_alias "$legacy_session_alias_command" \
+     --arg legacy_stop "$legacy_stop_command" --arg legacy_stop_alias "$legacy_stop_alias_command" '
+    def strip($commands):
+      map(.hooks |= map(select((.command // "") as $command | ($commands | index($command)) == null)))
       | map(select((.hooks | length) > 0));
     .hooks //= {}
-    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip(["claude_session_start_hook.py", "agent_session_start_hook.py"]))
+    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip([$sess, $legacy_sess, $legacy_sess_alias, "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py", "python3 .brain/hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/claude_session_start_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $sess}]}]
-    | .hooks.Stop = ((.hooks.Stop // []) | strip(["claude_stop_hook.py", "agent_turn_complete_hook.py", "agent_session_stop_hook.py"]))
+    | .hooks.Stop = ((.hooks.Stop // []) | strip([$stop, $legacy_stop, $legacy_stop_alias, "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py", "python3 .brain/hooks/agent_session_stop_hook.py", "python3 .claude/brain-hooks/agent_turn_complete_hook.py", "python3 .claude/brain-hooks/claude_stop_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $stop}]}]
+    | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | strip([$observe]))
+        + [{"hooks": [{"type": "command", "command": $observe}]}]
+    | .hooks.PostToolUse = ((.hooks.PostToolUse // []) | strip([$observe]))
+        + [{"hooks": [{"type": "command", "command": $observe}]}]
   ' "$target_path" > "$tmp"
   mv "$tmp" "$target_path"
 }
 
-install_hook_settings "$settings_path" "$sess_cmd" "$stop_cmd"
-install_hook_settings "$codex_settings_path" "$codex_sess_cmd" "$codex_stop_cmd"
+install_hook_settings "$settings_path" "$sess_cmd" "$stop_cmd" "$observe_cmd" \
+  "$legacy_sess_cmd" "$legacy_sess_alias_cmd" "$legacy_stop_cmd" "$legacy_stop_alias_cmd"
+install_hook_settings "$codex_settings_path" "$codex_sess_cmd" "$codex_stop_cmd" "$codex_observe_cmd" \
+  "$codex_legacy_sess_cmd" "$codex_legacy_sess_alias_cmd" "$codex_legacy_stop_cmd" "$codex_legacy_stop_alias_cmd"
 
 echo "install_hook.sh: hooks installed (root-anchored) → $hook_dir"
 echo "OpenCode plugin: $opencode_plugin_dir/brain.js"

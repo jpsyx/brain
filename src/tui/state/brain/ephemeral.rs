@@ -1,4 +1,7 @@
-use crate::agent::{AgentController, AgentError};
+use crate::agent::{
+    AgentController, AgentError, AgentObservationError, AgentObservationRequest,
+    AgentObservationResult,
+};
 use crate::skill_session::SkillSessionKey;
 use crate::state::ReceiverJobId;
 use crate::tui::model::SessionTabId;
@@ -46,6 +49,18 @@ pub(crate) struct ReceiverRunObservation {
     pub(crate) job_id: ReceiverJobId,
     pub(crate) instance: String,
     pub(crate) exited: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiverRunPollError {
+    MissingTab,
+    IdentityMismatch,
+    Observation(AgentObservationError),
+}
+
+pub(crate) struct ReceiverRunPoll {
+    pub(crate) exited: bool,
+    pub(crate) observation: AgentObservationResult,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -156,6 +171,35 @@ impl EphemeralTabs {
                 EphemeralTabMetadata::SkillSession(_) => None,
             })
             .collect()
+    }
+
+    pub(super) fn poll_receiver_run(
+        &self,
+        id: SessionTabId,
+        job_id: ReceiverJobId,
+        instance: &str,
+        request: &AgentObservationRequest,
+    ) -> Result<ReceiverRunPoll, ReceiverRunPollError> {
+        let tab = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == id)
+            .ok_or(ReceiverRunPollError::MissingTab)?;
+        let EphemeralTabMetadata::ReceiverRun(receiver) = &tab.metadata else {
+            return Err(ReceiverRunPollError::IdentityMismatch);
+        };
+        if receiver.job_id != job_id || receiver.instance != instance {
+            return Err(ReceiverRunPollError::IdentityMismatch);
+        }
+        let exited = tab.controller.is_alive().is_ok_and(|alive| !alive);
+        let observation = tab
+            .controller
+            .observe(request)
+            .map_err(ReceiverRunPollError::Observation)?;
+        Ok(ReceiverRunPoll {
+            exited,
+            observation,
+        })
     }
 
     pub(super) fn skill_session_id(&self, key: SkillSessionKey) -> Option<SessionTabId> {

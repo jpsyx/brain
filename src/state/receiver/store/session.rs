@@ -235,9 +235,9 @@ pub(super) fn replace_receiver_binding_in_transaction(
     observed_at_unix_ms: u64,
 ) -> Result<bool> {
     let scope = registration.scope();
-    let exact_completed_session = match target {
-        ReceiverBindingTarget::Current => None,
-        ReceiverBindingTarget::ExactCompleted(session) => Some(session.as_str()),
+    let (exact_session, require_completion) = match target {
+        ReceiverBindingTarget::Current => (None, false),
+        ReceiverBindingTarget::ExactCompleted(session) => (Some(session.as_str()), true),
     };
     let native_session = transaction
         .query_row(
@@ -266,7 +266,7 @@ pub(super) fn replace_receiver_binding_in_transaction(
                    AND registration.registered_session_id = ?7
                    AND (?8 IS NULL OR (
                      active.agent_session_id = ?8
-                     AND active.completion_status = 'completed'
+                     AND (NOT ?9 OR active.completion_status = 'completed')
                    ))",
             rusqlite::params![
                 workspace_id,
@@ -276,7 +276,8 @@ pub(super) fn replace_receiver_binding_in_transaction(
                 scope.actor().channel().as_str(),
                 registration.instance(),
                 registration.registered_session().as_str(),
-                exact_completed_session,
+                exact_session,
+                require_completion,
             ],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
         )

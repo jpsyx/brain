@@ -57,6 +57,7 @@ pub(crate) fn plan_receiver_launch(
                 PromptHistory::NativeResume,
                 message_body,
                 &attachment_lines,
+                job.token(),
             ),
         });
     }
@@ -67,6 +68,7 @@ pub(crate) fn plan_receiver_launch(
             PromptHistory::PortableRecovery(conversation.transcript_markdown()),
             message_body,
             &attachment_lines,
+            job.token(),
         ),
     })
 }
@@ -95,15 +97,19 @@ fn bounded_receiver_prompt(
     history: PromptHistory<'_>,
     message_body: &str,
     attachment_lines: &[String],
+    token: crate::state::ReceiverJobToken,
 ) -> String {
+    let marker = format!("\n<!-- brain:receiver-job-token={token} -->");
     let history_fixed_bytes = match history {
         PromptHistory::NativeResume => 0,
         PromptHistory::PortableRecovery(_) => {
             "\n\n".len() + RECOVERY_INTRO.len() + TRANSCRIPT_HEADING.len()
         }
     };
-    let fixed_bytes =
-        TASK_CAPTURE_POLICY.len() + history_fixed_bytes + CURRENT_MESSAGE_HEADING.len();
+    let fixed_bytes = TASK_CAPTURE_POLICY.len()
+        + history_fixed_bytes
+        + CURRENT_MESSAGE_HEADING.len()
+        + marker.len();
     let content_budget = RECOVERY_PROMPT_BUDGET_BYTES.saturating_sub(fixed_bytes);
     let transcript_reserve = match history {
         PromptHistory::NativeResume => 0,
@@ -151,6 +157,7 @@ fn bounded_receiver_prompt(
     prompt.push_str(CURRENT_MESSAGE_HEADING);
     prompt.push_str(&message_body);
     prompt.push_str(&attachment_references);
+    prompt.push_str(&marker);
     prompt
 }
 

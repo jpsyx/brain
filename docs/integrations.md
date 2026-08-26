@@ -182,8 +182,8 @@ The OpenCode adapter
 launches `opencode` with the named Brain agent, translates semantic input to
 OpenCode control sequences, and supplies the trusted Brain policy through
 `OPENCODE_CONFIG_CONTENT`. The installed `.opencode/plugins/brain.js` bridge
-maps OpenCode `session.created` and `session.idle` events into Brain's generic
-lifecycle bridges. Selecting more than one frontend exits with
+maps OpenCode root-session, incremental user-message part, post-tool, and idle
+events into Brain's generic lifecycle bridges. Selecting more than one frontend exits with
 `🔴 Choose one agent frontend: --claude, --codex, or --open-code.`
 
 | Frontend | Command source | Resume/fresh command shape |
@@ -257,7 +257,9 @@ portable-transcript section. The raw receiver prompt is bounded to 47 KiB
 after canonical local paths are available, while retaining the newest
 UTF-8-safe transcript suffix. The planner keeps only a deterministic prefix of
 complete JSON path records and adds an explicit omission marker when more paths
-do not fit. Planning reserves 12 KiB for command, policy, and options under a
+do not fit. Its final line is the exact trusted
+`<!-- brain:receiver-job-token=<uuid> -->` marker used by lifecycle acceptance.
+Planning reserves 12 KiB for command, policy, and options under a
 96 KiB complete `/bin/sh -c` argument ceiling, accounting for adaptive POSIX
 quoting whose worst case is seven output bytes per four input bytes plus
 delimiters. `AgentController` checks the exact rendered argument before spawn,
@@ -280,6 +282,31 @@ after this renewal succeeds. When a boundary fails under the exact owner,
 cleanup finishes first; the coordinator then takes a new clock observation
 immediately before the retry CAS. This keeps retry timestamps and lease checks
 independent of slow cleanup.
+Successful spawn itself is the no-auto-replay boundary. Brain immediately
+reauthorizes and commits `launched` with the job token, remote instance, and
+registered session before attempting tab allocation. A synchronous spawn
+failure may take the bounded pre-spawn retry path. Any owner loss or error after
+spawn instead preserves the exact registration and leaves `launching` or
+`launched` fenced. Completion remains forbidden from `launching`; it is
+accepted only from `launched`, `accepted`, or `processing`. Child exit, orderly
+shutdown, and lease expiry clean local controller, tab, artifact, and staged
+files but preserve durable correlation. Claim polling cannot renew, replace,
+retry, or overtake expired `launching`, `launched`, `accepted`, or `processing`
+rows before BR-16 supplies a proved recovery policy.
+On each later active tick, Brain renews that same owner, validates the exact
+receiver tab identity, resolves the lifecycle-owned current native session, and
+constructs a frontend-neutral observation request. `BrainPanelState` invokes
+only that tab's `AgentController`; the coordinator never calls a concrete
+adapter or snapshot reader. It rebuilds the opaque cursor from the durable
+revision and accepted, progressing, and completed timestamps, so restart and
+session rotation resume from durable facts. One newer normalized result is
+applied through one fresh-time exact-owner transaction. Multiple missed
+boundaries commit atomically, and the revision advances once. For a nonterminal
+result, that same transaction requires the exact current `brain_sessions`
+tuple to remain locked and registered to the logical conversation. A stored
+session ID is only an additional continuity check, not authorization after an
+unlock or rotation. Evidence
+timestamps remain producer facts and never authorize an expired claim.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
 the exact validated resume session, and never reuses the main TUI instance.
@@ -471,8 +498,9 @@ The TUI separately tracks whether a prompt has actually been submitted.
 Opening the interactive panel is therefore not itself considered active work.
 Receiver work no longer consumes or replaces that panel: every SMS or email job
 gets a separate background controller and PTY. The main-panel Stop response
-still clears only its own active-turn state. A failed receiver launch releases
-its exact remote registration and records a durable pre-acceptance retry.
+still clears only its own active-turn state. A planning or registration failure,
+or a synchronous process-spawn failure, releases its exact remote registration
+and records a durable pre-spawn retry. Post-spawn failures remain fenced.
 
 Receiver behavior is frontend-neutral after authentication. An SMS or email
 job carries the same immutable workspace, actor, channel, response email, and
@@ -864,6 +892,103 @@ Which session to run is decided by the **lock + recency** model in
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
+   Receiver launches alone also receive `BRAIN_RECEIVER_JOB_TOKEN` and the
+   exact UUID-scoped cache path in `BRAIN_RECEIVER_OBSERVATION_PATH`.
+   Interactive panels and skill sessions receive neither variable, so their
+   ordinary prompts cannot produce receiver evidence. The generic
+   `receiver_observation_bridge.py` handles Claude and Codex
+   `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
+   token's exact marker as the prompt's final line. Progress requires an
+   accepted snapshot with the same token, remote instance, and native session.
+   Native Claude/Codex child events carrying `agent_id`, other recognized child
+   payloads, mismatches, duplicates, and regressions are no-ops.
+
+   The normalized observation is an owner-only JSON snapshot and owner-only
+   advisory lock below the workspace UUID's receiver-observation cache. On
+   Unix the producer descriptor-walks the absolute path with no-follow opens,
+   enforces owner-only workspace-cache and observation directories on their
+   opened descriptors, rejects symlink ancestors and lock leaves, and performs
+   temporary creation, replacement, cleanup, and directory sync relative to the
+   confined observation-directory descriptor. Unsupported platforms fail
+   closed. Schema
+   version 1 is limited to 4096 bytes and has only `version`, `revision`,
+   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, and the three
+   boundary timestamps. Writers serialize, flush an owner-only same-directory
+   temporary file, and atomically replace the snapshot. Revisions increase
+   only on `accepted`, `progressing`, or `completed` transitions, and each
+   later snapshot retains earlier timestamps. A new producer timestamp is
+   clamped to the latest retained boundary across wall-clock rollback, and the
+   constructed snapshot must pass the full schema and timeline validator before
+   publication. Revision is capped at SQLite's
+   maximum signed integer; a saturated producer preserves the last valid
+   snapshot instead of writing an unrepresentable revision. A trusted exact
+   Stop over a saturated accepted or progressing snapshot returns an explicit
+   successful no-mutation outcome. That outcome satisfies the stop hook's
+   required-publication gate so it can commit the independently validated
+   completed session and artifact. Rejected transitions and failed writes still
+   fail that gate. It stores no
+   prompt, marker, tool, response, sender, recipient, path, cwd, credential, or
+   transcript content. The opaque token's Debug representation is a fixed redacted
+   placeholder, so derived observation values cannot reveal the token. If
+   a prior snapshot exists, the writer opens it no-follow and nonblocking where
+   supported, verifies the opened regular owner-only descriptor and exact byte
+   length before and after one bounded read, and accepts only the strict
+   ten-field schema, canonical token and instance, bounded session and turn,
+   valid revision/timestamps, and exact token/instance/session lineage. A bad
+   symlink, mode, body, identity, or lifecycle is left untouched; a later event
+   cannot launder it into a valid atomic replacement. If
+   submit and post-tool evidence was delayed or missed, an exact
+   Stop event may create revision 1 directly at `completed`; its accepted and
+   progressing timestamps remain null while the completed timestamp is set.
+   `AgentController::observe` is the only consumer facade for these snapshots.
+   It first requires canonical token and instance UUIDs, the exact derived
+   snapshot path, a bounded non-placeholder lifecycle session, and a current
+   locked session row matching the remote instance, selected frontend,
+   workspace, actor, and channel. Every frontend then delegates to the same
+   strict reader. After that read, the controller opens fresh durable state and
+   proves the exact ownership tuple again; a rotation during delegation discards
+   the content-free result. On Unix the reader opens the trusted home anchor and
+   every cache component with no-follow directory handles, opens the final file
+   nonblocking, validates that opened handle as regular, owner-only, and at most
+   4096 bytes both before and after the single read, and rejects a short read.
+   Platforms that cannot enforce the Unix owner-only contract treat only a
+   true not-found result as pending, reject symlink and nonregular entries as
+   invalid file types, and otherwise fail closed without reading the snapshot.
+   One poll reads at most 4097 bytes, accepts only the
+   exact ten-field schema, and returns content-free accepted, progressing, and
+   completed boundaries in lifecycle order with an opaque next cursor.
+   Missing files and equal revisions are pending/no-change. Oversize,
+   non-owner-only, symlink, malformed, mismatched, regressed, or ambiguous
+   evidence fails in a stable category whose display contains no request or
+   snapshot data. The opaque cursor retains the timestamps already emitted, so
+   a higher revision cannot rewrite or erase prior facts, introduce an earlier
+   phase after a later one, or make the emitted timestamp stream decrease. A
+   higher revision can still recover genuinely missed intermediate boundaries;
+   a prior rotated or placeholder session cannot advance the lifecycle. This
+   operation only reads evidence. The active receiver coordinator owns polling
+   and converts only these normalized results into durable transitions.
+
+   The repository privacy guard recursively discovers observation and receiver
+   completion surfaces by semantic markers and observation/completion path
+   names. Across every discovered surface, its quoted-literal policy rejects
+   non-generic macOS, Unix, and Windows home paths; email domains outside
+   reserved example, test, and invalid namespaces; and URL or IP values outside
+   localhost, loopback, documentation, and reserved example namespaces. A valid
+   percent-encoded IPv6 zone identifier is classified with its address before
+   generic placeholder syntax is considered.
+   Path-discovered observation and receiver-completion producers also reject a
+   standalone non-reserved bare hostname with or without its final DNS root dot,
+   a hostname with a numeric port even when its valid TLD resembles a repository
+   filename extension, or a bare IPv6 address from the literal alone, without
+   using its binding name or surrounding source words. This keeps external dotted
+   lifecycle identifiers in semantic-only consumers from being mistaken for
+   hosts. Only the guard's own policy and runtime-canary modules are excluded
+   from self-audit. Runtime prompt, body, response, sender,
+   recipient, credential, local-path, and private-host canaries cross direct
+   submit/tool/stop-hook and OpenCode submit/tool/`session.idle` paths. They are
+   absent from normalized snapshots, Debug, errors, diagnostics, logs, and
+   process output; trusted artifacts retain only their intentional opaque
+   identity fields and private final response.
 4. The generic **session-stop bridge**
    (`scripts/agent_session_stop_hook.py`) records the turn's final
    assistant message under
@@ -877,15 +1002,26 @@ Which session to run is decided by the **lock + recency** model in
    single optional field; a turn with no recoverable final text is the only
    no-op. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
    rechecks that locked tuple, and updates the same predicate only when exactly
-   one row matches. It publishes and syncs the artifact before committing the
-   `completed` state. A publication or commit failure rolls back the database
+   one row matches. For a receiver run it first requires the content-free
+   completed observation to settle successfully while that transaction still
+   keeps the session `active`. It then publishes and syncs the artifact before
+   committing the session's `completed` state. The TUI requires that exact
+   completed row in its own immediate terminal transaction, so the earlier
+   observation cannot become terminal authority before the stop transaction
+   commits. An observation, publication, or commit failure rolls back the database
    and removes or restores only the file owned by that attempt. A concurrent
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives Codex turns the
    same completion path as Claude and OpenCode. The artifact includes frontend,
-   workspace, session, response, actor, channel, and completion status. An
-   interactive turn accepts only its launched session context.
+   workspace, session, response, actor, channel, and completion status. For a
+   receiver run it also includes the exact job token. The observation therefore
+   precedes artifact/session visibility, while all three become consumable only
+   after the database commit.
+   Completion-first production remains valid when earlier hooks were missed;
+   private response text stays only in the separate completion artifact.
+   An interactive turn accepts only its launched session context and has no job
+   token or observation authority.
    An active receiver run additionally requires the exact durable job, remote
    instance, response ID, frontend, actor, channel, and locked session in
    `completed` state. After artifact validation, Brain carries that validated
@@ -894,16 +1030,34 @@ Which session to run is decided by the **lock + recency** model in
    cannot substitute its new active session; the old artifact and run remain
    retryable instead. Process spawn and screen activity are never acceptance or
    completion evidence. On a valid terminal completion, Brain sends the
-   channel-specific reply, moves the exact launch directly to `done`, releases
+   channel-specific reply, moves the exact launched or progressed job to `done`, releases
    that remote session owner, shuts down its controller once, removes only its
    tab, reloads tasks, and starts an immediate sync push. Direct
-   `launching`-to-`done` is temporary until BR-15 supplies accepted and
-   processing proof.
-   If the receiver child exits without that exact artifact, Brain releases the
-   registration, shuts down and removes only that tab, and records a durable
-   pre-acceptance retry. If claim renewal loses ownership, it performs only
-   local controller and tab cleanup; it does not mutate lifecycle, reply,
-   session, or job state owned by the winner.
+   `launching`-to-`done` remains forbidden. Exact completion may move a
+   `launched` job directly to `done` when intermediate observations were missed.
+   Lifecycle-only completion uses the same exact owner and identity gates, may
+   also finish directly without inventing a response body, and enters the same
+   transaction as artifact completion. That transaction validates stored and
+   incoming timelines, merges every accepted/progress/completed boundary and
+   cursor, requires the exact lifecycle session to remain locked and
+   `completed`, replaces the conversation binding, and marks the job done.
+   A binding persistence failure rolls back the terminal job update. A valid
+   artifact still wins when both terminal forms exist in one tick and delivers
+   its exact body once. When that poll also contains a strict completed
+   boundary, its producer timestamp is retained as the durable completion time;
+   the timestamp is evidence only and may be later than the current lease.
+   After claim renewal and exact artifact/lifecycle validation, Brain samples a
+   fresh App clock and passes it independently as terminal lease authorization.
+   Only an artifact without lifecycle completion evidence uses that same fresh
+   post-validation App time as its durable completion fallback.
+   Lifecycle-only completion delivers nothing. Terminal
+   completion, child exit, claim-renewal loss, and orderly shutdown remove only
+   the exact instance's response artifact, observation snapshot, and sibling
+   lock. Durable job evidence is retained for every nonterminal route. Poll
+   outcomes use a stable content-free diagnostic containing opaque job and
+   instance IDs, frontend, prior phase, boundary or `none`, and category. BR-16
+   owns stalled-run recovery, while BR-17 owns answer persistence and
+   delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -924,10 +1078,10 @@ Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress
 ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
-An expired progressed lease changes ownership without erasing its lifecycle or
-retry evidence. The current receiver consumer deliberately does not rerun a
-reclaimed progressed state. It cleans up the tentative registration and leaves
-that evidence intact for BR-16 recovery policy.
+Expired `launched`, `accepted`, and `processing` leases do not change ownership.
+They retain their complete lifecycle and retry evidence and block FIFO replay
+until BR-16 supplies recovery policy. Eligible pre-acceptance and delivery
+leases may still be replaced under their existing phase-specific rules.
 
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
@@ -936,7 +1090,8 @@ No TUI in-memory receiver queue remains. Prompt submission, completion, delivery
 queue consumption remain in the live TUI and never move into the shared server.
 
 Claude and Codex register the same generic bridge scripts. Claude stores
-root-anchored `SessionStart` and `Stop` entries in
+root-anchored `SessionStart`, `Stop`, `UserPromptSubmit`, and `PostToolUse`
+entries in
 `<brain-root>/.claude/settings.json`; Codex stores them in
 `<brain-root>/.codex/hooks.json`. Each command resolves a script below that
 workspace's `.brain/hooks/` directory. Brain-launched Codex sessions include
@@ -947,7 +1102,16 @@ those hooks before launching that workspace through Brain.
 
 OpenCode installs one exact workspace plugin at
 `<brain-root>/.opencode/plugins/brain.js`. On a root `session.created`, the
-plugin sends `{session_id, source}` to the generic session-start bridge. On
+plugin sends `{session_id, source}` to the generic session-start bridge. A
+supported root `session.updated` also seeds bounded correlation for a resumed
+native session without invoking the start bridge again; a parent-bearing child
+update records only an ineligible classification. On
+incremental user `message.updated` plus `message.part.updated` events, it keeps
+at most 32 current message-to-session correlations and invokes acceptance only
+for the exact terminal receiver marker in a known root session. Its supported
+post-tool callback publishes progress only for a session accepted by that
+bounded state, passing no tool name, input, or output. These two paths never
+fetch or rescan message history. On
 `session.idle`, it resolves the reported session through the OpenCode client,
 rejects child sessions, fetches messages for that selected directory, and sends
 only the newest completed, non-synthetic assistant text to the generic
@@ -964,14 +1128,14 @@ the referent. A symlink whose final destination remains inside the workspace is
 preserved and updated atomically. The standalone repair installer applies the
 same confinement before copying a bridge or plugin.
 
-The plugin stays deliberately thin. OpenCode-specific event names and SDK calls
-belong in JavaScript, while session rotation, tuple authorization,
-deduplication, atomic response publication, and receiver delivery remain in
-Brain's generic Python bridges and SQLite transaction. This keeps one security
-and delivery contract for all frontends instead of reimplementing DB authority
-inside a frontend plugin.
+The plugin stays deliberately thin. OpenCode-specific event names, bounded
+correlation, and SDK calls belong in JavaScript, while observation transitions,
+session rotation, tuple authorization, deduplication, atomic response
+publication, and receiver delivery remain in Brain's generic Python bridges
+and SQLite transaction. This keeps one security and delivery contract for all
+frontends instead of reimplementing DB authority inside a frontend plugin.
 
-All three frontends can launch non-Python commands. Brain keeps these two
+All three frontends can launch non-Python commands. Brain keeps these three
 bridges as Python 3 scripts because the shipped standard-library implementation
 already provides the JSON, SQLite, locking, and atomic-file behavior needed at
 the hook boundary, while a second Rust executable would add build and install
@@ -987,7 +1151,7 @@ each other's sessions. The merged shell has a single app-level brain panel, so
 there is now exactly one generic lifecycle protocol, keyed on `BRAIN_*`, one DB
 per workspace UUID (`<workspace-cache>/state.db`, table
 `brain_sessions`), and
-one namespace. Registry-driven installation deploys the two generic scripts into
+one namespace. Registry-driven installation deploys the three generic scripts into
 `<brain-root>/.brain/hooks/` and registers them in that workspace's
 `.claude/settings.json` and `.codex/hooks.json`.
 
@@ -1001,20 +1165,31 @@ directory. `CLAUDE_PROJECT_DIR` is the project root Claude exports for exactly
 this purpose; `BRAIN_ROOT` covers a session Brain launched. The Rust installer
 and `install_hook.sh` emit the same
 command, and reinstallation replaces a stale relative command in place (stale
-entries are matched by script basename, ignoring surrounding quotes).
+entries are recognized only by exact canonical or explicitly known legacy
+commands). A user command at another path remains untouched even when its
+script has the same basename.
 
 Codex reads the selected workspace's `.codex/hooks.json`, so Brain emits
 `python3 "${BRAIN_ROOT}/.brain/hooks/<script>.py"`. `BRAIN_ROOT` selects the
 workspace explicitly. No absolute path is baked into either hook file, because
 both are read on every synced machine.
 
-`scripts/install_hook.sh` deploys the generic session-start and session-stop
-bridges, Claude/Codex workspace hook settings, and the
+`scripts/install_hook.sh` deploys the generic session-start, session-stop, and
+receiver-observation bridges, Claude/Codex workspace hook settings, and the
 OpenCode plugin from the same lifecycle registry contract. It strips stale
-legacy commands by script basename while preserving unrelated settings. Every
+legacy commands by exact value while preserving unrelated settings and
+same-basename user commands. Every
 ordinary Brain startup does the same automatically for every existing configured
 workspace before command dispatch; `brain receiver setup` also refreshes every
 registered frontend. Help and version are the only public no-write exceptions.
+Registry health checks compare the exact three bridge sources, the OpenCode
+plugin, and all four Claude/Codex event registrations. Startup reconciliation
+therefore replaces a stale observation bridge while preserving unrelated user
+hooks and plugin configuration.
+The 0.81 startup migration owns this producer layer. Its down operation removes
+only the receiver-observation script and submit/post-tool registrations, then
+restores the frozen 0.80 OpenCode plugin while leaving session start, stop, and
+unrelated user lifecycle configuration intact.
 The 0.71 lifecycle migration removes global registrations immediately, but
 retains workspace-local forwarding shims for the legacy script paths that an
 already-running frontend may have cached in memory. Those shims execute the new
@@ -1130,10 +1305,15 @@ new active session. Neither process spawn nor screen activity is completion
 evidence. Terminal cleanup releases that session owner, shuts down the
 controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Spawn failure and child exit without valid completion
-perform explicit registration cleanup and durable pre-acceptance retry. Lost
-claim ownership permits local cleanup only, with no lifecycle or retry
-mutation. Retry failure paths finish controller, tab, registration, artifact,
+the active view or focus. Only a synchronous spawn failure performs explicit
+registration cleanup and a durable pre-spawn retry. Once process spawn
+succeeds, Brain crosses a no-auto-replay boundary before any later fallible
+step: it reauthorizes and commits `launched` before allocating the tab. Owner
+loss or a launch-commit error preserves the exact registration and fenced
+`launching` row; allocation failure or later owner loss preserves `launched`.
+Child exit, orderly shutdown, and lease expiry then permit local cleanup only;
+the durable job and exact session correlation remain unchanged for BR-16.
+Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are not rerun before
 BR-16 defines their recovery policy.
@@ -1196,15 +1376,13 @@ keyboard input or shell shutdown.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact
-Planning retry is sampled. A still-owned active run releases its exact
-registration, shuts down and removes only its receiver tab, removes the exact
-artifact, and drops the owning staged directory before sampling the clock for
-one exact Spawn retry. Lost ownership permits those local removals only.
-The stage is idempotent. After an unclean exit, the FIFO claim transaction
-atomically converts only an expired `launching` row into an immediately due
-bounded Spawn retry while removing its stale exact registration and session
-lock. An exhausted row becomes `failed`, and only a later tick may select the
-next FIFO job. Accepted and later states remain untouched for BR-16.
+Planning retry is sampled. A successful-spawn run shuts down and removes only
+its local receiver tab and exact instance files, drops the owning staged
+directory, and preserves its registration and durable state without recording
+a Spawn retry. Lost ownership permits the same local removals only. The stage
+is idempotent. After an unclean exit, expired `launching`, `launched`,
+`accepted`, and `processing` rows remain unchanged and stop FIFO for BR-16;
+answer-ready and delivery recovery remain BR-17 work.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

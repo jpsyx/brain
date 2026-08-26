@@ -1,8 +1,11 @@
 //! Orderly cleanup for receiver work before generic controller shutdown.
 
+use crate::state::ReceiverJobState;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
 use crate::tui::receiver::{ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun};
+
+use super::diagnostic::receiver_observation_diagnostic;
 
 impl App {
     pub(crate) fn shutdown_receiver_runtime(&mut self) {
@@ -36,47 +39,27 @@ impl App {
             _attachments: attachments,
         } = active;
         self.services.shutdown_receiver_attachments();
-        let owned = match self.authorize_receiver_owner_now(&claim) {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(error) => {
-                crate::logging::log(format!(
-                    "receiver shutdown ownership check failed: {error:#}"
-                ));
-                false
-            }
-        };
-        if owned {
-            if let Err(error) = self.services.release_receiver_session(&attribution) {
-                crate::logging::log(format!(
-                    "receiver session shutdown cleanup failed: {error:#}"
-                ));
-            }
-        }
         let removed = self.brain.remove_receiver_run(tab_id);
         if removed.as_ref().is_some_and(|removed| {
             removed.job_id != claim.job().id() || removed.instance != attribution.instance()
         }) {
-            crate::logging::log("receiver tab identity changed before shutdown cleanup");
+            let prior = self
+                .services
+                .receiver_observation_cursor(claim.job().id())
+                .ok()
+                .flatten()
+                .map_or(ReceiverJobState::Launched, |(state, _)| state);
+            crate::logging::log(receiver_observation_diagnostic(
+                claim.job().id(),
+                attribution.instance(),
+                attribution.scope().agent_kind(),
+                prior,
+                None,
+                "tab-shutdown-identity-mismatch",
+            ));
         }
-        let _ = std::fs::remove_file(
-            self.context
-                .workspace()
-                .paths()
-                .responses_dir()
-                .join(format!("{}.json", attribution.instance())),
-        );
+        self.cleanup_receiver_instance_files(attribution.instance());
         drop(attachments);
-        if owned {
-            match self.retry_receiver_owner_now(&claim, ReceiverLaunchFailure::Spawn) {
-                Ok(Some(_)) => {}
-                Ok(None) => crate::logging::log(
-                    "receiver shutdown retry lost durable ownership during cleanup",
-                ),
-                Err(error) => crate::logging::log(format!(
-                    "receiver shutdown retry recording failed: {error:#}"
-                )),
-            }
-        }
+        crate::logging::log("receiver shutdown preserved launched durable evidence");
     }
 }

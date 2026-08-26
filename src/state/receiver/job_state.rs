@@ -4,6 +4,7 @@ pub enum ReceiverJobState {
     Queued,
     Claimed,
     Launching,
+    Launched,
     Accepted,
     Processing,
     AnswerReady,
@@ -26,12 +27,9 @@ impl ReceiverJobState {
                 )
                 | (
                     Self::Launching,
-                    Self::Accepted | Self::Retrying | Self::Failed | Self::Done
+                    Self::Launched | Self::Retrying | Self::Failed
                 )
-                | (
-                    Self::Accepted,
-                    Self::Processing | Self::Retrying | Self::Failed
-                )
+                | (Self::Accepted, Self::Retrying | Self::Failed)
                 | (
                     Self::Processing,
                     Self::AnswerReady | Self::Retrying | Self::Failed
@@ -50,6 +48,7 @@ impl ReceiverJobState {
             Self::Queued => "queued",
             Self::Claimed => "claimed",
             Self::Launching => "launching",
+            Self::Launched => "launched",
             Self::Accepted => "accepted",
             Self::Processing => "processing",
             Self::AnswerReady => "answer-ready",
@@ -65,6 +64,7 @@ impl ReceiverJobState {
             "queued" => Some(Self::Queued),
             "claimed" => Some(Self::Claimed),
             "launching" => Some(Self::Launching),
+            "launched" => Some(Self::Launched),
             "accepted" => Some(Self::Accepted),
             "processing" => Some(Self::Processing),
             "answer-ready" => Some(Self::AnswerReady),

@@ -2,9 +2,36 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::*;
 use crate::{
-    agent::{AgentKind, OpenCodeFrontend},
+    agent::{
+        AgentController, AgentError, AgentKind, AgentObservationBoundary, AgentObservationCursor,
+        AgentObservationPhase, AgentObservationRequest, AgentObservationResult, AgentTransport,
+        LaunchSpec, OpenCodeFrontend, SessionScope, SessionStore,
+    },
+    state::Db,
     workspace::{CommandContext, MachineRegistry, RegistryStore, WorkspaceRecord},
 };
+
+struct ObservationTransport;
+
+impl AgentTransport for ObservationTransport {
+    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn snapshot(&self) -> String {
+        String::new()
+    }
+
+    fn is_alive(&self) -> bool {
+        true
+    }
+
+    fn shutdown(&mut self) {}
+}
 
 struct FrontendContract {
     kind: AgentKind,
@@ -305,4 +332,236 @@ fn every_frontend_satisfies_the_current_characterization_contract() {
             );
         }
     }
+}
+
+#[test]
+fn every_frontend_observes_the_same_normalized_lifecycle_contract() {
+    let token = "6c06c55a-a9cf-4d75-b14e-75a5900c9088";
+    let instance = "5cbd43f1-cc3f-4bc4-81ad-acad2bf85d39";
+    let session = AgentSession::new("native-session-7").expect("native session");
+    let expected = AgentObservationResult::new(
+        session.clone(),
+        vec![
+            AgentObservationBoundary::new(AgentObservationPhase::Accepted, 1_000),
+            AgentObservationBoundary::new(AgentObservationPhase::Progressing, 1_100),
+            AgentObservationBoundary::new(AgentObservationPhase::Completed, 1_200),
+        ],
+        AgentObservationCursor::at_revision(3, Some(1_000), Some(1_100), Some(1_200)),
+    );
+
+    for case in frontend_contracts() {
+        let (_temporary, command) = configured_command_context();
+        let db = Db::open(&command.workspace).expect("state database");
+        let scope = SessionScope::new(case.kind, command.workspace.id(), actor());
+        let prior = AgentSession::new("prior-native-session").expect("prior session");
+        SessionStore::register(&db, &prior, instance, 41, &scope).expect("prior ownership");
+        SessionStore::release(&db, instance).expect("rotate prior session");
+        SessionStore::register(&db, &session, instance, 42, &scope).expect("owned native session");
+        let path = command
+            .workspace
+            .paths()
+            .receiver_observations_dir()
+            .join(format!("{instance}.json"));
+        std::fs::create_dir_all(path.parent().expect("observation parent"))
+            .expect("observation directory");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"version":1,"revision":3,"phase":"completed","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":"turn-9","accepted_at_unix_ms":1000,"progressing_at_unix_ms":1100,"completed_at_unix_ms":1200}}"#,
+                session.as_str()
+            ),
+        )
+        .expect("observation snapshot");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("owner-only observation");
+        }
+        let controller = AgentController::new(
+            Arc::clone(&command.workspace),
+            actor(),
+            (case.frontend)(case.configured_value),
+            Box::new(ObservationTransport),
+        );
+        let request = AgentObservationRequest::new(
+            token,
+            instance,
+            path.clone(),
+            session.clone(),
+            AgentObservationCursor::launched(),
+        );
+
+        assert_eq!(
+            controller.observe(&request),
+            Ok(expected.clone()),
+            "{} normalized observation",
+            case.label
+        );
+        let prior_request = AgentObservationRequest::new(
+            token,
+            instance,
+            path.clone(),
+            prior,
+            AgentObservationCursor::launched(),
+        );
+        assert_eq!(
+            controller.observe(&prior_request),
+            Err(crate::agent::AgentObservationError::SessionOwnership),
+            "{} prior rotated session",
+            case.label
+        );
+        let placeholder_request = AgentObservationRequest::new(
+            token,
+            instance,
+            path,
+            AgentSession::new("pending-receiver-5cbd43f1-cc3f-4bc4-81ad-acad2bf85d39")
+                .expect("placeholder"),
+            AgentObservationCursor::launched(),
+        );
+        assert_eq!(
+            controller.observe(&placeholder_request),
+            Err(crate::agent::AgentObservationError::PlaceholderSession),
+            "{} placeholder session",
+            case.label
+        );
+    }
+}
+
+#[test]
+fn controller_rejects_invalid_identity_and_paths_before_ownership_lookup() {
+    let token = "6c06c55a-a9cf-4d75-b14e-75a5900c9088";
+    let instance = "5cbd43f1-cc3f-4bc4-81ad-acad2bf85d39";
+    let (_temporary, command) = configured_command_context();
+    Db::open(&command.workspace).expect("state database");
+    let controller = AgentController::new(
+        Arc::clone(&command.workspace),
+        actor(),
+        claude_frontend("claude-contract"),
+        Box::new(ObservationTransport),
+    );
+    let path = command
+        .workspace
+        .paths()
+        .receiver_observations_dir()
+        .join(format!("{instance}.json"));
+    for (label, request, expected) in [
+        (
+            "overlong session",
+            AgentObservationRequest::new(
+                token,
+                instance,
+                path.clone(),
+                AgentSession::new("s".repeat(257)).expect("nonblank session"),
+                AgentObservationCursor::launched(),
+            ),
+            crate::agent::AgentObservationError::InvalidIdentifier,
+        ),
+        (
+            "noncanonical token",
+            AgentObservationRequest::new(
+                "6C06C55A-A9CF-4D75-B14E-75A5900C9088",
+                instance,
+                path.clone(),
+                AgentSession::new("native-session").expect("session"),
+                AgentObservationCursor::launched(),
+            ),
+            crate::agent::AgentObservationError::InvalidIdentifier,
+        ),
+        (
+            "noncanonical instance",
+            AgentObservationRequest::new(
+                token,
+                "not-an-instance",
+                path.clone(),
+                AgentSession::new("native-session").expect("session"),
+                AgentObservationCursor::launched(),
+            ),
+            crate::agent::AgentObservationError::InvalidIdentifier,
+        ),
+        (
+            "wrong canonical path",
+            AgentObservationRequest::new(
+                token,
+                instance,
+                path.with_file_name("wrong.json"),
+                AgentSession::new("native-session").expect("session"),
+                AgentObservationCursor::launched(),
+            ),
+            crate::agent::AgentObservationError::WrongPath,
+        ),
+    ] {
+        assert_eq!(controller.observe(&request), Err(expected), "{label}");
+    }
+}
+
+#[test]
+fn controller_discards_observations_when_ownership_rotates_during_the_poll() {
+    let token = "6c06c55a-a9cf-4d75-b14e-75a5900c9088";
+    let instance = "5cbd43f1-cc3f-4bc4-81ad-acad2bf85d39";
+    let replacement_instance = "34a78cb6-abf8-456f-b406-39abac6d569a";
+    let session = AgentSession::new("native-session-7").expect("native session");
+    let replacement = AgentSession::new("native-session-8").expect("replacement session");
+    let (_temporary, command) = configured_command_context();
+    let db = Db::open(&command.workspace).expect("state database");
+    let ownership_scope = SessionScope::new(AgentKind::Claude, command.workspace.id(), actor());
+    SessionStore::register(&db, &session, instance, 41, &ownership_scope)
+        .expect("initial ownership");
+    let path = command
+        .workspace
+        .paths()
+        .receiver_observations_dir()
+        .join(format!("{instance}.json"));
+    std::fs::create_dir_all(path.parent().expect("observation parent"))
+        .expect("observation directory");
+    std::fs::write(
+        &path,
+        format!(
+            r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"completed_at_unix_ms":null}}"#,
+            session.as_str()
+        ),
+    )
+    .expect("observation snapshot");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only observation");
+    }
+    let controller = AgentController::new(
+        Arc::clone(&command.workspace),
+        actor(),
+        claude_frontend("claude-contract"),
+        Box::new(ObservationTransport),
+    );
+    let request = AgentObservationRequest::new(
+        token,
+        instance,
+        path,
+        session,
+        AgentObservationCursor::launched(),
+    );
+
+    assert_eq!(
+        controller.observe_with_post_read_hook(&request, || {
+            let workspace = Arc::clone(&command.workspace);
+            let replacement = replacement.clone();
+            std::thread::spawn(move || {
+                let rotated_db = Db::open(&workspace).expect("fresh durable state");
+                let rotated_scope = SessionScope::new(AgentKind::Claude, workspace.id(), actor());
+                SessionStore::release(&rotated_db, instance).expect("release observed instance");
+                SessionStore::register(
+                    &rotated_db,
+                    &replacement,
+                    replacement_instance,
+                    42,
+                    &rotated_scope,
+                )
+                .expect("rotated ownership");
+            })
+            .join()
+            .expect("rotation thread");
+        }),
+        Err(crate::agent::AgentObservationError::SessionOwnership)
+    );
 }

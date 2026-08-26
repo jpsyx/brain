@@ -2,12 +2,27 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-const BRAIN_HOOK_BASENAMES: &[&str] = &[
-    "claude_session_start_hook.py",
-    "claude_stop_hook.py",
-    "agent_session_start_hook.py",
-    "agent_turn_complete_hook.py",
-    "agent_session_stop_hook.py",
+const BRAIN_HOOK_COMMANDS: &[&str] = &[
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
+    r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#,
+    r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#,
+    "python3 .brain/hooks/agent_session_start_hook.py",
+    "python3 .brain/hooks/agent_session_stop_hook.py",
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py""#,
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py""#,
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_stop_hook.py""#,
+    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py""#,
+    r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_session_start_hook.py""#,
+    r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py""#,
+    r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/claude_stop_hook.py""#,
+    r#"python3 "${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py""#,
+    "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py",
+    "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py",
+    "python3 .claude/brain-hooks/claude_session_start_hook.py",
+    "python3 .claude/brain-hooks/agent_session_start_hook.py",
+    "python3 .claude/brain-hooks/claude_stop_hook.py",
+    "python3 .claude/brain-hooks/agent_turn_complete_hook.py",
 ];
 
 const SESSION_START_SCRIPT: &str = include_str!(concat!(
@@ -137,10 +152,7 @@ fn prune_empty_hooks(settings: &mut serde_json::Value) {
 }
 
 fn is_brain_hook_command(command: &str) -> bool {
-    let candidate = command.trim_end_matches(['"', '\'']);
-    BRAIN_HOOK_BASENAMES
-        .iter()
-        .any(|basename| candidate.ends_with(basename))
+    BRAIN_HOOK_COMMANDS.contains(&command)
 }
 
 fn remove_global_opencode_plugins(home: &Path) -> Result<()> {
@@ -172,7 +184,7 @@ fn install_workspace_hooks() -> Result<()> {
     Ok(())
 }
 
-fn workspace_roots() -> Vec<PathBuf> {
+pub(super) fn workspace_roots() -> Vec<PathBuf> {
     let path = crate::workspace::RegistryStore::real().path().to_path_buf();
     let registry = match crate::workspace::RegistryStore::load_readable(&path) {
         Ok(registry) => registry,
@@ -368,12 +380,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cleanup_identifies_only_brain_hook_basenames() {
+    fn cleanup_identifies_only_exact_current_and_known_legacy_brain_commands() {
         assert!(is_brain_hook_command(
-            "python3 /tmp/agent_session_stop_hook.py"
+            r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
         ));
         assert!(is_brain_hook_command(
-            "python3 '/tmp/claude_session_start_hook.py'"
+            "python3 .claude/brain-hooks/claude_session_start_hook.py"
+        ));
+        assert!(!is_brain_hook_command(
+            "python3 /opt/user/agent_session_stop_hook.py"
         ));
         assert!(!is_brain_hook_command("python3 /tmp/unrelated.py"));
     }

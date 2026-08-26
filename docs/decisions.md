@@ -681,6 +681,17 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
+Receiver lifecycle-only completion follows the same continuity rule as
+artifact completion. The immediate terminal transaction proves the exact job
+token, owner, live lease, remote instance, registered current session, and
+observed native session; it then replaces the conversation binding before it
+commits `done` and claim clearing. This prevents completion from deleting the
+only durable reference to a fresh or rotated Codex, OpenCode, or Claude session.
+A failed binding write rolls back the whole transaction. After any terminal or
+local-only exit route, a separate exact-instance cleanup removes the response,
+observation snapshot, and sibling lock without touching durable facts or files
+owned by another instance.
+
 ## Historical: why the completion bridge learned to read a Claude transcript
 
 The former warm-panel receiver depended on the session-stop bridge to publish
@@ -2425,6 +2436,38 @@ durable and unclaimed. The tab collection also rejects and shuts down a second
 simultaneous receiver controller without changing the user selected view, tab,
 panel visibility, or focus.
 
+## Why receiver token reconciliation uses a row-scaled retry budget
+
+Schema v9 reconciliation parses every retained token as a UUID and treats UUID
+identity, not TEXT spelling, as uniqueness. It prefers an already canonical row
+within each semantic group, rewrites a sole noncanonical spelling, and replaces
+invalid or colliding rows before canonicalizing their keeper so SQLite's
+textual unique constraint never creates a transient collision. It may need to
+replace missing or duplicate opaque job tokens while preserving every unique
+persisted identity. An unbounded generator
+retry can hold automatic pre-dispatch migration forever, while one fixed budget
+for the whole table would reject valid state stores merely because they contain
+many rows. Brain therefore gives each replacement one attempt per currently
+reserved unique token plus one slot for a fresh candidate. This covers every
+real collision once and still terminates a repeating or degraded generator.
+
+Allocation and table reconstruction remain inside one schema transaction. If
+the row-scaled budget is exhausted, reconciliation returns a stable diagnostic
+and rolls back provisional token assignments, schema changes, and the version
+stamp together. A second reconciliation of canonical unique rows allocates
+nothing.
+
+## Why receiver schema v9 downgrades active ambiguity to failed
+
+The v8 coordinator can automatically reclaim expired pre-spawn and retry rows,
+but it cannot represent v9's proved successful-spawn boundary. Mapping a v9
+`launched` row back to `launching`, or leaving another post-spawn lifecycle
+claimable, would let an automatic downgrade replay the original prompt. The v9
+down migration therefore maps `launching`, `launched`, `accepted`, `processing`,
+`answer-ready`, `delivering`, and `retrying` to conservative `failed` rows and
+clears lease and retry authority. Preserving automatic downgrade compatibility
+is useful, but preserving the no-replay guarantee is mandatory.
+
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
 admission protocol, and their execution policy. The remaining `jobs.sock`
@@ -2459,8 +2502,9 @@ fresh from that transcript. The transcript is recovery input, not a reason to
 discard a healthy same-frontend session.
 
 A fresh run's native binding and terminal job state are one durability unit.
-The exact registration, locked lifecycle-native ID, conversation binding, and
-live-owner `launching` to `done` compare-and-swap therefore commit in one
+The exact registration, locked completed lifecycle-native ID, conversation
+binding, normalized evidence/cursor, and live-owner `launched`, `accepted`, or
+`processing` to `done` compare-and-swap therefore commit in one
 immediate transaction. Treating binding failure as best-effort after `done`
 would delete the registration and artifact needed to repair a transient error
 or valid mismatch. Instead, any mismatch or database error rolls back the
@@ -2484,20 +2528,20 @@ SessionStart rotation cannot bind its new active session to the old artifact.
 The same durability principle applies to jobs. A claim records expiring owner
 authority on the row instead of popping it. On crash, queued work becomes
 claimed. Due-retry work keeps `retrying` while its consumed schedule clears, so
-the new live owner can resume either launching or delivering. `launching` is
-still pre-acceptance in BR-14, so its expired claim transaction atomically
-removes the stale exact registration/session lock and records a bounded due
-Spawn retry. Exhaustion fails that row before a later tick selects the next FIFO
-job. Accepted, processing, answer-ready, and delivering keep their progressed
-state as the lease changes owners. Erasing those states to claimed would
-prevent the later recovery policy from knowing whether a same-session recovery
-attempt is appropriate. Failed and done remain terminal.
+the new live owner can resume eligible planning or delivery. A synchronous
+spawn failure is positively known to be pre-spawn and may record a bounded
+Spawn retry. Once spawn succeeds, any remaining `launching` row is ambiguous;
+it and `launched`, `accepted`, and `processing` remain fenced with exact
+correlation unchanged. Erasing or reclaiming those states would prevent BR-16
+from deciding whether same-session recovery is safe. Failed and done remain
+terminal.
 
 Orderly shutdown uses the same authority rule. The receiver-specific stage runs
-before generic controller shutdown, cancels claimed staging, releases only a
-still-owned active registration, removes exact local resources, and explicitly
-drops the owning attachment batch. Provider kill/reap/join and that final Drop
-all precede the fresh clock sampled for the Planning or Spawn retry CAS.
+before generic controller shutdown and cancels claimed staging. Proved pre-spawn
+work may record a Planning retry after cleanup. A successful-spawn run removes
+only exact local resources and explicitly drops the owning attachment batch;
+it preserves registration and durable correlation without a Spawn retry.
+Provider kill/reap/join and that final Drop precede any allowed retry clock.
 Repetition is a no-op; lost ownership permits local cleanup only.
 
 Attachment cancellation owns the provider process, not just a Boolean request.
@@ -2510,9 +2554,98 @@ prepared run, so unread results and every rollback remove private files.
 
 BR-12 intentionally stopped at this model boundary, and BR-13 adopted it for
 provider ingress, including durable deduplication and queued capacity. BR-14 now
-owns the sole live-TUI durable consumer and its isolated agent execution.
-BR-15 through BR-18 retain phase proof, recovery, delivery, and final
+owns the sole live-TUI durable consumer and its isolated agent execution. BR-15
+added phase proof. BR-16 through BR-18 retain recovery, delivery, and final
 representation or schema work.
+
+## Why receiver observation polling rebuilds from durable facts
+
+The lifecycle snapshot is evidence, not the coordinator's source of truth. An
+in-memory poll cursor would forget accepted or progressing facts when the TUI
+restarts and could re-emit an earlier boundary. Brain instead reconstructs the
+opaque `AgentObservationCursor` from the job's durable revision and three
+evidence timestamps on every active tick. This also lets a frontend rotate from
+the launch placeholder to its lifecycle-owned native session without exposing
+provider grammar to the TUI.
+
+One snapshot may contain several phases that Brain missed between ticks. Writing
+each phase separately would expose a half-applied lifecycle and advance the
+revision before every fact was durable. The state store therefore validates and
+applies all newly represented timestamps in one exact-owner transaction, then
+advances the revision once. A fresh coordinator time authorizes the mutation;
+producer timestamps remain evidence only. Completion can be the first observed
+phase, so direct `launched` or `accepted` to `done` is valid and leaves absent
+intermediate timestamps null.
+
+SQLite stores the durable observation revision as a signed integer. Producers
+therefore stop at that same maximum and preserve the last valid snapshot at
+saturation. Writing a larger JSON integer would create evidence the durable
+transaction cannot represent and would turn an otherwise valid observation
+file into a permanent poll failure.
+
+Saturation does not make a trusted exact Stop invalid. The producer protocol
+distinguishes a snapshot write, an exact terminal settlement without mutation,
+and rejection. An exact Stop over saturated accepted or progressing evidence
+uses the no-mutation outcome, so the stop hook can commit the separate
+completed-session and artifact surfaces while the terminal store retains the
+maximum revision. Wrong scope, malformed evidence, nonterminal events, and
+failed writes remain rejected.
+
+Artifact validation remains independent because lifecycle evidence deliberately
+contains no response text. When both terminal forms arrive together, the exact
+artifact path wins and delivers once, while the completed boundary's validated
+producer timestamp remains the durable terminal evidence time. Poll time is the
+fallback only when an exact artifact has no lifecycle completion alongside it.
+Evidence time and authority time are separate: after renewal plus artifact and
+lifecycle validation, the coordinator samples a fresh App clock for the lease
+comparison and passes both values to the transaction. A valid future producer
+timestamp therefore remains evidence without delaying or authorizing the
+commit.
+Artifact delivery precedence is only a body decision. The terminal store still
+merges all accepted, progressing, and completed boundaries, the revision and
+session cursor, and exact completed-session binding in one immediate owner
+transaction. It validates the stored timeline before merging and clamps a local
+artifact-only completion at least to the latest durable boundary. Artifact-only
+evidence also raises a revision-zero cursor to one and records the exact
+completed session, keeping the terminal row representable without fabricating
+intermediate boundaries.
+Lifecycle-only completion closes the job
+without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
+does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns
+durable answer and delivery-only recovery.
+
+The producer treats an existing snapshot as untrusted input even though Brain
+created its path. Before deriving a later phase it performs a descriptor-bound,
+single-read validation equivalent to the consumer's file, schema, lifecycle,
+and exact-lineage checks. Failing open would let a later progress hook replace a
+symlink, permissive file, malformed body, or forged accepted frame with a valid
+owner-only snapshot, effectively turning tool activity into acceptance. The
+fail-closed writer preserves the bad entry so the coordinator can report its
+stable content-free category without changing durable state.
+
+The producer also confines publication itself. It opens every absolute ancestor
+without following links, enforces owner-only workspace-cache and observation
+directories through those handles, rejects a symlink lock leaf, and performs
+lock, temporary, replacement, cleanup, and directory sync relative to the
+confined descriptor. New timestamps are clamped to the latest retained boundary
+and the constructed snapshot is validated before replacement, so wall-clock
+rollback cannot poison later progress.
+
+Stop publication is ordered around the session transaction. The stop hook
+settles the content-free completed observation while the exact session is still
+`active`, then publishes the private artifact and commits `completed`. The TUI's
+terminal transaction requires that exact completed row. This makes the early
+observation unconsumable until the stop commit and prevents the completed row or
+artifact from becoming acceptable before observation settlement. At a saturated
+cursor, an exact terminal no-mutation outcome counts as settlement because the
+snapshot cannot advance and the store already represents artifact-only
+completion at that retained revision.
+
+Process restart does not by itself prove a stalled native run. Claim selection
+therefore leaves expired `launched`, `accepted`, and `processing` rows exactly
+unchanged and stops FIFO at that row. Replacing their owner or relaunching from
+the prompt would risk duplicate work; BR-16 must establish a positive recovery
+policy before either action is allowed.
 
 ## Historical: the pre-durable receiver tick used ordered decisions and effects
 

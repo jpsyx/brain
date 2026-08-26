@@ -3,7 +3,9 @@
 mod active;
 mod artifact;
 mod attachment_dispatch;
+mod cleanup;
 mod control;
+pub(in crate::tui::app_brain) mod diagnostic;
 mod dispatch;
 mod launch;
 mod launch_effects;

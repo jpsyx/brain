@@ -4,10 +4,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-fn replace_entry(
+fn replace_entry<Command: AsRef<str>>(
     settings: &mut serde_json::Value,
     event: &str,
-    hook_basenames: &[&str],
+    managed_commands: &[Command],
     command: &str,
 ) {
     let hooks = settings
@@ -33,10 +33,9 @@ fn replace_entry(
                 .get("command")
                 .and_then(serde_json::Value::as_str)
                 .is_some_and(|candidate| {
-                    let candidate = candidate.trim_end_matches(['"', '\'']);
-                    hook_basenames
+                    managed_commands
                         .iter()
-                        .any(|basename| candidate.ends_with(basename))
+                        .any(|managed| candidate == managed.as_ref())
                 })
         });
         !items.is_empty()
@@ -66,6 +65,49 @@ fn portable_root_command(hook_path: &Path) -> String {
         .trim_start_matches('/')
         .to_owned();
     format!(r#"python3 "${{BRAIN_ROOT}}/{relative}""#)
+}
+
+fn historical_home_command(script: &str) -> Option<&'static str> {
+    match script {
+        "claude_session_start_hook.py" => {
+            Some("python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py")
+        }
+        "claude_stop_hook.py" => Some("python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"),
+        _ => None,
+    }
+}
+
+fn legacy_hook_command(style: crate::agent::HookCommandStyle, script: &str) -> String {
+    match style {
+        crate::agent::HookCommandStyle::ClaudeProjectDir => format!(
+            r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT:-$HOME/brain}}}}/.claude/brain-hooks/{script}""#
+        ),
+        crate::agent::HookCommandStyle::PortableBrainRoot => {
+            format!(r#"python3 "${{BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/{script}""#)
+        }
+    }
+}
+
+fn managed_hook_commands(
+    style: crate::agent::HookCommandStyle,
+    current_script: &str,
+    canonical: String,
+    legacy_scripts: &[&str],
+) -> Vec<String> {
+    let mut commands = vec![canonical, format!("python3 {current_script}")];
+    commands.extend(legacy_scripts.iter().flat_map(|script| {
+        [
+            legacy_hook_command(style, script),
+            format!("python3 .claude/brain-hooks/{script}"),
+        ]
+    }));
+    commands.extend(
+        legacy_scripts
+            .iter()
+            .filter_map(|script| historical_home_command(script))
+            .map(str::to_owned),
+    );
+    commands
 }
 
 mod json;
@@ -140,41 +182,54 @@ pub(super) fn install_for_home_with(
                 style,
                 session_script,
                 completion_script,
+                observation_script,
                 legacy_session_scripts,
                 legacy_completion_scripts,
             } => {
                 // Both styles name the script through a root variable, so no
                 // command embeds this machine's resolved path.
-                let (session, stop) = match style {
+                let (session, stop, observation) = match style {
                     crate::agent::HookCommandStyle::ClaudeProjectDir => (
                         claude_project_dir_command(Path::new(session_script)),
                         claude_project_dir_command(Path::new(completion_script)),
+                        claude_project_dir_command(Path::new(observation_script)),
                     ),
                     crate::agent::HookCommandStyle::PortableBrainRoot => (
                         portable_root_command(Path::new(session_script)),
                         portable_root_command(Path::new(completion_script)),
+                        portable_root_command(Path::new(observation_script)),
                     ),
                 };
                 update_json_file_with_temporary_and_lock(
                     &path,
                     &hook_temporary_path(&path),
                     |settings| {
-                        let mut session_basenames = legacy_session_scripts.to_vec();
-                        session_basenames.push(
-                            Path::new(session_script)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .expect("registered session script has a UTF-8 basename"),
+                        let session_commands = managed_hook_commands(
+                            style,
+                            session_script,
+                            session.clone(),
+                            legacy_session_scripts,
                         );
-                        let mut completion_basenames = legacy_completion_scripts.to_vec();
-                        completion_basenames.push(
-                            Path::new(completion_script)
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .expect("registered completion script has a UTF-8 basename"),
+                        let completion_commands = managed_hook_commands(
+                            style,
+                            completion_script,
+                            stop.clone(),
+                            legacy_completion_scripts,
                         );
-                        replace_entry(settings, "SessionStart", &session_basenames, &session);
-                        replace_entry(settings, "Stop", &completion_basenames, &stop);
+                        replace_entry(settings, "SessionStart", &session_commands, &session);
+                        replace_entry(settings, "Stop", &completion_commands, &stop);
+                        replace_entry(
+                            settings,
+                            "UserPromptSubmit",
+                            std::slice::from_ref(&observation),
+                            &observation,
+                        );
+                        replace_entry(
+                            settings,
+                            "PostToolUse",
+                            std::slice::from_ref(&observation),
+                            &observation,
+                        );
                     },
                     || after_step(LifecycleInstallStep::Lock(installation)),
                 )?;

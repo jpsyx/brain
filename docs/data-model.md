@@ -1048,6 +1048,7 @@ receiver_conversations(
 
 receiver_jobs(
   job_id                    TEXT PRIMARY KEY,
+  job_token                 TEXT NOT NULL UNIQUE,
   workspace_id              TEXT NOT NULL,
   conversation_id           TEXT NOT NULL REFERENCES receiver_conversations,
   channel                   TEXT NOT NULL,  -- sms | email
@@ -1062,6 +1063,13 @@ receiver_jobs(
   retry_at_unix_ms          INTEGER,
   retry_from_state          TEXT,
   last_error                TEXT,
+  launched_at_unix_ms       INTEGER,
+  accepted_at_unix_ms       INTEGER,
+  progressing_at_unix_ms    INTEGER,
+  completed_at_unix_ms      INTEGER,
+  observation_instance      TEXT,
+  observation_session_id    TEXT,
+  observation_revision      INTEGER NOT NULL,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1078,8 +1086,34 @@ receiver_session_registrations(
 )
 ```
 
+**Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
+frontend-neutral controller and is never persisted as provider grammar. It
+retains the highest parsed revision, represented lifecycle phases, and the
+exact accepted/progressing/completed timestamps already observed. A later poll
+may add only phases that follow the cursor's lifecycle order while preserving
+every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
+emission order fail conservatively before any durable receiver mutation.
+The TUI rebuilds this opaque cursor from `observation_revision` plus the three
+durable evidence timestamps before every poll. Revision zero means no
+post-launch evidence, while a positive revision must correspond to a possible
+lifecycle. Completion-only evidence is valid; progress without acceptance,
+timestamp reversal, and revision/evidence disagreement are rejected.
+The exact signed SQLite maximum is a valid nonnegative revision across JSON
+parsing, controller normalization, App conversion, SQLite storage, and cursor
+reconstruction. At that value, an equal snapshot is no-change and producers
+retain the existing bytes rather than wrapping or manufacturing newer evidence.
+
 **Durable receiver identity.** `ReceiverJobId` and `ReceiverConversationId`
-are immutable UUID-backed values. The database handle itself is pinned to one
+are immutable UUID-backed values. `ReceiverJobToken` is a separate opaque random
+correlation identity created at durable ingress. It never replaces the public job
+ID or authorizes a mutation. During v8 and partial-v9 reconciliation, token
+allocation visits rows in `job_id` order and reserves every earlier token. A
+repeated random candidate is retried, while a later duplicate persisted token
+is replaced and the lowest-job-ID row keeps the original value. Each
+replacement permits one candidate per currently reserved unique token plus one
+fresh-candidate slot. Exhaustion returns a stable error and rolls back the
+whole schema transaction, including any earlier provisional token assignment.
+The database handle itself is pinned to one
 workspace UUID and rejects an inbound job or conversation identity from any
 other workspace. A conversation identity is the composite
 `(workspace_id, user_id, channel, conversation_key)`, never a global SMS or
@@ -1101,7 +1135,7 @@ the queued-capacity decision. That decision counts only `queued` rows and caps
 them at 64 inside the same immediate transaction; concurrent writers therefore
 cannot admit a sixty-fifth queued job.
 
-The stored lifecycle is `queued`, `claimed`, `launching`, `accepted`,
+The stored lifecycle is `queued`, `claimed`, `launching`, `launched`, `accepted`,
 `processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.
 A claim stores a non-blank owner and millisecond expiry without deleting its
 job. Only the live exact owner may renew or transition it. After expiry,
@@ -1112,13 +1146,14 @@ The FIFO claim transaction refuses another job while any workspace job has a
 live lease and returns the immutable job plus logical conversation without
 deleting either row. Launch preparation accepts only the exact unexpired owner
 of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
-then atomically moves it to `launching`. An expired `launching` row is still
-pre-acceptance: the claim transaction removes only its stale exact registration
-and session lock, records an immediately due bounded spawn retry, and assigns
-the replacement owner. Exhaustion marks that row `failed`, so a later tick may
-select the next FIFO row. Accepted through delivering jobs keep their state,
-retry count, retry schedule, and last error while only the lease is replaced.
-Pre-acceptance planning, registration, allocation, and spawn failures
+then atomically moves it to `launching`. Only a proved synchronous spawn failure
+may turn that attempt into a bounded Spawn retry. Once spawn succeeds, an
+uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
+`launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
+lease, registration, lifecycle, retry metadata, and FIFO position until BR-16.
+Answer-ready and delivery phases retain
+their existing phase-specific replacement behavior for BR-17.
+Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
 Retries originating at `accepted`, `processing`, or delivery phases cannot be
@@ -1132,21 +1167,52 @@ intent prevents only a new claim while the local run is idle. It still renews
 and manages an exact pending or active claim through completion, child exit, or
 cleanup, including across a later re-enable. Later arrivals remain `queued` and
 unclaimed until that run closes; the next tick
-again selects by `received_at_unix_ms, job_id`. A valid completion currently
-moves `launching` directly to `done` because BR-15 has not yet added accepted or
-processing proof. That terminal compare-and-swap shares one immediate
-transaction with exact lifecycle-native binding proof and persistence. The
+again selects by `received_at_unix_ms, job_id`. A post-spawn launch first commits
+`launching` to `launched`. Newer exact lifecycle evidence can then move it to
+`accepted` or `processing`. Every boundary from one normalized snapshot is
+written in one exact-owner transaction. That transaction requires the exact
+current `brain_sessions` tuple to remain locked and registered to the same
+conversation; `observation_session_id` adds continuity but cannot authorize an
+unlocked or rotated session. The current lifecycle session replaces the launch
+placeholder only under that exact proof, and `observation_revision` advances
+once. Equal revision, expired or
+replaced ownership, identity mismatch, and state mismatch mutate no field.
+The generic single-observation value uses
+`ReceiverNonterminalObservationPhase`, whose complete variant set is accepted
+and progressing. It cannot represent completion; terminal evidence requires the
+registration-aware batch transaction below.
+
+A valid completion can move `launched`, `accepted`, or `processing` directly to
+`done` without fabricating missing accepted or progressing timestamps. Artifact
+and lifecycle-only completion use one immediate transaction. It validates both
+the stored and incoming timelines, merges every normalized boundary plus the
+revision/session cursor, requires the exact lifecycle-native session to remain
+locked and `completed`, persists that binding, and only then marks the job done
+and clears its claim. Artifact body delivery precedence does not discard
+lifecycle evidence observed in the same poll. Both paths therefore make
+`done`, evidence, cursor, claim clearing, and conversation continuity one atomic
+fact; any binding or evidence write failure preserves the prior job,
+claim, registration, and binding for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
-passes it directly into the terminal transaction, so validation cannot outlive
-the owner's lease. A binding mismatch, concurrent lifecycle rotation, or
+passes it independently into the terminal transaction as authorization, so
+validation cannot outlive the owner's lease. A validated completed producer
+timestamp remains the durable evidence time even when it is later than that
+lease; it is never reused for authorization. Without a completed lifecycle
+boundary, the same fresh App time is the durable fallback, clamped at least to
+the latest stored accepted or progressing boundary. That artifact evidence
+advances a revision-zero cursor to revision one and records the exact completed
+native session, so every durable terminal row remains cursor-representable
+without inventing accepted or progressing timestamps. A binding mismatch,
+concurrent lifecycle rotation, or
 storage error rolls the
-whole attempt back, so the run remains `launching` with its claim,
+whole attempt back, so the run remains nonterminal with its claim,
 registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
-lifecycle, reply, session, and job mutation. A reclaimed Accepted or later
-progressed state is left unchanged for BR-16 rather than launched again.
+lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
+or `processing` row remains wholly unchanged for BR-16 rather than being
+reclaimed or launched again.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.
@@ -1189,30 +1255,35 @@ durable claim, binding update, or coordinator state.
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
 nonterminal phases. Schema v8 adds the exact receiver-session registration
-table. Every DB open reconciles the tables and missing managed columns for new
-or partially repaired workspaces, including a damaged v7 database already
-stamped at that version. The automatic 0.72.0 machine migration applies the table
-reconciliation to every existing registered workspace state DB without
-creating an otherwise unused DB. The 0.75.0 migration upgrades those existing
-tables to v7; its down operation removes only the retry-origin column and
-returns the DB to v6. The 0.75.1 migration upgrades existing state to v8; its
-down operation removes only receiver-session registrations and returns the DB
-to v7. A newly attached workspace receives v8 on its first ordinary DB open.
-The older v6 down operation still transactionally removes
-the receiver schema and returns a v6 DB to v5.
-Task 5 changes only process-local ownership and removes obsolete consumers; it
-does not change this binding or database schema. BR-18 still owns the remaining
-representation cleanup and any schema migration or reconciliation it requires.
+table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
+lifecycle evidence timestamps, exact observation instance/session identity,
+and monotonic revision. Every DB open reconciles the tables and managed
+columns for new, partially repaired, damaged, and already-current workspaces.
+Token reconciliation parses UUID identity, chooses one canonical spelling per
+identity, regenerates invalid or semantically colliding rows through the bounded
+allocator, and is idempotent once every row is canonical and unique.
+The automatic 0.80.0 migration upgrades every existing registered workspace
+state DB without creating an otherwise unused DB. Its down operation rebuilds
+a v8-compatible jobs table before the older downgrade chain continues. Every
+`launching`, `launched`, `accepted`, `processing`, `answer-ready`, `delivering`,
+or `retrying` row becomes a conservative `failed` row with claim and retry
+authority cleared, so the old coordinator cannot replay post-spawn ambiguity.
+A newly
+attached workspace receives v9 on its first ordinary DB open. The older v6
+down operation still transactionally removes the receiver schema and returns a
+v6 DB to v5. BR-18 still owns the remaining representation cleanup and any
+later schema migration or reconciliation it requires.
 
 Receiver attachment staging owns one exact job directory. Downloads write only
 `.part` files and rename after success. The owning batch moves from the worker
 result into the prepared run; dropping either removes the whole directory,
 including unread queued results and partial files. Orderly receiver shutdown
 runs before generic controller shutdown. It cancels and reaps the one published
-provider process group and joins its worker, releases exact lifecycle state only
-for a still-live owner, removes the local tab and artifact, and drops the owning
-staging-directory guard. The retry clock is sampled only after those cleanup
-steps for the exact Planning or Spawn CAS. Repeated shutdown is a no-op.
+provider process group and joins its worker. Work that has not spawned may take
+its exact Planning retry after cleanup. A successful-spawn run removes only the
+local tab and exact instance files while preserving durable lifecycle and
+registration correlation, then drops the owning staging-directory guard.
+Repeated shutdown is a no-op.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the
@@ -1292,8 +1363,8 @@ kind-specific metadata, and controller, while `ShellState` owns the active
 Receiver metadata is a separate variant containing the durable `ReceiverJobId`
 plus remote instance identity; it is never represented as a configured skill.
 The single counter spans both kinds and never reuses an ID after removal.
-Each receiver launch also owns a unique `receiver-run-<uuid>`
-`BRAIN_INSTANCE_ID`, never the main TUI instance. A fresh launch registers a
+Each receiver launch also owns a unique canonical UUID `BRAIN_INSTANCE_ID`,
+never the main TUI instance. A fresh launch registers a
 unique placeholder before spawning; a resume launch claims only its exact
 validated native session. An armed registration guard releases that exact
 remote owner on early return, while the main interactive lineage is untouched.

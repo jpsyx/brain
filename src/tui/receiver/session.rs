@@ -101,7 +101,7 @@ impl ReceiverRemoteSession {
     pub(crate) fn new(interactive_instance: &str) -> Self {
         loop {
             let id = uuid::Uuid::new_v4();
-            let instance = format!("receiver-run-{id}");
+            let instance = id.hyphenated().to_string();
             if instance == interactive_instance {
                 continue;
             }
@@ -131,6 +131,10 @@ pub(crate) struct ReceiverSessionRegistration<'store, Store: ReceiverSessionStor
 }
 
 impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, Store> {
+    pub(crate) const fn attribution(&self) -> &ReceiverSessionAttribution {
+        &self.attribution
+    }
+
     pub(crate) fn register_fresh(
         store: &'store Store,
         conversation_id: ReceiverConversationId,

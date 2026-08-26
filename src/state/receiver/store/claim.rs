@@ -8,7 +8,6 @@ use crate::state::{
 };
 
 mod next;
-mod recovery;
 mod restart;
 
 impl Db {
@@ -97,6 +96,8 @@ impl Db {
              SET state = ?6, retry_count = ?7, retry_at_unix_ms = ?8,
                  retry_from_state = ?9, last_error = ?10,
                  claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                 observation_instance = NULL, observation_session_id = NULL,
+                 observation_revision = 0,
                  updated_at_unix_ms = ?4
              WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                AND claim_expires_at_unix_ms > ?4

@@ -38,7 +38,7 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     std::fs::create_dir_all(selected_root.join(".claude")).expect("create settings directory");
     std::fs::write(
         selected_root.join(".claude/settings.json"),
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 \"/old/claude_session_start_hook.py\""}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 '/old/agent_session_stop_hook.py'"}]}]}}"#,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py"}]},{"hooks":[{"type":"command","command":"python3 /opt/user/claude_session_start_hook.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py"}]},{"hooks":[{"type":"command","command":"python3 /opt/user/claude_stop_hook.py"}]}]}}"#,
     )
     .expect("write legacy settings");
 
@@ -59,16 +59,22 @@ fn installer_uses_the_explicit_selected_root_and_relative_project_commands() {
     assert_eq!(
         settings_hook_commands(&settings, "SessionStart"),
         vec![
+            "python3 /opt/user/claude_session_start_hook.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
         ]
     );
     assert_eq!(
         settings_hook_commands(&settings, "Stop"),
         vec![
+            "python3 /opt/user/claude_stop_hook.py",
             r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
         ]
     );
-    for name in ["agent_session_start_hook.py", "agent_session_stop_hook.py"] {
+    for name in [
+        "agent_session_start_hook.py",
+        "agent_session_stop_hook.py",
+        "receiver_observation_bridge.py",
+    ] {
         assert!(selected_root.join(".brain/hooks").join(name).is_file());
     }
     assert_eq!(
@@ -116,13 +122,23 @@ fn installer_reconciles_codex_hooks_idempotently() {
           "model": "custom-model",
           "hooks": {
             "PreToolUse": [{"hooks":[{"type":"command","command":"keep-pre-tool"}]}],
+            "UserPromptSubmit": [
+              {"hooks":[{"type":"command","command":"keep-prompt"}]},
+              {"hooks":[{"type":"command","command":"python3 /opt/user/receiver_observation_bridge.py"}]}
+            ],
+            "PostToolUse": [
+              {"hooks":[{"type":"command","command":"keep-post-tool"}]},
+              {"hooks":[{"type":"command","command":"python3 /opt/user/receiver_observation_bridge.py"}]}
+            ],
             "SessionStart": [
               {"hooks":[{"type":"command","command":"keep-session-start"}]},
-              {"hooks":[{"type":"command","command":"python3 /stale/agent_session_start_hook.py"}]}
+              {"hooks":[{"type":"command","command":"python3 /opt/user/agent_session_start_hook.py"}]},
+              {"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_session_start_hook.py\""}]}
             ],
             "Stop": [
               {"hooks":[{"type":"command","command":"keep-stop"}]},
-              {"hooks":[{"type":"command","command":"python3 '/stale/claude_stop_hook.py'"}]}
+              {"hooks":[{"type":"command","command":"python3 /opt/user/agent_session_stop_hook.py"}]},
+              {"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT:-$HOME/brain}/.claude/brain-hooks/agent_turn_complete_hook.py\""}]}
             ]
           }
         }"#,
@@ -147,6 +163,7 @@ fn installer_reconciles_codex_hooks_idempotently() {
         settings_hook_commands(&codex_hooks, "SessionStart"),
         vec![
             "keep-session-start",
+            "python3 /opt/user/agent_session_start_hook.py",
             "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\"",
         ]
     );
@@ -154,6 +171,7 @@ fn installer_reconciles_codex_hooks_idempotently() {
         settings_hook_commands(&codex_hooks, "Stop"),
         vec![
             "keep-stop",
+            "python3 /opt/user/agent_session_stop_hook.py",
             "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\"",
         ]
     );
@@ -162,6 +180,22 @@ fn installer_reconciles_codex_hooks_idempotently() {
     assert_eq!(
         settings_hook_commands(&codex_hooks, "PreToolUse"),
         vec!["keep-pre-tool"]
+    );
+    assert_eq!(
+        settings_hook_commands(&codex_hooks, "UserPromptSubmit"),
+        vec![
+            "keep-prompt",
+            "python3 /opt/user/receiver_observation_bridge.py",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\"",
+        ]
+    );
+    assert_eq!(
+        settings_hook_commands(&codex_hooks, "PostToolUse"),
+        vec![
+            "keep-post-tool",
+            "python3 /opt/user/receiver_observation_bridge.py",
+            "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\"",
+        ]
     );
 }
 

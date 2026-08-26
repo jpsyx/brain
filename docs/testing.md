@@ -321,7 +321,106 @@ first move is a failing test that reproduces it, *then* the fix.
   concrete frontend modules, adapter traits, or adapter operation exports and
   guards shared call sites against direct frontend branching. Black-box
   integration tests launch all three frontends through `AgentController` and a
-  recording transport.
+  recording transport. The adapter contract table also drives identical
+  normalized observation requests through Claude, Codex, and OpenCode, proving
+  ordered missed-boundary recovery and explicit current/prior/placeholder
+  session rotation behavior. Focused parser tests cover the exact ten fields,
+  duplicate/missing/unknown fields, identifier and revision bounds,
+  phase/timestamp consistency, equal and regressed cursors, identity/session
+  mismatches, missing files, exact 4096-byte acceptance, one-byte-over-limit
+  rejection, exact 256-byte identifiers, permissions, non-regular files,
+  nonblocking FIFO rejection, symlinked cache ancestors, metadata-to-open
+  replacement, stable-length short reads, trailing JSON, and redacted
+  diagnostics. Cross-poll tests pin timestamp immutability, phase preservation,
+  lifecycle order, and a nondecreasing emitted stream. Producer tests also
+  force accepted-to-progressing and progressing-to-completed wall-clock
+  rollback, proving each new snapshot clamps to durable producer time and
+  validates before publication. Lock-leaf, parent-directory, post-replace, and
+  cleanup replacement races prove every producer mutation stays confined to
+  owner-only descriptor-opened cache and observation directories. A
+  deterministic post-read seam rotates session ownership on another thread and
+  proves the controller's fresh post-delegation check returns no facts. A
+  second seam removes the exact live `brain_sessions` tuple after controller
+  validation and proves the state transaction still refuses a nonterminal
+  observation. A structural
+  receiver scan covers both coordination trees plus ephemeral receiver-tab
+  ownership and rejects provider enum branches and literals, concrete adapter
+  or parser ownership, transcript/rollout/event grammar, direct normalized-reader
+  access, and observation-path access outside launch/controller ownership.
+  Composed App tests then drive that neutral facade through Claude, Codex, and
+  OpenCode. They prove an unobserved launch remains `launched`, current-session
+  rotation persists exact acceptance, a newer full snapshot atomically catches
+  up accepted plus progressing, and a cursor rebuilt from durable accepted
+  evidence sends exactly progressing then completed across the App-to-store
+  boundary without re-emitting accepted. An exhaustive generic-observation type
+  test permits only accepted and progressing, while the terminal continuity
+  matrix proves the registration-aware path remains authorized. Terminal tests
+  atomically combine the normalized boundary set, revision and session cursor,
+  exact completed-session binding, stored and incoming timeline validation, and
+  artifact completion. They prove artifact body precedence retains lifecycle
+  evidence and a future-skewed stored boundary remains monotonic. That matrix
+  also proves fresh and
+  rotated native sessions become the next message's exact resume target for all
+  three frontends, including Codex and OpenCode placeholder rotation, while a
+  forced binding write failure leaves completion retryable. Deterministic cases
+  cover missing, malformed,
+  unrelated, equal-revision, and completion-only evidence; owner loss between
+  read and transaction; artifact plus lifecycle completion in one tick; a
+  paused stop-hook observation publication that cannot expose completion or an
+  artifact early; exact
+  artifact-body delivery once versus no lifecycle-only delivery; exact-instance
+  response, snapshot, and lock cleanup for all five exit routes; stable
+  content-free diagnostics; and FIFO release to the next durable job.
+  The final BR-15 parity matrix ticks the App separately after reordered
+  progress, exact submit, later progress, and terminal evidence for every
+  frontend. Claude and Codex finish through `agent_session_stop_hook.py`;
+  OpenCode finishes through its real `session.idle` to stop-hook path. Normal,
+  duplicate, and completion-first cases preserve every producer timestamp.
+  Replacement tests then send later progress after symlink, permissive,
+  malformed, truncated, wrong-token, and ambiguous same-scope entries, proving
+  the producer preserves each entry and the App retains the durable row and tab
+  while emitting only its stable category. A fresh-App restart test proves
+  `launched`, `accepted`, and `processing` rows are neither reclaimed nor
+  replayed. Exact `i64::MAX` characterization crosses the strict snapshot,
+  reader, controller, App, SQLite, reconstructed cursor, saturated producer,
+  and a subsequent no-newer poll without wrap or timestamp loss. Composed
+  saturation regressions start from accepted and progressing snapshots, run the
+  real required-write stop path for Claude and Codex plus OpenCode's real
+  `session.idle`, and prove the unchanged maximum snapshot can still yield one
+  artifact-only TUI completion, exact cleanup, and no repeated delivery. The
+  focused bridge contract also proves mismatched, nonterminal, malformed, and
+  injected failed-write inputs remain rejected. The privacy
+  guard discovers relevant Rust, Python, JavaScript, completion, controller,
+  store, migration, and fixture surfaces by both semantic markers and
+  observation/receiver-completion path names, so a future module joins the audit
+  before it copies an existing symbol. Across every discovered surface, its
+  quoted-literal policy rejects non-generic macOS, Unix, and Windows home paths,
+  non-reserved email domains, and URL or IP literals outside localhost,
+  loopback, documentation, and reserved example, test, or invalid namespaces.
+  Valid percent-encoded IPv6 zone identifiers are classified with their address
+  before legitimate placeholder syntax is considered.
+  Path-discovered observation and receiver-completion producers additionally
+  reject a standalone non-reserved bare hostname with or without its final DNS
+  root dot, a hostname with port even when its valid TLD resembles a repository
+  filename extension, and a bare private IPv6 address based only on the literal,
+  independent of variable names or surrounding context words. Mutation tests
+  use a neutral binding to prove each private category fails while ordinary
+  repository filenames, generic fixtures, and dotted lifecycle identifiers pass.
+  Runtime prompt, body, response, sender,
+  recipient, credential, local-path, and private-host canaries cross submit,
+  tool, direct stop-hook completion, OpenCode `session.idle`, Debug, error, and
+  diagnostic paths. Snapshots, logs, diagnostics, and process output contain
+  none of them; token values stay redacted from Debug and diagnostics, while
+  trusted artifacts retain only their intentional opaque identity fields and
+  private completion body. A real `agent_session_stop_hook.py` producer creates
+  both the exact artifact and a valid completed observation beyond the renewed
+  local lease, then crosses the controller and App transaction. That test proves
+  the producer time is persisted as evidence while a separately sampled
+  post-validation App time authorizes one commit and cleanup; a regression
+  mutation that reuses evidence as authority leaves the job launched. The
+  separate validation-expiry test remains fail-closed.
+  Existing exit and shutdown cases prove that no terminal evidence means local
+  cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
@@ -413,14 +512,18 @@ first move is a failing test that reproduces it, *then* the fix.
   provider deduplication scope, FIFO selection, owner-checked transitions and
   renewals, every persisted lifecycle state, retry overflow, millisecond
   timestamps, foreign keys, transcript/binding replacement, and schema
-  reconciliation. Recovery tests prove every nonterminal expired lease is
-  reclaimable, terminal rows are not, expired launching atomically cleans exact
-  stale lifecycle lineage and becomes a due bounded Spawn retry, exhaustion
-  fails before a later tick selects the next FIFO row, Accepted and later
-  progressed reclaim preserves state and retry evidence, and a due delivery
-  retry stays retrying until its new live owner resumes delivery. The state test
-  wrapper and store are split along identity, acceptance, claim, conversation,
-  recovery, and schema seams rather than collected in one oversized file.
+  reconciliation. Recovery tests prove an expired queued or due planning retry
+  remains claimable, while every `launching` or later state is fenced from
+  automatic replay after a successful process may exist. Successful-spawn App
+  tests inject owner loss, allocation failure, and launch-commit failure to
+  prove each ambiguity stays nonclaimable. Schema tests reconcile valid token
+  text by parsed UUID identity, canonicalize case variants, regenerate invalid
+  or colliding values with the bounded allocator, and prove fresh, partial,
+  damaged, exhausted, and idempotent rows. The v9 downgrade matrix crosses up,
+  every lifecycle state, down, and the old v8 claim query, proving all
+  post-spawn ambiguity becomes conservatively failed. The state test wrapper
+  and store are split along identity, acceptance, claim, conversation,
+  completion, and schema seams rather than collected in one oversized file.
 - **Receiver dispatch state.** Composed `tui::app_brain::tests` drive the one
   production durable tick with an injected clock and event barriers. They prove
   that a busy main panel is untouched; equal timestamps use job-ID FIFO order;
@@ -429,7 +532,9 @@ first move is a failing test that reproduces it, *then* the fix.
   controller and PTY; and launch, close, and the next launch preserve view, tab,
   visibility, and focus. Exact-completion tests cover crossed artifacts, claim
   renewal, expiry and replacement after terminal validation, ownership loss,
-  progressed stale-state refusal, child exit, spawn failure, orderly active and
+  the exact live-session transaction guard, merged artifact and lifecycle
+  evidence, future-skewed durable boundaries, progressed stale-state refusal,
+  child exit, spawn failure, successful-spawn ambiguity, orderly active and
   claimed shutdown, reply delivery, task reload, and sync push. Attachment tests
   prove shared Resend/download cancellation authority, cancellation during
   process publication, process-group kill and reap, `.part` rename, unread-result
@@ -949,10 +1054,10 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `ReceiverRuntime` retains only intent, freshness gating, the durable run, and a narrowly allowed legacy endpoint lifetime owner for BR-18; the guard rejects activity, input, queue, and socket-consumer behavior. `AppServices` retains the cross-feature sync effect adapter and nonblocking receiver-attachment coordinator behind semantic operations; the guard rejects those effects, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: an exact `cfg(test)`-aware Rust module graph defaults undeclared files to production and audits each as an orphan root while preserving declared module identities. A global symbol graph completes imports and aliases across every production source before collecting definitions, then follows exact receiver-owned call edges through neutral helpers, cross-module aliases, qualified-self UFCS, fields, and controller-return chains without same-basename guessing. Ordinary and qualified-self calls, trait implementation nodes, and method return facts canonicalize a generic aliased self type to its underlying identity while retaining the exact trait; direct and inherent methods remain distinct. Ordinary trait visibility follows exact named imports plus finite module and lexical glob exports, honors local shadowing, and refuses to guess across colliding traits. Type roles resolve modules, named imports, direct and nested public glob imports and re-exports, aliases, and generic arguments to exact production symbol identities. Function bodies add lexical frames for block imports, local type declarations and aliases, ordered variable bindings, and function/method/impl generics. Block aliases retain definition-scope targets, substitutions, defaults, and the full lifetime/type/const parameter sequence. Arguments bind by declared kind, including ambiguous bare const paths; explicit types override defaults; omitted defaults may refer to earlier parameters; omitted no-default parameters remain opaque. Generic struct fields align declaration parameters with explicit use-site types and definition-scope defaults before projection. Active alias frames combine the exact declaration with resolved supplied type facts. Finite same-alias arguments resolve before default and target recursion is guarded, while matching non-progress frames terminate self and mutual cycles. Nearest declarations shadow outer aliases, sibling blocks do not inherit one another, and local or generic types resolve before imports and globs. Sequential bindings replace same-scope predecessors only after initializer analysis; `or` patterns alone merge lexical alternatives. Tuple and tuple-struct rest suffixes map from the end, slice rest bindings retain sequence shape, and outer/ref-pattern borrowing propagates through projections. Alias, default, and export graphs terminate cycles, and unknown or ambiguous glob-owned type operations fail closed, so receiver-local same-named `AgentController`, `App`, `BrainPanelState`, and `InboundJob` types remain harmless while canonical aliased, qualified, module-globbed, and block-globbed Brain types stay guarded. Only the exact typed `ServerClient::refresh_enabled_generation` target is a control-capability boundary; every other `ServerClient` method stays receiver-reachable. The call graph rejects reachable main-panel input, activity sampling, Unix socket acceptance or reads before or after job decoding, and broad dead-code masking. Independently, a global semantic pass rejects canonical typed `InboundJob` channel or queue consumption in declared and orphan production modules while allowing unrelated channel/socket code, safe-trait peers, unrelated same-name methods, ordinary interactive APIs, and lifetime-only `JobSocket` ownership. Mutation fixtures cover both same-method implementation orders, aliased ordinary dispatch, aliased qualified-self return propagation, exact-symbol positive and negative controls, module and block glob imports for types and traits, local and ambiguous trait controls, block-local alias targets, generic chains and defaults, partial and explicit overrides, lifetime/const kind alignment, bare/braced/literal const arguments, generic struct fields, aggregate borrowing, exact rest mapping, sequential shadow replacement, finite same-alias nesting, true self/mutual cycles, ambiguous and unknown targets, nested shadowing, local-type and generic controls, declared-neutral direct and indirect typed consumers, dangerous `ServerClient` delegation, and their harmless peers; durable controls compile in the live coordinator, and production source contains exactly one receiver-consumer tick. |
-| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, lifecycle, non-destructive FIFO claim bundles, queued-restart claim exclusion, one live workspace claim, exact-owner launch CAS, generic-transition rejection of progressed retry origins, bounded pre-acceptance retry, atomic expired-launch registration cleanup and due retry/exhaustion, conservative Accepted-and-later recovery, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, and receiver-specific pre-migration SQLite lock budgeting. |
+| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID v8/v9 token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim, exact-owner launch CAS, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative v9-to-v8 downgrade behavior, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `tui::app_brain::tests::receiver_durable_attachment_prompt` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode rendering from an already-authorized Fresh/Resume choice: empty transcript, UTF-8-safe newest-context truncation, complete localized path records with honest omission, composed post-staging prompt and shell-command bounds, and both fresh/resume command translations with a non-blank initial prompt. |
-| `tui::receiver::{session_tests,failure_tests}` | Unique remote instances distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for every pre-acceptance failure class. |
-| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8 across every registered workspace that already has a state DB, including damaged-v7 column repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. |
+| `tui::receiver::{session_tests,failure_tests}` | Unique remote instances distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for planning, registration, and proved synchronous spawn failure. The retryable failure type excludes post-spawn allocation. |
+| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. The state receiver suite separately proves the v9 every-state down-to-v8 old-claim round trip. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |
@@ -978,7 +1083,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, registered-frontend advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
-| `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle,receiver_durable_binding_completion,receiver_durable_resume_boundaries,receiver_durable_resume_completion,receiver_durable_shutdown,receiver_durable_attachment_worker}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, atomic native-binding plus terminal commit, expiry and owner replacement after validation, resumed Codex and OpenCode second-run completion when the durable binding already equals the lifecycle-native session, post-validation owner renewal for missing all-frontend history and OpenCode probe errors, post-registration owner renewal for a rejected exact resume claim, live-owner Fresh controls for each fallback, retained retry after binding mismatch or SQLite error, barrier-driven lifecycle rotation after validation that preserves the old artifact and active run, lost ownership without job/retry mutation, progressed stale-state refusal, spawn and child-exit retry, receiver-first claimed/active shutdown, attachment process cancellation and owning cleanup, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. |
+| `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle,receiver_durable_binding_completion,receiver_durable_resume_boundaries,receiver_durable_resume_completion,receiver_durable_shutdown,receiver_durable_attachment_worker}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, atomic native-binding plus terminal evidence commit, exact-session removal after controller validation, expiry and owner replacement after terminal validation, resumed Codex and OpenCode second-run completion when the durable binding already equals the lifecycle-native session, post-validation owner renewal for missing all-frontend history and OpenCode probe errors, post-registration owner renewal for a rejected exact resume claim, live-owner Fresh controls for each fallback, retained planning retry after binding mismatch or SQLite error, barrier-driven lifecycle rotation after validation that preserves the old artifact and active run, successful-spawn owner loss/allocation failure/launch-commit failure fencing, lost ownership without job/retry mutation, progressed stale-state refusal, synchronous spawn retry and post-spawn child-exit fencing, receiver-first claimed/active shutdown, attachment process cancellation and owning cleanup, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. |
 | `workspace::templates` tests | The seeded `AGENTS.md` / `README.md`: written when absent, never overwriting an edited copy, idempotent, cross-referencing each other, carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. |
 | `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
 | `sync::csv_merge::remote_csvs` + `sync::csv_sync::tests_sections::remote_schema_publication` + `sync::setup` schema_preflight | Remote task-schema generation decided by CSV *content*: absent/current/legacy classification (header-only current CSVs are current, whitespace proves nothing, one legacy CSV makes the remote legacy), a remote missing only its schema document is healed by publishing it, a failed publication is surfaced rather than assumed healed, and genuinely legacy remote rows still refuse while naming `brain workspace migrate`. Setup's guard refuses on legacy rows instead of on mere CSV existence. |
