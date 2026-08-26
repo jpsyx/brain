@@ -372,20 +372,27 @@ first move is a failing test that reproduces it, *then* the fix.
   guard discovers relevant Rust, Python, JavaScript, completion, controller,
   store, migration, and fixture surfaces by both semantic markers and
   observation/receiver-completion path names, so a future module joins the audit
-  before it copies an existing symbol. Its quoted-literal policy rejects
-  non-generic macOS, Unix, and Windows home paths, non-reserved email domains,
-  and URL or host literals outside localhost, loopback, and reserved example,
-  test, or invalid namespaces. Mutation tests prove each new private category
-  fails while generic fixtures pass. Runtime prompt, body, response, sender,
+  before it copies an existing symbol. Across every discovered surface, its
+  quoted-literal policy rejects non-generic macOS, Unix, and Windows home paths,
+  non-reserved email domains, and URL or IP literals outside localhost,
+  loopback, documentation, and reserved example, test, or invalid namespaces.
+  Path-discovered observation and receiver-completion producers additionally
+  reject a standalone non-reserved bare hostname based only on the literal,
+  independent of variable names or surrounding context words. Mutation tests
+  use a neutral binding to prove each new private category fails while generic
+  fixtures and dotted lifecycle identifiers pass. Runtime prompt, body, response, sender,
   recipient, credential, local-path, and private-host canaries cross submit,
   tool, direct stop-hook completion, OpenCode `session.idle`, Debug, error, and
   diagnostic paths. Snapshots, logs, diagnostics, and process output contain
   none of them; token values stay redacted from Debug and diagnostics, while
   trusted artifacts retain only their intentional opaque identity fields and
-  private completion body. The exact-artifact test also places a valid producer
-  completion timestamp beyond the renewed lease, proving the producer time is
-  persisted as evidence while a separately sampled post-validation App time
-  authorizes one commit, delivery, and cleanup.
+  private completion body. A real `agent_session_stop_hook.py` producer creates
+  both the exact artifact and a valid completed observation beyond the renewed
+  local lease, then crosses the controller and App transaction. That test proves
+  the producer time is persisted as evidence while a separately sampled
+  post-validation App time authorizes one commit and cleanup; a regression
+  mutation that reuses evidence as authority leaves the job launched. The
+  separate validation-expiry test remains fail-closed.
   Existing exit and shutdown cases prove that no terminal evidence means local
   cleanup without replay or durable regression. No fixed sleep is used.
 - **The new-tab opener** (`open_target.rs`). `edit_shell_command` (cd +

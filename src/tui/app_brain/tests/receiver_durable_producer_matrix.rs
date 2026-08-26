@@ -353,7 +353,7 @@ fn run_opencode_stage(app: &App, session: &AgentSession, path: &Path, stage: Pro
     assert_process_succeeded("OpenCode producer harness", &output);
 }
 
-fn run_stop_hook(app: &App, kind: AgentKind, session: &AgentSession, path: &Path) {
+pub(super) fn run_stop_hook(app: &App, kind: AgentKind, session: &AgentSession, path: &Path) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let active = app.receiver.active_durable_run().expect("active receiver");
     let scope = active.attribution.scope();
@@ -470,7 +470,7 @@ fn snapshot(path: &Path) -> serde_json::Value {
         .expect("valid observation snapshot")
 }
 
-fn snapshot_timestamp(snapshot: &serde_json::Value, field: &str) -> u64 {
+pub(super) fn snapshot_timestamp(snapshot: &serde_json::Value, field: &str) -> u64 {
     snapshot[field].as_u64().expect("snapshot timestamp")
 }
 
@@ -509,7 +509,7 @@ fn active_job_token(app: &App) -> String {
         .to_string()
 }
 
-fn active_observation_path(app: &App) -> PathBuf {
+pub(super) fn active_observation_path(app: &App) -> PathBuf {
     app.context
         .workspace()
         .paths()
@@ -517,7 +517,7 @@ fn active_observation_path(app: &App) -> PathBuf {
         .join(format!("{}.json", active_instance(app)))
 }
 
-fn active_completion_path(app: &App) -> PathBuf {
+pub(super) fn active_completion_path(app: &App) -> PathBuf {
     app.context
         .workspace()
         .paths()
@@ -525,7 +525,7 @@ fn active_completion_path(app: &App) -> PathBuf {
         .join(format!("{}.json", active_instance(app)))
 }
 
-fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {
+pub(super) fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {
     let session = AgentSession::new(session_id).expect("native session");
     rusqlite::Connection::open(app.context.state_db_path())
         .expect("lifecycle fixture connection")

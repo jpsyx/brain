@@ -951,11 +951,16 @@ Which session to run is decided by the **lock + recency** model in
 
    The repository privacy guard recursively discovers observation and receiver
    completion surfaces by semantic markers and observation/completion path
-   names. Its quoted-literal policy rejects non-generic macOS, Unix, and Windows
-   home paths; email domains outside reserved example, test, and invalid
-   namespaces; and URL or host values outside localhost, loopback, and reserved
-   example namespaces. Only the guard's own policy and runtime-canary modules
-   are excluded from self-audit. Runtime prompt, body, response, sender,
+   names. Across every discovered surface, its quoted-literal policy rejects
+   non-generic macOS, Unix, and Windows home paths; email domains outside
+   reserved example, test, and invalid namespaces; and URL or IP values outside
+   localhost, loopback, documentation, and reserved example namespaces.
+   Path-discovered observation and receiver-completion producers also reject a
+   standalone non-reserved bare hostname from the literal alone, without using
+   its binding name or surrounding source words. This keeps external dotted
+   lifecycle identifiers in semantic-only consumers from being mistaken for
+   hosts. Only the guard's own policy and runtime-canary modules are excluded
+   from self-audit. Runtime prompt, body, response, sender,
    recipient, credential, local-path, and private-host canaries cross direct
    submit/tool/stop-hook and OpenCode submit/tool/`session.idle` paths. They are
    absent from normalized snapshots, Debug, errors, diagnostics, logs, and

@@ -40,9 +40,7 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
     );
 
     for relative in audited {
-        let source = std::fs::read_to_string(root.join(&relative))
-            .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
-        let violations = source_privacy_violations(&source);
+        let violations = source_privacy_violations_for_path(root, &relative);
         assert!(
             violations.is_empty(),
             "{} contains private literals: {violations:?}",
@@ -75,7 +73,7 @@ fn newly_discovered_observation_sources_reject_private_home_email_and_host_liter
             r"/Users/example-private-owner/receiver-secret",
         ),
         ("email", "PRIVATE_LITERAL", r"sender@private.corp"),
-        ("host", "CALLBACK_HOST", r"receiver.private.lan"),
+        ("host", "VALUE", r"receiver.private.lan"),
     ] {
         let temporary = tempfile::tempdir().expect("temporary repository");
         for directory in ["src", "scripts", "tests"] {
@@ -93,10 +91,8 @@ fn newly_discovered_observation_sources_reject_private_home_email_and_host_liter
             discover_relevant_sources(temporary.path()).contains(&relative),
             "mutation source must be discovered for {case}"
         );
-        let source = std::fs::read_to_string(temporary.path().join(relative))
-            .expect("privacy mutation source");
         assert!(
-            !source_privacy_violations(&source).is_empty(),
+            !source_privacy_violations_for_path(temporary.path(), &relative).is_empty(),
             "privacy policy accepted a private {case} literal"
         );
     }
@@ -115,7 +111,7 @@ fn generic_home_email_and_host_literals_remain_allowed() {
         const IPV6_LOOPBACK_URL: &str = "http://[::1]:8080/callback";
     "#;
 
-    assert_eq!(source_privacy_violations(source), Vec::<&str>::new());
+    assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
 }
 
 #[test]
@@ -162,9 +158,7 @@ pub(super) fn discover_relevant_sources(root: &Path) -> Vec<PathBuf> {
                 return None;
             }
             let source = std::fs::read_to_string(&path).ok()?;
-            let surface_path = relative.to_string_lossy().to_ascii_lowercase();
-            let relevant_path = surface_path.contains("observation")
-                || surface_path.contains("receiver") && surface_path.contains("completion");
+            let relevant_path = is_path_based_producer(&relative);
             let relevant_marker = [
                 "AgentObservation",
                 "ReceiverObservation",
@@ -180,6 +174,18 @@ pub(super) fn discover_relevant_sources(root: &Path) -> Vec<PathBuf> {
             (relevant_path || relevant_marker).then_some(relative)
         })
         .collect()
+}
+
+fn source_privacy_violations_for_path(root: &Path, relative: &Path) -> Vec<&'static str> {
+    let source = std::fs::read_to_string(root.join(relative))
+        .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
+    source_privacy_violations(&source, is_path_based_producer(relative))
+}
+
+fn is_path_based_producer(relative: &Path) -> bool {
+    let surface_path = relative.to_string_lossy().to_ascii_lowercase();
+    surface_path.contains("observation")
+        || surface_path.contains("receiver") && surface_path.contains("completion")
 }
 
 fn collect_sources(directory: &Path, output: &mut Vec<PathBuf>) {

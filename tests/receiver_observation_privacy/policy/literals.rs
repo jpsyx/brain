@@ -2,7 +2,10 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-pub(super) fn source_privacy_violations(source: &str) -> Vec<&'static str> {
+pub(super) fn source_privacy_violations(
+    source: &str,
+    reject_bare_hosts: bool,
+) -> Vec<&'static str> {
     static HOME_PATH: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)(?:[a-z]:)?/(?:users|home)/(?P<identity>[a-z0-9._{}$%<>-]+)(?:/|$)")
             .expect("home-path privacy regex")
@@ -18,7 +21,7 @@ pub(super) fn source_privacy_violations(source: &str) -> Vec<&'static str> {
             .expect("URL privacy regex")
     });
     static HOST: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\b(?:[a-z0-9](?:[a-z0-9-]{0,62})\.)+[a-z][a-z0-9-]{1,62}\b")
+        Regex::new(r"(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,62})\.)+[a-z][a-z0-9-]{1,62}$")
             .expect("host privacy regex")
     });
     static IPV4: LazyLock<Regex> = LazyLock::new(|| {
@@ -57,14 +60,10 @@ pub(super) fn source_privacy_violations(source: &str) -> Vec<&'static str> {
         }) {
             violations.push("non-generic URL host");
         }
-        if HOST
-            .find_iter(&literal)
-            .map(|candidate| candidate.as_str())
-            .any(|host| {
-                !is_reserved_host(host)
-                    && !looks_like_filename(host)
-                    && has_host_context(source, host)
-            })
+        if reject_bare_hosts
+            && HOST.is_match(&literal)
+            && !is_reserved_host(&literal)
+            && !looks_like_filename(&literal)
         {
             violations.push("non-generic host");
         }
@@ -159,19 +158,6 @@ fn is_reserved_host(host: &str) -> bool {
         || ["example.com", "example.net", "example.org"]
             .into_iter()
             .any(|domain| normalized == domain || normalized.ends_with(&format!(".{domain}")))
-}
-
-fn has_host_context(source: &str, host: &str) -> bool {
-    source.match_indices(host).any(|(offset, _)| {
-        let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
-        let context = source[line_start..offset].to_ascii_lowercase();
-        [
-            "address", "callback", "connect", "domain", "endpoint", "host", "origin", "server",
-            "uri", "url", "webhook",
-        ]
-        .into_iter()
-        .any(|marker| context.contains(marker))
-    })
 }
 
 fn looks_like_filename(host: &str) -> bool {
