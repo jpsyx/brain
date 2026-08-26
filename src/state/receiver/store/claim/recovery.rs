@@ -30,22 +30,7 @@ impl Db {
             "receiver claim expiry must follow claim time"
         );
         let now = to_i64(now_unix_ms, "receiver recovery discovery time")?;
-        let job_id = self
-            .conn
-            .query_row(
-                "SELECT job_id FROM receiver_jobs
-                 WHERE workspace_id = ?1 AND state = 'retrying'
-                   AND attempt_kind = 'recovery' AND claim_owner IS NULL
-                   AND claim_expires_at_unix_ms IS NULL
-                   AND retry_at_unix_ms <= ?2
-                   AND recovery_expires_at_unix_ms > ?2
-                   AND absolute_work_expires_at_unix_ms > ?2
-                 ORDER BY received_at_unix_ms, job_id
-                 LIMIT 1",
-                rusqlite::params![self.workspace_id, now],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
+        let job_id = oldest_workspace_claim_candidate(&self.conn, &self.workspace_id, now)?;
         let Some(job_id) = job_id else {
             return Ok(None);
         };
@@ -88,6 +73,11 @@ impl Db {
         if has_live_receiver_claim(&transaction, &self.workspace_id, now)? {
             return Ok(None);
         }
+        if oldest_workspace_claim_candidate(&transaction, &self.workspace_id, now)?.as_deref()
+            != Some(job_id.to_string().as_str())
+        {
+            return Ok(None);
+        }
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, job_id)? else {
             return Ok(None);
         };
@@ -102,6 +92,8 @@ impl Db {
             || job
                 .absolute_work_expires_at_unix_ms()
                 .is_none_or(|expires_at| expires_at <= now_unix_ms)
+            || job.recovery_cleanup_instance().is_some()
+            || job.recovery_cleanup_session_id().is_some()
         {
             return Ok(None);
         }
@@ -124,7 +116,9 @@ impl Db {
                AND observation_session_id IS NULL
                AND observation_revision = 0
                AND attempt_accepted_at_unix_ms IS NULL
-               AND attempt_progressing_at_unix_ms IS NULL",
+               AND attempt_progressing_at_unix_ms IS NULL
+               AND recovery_cleanup_instance IS NULL
+               AND recovery_cleanup_session_id IS NULL",
             rusqlite::params![
                 self.workspace_id,
                 now,
@@ -157,4 +151,27 @@ impl Db {
             "claimed recovery",
         )
     }
+}
+
+fn oldest_workspace_claim_candidate(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    now: i64,
+) -> Result<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT job_id FROM receiver_jobs
+             WHERE workspace_id = ?1
+               AND (
+                 state = 'queued'
+                 OR (state = 'retrying' AND retry_at_unix_ms <= ?2)
+                 OR state IN ('claimed', 'launching', 'launched', 'accepted',
+                              'processing', 'answer-ready', 'delivering')
+               )
+             ORDER BY received_at_unix_ms, job_id
+             LIMIT 1",
+            rusqlite::params![workspace_id, now],
+            |row| row.get(0),
+        )
+        .optional()?)
 }

@@ -130,3 +130,18 @@ fn accepted_run_in(db: Db, provider_id: &str) -> AcceptedRunFixture {
         ordinary,
     }
 }
+
+fn acknowledge_accepted_run_cleanup(fixture: &AcceptedRunFixture, now_unix_ms: u64) {
+    assert!(
+        fixture
+            .db
+            .acknowledge_receiver_recovery_cleanup(
+                fixture.job_id,
+                fixture.ordinary.token(),
+                "ordinary-instance",
+                "native-session",
+                now_unix_ms,
+            )
+            .expect("acknowledge accepted-run cleanup")
+    );
+}

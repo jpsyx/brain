@@ -65,6 +65,7 @@ impl Db {
                 "SELECT retry_count FROM receiver_jobs
                  WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                    AND claim_expires_at_unix_ms > ?4
+                   AND attempt_kind = 'ordinary'
                    AND (
                      state = ?5
                      OR (
@@ -103,6 +104,7 @@ impl Db {
                  updated_at_unix_ms = ?4
              WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                AND claim_expires_at_unix_ms > ?4
+               AND attempt_kind = 'ordinary'
                AND (
                  state = ?5
                  OR (

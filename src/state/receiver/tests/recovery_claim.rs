@@ -82,6 +82,21 @@ fn stalled_run(provider_id: &str) -> StalledRunFixture {
     }
 }
 
+fn acknowledge_stalled_cleanup(fixture: &StalledRunFixture, now_unix_ms: u64) {
+    assert!(
+        fixture
+            .db
+            .acknowledge_receiver_recovery_cleanup(
+                fixture.job_id,
+                fixture.ordinary.token(),
+                "ordinary-instance",
+                "native-session",
+                now_unix_ms,
+            )
+            .expect("acknowledge stalled-run cleanup")
+    );
+}
+
 #[test]
 fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recovery_budget() {
     let fixture = stalled_run("durable-recovery-claim");
@@ -94,16 +109,17 @@ fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recover
         effect.action(),
         ReceiverReconciliationAction::ScheduleRecovery
     );
+    acknowledge_stalled_cleanup(&fixture, 301_401);
 
     let claimed = fixture
         .db
-        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_400, 331_400)
+        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_401, 331_401)
         .expect("claim recovery run")
         .expect("recovery run");
     let recovery = claimed.job();
 
     assert_eq!(claimed.claim().owner(), "recovery-owner");
-    assert_eq!(claimed.claim().expires_at_unix_ms(), 331_400);
+    assert_eq!(claimed.claim().expires_at_unix_ms(), 331_401);
     assert_eq!(recovery.state(), ReceiverJobState::Claimed);
     assert_eq!(recovery.id(), fixture.ordinary.id());
     assert_eq!(recovery.token(), fixture.ordinary.token());
@@ -132,7 +148,7 @@ fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recover
             .expect("fresh recovery cursor"),
         crate::agent::AgentObservationCursor::launched()
     );
-    assert_eq!(recovery.launch_expires_at_unix_ms(), Some(421_400));
+    assert_eq!(recovery.launch_expires_at_unix_ms(), Some(421_401));
     assert_eq!(recovery.recovery_expires_at_unix_ms(), Some(601_400));
     assert_eq!(recovery.acceptance_expires_at_unix_ms(), None);
     assert_eq!(recovery.progress_expires_at_unix_ms(), None);
@@ -197,7 +213,7 @@ fn recovery_claim_cas_failure_leaves_the_complete_job_and_claim_unchanged() {
 }
 
 #[test]
-fn live_claim_on_another_job_blocks_recovery_until_its_lease_expires() {
+fn older_ordinary_claim_blocks_recovery_before_and_after_its_lease_expires() {
     let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
     let competing_inbound = receiver_job(Some("competing-live-claim"), 50);
@@ -297,6 +313,16 @@ fn live_claim_on_another_job_blocks_recovery_until_its_lease_expires() {
             .action(),
         ReceiverReconciliationAction::ScheduleRecovery
     );
+    assert!(
+        db.acknowledge_receiver_recovery_cleanup(
+            target.job_id(),
+            target_token,
+            "ordinary-instance",
+            "native-session",
+            301_401,
+        )
+        .expect("acknowledge target cleanup")
+    );
 
     let target_before = db
         .receiver_job(target.job_id())
@@ -365,8 +391,8 @@ fn live_claim_on_another_job_blocks_recovery_until_its_lease_expires() {
             331_400,
             361_400,
         )
-        .expect("claim recovery after competing lease expiry")
-        .is_some(),
-        "the recovery must become claimable at competing lease expiry"
+        .expect("keep recovery behind older due ordinary work")
+        .is_none(),
+        "the older ordinary retry must retain FIFO priority after lease expiry"
     );
 }

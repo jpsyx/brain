@@ -116,6 +116,33 @@ fn recovery_policy_fails_closed_at_the_recovery_or_absolute_limit() {
 }
 
 #[test]
+fn recovery_policy_terminalizes_an_unclaimed_recovery_at_its_lifetime_boundaries() {
+    let mut recovery = snapshot(ReceiverJobState::Retrying);
+    recovery.attempt_kind = ReceiverAttemptKind::Recovery;
+    recovery.recovery_count = MAX_RECEIVER_RECOVERY_ATTEMPTS;
+    recovery.progress_expires_at_unix_ms = None;
+    recovery.recovery_expires_at_unix_ms = Some(1_000);
+    recovery.absolute_work_expires_at_unix_ms = Some(2_000);
+    assert_eq!(
+        decide_receiver_recovery(recovery),
+        ReceiverRecoveryDecision::Wait
+    );
+
+    recovery.now_unix_ms = 1_000;
+    assert_eq!(
+        decide_receiver_recovery(recovery),
+        ReceiverRecoveryDecision::TerminalFailure
+    );
+
+    recovery.recovery_expires_at_unix_ms = Some(3_000);
+    recovery.absolute_work_expires_at_unix_ms = Some(1_000);
+    assert_eq!(
+        decide_receiver_recovery(recovery),
+        ReceiverRecoveryDecision::TerminalFailure
+    );
+}
+
+#[test]
 fn recovery_policy_identifies_incomplete_legacy_completion_states() {
     for state in [
         ReceiverJobState::AnswerReady,

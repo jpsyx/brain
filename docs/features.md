@@ -1632,10 +1632,16 @@ ownerless due recovery, or terminalizes exhaustion, absolute expiry, missing
 native evidence, and legacy completion ambiguity with a pending
 unavailable-notice intent. The accepted transition preserves lifetime identity
 and first facts, resets only the superseded attempt cursor, binds the exact
-observed native session, and spends the recovery budget before any claim.
-Recovery discovery after restart can claim only that persisted attempt and
-cannot spend the budget again. Controller cleanup, native-history inspection,
-recovery launch, and notice delivery remain separate App effects.
+observed native session, records an exact cleanup-pending instance/session
+fence, and spends the recovery budget before any claim. Recovery discovery
+after restart can claim only that persisted attempt, only after exact cleanup
+acknowledgement, and only when it is the workspace's globally oldest claimable
+or blocking row. An ownerless recovery still terminalizes at its recovery or
+absolute deadline after reopen. Ordinary retry recording rejects recovery
+attempts; planning, registration, spawn, or shutdown failure for an exact live
+recovery owner instead terminalizes with pending-notice intent. Controller
+cleanup, native-history inspection, recovery launch, and notice delivery remain
+separate App effects.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

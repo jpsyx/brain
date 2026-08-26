@@ -6,9 +6,10 @@ use super::{load::load_receiver_job, to_i64, validated_owner};
 use crate::state::{
     Db, ReceiverJobId, ReceiverJobState, ReceiverReconciliationAction,
     ReceiverReconciliationEffect, ReceiverReconciliationReason, ReceiverRecoveryDecision,
-    decide_receiver_recovery, receiver_recovery_expires_at,
+    ReceiverRecoveryFailure, decide_receiver_recovery, receiver_recovery_expires_at,
 };
 
+mod cleanup;
 mod support;
 mod terminal;
 
@@ -59,6 +60,7 @@ impl Db {
                     .observation_instance()
                     .map(str::to_owned)
                     .or_else(|| candidate.owner.clone());
+                let cleanup_session_id = job.observation_session_id().map(str::to_owned);
                 let sql = format!(
                     "UPDATE receiver_jobs
                      SET state = 'retrying', retry_count = retry_count + 1,
@@ -114,10 +116,12 @@ impl Db {
                     job.id(),
                     job.token(),
                     cleanup_instance,
+                    cleanup_session_id,
                 )))
             }
             ReceiverRecoveryDecision::RecoverSameSession => {
                 let cleanup_instance = job.observation_instance().map(str::to_owned);
+                let cleanup_session_id = job.observation_session_id().map(str::to_owned);
                 if !bind_exact_recovery_session(&transaction, &self.workspace_id, &job, now)? {
                     return terminalize(
                         transaction,
@@ -153,6 +157,8 @@ impl Db {
                          recovery_expires_at_unix_ms = ?7,
                          recovery_count = recovery_count + 1,
                          attempt_kind = 'recovery', pending_unavailable_notice = 0,
+                         recovery_cleanup_instance = ?12,
+                         recovery_cleanup_session_id = ?13,
                          updated_at_unix_ms = ?5
                      WHERE workspace_id = ?1 AND job_id = ?2 AND state = ?3
                        AND claim_owner IS ?4 AND claim_expires_at_unix_ms IS ?8
@@ -174,18 +180,13 @@ impl Db {
                         candidate.updated_at_unix_ms,
                         i64::from(job.recovery_count()),
                         candidate.exact_snapshot,
+                        cleanup_instance,
+                        cleanup_session_id,
                     ],
                 )?;
                 if changed != 1 {
                     return Ok(None);
                 }
-                release_registration(
-                    &transaction,
-                    &self.workspace_id,
-                    job.conversation_id(),
-                    cleanup_instance.as_deref(),
-                    now,
-                )?;
                 transaction.commit()?;
                 Ok(Some(ReceiverReconciliationEffect::new(
                     ReceiverReconciliationAction::ScheduleRecovery,
@@ -193,6 +194,7 @@ impl Db {
                     job.id(),
                     job.token(),
                     cleanup_instance,
+                    cleanup_session_id,
                 )))
             }
             decision @ (ReceiverRecoveryDecision::TerminalFailure
@@ -231,6 +233,37 @@ impl Db {
         owner: &str,
         now_unix_ms: u64,
     ) -> Result<Option<ReceiverReconciliationEffect>> {
+        self.fail_receiver_recovery_with_reason(
+            job_id,
+            owner,
+            now_unix_ms,
+            ReceiverReconciliationReason::NativeSessionUnavailable,
+        )
+    }
+
+    /// Terminalize one exact claimed recovery after a bounded launch failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid owner, malformed durable state, an
+    /// unrepresentable timestamp, or a database failure.
+    pub fn fail_receiver_recovery_attempt(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        now_unix_ms: u64,
+        failure: ReceiverRecoveryFailure,
+    ) -> Result<Option<ReceiverReconciliationEffect>> {
+        self.fail_receiver_recovery_with_reason(job_id, owner, now_unix_ms, failure.reason())
+    }
+
+    fn fail_receiver_recovery_with_reason(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        now_unix_ms: u64,
+        reason: ReceiverReconciliationReason,
+    ) -> Result<Option<ReceiverReconciliationEffect>> {
         let owner = validated_owner(owner)?;
         let now = to_i64(now_unix_ms, "receiver recovery failure time")?;
         let transaction = rusqlite::Transaction::new_unchecked(
@@ -243,8 +276,10 @@ impl Db {
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, job_id)? else {
             return Ok(None);
         };
-        if candidate.state != ReceiverJobState::Claimed
-            || candidate.owner.as_deref() != Some(owner)
+        if !matches!(
+            candidate.state,
+            ReceiverJobState::Claimed | ReceiverJobState::Launching
+        ) || candidate.owner.as_deref() != Some(owner)
             || candidate
                 .claim_expires_at_unix_ms
                 .is_none_or(|expires_at| expires_at <= now)
@@ -257,7 +292,7 @@ impl Db {
             &self.workspace_id,
             &candidate,
             &job,
-            ReceiverReconciliationReason::NativeSessionUnavailable,
+            reason,
             now,
             false,
         )

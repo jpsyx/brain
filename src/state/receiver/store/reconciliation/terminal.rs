@@ -50,6 +50,7 @@ pub(super) fn terminalize(
         .observation_instance()
         .map(str::to_owned)
         .or_else(|| candidate.owner.clone());
+    let cleanup_session_id = job.observation_session_id().map(str::to_owned);
     let sql = format!(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -96,5 +97,6 @@ pub(super) fn terminalize(
         job.id(),
         job.token(),
         cleanup_instance,
+        cleanup_session_id,
     )))
 }

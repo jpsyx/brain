@@ -63,15 +63,16 @@ fn reconciliation_persists_one_ownerless_same_session_recovery_before_claim() {
             .expect("ordinary claim cannot consume due recovery")
             .is_none()
     );
+    acknowledge_accepted_run_cleanup(&fixture, 301_401);
     let recovery = fixture
         .db
-        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_400, 331_400)
+        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_401, 331_401)
         .expect("claim persisted recovery")
         .expect("persisted recovery run");
     assert_eq!(recovery.job().state(), ReceiverJobState::Claimed);
     assert_eq!(recovery.job().recovery_count(), 1);
     assert_eq!(recovery.job().attempt_kind(), ReceiverAttemptKind::Recovery);
-    assert_eq!(recovery.job().launch_expires_at_unix_ms(), Some(421_400));
+    assert_eq!(recovery.job().launch_expires_at_unix_ms(), Some(421_401));
 }
 
 #[test]
@@ -118,6 +119,21 @@ fn due_recovery_survives_reopen_and_is_discovered_before_later_fifo_work() {
         .reconcile_next_receiver_job(301_400)
         .expect("persist due recovery after reopen")
         .expect("recovery effect");
+    assert!(
+        reconciler
+            .acknowledge_receiver_recovery_cleanup(
+                job_id,
+                reconciler
+                    .receiver_job(job_id)
+                    .expect("load recovery for cleanup")
+                    .expect("recovery for cleanup")
+                    .token(),
+                "ordinary-instance",
+                "native-session",
+                301_401,
+            )
+            .expect("acknowledge cleanup before restart claim")
+    );
     drop(reconciler);
     let reopened = Db::open_path_with_legacy_identity(
         &path,
@@ -126,7 +142,7 @@ fn due_recovery_survives_reopen_and_is_discovered_before_later_fifo_work() {
     )
     .expect("reopen receiver state");
     let claim = reopened
-        .claim_next_receiver_recovery_run("restart-owner", 301_400, 331_400)
+        .claim_next_receiver_recovery_run("restart-owner", 301_401, 331_401)
         .expect("discover due recovery after reopen")
         .expect("due recovery claim");
     assert_eq!(claim.job().id(), job_id);
@@ -142,9 +158,10 @@ fn claimed_recovery_with_unsafe_native_history_terminalizes_durably() {
         .reconcile_next_receiver_job(301_400)
         .expect("persist due recovery")
         .expect("recovery effect");
+    acknowledge_accepted_run_cleanup(&fixture, 301_401);
     fixture
         .db
-        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_400, 331_400)
+        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_401, 331_401)
         .expect("claim due recovery")
         .expect("recovery claim");
     let effect = fixture
@@ -197,9 +214,10 @@ fn accepted_recovery_stalling_again_terminalizes_at_its_bound() {
         .reconcile_next_receiver_job(301_400)
         .expect("persist due recovery")
         .expect("recovery effect");
+    acknowledge_accepted_run_cleanup(&fixture, 301_401);
     fixture
         .db
-        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_400, 331_400)
+        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_401, 331_401)
         .expect("claim due recovery")
         .expect("recovery claim");
     let scope = crate::agent::SessionScope::new(

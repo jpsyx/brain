@@ -1365,10 +1365,17 @@ loss or a launch-commit error preserves the exact registration and fenced
 Child exit, orderly shutdown, and lease expiry then permit local cleanup only.
 The state reconciler now atomically converts the complete stale snapshot into a
 bounded retry, one ownerless due same-session recovery, or a terminal notice
-intent. Its neutral effect carries only opaque cleanup identifiers and a stable
-reason. It never invokes an adapter, inspects native history, launches a
-controller, or contacts a provider; those App effects remain the next BR-16
-boundary.
+intent. An accepted-stall effect carries only the opaque job/token plus exact
+superseded instance/session identifiers. The store retains that exact cleanup
+fence and registration until Task 4 shuts down the native run and acknowledges
+the same tuple through the full-snapshot CAS. Recovery claiming cannot cross
+that fence or an older expired-owner lifecycle row or due ordinary retry. An
+ownerless recovery remains reconcilable at its recovery or absolute deadline.
+Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
+planning, registration, spawn, or shutdown failure uses an exact terminal
+transition with pending-notice intent. The state layer never invokes an adapter,
+inspects native history, launches a controller, or contacts a provider; those
+App effects remain the next BR-16 boundary.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are not rerun before later BR-16 tasks

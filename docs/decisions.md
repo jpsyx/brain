@@ -2521,20 +2521,31 @@ covers the token, owner, retry facts, remote/native identity, attempt kind,
 deadlines, recovery count, and observation cursor. A first accepted stall spends
 the one recovery count while persisting an ownerless due recovery, resets the
 current-attempt cursor, preserves lifetime facts and the exact native binding,
-and caps recovery expiry by the original absolute limit. Only afterward may the
-claim seam attach a writer and establish the launch deadline. The claim cannot
-rediscover accepted work or increment the budget, so a crash between these
-boundaries remains restart-safe.
+caps recovery expiry by the original absolute limit, and persists the exact
+superseded instance/session as cleanup-pending. Task 4 must stop that native run
+before acknowledging the same token, tuple, registration, and full recovery
+snapshot. The acknowledgement transaction releases the retained registration
+and clears the fence atomically. Only afterward may the claim seam attach a
+writer and establish the launch deadline. The claim cannot rediscover accepted
+work or increment the budget, so a crash between these boundaries remains
+restart-safe. The ownerless recovery remains eligible for reconciliation and
+terminalizes at equality with either its recovery or absolute deadline.
 Ordinary and recovery claims call the same workspace-wide live-claim predicate
-after acquiring their immediate transaction. The transaction's writer lock
-keeps that check and the later claim update indivisible, without maintaining
-separate SQL copies of the exclusion.
+after acquiring their immediate transaction. Recovery selection additionally
+requires its target to be the globally oldest claimable or blocking row, so it
+cannot pass an older expired-owner lifecycle or due ordinary retry. The
+transaction's writer lock keeps those checks and the later claim update
+indivisible.
 
 Terminal reconciliation persists a stable content-free reason and a pending
 unavailable-notice bit in the same transaction that releases ownership and the
-superseded registration. Semantic effects carry only opaque job, token, and
-cleanup instance identifiers. Frontend validation, process cleanup, recovery
-launch, and provider notice delivery remain outside the state layer.
+superseded registration. The ordinary launch-retry seam requires an ordinary
+attempt. Planning, registration, spawn, or shutdown failure for an exact live
+recovery owner instead uses a dedicated terminal transition, preserving the
+single-launch recovery budget and setting notice intent. Semantic effects carry
+only opaque job, token, cleanup instance, and cleanup session identifiers.
+Frontend validation, process cleanup, recovery launch, and provider notice
+delivery remain outside the state layer.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come

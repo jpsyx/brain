@@ -18,7 +18,7 @@ pub use model::{
     ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
     ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
+    ReceiverRecoveryFailure, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
     ReceiverSessionBindingError, ReceiverSessionPlan,
 };
 use model::{

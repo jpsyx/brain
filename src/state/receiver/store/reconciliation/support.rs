@@ -22,7 +22,8 @@ pub(super) const EXACT_SNAPSHOT_SQL: &str = "json_array(
     launch_expires_at_unix_ms, acceptance_expires_at_unix_ms,
     progress_expires_at_unix_ms, recovery_expires_at_unix_ms,
     absolute_work_expires_at_unix_ms, recovery_count, attempt_kind,
-    pending_unavailable_notice, updated_at_unix_ms
+    pending_unavailable_notice, recovery_cleanup_instance,
+    recovery_cleanup_session_id, updated_at_unix_ms
 )";
 
 pub(super) fn bind_exact_recovery_session(
@@ -90,8 +91,9 @@ pub(super) fn oldest_blocking_candidate(
                 updated_at_unix_ms, {EXACT_SNAPSHOT_SQL}
          FROM receiver_jobs
          WHERE workspace_id = ?1
-           AND state IN ('claimed', 'launching', 'launched', 'accepted',
-                         'processing', 'answer-ready', 'delivering')
+           AND (state IN ('claimed', 'launching', 'launched', 'accepted',
+                          'processing', 'answer-ready', 'delivering')
+                OR (state = 'retrying' AND attempt_kind = 'recovery'))
          ORDER BY received_at_unix_ms, job_id
          LIMIT 1"
     );

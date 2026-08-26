@@ -126,6 +126,68 @@ fn two_reconcilers_publish_only_one_effect_for_the_same_snapshot() {
 }
 
 #[test]
+fn immediate_writer_lock_serializes_real_separate_handle_reconcilers() {
+    let temporary = tempfile::tempdir().expect("temporary receiver state");
+    let path = temporary.path().join("state.db");
+    let fixture = accepted_run_in(
+        Db::open_path_with_legacy_identity(
+            &path,
+            &receiver_workspace_id().to_string(),
+            receiver_user_id().as_str(),
+        )
+        .expect("open first receiver store"),
+        "real-reconciler-lock",
+    );
+    let second = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("open second receiver store");
+    second
+        .conn
+        .busy_timeout(std::time::Duration::ZERO)
+        .expect("disable second-handle busy wait");
+    let first_writer = rusqlite::Transaction::new_unchecked(
+        &fixture.db.conn,
+        rusqlite::TransactionBehavior::Immediate,
+    )
+    .expect("hold first immediate writer");
+    let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let second_start = std::sync::Arc::clone(&start);
+    let (second, blocked) = std::thread::scope(|scope| {
+        let contender = scope.spawn(move || {
+            second_start.wait();
+            let blocked = second.reconcile_next_receiver_job(301_400);
+            (second, blocked)
+        });
+        start.wait();
+        contender.join().expect("join second reconciler")
+    });
+    let blocked = blocked.expect_err("second immediate writer must observe the held lock");
+    assert!(
+        blocked.to_string().contains("database is locked"),
+        "unexpected SQLite lock error: {blocked:#}"
+    );
+    drop(first_writer);
+
+    assert!(
+        second
+            .reconcile_next_receiver_job(301_400)
+            .expect("retry second reconciler after first rollback")
+            .is_some()
+    );
+    assert_eq!(
+        second
+            .receiver_job(fixture.job_id)
+            .expect("load reconciled job")
+            .expect("reconciled job")
+            .recovery_count(),
+        1
+    );
+}
+
+#[test]
 fn exact_completion_winning_first_defeats_reconciliation() {
     let fixture = accepted_run("completion-wins-race");
     fixture

@@ -126,7 +126,7 @@ pub use receiver::{
     ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverLifecycleDeadlines,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
     ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRecoveryDecision, ReceiverRecoverySnapshot, ReceiverRunClaim,
+    ReceiverRecoveryDecision, ReceiverRecoveryFailure, ReceiverRecoverySnapshot, ReceiverRunClaim,
     ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
     ReceiverSessionPlan, decide_receiver_recovery, receiver_acceptance_expires_at,
     receiver_launch_expires_at, receiver_recovery_expires_at,

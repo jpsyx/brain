@@ -345,6 +345,52 @@ fn current_v10_repair_restores_missing_active_deadlines_conservatively() {
     assert_eq!(repaired.accepted_at_unix_ms(), Some(3_000));
 }
 
+#[test]
+fn current_v10_repair_terminalizes_a_partial_recovery_cleanup_fence() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(
+            &receiver_job(Some("partial-recovery-cleanup"), 100),
+            &identity,
+        )
+        .expect("accept receiver job");
+    db.conn
+        .execute_batch("PRAGMA ignore_check_constraints = ON;")
+        .expect("allow damaged cleanup tuple");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET state = 'retrying', retry_at_unix_ms = 1000,
+                 retry_from_state = 'accepted', recovery_count = 1,
+                 attempt_kind = 'recovery', recovery_expires_at_unix_ms = 2000,
+                 absolute_work_expires_at_unix_ms = 3000,
+                 recovery_cleanup_instance = 'stale-instance',
+                 recovery_cleanup_session_id = NULL
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("damage cleanup tuple");
+    db.conn
+        .execute_batch("PRAGMA ignore_check_constraints = OFF;")
+        .expect("restore cleanup constraints");
+
+    super::super::schema::up(&db.conn, 10).expect("repair partial cleanup tuple");
+
+    let repaired = db
+        .receiver_job(accepted.job_id())
+        .expect("load repaired cleanup row")
+        .expect("repaired cleanup row");
+    assert_eq!(repaired.state(), ReceiverJobState::Failed);
+    assert_eq!(
+        repaired.last_error(),
+        Some(ReceiverReconciliationReason::NativeSessionUnavailable.as_str())
+    );
+    assert!(repaired.pending_unavailable_notice());
+    assert_eq!(repaired.recovery_cleanup_instance(), None);
+    assert_eq!(repaired.recovery_cleanup_session_id(), None);
+}
+
 fn token_column_is_not_null(db: &Db) -> bool {
     db.conn
         .query_row(

@@ -1081,6 +1081,8 @@ receiver_jobs(
   recovery_count            INTEGER NOT NULL,
   attempt_kind              TEXT NOT NULL,  -- ordinary | recovery
   pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
+  recovery_cleanup_instance TEXT,
+  recovery_cleanup_session_id TEXT,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1192,11 +1194,21 @@ conversation, immutable inbound identity, absolute limit, first
 accepted/progress facts, frontend, and exact native binding. It clears the
 superseded attempt cursor, increments `recovery_count`, sets `attempt_kind` to
 `recovery`, and persists an ownerless due retry with `recovery_expires_at` capped
-by the absolute limit. The separate recovery-claim seam accepts only that due
-row, establishes its launch deadline, and never rediscovers accepted work or
-increments recovery count. Exhaustion, absolute expiry, missing resume evidence,
-and incomplete legacy completion become `failed` with a content-free stable
-reason and `pending_unavailable_notice = 1`; terminal rows do not block FIFO.
+by the absolute limit. It also persists the superseded instance and native
+session as an all-or-none cleanup fence while retaining their exact
+registration. The acknowledgement seam requires the same job, token, recovery
+snapshot, instance, session, and registration in one immediate transaction;
+only then does it release the registration and clear the fence. The separate
+recovery-claim seam accepts only that cleanup-acknowledged due row when it is
+also the workspace's globally oldest claimable or blocking row. It establishes
+the launch deadline and never rediscovers accepted work or increments recovery
+count. An unclaimed recovery remains a reconciliation candidate and becomes
+`failed` at exact recovery or absolute expiry. Exhaustion, missing resume
+evidence, incomplete legacy completion, and exact recovery planning,
+registration, spawn, or shutdown failure also become `failed` with a
+content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
+do not block FIFO. The existing launch-retry mutation accepts only ordinary
+attempts.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures

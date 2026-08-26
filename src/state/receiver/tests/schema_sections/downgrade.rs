@@ -173,7 +173,8 @@ fn v10_down_preserves_ordinary_v9_work_but_terminalizes_recovery_attempts() {
             "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs')
              WHERE name IN (
                'attempt_kind', 'recovery_count', 'launch_expires_at_unix_ms',
-               'pending_unavailable_notice'
+               'pending_unavailable_notice', 'recovery_cleanup_instance',
+               'recovery_cleanup_session_id'
              )",
             [],
             |row| row.get(0),

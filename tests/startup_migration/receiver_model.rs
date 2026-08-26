@@ -127,6 +127,16 @@ fn ordinary_startup_upgrades_and_reconciles_receiver_state_for_every_workspace()
         assert!(table_exists(&path, "receiver_conversations"));
         assert!(table_exists(&path, "receiver_jobs"));
         assert!(table_exists(&path, "receiver_session_registrations"));
+        assert!(column_exists(
+            &path,
+            "receiver_jobs",
+            "recovery_cleanup_instance"
+        ));
+        assert!(column_exists(
+            &path,
+            "receiver_jobs",
+            "recovery_cleanup_session_id"
+        ));
         assert_eq!(state_schema_version(&path), 10);
     }
 
@@ -220,6 +230,16 @@ fn explicit_down_migration_removes_only_receiver_recovery_state() {
             &path,
             "receiver_jobs",
             "launch_expires_at_unix_ms"
+        ));
+        assert!(!column_exists(
+            &path,
+            "receiver_jobs",
+            "recovery_cleanup_instance"
+        ));
+        assert!(!column_exists(
+            &path,
+            "receiver_jobs",
+            "recovery_cleanup_session_id"
         ));
         assert!(column_exists(
             &path,

@@ -54,10 +54,10 @@ pub enum ReceiverRecoveryDecision {
 #[must_use]
 pub fn decide_receiver_recovery(snapshot: ReceiverRecoverySnapshot) -> ReceiverRecoveryDecision {
     match snapshot.state {
-        ReceiverJobState::Queued
-        | ReceiverJobState::Retrying
-        | ReceiverJobState::Failed
-        | ReceiverJobState::Done => ReceiverRecoveryDecision::Wait,
+        ReceiverJobState::Queued | ReceiverJobState::Failed | ReceiverJobState::Done => {
+            ReceiverRecoveryDecision::Wait
+        }
+        ReceiverJobState::Retrying => decide_retrying(snapshot),
         ReceiverJobState::AnswerReady | ReceiverJobState::Delivering => {
             ReceiverRecoveryDecision::IncompleteLegacyCompletion
         }
@@ -68,6 +68,19 @@ pub fn decide_receiver_recovery(snapshot: ReceiverRecoverySnapshot) -> ReceiverR
             decide_pre_acceptance(snapshot, snapshot.acceptance_expires_at_unix_ms)
         }
         ReceiverJobState::Accepted | ReceiverJobState::Processing => decide_accepted(snapshot),
+    }
+}
+
+fn decide_retrying(snapshot: ReceiverRecoverySnapshot) -> ReceiverRecoveryDecision {
+    if matches!(snapshot.attempt_kind, ReceiverAttemptKind::Recovery)
+        && (is_expired(
+            snapshot.now_unix_ms,
+            snapshot.absolute_work_expires_at_unix_ms,
+        ) || is_expired(snapshot.now_unix_ms, snapshot.recovery_expires_at_unix_ms))
+    {
+        ReceiverRecoveryDecision::TerminalFailure
+    } else {
+        ReceiverRecoveryDecision::Wait
     }
 }
 

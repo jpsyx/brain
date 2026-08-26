@@ -44,6 +44,26 @@ pub enum ReceiverLaunchRetryOutcome {
     Exhausted,
 }
 
+/// Content-free category for one claimed recovery attempt that could not launch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverRecoveryFailure {
+    Planning,
+    Registration,
+    Spawn,
+    Shutdown,
+}
+
+impl ReceiverRecoveryFailure {
+    pub(super) const fn reason(self) -> ReceiverReconciliationReason {
+        match self {
+            Self::Planning => ReceiverReconciliationReason::RecoveryPlanningFailed,
+            Self::Registration => ReceiverReconciliationReason::RecoveryRegistrationFailed,
+            Self::Spawn => ReceiverReconciliationReason::RecoverySpawnFailed,
+            Self::Shutdown => ReceiverReconciliationReason::RecoveryShutdown,
+        }
+    }
+}
+
 /// Durable transition published by one receiver reconciliation transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverReconciliationAction {
@@ -61,6 +81,10 @@ pub enum ReceiverReconciliationReason {
     AbsoluteWorkExpired,
     RecoveryExpired,
     RecoveryExhausted,
+    RecoveryPlanningFailed,
+    RecoveryRegistrationFailed,
+    RecoverySpawnFailed,
+    RecoveryShutdown,
     NativeSessionUnavailable,
     IncompleteLegacyCompletion,
 }
@@ -74,6 +98,10 @@ impl ReceiverReconciliationReason {
             Self::AbsoluteWorkExpired => "recovery-absolute-work-expired",
             Self::RecoveryExpired => "recovery-attempt-expired",
             Self::RecoveryExhausted => "recovery-attempt-exhausted",
+            Self::RecoveryPlanningFailed => "recovery-launch-planning-failed",
+            Self::RecoveryRegistrationFailed => "recovery-launch-registration-failed",
+            Self::RecoverySpawnFailed => "recovery-launch-spawn-failed",
+            Self::RecoveryShutdown => "recovery-launch-shutdown",
             Self::NativeSessionUnavailable => "recovery-native-session-unavailable",
             Self::IncompleteLegacyCompletion => "recovery-incomplete-legacy-completion",
         }
@@ -88,6 +116,7 @@ pub struct ReceiverReconciliationEffect {
     job_id: ReceiverJobId,
     token: ReceiverJobToken,
     cleanup_instance: Option<String>,
+    cleanup_session_id: Option<String>,
 }
 
 impl ReceiverReconciliationEffect {
@@ -97,6 +126,7 @@ impl ReceiverReconciliationEffect {
         job_id: ReceiverJobId,
         token: ReceiverJobToken,
         cleanup_instance: Option<String>,
+        cleanup_session_id: Option<String>,
     ) -> Self {
         Self {
             action,
@@ -104,6 +134,7 @@ impl ReceiverReconciliationEffect {
             job_id,
             token,
             cleanup_instance,
+            cleanup_session_id,
         }
     }
 
@@ -130,6 +161,11 @@ impl ReceiverReconciliationEffect {
     #[must_use]
     pub fn cleanup_instance(&self) -> Option<&str> {
         self.cleanup_instance.as_deref()
+    }
+
+    #[must_use]
+    pub fn cleanup_session_id(&self) -> Option<&str> {
+        self.cleanup_session_id.as_deref()
     }
 }
 
@@ -505,6 +541,8 @@ pub struct ReceiverJob {
     recovery_count: u32,
     attempt_kind: ReceiverAttemptKind,
     pending_unavailable_notice: bool,
+    recovery_cleanup_instance: Option<String>,
+    recovery_cleanup_session_id: Option<String>,
 }
 
 pub(super) struct ReceiverRetryMetadata {
@@ -563,6 +601,8 @@ impl ReceiverJob {
             recovery_count: recovery.recovery_count,
             attempt_kind: recovery.attempt_kind,
             pending_unavailable_notice: recovery.pending_unavailable_notice,
+            recovery_cleanup_instance: recovery.cleanup_instance,
+            recovery_cleanup_session_id: recovery.cleanup_session_id,
         }
     }
 
@@ -703,6 +743,14 @@ impl ReceiverJob {
         self.pending_unavailable_notice
     }
     #[must_use]
+    pub fn recovery_cleanup_instance(&self) -> Option<&str> {
+        self.recovery_cleanup_instance.as_deref()
+    }
+    #[must_use]
+    pub fn recovery_cleanup_session_id(&self) -> Option<&str> {
+        self.recovery_cleanup_session_id.as_deref()
+    }
+    #[must_use]
     pub const fn recovery_snapshot(&self, now_unix_ms: u64) -> ReceiverRecoverySnapshot {
         ReceiverRecoverySnapshot {
             state: self.state,
@@ -741,6 +789,8 @@ pub(super) struct ReceiverRecoveryMetadata {
     pub(super) recovery_count: u32,
     pub(super) attempt_kind: ReceiverAttemptKind,
     pub(super) pending_unavailable_notice: bool,
+    pub(super) cleanup_instance: Option<String>,
+    pub(super) cleanup_session_id: Option<String>,
 }
 
 /// One live FIFO claim with the immutable job and logical conversation it owns.

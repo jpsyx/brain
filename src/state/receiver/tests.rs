@@ -56,6 +56,7 @@ mod recovery_claim {
     use super::*;
 
     include!("tests/recovery_claim.rs");
+    include!("tests/recovery_claim_ordering.rs");
 }
 
 mod reconciliation {
