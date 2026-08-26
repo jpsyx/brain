@@ -7,6 +7,8 @@ use super::*;
 
 use crate::state::ReceiverJobState;
 
+const RECEIVER_TURN_ID: &str = "matrix-receiver-turn";
+
 #[derive(Clone, Copy)]
 enum ProducerStage {
     ReorderedProgress,
@@ -442,12 +444,14 @@ fn acceptance_payload(app: &App, kind: AgentKind, session: &AgentSession) -> ser
         serde_json::json!({
             "hook_event_name": "UserPromptSubmit",
             "thread_id": session.as_str(),
+            "turn_id": RECEIVER_TURN_ID,
             "prompt": marker,
         })
     } else {
         serde_json::json!({
             "hook_event_name": "UserPromptSubmit",
             "session_id": session.as_str(),
+            "prompt_id": RECEIVER_TURN_ID,
             "prompt": marker,
         })
     }
@@ -458,12 +462,15 @@ fn progress_payload(kind: AgentKind, session: &AgentSession, turn: &str) -> serd
         serde_json::json!({
             "hook_event_name": "PostToolUse",
             "thread_id": session.as_str(),
-            "turn_id": turn,
+            "turn_id": RECEIVER_TURN_ID,
+            "tool_use_id": turn,
         })
     } else {
         serde_json::json!({
             "hook_event_name": "PostToolUse",
             "session_id": session.as_str(),
+            "prompt_id": RECEIVER_TURN_ID,
+            "tool_use_id": turn,
             "turn_id": turn,
         })
     }

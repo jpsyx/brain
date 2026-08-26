@@ -93,6 +93,46 @@ impl std::fmt::Debug for ReceiverObservationSet {
     }
 }
 
+impl ReceiverObservationSet {
+    pub(crate) fn from_agent_observation(
+        token: ReceiverJobToken,
+        registration: &ReceiverSessionAttribution,
+        result: &crate::agent::AgentObservationResult,
+        authorized_at_unix_ms: u64,
+    ) -> Self {
+        let mut accepted_at_unix_ms = None;
+        let mut progressing_at_unix_ms = None;
+        let mut completed_at_unix_ms = None;
+        for boundary in result.boundaries() {
+            match boundary.phase() {
+                crate::agent::AgentObservationPhase::Launched => {}
+                crate::agent::AgentObservationPhase::Accepted => {
+                    accepted_at_unix_ms = Some(boundary.observed_at_unix_ms());
+                }
+                crate::agent::AgentObservationPhase::Progressing => {
+                    progressing_at_unix_ms = Some(boundary.observed_at_unix_ms());
+                }
+                crate::agent::AgentObservationPhase::Completed => {
+                    completed_at_unix_ms = Some(boundary.observed_at_unix_ms());
+                }
+            }
+        }
+        Self {
+            token,
+            instance: registration.instance().to_owned(),
+            session_id: result.session().as_str().to_owned(),
+            revision: result.next_cursor().durable_revision(),
+            accepted_at_unix_ms,
+            progressing_at_unix_ms,
+            latest_progress_at_unix_ms: result
+                .progress_pulse()
+                .map(crate::agent::AgentProgressPulse::observed_at_unix_ms),
+            completed_at_unix_ms,
+            authorized_at_unix_ms,
+        }
+    }
+}
+
 /// Immutable identifier for one workspace-scoped receiver job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReceiverJobId(Uuid);

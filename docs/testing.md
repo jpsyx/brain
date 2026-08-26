@@ -334,7 +334,10 @@ first move is a failing test that reproduces it, *then* the fix.
   replacement, stable-length short reads, trailing JSON, and redacted
   diagnostics. Cross-poll tests pin timestamp immutability, phase preservation,
   lifecycle order, and a nondecreasing emitted stream while allowing a newer
-  progress pulse with no new phase. Producer tests also
+  progress pulse with no new phase. Producer tests also cover exact
+  accepted-turn correlation for Claude and Codex, revocation by a later
+  non-marker root prompt, and OpenCode callbacks delivered after a newer
+  accepted message even when they belong to an older assistant parent. They
   force accepted-to-progressing and progressing-to-completed wall-clock
   rollback, proving each new snapshot clamps to durable producer time and
   validates before publication. Lock-leaf, parent-directory, post-replace, and
@@ -345,9 +348,11 @@ first move is a failing test that reproduces it, *then* the fix.
   second seam removes the exact live `brain_sessions` tuple after controller
   validation and proves the state transaction still refuses a nonterminal
   observation. A structural
-  receiver scan covers both coordination trees plus ephemeral receiver-tab
+  receiver scan covers both coordination trees, the services conversion path,
+  plus ephemeral receiver-tab
   ownership and rejects provider enum branches and literals, concrete adapter
-  or parser ownership, transcript/rollout/event grammar, direct normalized-reader
+  or parser ownership, transcript/rollout/event grammar, raw revision access,
+  direct normalized-reader
   access, and observation-path access outside launch/controller ownership.
   Composed App tests then drive that neutral facade through Claude, Codex, and
   OpenCode. They prove an unobserved launch remains `launched`, current-session

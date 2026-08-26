@@ -93,6 +93,10 @@ impl AgentObservationCursor {
         })
     }
 
+    pub(crate) fn durable_revision(self) -> u64 {
+        u64::try_from(self.revision).expect("validated observation revisions are nonnegative")
+    }
+
     #[cfg(test)]
     pub(crate) const fn at_revision(
         revision: i64,
@@ -260,17 +264,18 @@ impl AgentObservationResult {
         !self.boundaries.is_empty() || self.progress_pulse.is_some()
     }
 
+    /// Whether this poll carries the terminal lifecycle boundary.
+    #[must_use]
+    pub fn is_completed(&self) -> bool {
+        self.boundaries
+            .iter()
+            .any(|boundary| boundary.phase() == AgentObservationPhase::Completed)
+    }
+
     /// Cursor to supply to the next poll.
     #[must_use]
     pub const fn next_cursor(&self) -> AgentObservationCursor {
         self.next_cursor
-    }
-
-    /// Snapshot revision represented by this successful bounded poll.
-    #[must_use]
-    pub fn snapshot_revision(&self) -> u64 {
-        u64::try_from(self.next_cursor.revision)
-            .expect("validated observation revisions are nonnegative")
     }
 }
 

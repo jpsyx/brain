@@ -43,6 +43,7 @@ fn run_installed_observation_bridge(
             "11111111-1111-4111-8111-111111111111",
         )
         .env("BRAIN_INSTANCE_ID", "22222222-2222-4222-8222-222222222222")
+        .env("BRAIN_AGENT_KIND", "claude")
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", observation)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -101,6 +102,7 @@ fn installer_self_heals_repeated_progress_artifacts() {
     let submit = serde_json::json!({
         "hook_event_name": "UserPromptSubmit",
         "session_id": "installed-session",
+        "prompt_id": "installed-receiver-turn",
         "prompt": marker,
     });
     let accepted = run_installed_observation_bridge(&selected_root, &observation, &submit);
@@ -113,6 +115,8 @@ fn installer_self_heals_repeated_progress_artifacts() {
         let progress = serde_json::json!({
             "hook_event_name": "PostToolUse",
             "session_id": "installed-session",
+            "prompt_id": "installed-receiver-turn",
+            "tool_use_id": turn_id,
             "turn_id": turn_id,
         });
         assert!(

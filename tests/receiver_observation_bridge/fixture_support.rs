@@ -49,6 +49,7 @@ fn run_bridge_with_args(
         .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
         .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -112,6 +113,7 @@ if {required}:
         .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
         .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -132,8 +134,34 @@ pub(super) fn accepted_payload(prompt: &str) -> serde_json::Value {
     serde_json::json!({
         "hook_event_name": "UserPromptSubmit",
         "session_id": SESSION_ID,
+        "prompt_id": "receiver-prompt-1",
         "prompt": prompt,
     })
+}
+
+pub(super) fn run_bridge_for_kind(
+    snapshot: &Path,
+    kind: &str,
+    payload: &serde_json::Value,
+) -> Output {
+    let mut command = Command::new("python3");
+    command
+        .arg(bridge_path())
+        .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
+        .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
+        .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", kind)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().expect("spawn observation bridge");
+    child
+        .stdin
+        .take()
+        .expect("bridge stdin")
+        .write_all(payload.to_string().as_bytes())
+        .expect("write bridge payload");
+    child.wait_with_output().expect("wait observation bridge")
 }
 
 pub(super) fn snapshot(path: &Path) -> serde_json::Value {
@@ -145,6 +173,8 @@ pub(super) fn progress_payload(session_id: &str, turn_id: &str) -> serde_json::V
     serde_json::json!({
         "hook_event_name": "PostToolUse",
         "session_id": session_id,
+        "prompt_id": "receiver-prompt-1",
+        "tool_use_id": turn_id,
         "turn_id": turn_id,
     })
 }
@@ -156,6 +186,7 @@ pub(super) fn spawn_bridge(snapshot: &Path, payload: &serde_json::Value) -> std:
         .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
         .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

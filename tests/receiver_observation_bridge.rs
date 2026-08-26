@@ -226,6 +226,145 @@ fn progress_requires_matching_acceptance_and_later_events_pulse_without_regressi
     );
 }
 
+fn frontend_submit(kind: &str, prompt: &str, turn_id: &str) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": SESSION_ID,
+        "prompt": prompt,
+    });
+    let field = if kind == "claude" {
+        "prompt_id"
+    } else {
+        "turn_id"
+    };
+    payload[field] = serde_json::json!(turn_id);
+    payload
+}
+
+fn frontend_tool(kind: &str, accepted_turn_id: &str, tool_use_id: &str) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "session_id": SESSION_ID,
+        "tool_use_id": tool_use_id,
+        "turn_id": tool_use_id,
+    });
+    let field = if kind == "claude" {
+        "prompt_id"
+    } else {
+        "turn_id"
+    };
+    payload[field] = serde_json::json!(accepted_turn_id);
+    payload
+}
+
+#[test]
+fn claude_and_codex_reject_delayed_tool_events_from_a_prior_turn_after_acceptance() {
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    for kind in ["claude", "codex"] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = observation_path(&temporary, format!("{kind}.json"));
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, &marker, "receiver-turn"),
+            )
+            .status
+            .success()
+        );
+        let accepted = snapshot(&path);
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "prior-unrelated-turn", "delayed-tool"),
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            snapshot(&path),
+            accepted,
+            "{kind} accepted a delayed tool event from a prior turn"
+        );
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "receiver-tool"),
+            )
+            .status
+            .success()
+        );
+        let progressing = snapshot(&path);
+        assert_eq!(progressing["revision"], 2, "{kind}");
+        assert_eq!(progressing["turn_id"], "receiver-tool", "{kind}");
+    }
+}
+
+#[test]
+fn claude_and_codex_revoke_progress_after_a_later_nonmarker_root_prompt() {
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    for kind in ["claude", "codex"] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = observation_path(&temporary, format!("{kind}.json"));
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, &marker, "receiver-turn"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "receiver-tool-1"),
+            )
+            .status
+            .success()
+        );
+        let progressing = snapshot(&path);
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, "ordinary follow-up", "unrelated-turn"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "delayed-receiver-tool"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "unrelated-turn", "unrelated-tool"),
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            snapshot(&path),
+            progressing,
+            "{kind} retained progress authority after an unrelated prompt"
+        );
+    }
+}
+
 #[test]
 fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
     let temporary = tempfile::tempdir().expect("temporary directory");

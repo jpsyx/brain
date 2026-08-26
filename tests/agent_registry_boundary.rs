@@ -115,6 +115,8 @@ fn observation_boundary_violation(relative: &str, source: &str) -> Option<&'stat
         "read_normalized_snapshot",
         "RawSnapshot",
         "ParsedSnapshot",
+        "snapshot_revision",
+        "durable_revision",
         "accepted_at_unix_ms",
         "progressing_at_unix_ms",
         "latest_progress_at_unix_ms",
@@ -160,18 +162,40 @@ fn receiver_observation_guard_rejects_provider_branches_literals_and_bypasses() 
             "tui/state/brain/ephemeral.rs",
             "paths.receiver_observations_dir()",
         ),
+        (
+            "raw snapshot revision",
+            "tui/state/services.rs",
+            "let revision = result.snapshot_revision();",
+        ),
+        (
+            "opaque cursor extraction",
+            "tui/state/services.rs",
+            "let revision = result.next_cursor().durable_revision();",
+        ),
     ] {
         assert!(
             observation_boundary_violation(relative, mutation).is_some(),
             "guard accepted {label}"
         );
     }
+
+    assert_eq!(
+        observation_boundary_violation(
+            "tui/state/services.rs",
+            "ReceiverObservationSet::from_agent_observation(token, registration, result, now)",
+        ),
+        None,
+        "guard rejected the neutral agent-to-state conversion seam"
+    );
 }
 
 #[test]
 fn receiver_observation_coordination_cannot_name_provider_or_snapshot_grammar() {
     let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut paths = vec![source_root.join("tui/state/brain/ephemeral.rs")];
+    let mut paths = vec![
+        source_root.join("tui/state/brain/ephemeral.rs"),
+        source_root.join("tui/state/services.rs"),
+    ];
     for root in [
         source_root.join("tui/receiver"),
         source_root.join("tui/app_brain/receiver"),

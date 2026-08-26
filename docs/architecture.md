@@ -457,7 +457,9 @@ provider transcripts, rollouts, event names, or snapshot grammar.
 `BrainPanelState` provides the smallest exact-tab observation facade, while
 `AppServices` loads durable cursor facts and applies one atomic receiver
 observation batch, including a pulse that carries no new lifecycle phase. The
-single-observation state API exposes only accepted and
+raw producer revision stays private to the opaque cursor and the state model's
+agent-to-state conversion seam; receiver coordination cannot extract or name
+it. The single-observation state API exposes only accepted and
 progressing phases through `ReceiverNonterminalObservationPhase`; terminal
 evidence can reach persistence only through the registration-aware batch
 transaction. The active coordinator resolves the current lifecycle

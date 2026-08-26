@@ -1108,7 +1108,9 @@ emission order fail conservatively before any durable receiver mutation.
 The TUI rebuilds this opaque cursor from `observation_revision`, the current
 attempt's accepted/progressing timestamps, its latest progress evidence when
 that attempt has progressed, and the terminal completion timestamp before every
-poll. The lifetime `accepted_at_unix_ms` and
+poll. The normalized result does not expose the raw producer revision; only the
+state model's cursor conversion can transfer it into `observation_revision`.
+The lifetime `accepted_at_unix_ms` and
 `progressing_at_unix_ms` fields retain the first facts across a recovery attempt
 and are not cursor input. Revision zero therefore means no evidence for the
 current process even when the job has lifetime accepted or progress proof. A

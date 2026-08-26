@@ -2669,6 +2669,16 @@ immutable clamp. Claim renewal stays independent writer fencing. At revision
 saturation no pulse can advance, but an exact Stop can still settle through the
 existing terminal no-mutation path.
 
+Session identity alone is insufficient progress authority because native
+sessions can contain unrelated user turns and tool callbacks can arrive late.
+The owner-only producer lock therefore retains the accepted content-free turn
+identity. Claude and Codex require every tool event to name that same turn, and
+a non-marker prompt clears it. OpenCode additionally correlates the tool
+callback's assistant message to the accepted root user message through the
+assistant's exact parent ID. This rejects both forward-order unrelated work and
+delayed callbacks from older turns without reading transcripts or storing
+content.
+
 Artifact delivery precedence is only a body decision. The terminal store still
 merges all accepted, progressing, and completed boundaries, the revision and
 session cursor, and exact completed-session binding in one immediate owner

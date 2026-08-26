@@ -178,6 +178,7 @@ export const BrainPlugin = async ({ client, directory }) => {
   const rootSessions = new Map();
   const userMessages = new Map();
   const currentUserMessages = new Map();
+  const assistantMessages = new Map();
   const acceptedSessions = new Map();
 
   return {
@@ -216,6 +217,18 @@ export const BrainPlugin = async ({ client, directory }) => {
           acceptedSessions.delete(info.sessionID);
           boundedSet(userMessages, info.id, info.sessionID);
           boundedSet(currentUserMessages, info.sessionID, info.id);
+        } else if (
+          info?.role === "assistant" &&
+          typeof info.id === "string" &&
+          typeof info.sessionID === "string" &&
+          typeof info.parentID === "string" &&
+          rootSessions.get(info.sessionID) === true &&
+          userMessages.get(info.parentID) === info.sessionID
+        ) {
+          boundedSet(assistantMessages, info.id, {
+            sessionID: info.sessionID,
+            userMessageID: info.parentID,
+          });
         }
         return;
       }
@@ -239,10 +252,11 @@ export const BrainPlugin = async ({ client, directory }) => {
           {
             hook_event_name: "UserPromptSubmit",
             session_id: part.sessionID,
+            turn_id: part.messageID,
             prompt: part.text,
           },
         );
-        if (accepted) boundedSet(acceptedSessions, part.sessionID, true);
+        if (accepted) boundedSet(acceptedSessions, part.sessionID, part.messageID);
         return;
       }
 
@@ -251,7 +265,15 @@ export const BrainPlugin = async ({ client, directory }) => {
       }
     },
     "tool.execute.after": async (input) => {
-      if (!acceptedSessions.has(input?.sessionID)) return;
+      const acceptedUserMessage = acceptedSessions.get(input?.sessionID);
+      const assistantMessage = assistantMessages.get(input?.messageID);
+      if (
+        typeof acceptedUserMessage !== "string" ||
+        assistantMessage?.sessionID !== input.sessionID ||
+        assistantMessage?.userMessageID !== acceptedUserMessage
+      ) {
+        return;
+      }
       await invokeHook(
         client,
         "receiver_progress_bridge",
@@ -259,7 +281,8 @@ export const BrainPlugin = async ({ client, directory }) => {
         {
           hook_event_name: "PostToolUse",
           session_id: input.sessionID,
-          turn_id:
+          turn_id: acceptedUserMessage,
+          tool_use_id:
             typeof input.callID === "string"
               ? input.callID
               : typeof input.messageID === "string"

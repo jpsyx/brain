@@ -23,6 +23,7 @@ bridge.main()
         .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
         .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

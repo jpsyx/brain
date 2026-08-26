@@ -355,7 +355,7 @@ fn newer_revision_can_return_a_progress_pulse_without_a_new_lifecycle_phase() {
             .observed_at_unix_ms(),
         1_200
     );
-    assert_eq!(later.snapshot_revision(), 3);
+    assert_eq!(later.next_cursor().durable_revision(), 3);
 }
 
 #[test]

@@ -32,6 +32,13 @@ FIELDS = {
     "latest_progress_at_unix_ms",
     "completed_at_unix_ms",
 }
+AUTHORIZATION_FIELDS = {
+    "version",
+    "job_token",
+    "instance_id",
+    "session_id",
+    "accepted_turn_id",
+}
 
 
 class TransitionOutcome(enum.Enum):
@@ -133,12 +140,20 @@ def same_entry(directory: int, name: str, identity: os.stat_result) -> bool:
     return opened_file_facts(current) == opened_file_facts(identity)
 
 
-def owner_only_lock(directory: int, name: str) -> int | None:
+def owner_only_lock(directory: int, name: str, create: bool = True) -> int | None:
     flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW
     try:
-        try:
-            descriptor = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
-        except FileExistsError:
+        if create:
+            try:
+                descriptor = os.open(
+                    name,
+                    flags | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=directory,
+                )
+            except FileExistsError:
+                descriptor = os.open(name, flags, dir_fd=directory)
+        else:
             descriptor = os.open(name, flags, dir_fd=directory)
         facts = os.fstat(descriptor)
         if not valid_opened_file(facts) or not same_entry(directory, name, facts):
@@ -147,6 +162,105 @@ def owner_only_lock(directory: int, name: str) -> int | None:
         return descriptor
     except OSError:
         return None
+
+
+def read_authorization(descriptor: int) -> tuple[bool, dict[str, object] | None]:
+    try:
+        before = os.fstat(descriptor)
+        if not valid_opened_file(before):
+            return False, None
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        encoded = os.read(descriptor, MAX_SNAPSHOT_BYTES + 1)
+        after = os.fstat(descriptor)
+        if (
+            not valid_opened_file(after)
+            or opened_file_facts(before) != opened_file_facts(after)
+            or len(encoded) != before.st_size
+        ):
+            return False, None
+    except OSError:
+        return False, None
+    if not encoded:
+        return True, None
+    try:
+        value = json.loads(encoded, object_pairs_hook=unique_object)
+    except (UnicodeDecodeError, ValueError):
+        return False, None
+    if (
+        not isinstance(value, dict)
+        or set(value) != AUTHORIZATION_FIELDS
+        or value.get("version") != VERSION
+        or canonical_token(value.get("job_token")) is None
+        or canonical_token(value.get("instance_id")) is None
+        or not valid_identifier(value.get("session_id"))
+        or not valid_identifier(value.get("accepted_turn_id"))
+    ):
+        return False, None
+    return True, value
+
+
+def write_authorization(
+    descriptor: int,
+    authorization: dict[str, object] | None,
+) -> bool:
+    encoded = b""
+    if authorization is not None:
+        encoded = json.dumps(
+            authorization,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    if len(encoded) > MAX_SNAPSHOT_BYTES:
+        return False
+    try:
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        written = 0
+        while written < len(encoded):
+            count = os.write(descriptor, encoded[written:])
+            if count <= 0:
+                return False
+            written += count
+        os.fsync(descriptor)
+        return valid_opened_file(os.fstat(descriptor))
+    except OSError:
+        return False
+
+
+def authorization_for(
+    token: str,
+    instance: str,
+    session: str,
+    accepted_turn_id: str,
+) -> dict[str, object]:
+    return {
+        "version": VERSION,
+        "job_token": token,
+        "instance_id": instance,
+        "session_id": session,
+        "accepted_turn_id": accepted_turn_id,
+    }
+
+
+def same_authorization_scope(
+    authorization: dict[str, object],
+    token: str,
+    instance: str,
+    session: str,
+) -> bool:
+    return (
+        authorization.get("job_token") == token
+        and authorization.get("instance_id") == instance
+        and authorization.get("session_id") == session
+    )
+
+
+def accepted_turn_id(payload: dict[str, object], kind: str) -> object:
+    if kind == "claude":
+        return payload.get("prompt_id")
+    if kind in ("codex", "opencode"):
+        return payload.get("turn_id")
+    return None
 
 
 def write_snapshot(directory: int, name: str, snapshot: dict[str, object]) -> bool:
@@ -471,7 +585,13 @@ def main() -> bool:
     token = canonical_token(os.environ.get("BRAIN_RECEIVER_JOB_TOKEN"))
     observation_path = os.environ.get("BRAIN_RECEIVER_OBSERVATION_PATH")
     instance_id = canonical_token(os.environ.get("BRAIN_INSTANCE_ID"))
-    if not token or not observation_path or not instance_id:
+    agent_kind = os.environ.get("BRAIN_AGENT_KIND")
+    if (
+        not token
+        or not observation_path
+        or not instance_id
+        or agent_kind not in ("claude", "codex", "opencode")
+    ):
         return False
     try:
         payload = json.load(sys.stdin)
@@ -493,13 +613,19 @@ def main() -> bool:
         return False
     event = payload.get("hook_event_name")
     if event == "UserPromptSubmit":
-        phase = "accepted"
-        if not terminal_marker_matches(payload.get("prompt"), token):
+        marker_matches = terminal_marker_matches(payload.get("prompt"), token)
+        phase = "accepted" if marker_matches else "revoked"
+        turn_id = accepted_turn_id(payload, agent_kind)
+        if marker_matches and not valid_identifier(turn_id):
             return False
     elif event == "PostToolUse":
         phase = "progressing"
+        turn_id = accepted_turn_id(payload, agent_kind)
+        if not valid_identifier(turn_id) or not valid_identifier(payload.get("tool_use_id")):
+            return False
     elif event == "Stop":
         phase = "completed"
+        turn_id = payload.get("turn_id")
     else:
         return False
 
@@ -507,12 +633,39 @@ def main() -> bool:
     directory = open_confined_parent(target)
     if directory is None:
         return False
-    descriptor = owner_only_lock(directory, f"{target.name}.lock")
+    descriptor = owner_only_lock(
+        directory,
+        f"{target.name}.lock",
+        create=phase != "revoked",
+    )
     if descriptor is None:
         os.close(directory)
         return False
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        authorization_is_trusted, authorization = read_authorization(descriptor)
+        if not authorization_is_trusted:
+            return False
+        if phase == "revoked":
+            if authorization is not None and same_authorization_scope(
+                authorization,
+                token,
+                instance_id,
+                session_id,
+            ):
+                write_authorization(descriptor, None)
+            return False
+        if phase == "progressing" and (
+            authorization is None
+            or not same_authorization_scope(
+                authorization,
+                token,
+                instance_id,
+                session_id,
+            )
+            or authorization.get("accepted_turn_id") != turn_id
+        ):
+            return False
         now = time.time_ns() // 1_000_000
         prior_is_trusted, current = read_snapshot(directory, target.name)
         if not prior_is_trusted:
@@ -523,13 +676,25 @@ def main() -> bool:
             token,
             instance_id,
             session_id,
-            payload.get("turn_id"),
+            payload.get("tool_use_id") if phase == "progressing" else turn_id,
             now,
         )
         if outcome is TransitionOutcome.WRITE:
             if updated is None or not valid_snapshot(updated):
                 return False
-            return write_snapshot(directory, target.name, updated)
+            if not write_snapshot(directory, target.name, updated):
+                return False
+            if phase == "accepted":
+                return write_authorization(
+                    descriptor,
+                    authorization_for(
+                        token,
+                        instance_id,
+                        session_id,
+                        turn_id,
+                    ),
+                )
+            return True
         if outcome is TransitionOutcome.EXACT_TERMINAL_NO_MUTATION:
             return True
         return False

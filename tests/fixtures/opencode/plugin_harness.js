@@ -408,11 +408,44 @@ const observationScenario = async (BrainPlugin) => {
   assert.equal(accepted.job_token, token);
   assert.deepEqual(fake.calls, [], "acceptance must not fetch message history");
 
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "assistant-prior",
+      sessionID: "root-observed",
+      role: "assistant",
+      parentID: "user-38",
+    }),
+  );
+  await plugin["tool.execute.after"](
+    {
+      sessionID: "root-observed",
+      messageID: "assistant-prior",
+      callID: "delayed-prior-tool",
+      tool: "synthetic-tool",
+    },
+    { output: "synthetic-output" },
+  );
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(observationPath, "utf8")),
+    accepted,
+    "a delayed tool callback from a prior unrelated turn must not progress",
+  );
+
   await plugin["tool.execute.after"](
     { sessionID: "other-session", messageID: "other-turn", tool: "synthetic-tool" },
     { output: "synthetic-output" },
   );
   assert.equal(JSON.parse(fs.readFileSync(observationPath, "utf8")).revision, 1);
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "assistant-1",
+      sessionID: "root-observed",
+      role: "assistant",
+      parentID: "user-39",
+    }),
+  );
   await plugin["tool.execute.after"](
     {
       sessionID: "root-observed",
@@ -457,6 +490,15 @@ const observationScenario = async (BrainPlugin) => {
   );
   await dispatch(
     plugin,
+    messageUpdated({
+      id: "unrelated-assistant",
+      sessionID: "root-observed",
+      role: "assistant",
+      parentID: "unrelated-user",
+    }),
+  );
+  await dispatch(
+    plugin,
     partUpdated({
       id: "part-current-delayed-duplicate",
       sessionID: "root-observed",
@@ -466,6 +508,15 @@ const observationScenario = async (BrainPlugin) => {
     }),
   );
   await new Promise((resolve) => setTimeout(resolve, 2));
+  await plugin["tool.execute.after"](
+    {
+      sessionID: "root-observed",
+      messageID: "assistant-1",
+      callID: "delayed-receiver-tool",
+      tool: "synthetic-tool",
+    },
+    { output: "synthetic-output" },
+  );
   await plugin["tool.execute.after"](
     {
       sessionID: "root-observed",
@@ -539,7 +590,20 @@ const resumedObservationScenario = async (BrainPlugin) => {
   assert.equal(accepted.phase, "accepted");
   assert.equal(accepted.session_id, "root-resumed");
 
-  await plugin["tool.execute.after"]({ sessionID: "root-resumed", messageID: "turn-resumed" });
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "assistant-resumed",
+      sessionID: "root-resumed",
+      role: "assistant",
+      parentID: "root-user",
+    }),
+  );
+  await plugin["tool.execute.after"]({
+    sessionID: "root-resumed",
+    messageID: "assistant-resumed",
+    callID: "turn-resumed",
+  });
   const progressing = JSON.parse(fs.readFileSync(observationPath, "utf8"));
   assert.equal(progressing.phase, "progressing");
   assert.equal(progressing.turn_id, "turn-resumed");
@@ -591,8 +655,25 @@ const externalObservationScenario = async (BrainPlugin) => {
   };
   await dispatch(plugin, partUpdated(part));
   await dispatch(plugin, partUpdated(part));
-  await plugin["tool.execute.after"]({ sessionID, messageID: "turn-current" });
-  await plugin["tool.execute.after"]({ sessionID, messageID: "turn-duplicate" });
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "assistant-current",
+      sessionID,
+      role: "assistant",
+      parentID: messageID,
+    }),
+  );
+  await plugin["tool.execute.after"]({
+    sessionID,
+    messageID: "assistant-current",
+    callID: "turn-current",
+  });
+  await plugin["tool.execute.after"]({
+    sessionID,
+    messageID: "assistant-current",
+    callID: "turn-duplicate",
+  });
 
   const snapshot = JSON.parse(fs.readFileSync(observationPath, "utf8"));
   assert.equal(snapshot.phase, "progressing");
@@ -638,7 +719,20 @@ const externalObservationStageScenario = async (BrainPlugin) => {
     await dispatch(plugin, messageUpdated({ id: messageID, sessionID, role: "user" }));
     await dispatch(plugin, partUpdated(part));
     if (stage === "progressing") {
-      await plugin["tool.execute.after"]({ sessionID, messageID: "matrix-turn" });
+      await dispatch(
+        plugin,
+        messageUpdated({
+          id: "matrix-assistant",
+          sessionID,
+          role: "assistant",
+          parentID: messageID,
+        }),
+      );
+      await plugin["tool.execute.after"]({
+        sessionID,
+        messageID: "matrix-assistant",
+        callID: "matrix-turn",
+      });
     }
   } else if (stage === "completed") {
     await dispatch(plugin, idle(sessionID));
@@ -725,9 +819,22 @@ const externalObservationPrivacyScenario = async (BrainPlugin) => {
       host: privateHostCanary,
     }),
   );
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "privacy-assistant",
+      sessionID,
+      role: "assistant",
+      parentID: messageID,
+      sender: senderCanary,
+      directory: localPathCanary,
+      host: privateHostCanary,
+    }),
+  );
   await plugin["tool.execute.after"]({
     sessionID,
-    messageID: "privacy-turn",
+    messageID: "privacy-assistant",
+    callID: "privacy-turn",
     body: process.env.TEST_BODY_CANARY,
     recipient: process.env.TEST_RECIPIENT_CANARY,
     credential: process.env.TEST_CREDENTIAL_CANARY,

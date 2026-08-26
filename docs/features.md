@@ -1527,7 +1527,11 @@ content-free progress pulse while retaining the first progressing timestamp.
 Pulse-only reads cross the same `AgentController` facade and exact state
 transaction for Claude, Codex, and OpenCode; unrelated turns, children, prior
 sessions, wrong scope, duplicate events, and reordered timestamps cannot renew
-the job. The same state transaction requires
+the job. Claude binds each pulse to the accepted `prompt_id`, Codex binds it to
+the accepted `turn_id`, and OpenCode requires the tool callback's assistant
+message to name the accepted root user message as its exact parent. A later
+non-marker root prompt revokes eligibility in all three integrations. The same
+state transaction requires
 that exact session tuple to remain locked and registered to the conversation;
 stored observation-session continuity cannot substitute for a current lock.
 The poll cursor is rebuilt from the durable revision, current attempt's

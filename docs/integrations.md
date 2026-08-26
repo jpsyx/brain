@@ -899,17 +899,25 @@ Which session to run is decided by the **lock + recency** model in
    ordinary prompts cannot produce receiver evidence. The generic
    `receiver_observation_bridge.py` handles Claude and Codex
    `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
-   token's exact marker as the prompt's final line. Progress requires an
-   accepted snapshot with the same token, remote instance, and native session.
+   token's exact marker as the prompt's final line and binds the content-free
+   accepted turn using Claude's `prompt_id` or Codex's `turn_id`. Progress
+   requires that same accepted turn, token, remote instance, and native session;
+   `tool_use_id` identifies each distinct pulse. A later non-marker root prompt
+   in that session clears the turn authority before any later tool event can
+   publish.
    Native Claude/Codex child events carrying `agent_id`, other recognized child
    payloads, mismatches, exact duplicate tool events, and reordered producer
    timestamps are no-ops. Each distinct later tool event may publish another
    progress pulse without rewriting the first progressing boundary. OpenCode
-   additionally revokes that eligibility when a later unrelated root user turn
-   begins, then restores it only after another exact token marker.
+   binds the accepted root user message to assistant messages through their
+   exact parent ID. Tool callbacks qualify only when their assistant message
+   belongs to that accepted user message, so delayed callbacks from a prior or
+   later unrelated turn remain ineligible regardless of delivery order.
 
    The normalized observation is an owner-only JSON snapshot and owner-only
-   advisory lock below the workspace UUID's receiver-observation cache. On
+   lock below the workspace UUID's receiver-observation cache. The lock retains
+   only the fixed, content-free accepted-turn authorization and serializes each
+   producer decision. On
    Unix the producer descriptor-walks the absolute path with no-follow opens,
    enforces owner-only workspace-cache and observation directories on their
    opened descriptors, rejects symlink ancestors and lock leaves, and performs
@@ -975,7 +983,10 @@ Which session to run is decided by the **lock + recency** model in
    higher revision can still recover genuinely missed intermediate boundaries;
    a prior rotated or placeholder session cannot advance the lifecycle. This
    operation only reads evidence. The active receiver coordinator owns polling
-   and converts only these normalized results into durable transitions. Its
+   and converts only these normalized results into durable transitions. Raw
+   producer revision remains inside the opaque cursor and crosses into durable
+   state only through the agent-to-state conversion seam; the coordinator has
+   no revision or snapshot-grammar accessor. Its
    exact-owner transaction advances a newer pulse only for the same instance,
    native session, live registration, and monotonic revision. Fresh local
    authorization time renews the five-minute progress deadline through

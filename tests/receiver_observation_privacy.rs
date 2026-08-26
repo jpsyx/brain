@@ -106,6 +106,7 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
     let submit = serde_json::json!({
         "hook_event_name": "UserPromptSubmit",
         "session_id": SESSION,
+        "prompt_id": "privacy-receiver-turn",
         "prompt": format!("{}\n<!-- brain:receiver-job-token={TOKEN} -->", PRIVATE_CANARIES[0]),
         "body": PRIVATE_CANARIES[1],
         "response": PRIVATE_CANARIES[2],
@@ -121,6 +122,8 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
     let tool = serde_json::json!({
         "hook_event_name": "PostToolUse",
         "session_id": SESSION,
+        "prompt_id": "privacy-receiver-turn",
+        "tool_use_id": "privacy-turn",
         "turn_id": "privacy-turn",
         "prompt": PRIVATE_CANARIES[0],
         "body": PRIVATE_CANARIES[1],
@@ -137,6 +140,8 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
     let later_tool = serde_json::json!({
         "hook_event_name": "PostToolUse",
         "session_id": SESSION,
+        "prompt_id": "privacy-receiver-turn",
+        "tool_use_id": "privacy-turn-later",
         "turn_id": "privacy-turn-later",
         "prompt": PRIVATE_CANARIES[0],
         "body": PRIVATE_CANARIES[1],
