@@ -1562,9 +1562,9 @@ A committed pulse stores its producer timestamp only as monotonic evidence.
 Brain samples fresh local authorization time after validation, renews the
 five-minute progress deadline from that time, and clamps it to the immutable
 30-minute accepted-work deadline. Renewing the 30-second claim remains only a
-writer fence and cannot extend either liveness limit. Task 2 establishes these
-repeated bounded pulses; the later BR-16 recurring stalled-job reconciler and
-recovery-launch App effects remain separate work.
+writer fence and cannot extend either liveness limit. The recurring durable
+reconciler now consumes these bounded facts. Recovery-launch App effects remain
+separate work.
 
 The stop bridge settles a completed observation inside its session transaction
 before publishing the artifact or completed-session state. The TUI requires
@@ -1594,8 +1594,9 @@ observation snapshot, and observation lock while preserving durable facts and
 unrelated instance files. Poll diagnostics use one content-free shape containing
 only opaque job and instance IDs, frontend, prior phase, observed boundary or
 `none`, and a stable category. Child exit or orderly shutdown after `launched`
-without terminal evidence never replays the prompt. BR-16 still owns recovery
-for a proven stalled run, and BR-17 still owns durable answer and delivery-only recovery.
+without terminal evidence never replays the prompt. Durable stalled-run
+reconciliation now exists; local cleanup and one same-session launch remain the
+next BR-16 boundary, and BR-17 still owns durable answer and delivery-only recovery.
 Provider replies currently use the
 exact acceptance-time channel and recipient context on a bounded background
 worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
@@ -1624,14 +1625,17 @@ future-skewed producer timestamp.
 The pure policy can classify a durable snapshot as wait, safe pre-acceptance
 requeue, one same-session recovery, terminal failure, or an incomplete legacy
 completion state. Recovery count and attempt kind remain separate from the
-existing three-attempt launch retry budget. A policy-checked store transaction
-can atomically claim the single recovery, preserve lifetime identity and first
-facts, reset the current-attempt cursor, and establish launch and recovery
-deadlines without changing the ordinary retry counter. The combined Task 1 and
-Task 2 foundation does not yet invoke recovery from the recurring coordinator
-or execute App effects, so expired `launching`, `launched`, `accepted`, and
-`processing` rows still preserve their complete ownership, state, and retry
-evidence and block FIFO replay.
+existing three-attempt launch retry budget. One immediate store transaction
+evaluates the oldest blocking snapshot and applies at most one transition. It
+safely requeues an unaccepted timeout, persists one accepted stall as an
+ownerless due recovery, or terminalizes exhaustion, absolute expiry, missing
+native evidence, and legacy completion ambiguity with a pending
+unavailable-notice intent. The accepted transition preserves lifetime identity
+and first facts, resets only the superseded attempt cursor, binds the exact
+observed native session, and spends the recovery budget before any claim.
+Recovery discovery after restart can claim only that persisted attempt and
+cannot spend the budget again. Controller cleanup, native-history inspection,
+recovery launch, and notice delivery remain separate App effects.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

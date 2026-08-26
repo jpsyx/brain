@@ -85,6 +85,15 @@ fn stalled_run(provider_id: &str) -> StalledRunFixture {
 #[test]
 fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recovery_budget() {
     let fixture = stalled_run("durable-recovery-claim");
+    let effect = fixture
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("reconcile stalled work")
+        .expect("persist due recovery");
+    assert_eq!(
+        effect.action(),
+        ReceiverReconciliationAction::ScheduleRecovery
+    );
 
     let claimed = fixture
         .db
@@ -281,6 +290,13 @@ fn live_claim_on_another_job_blocks_recovery_until_its_lease_expires() {
         .expect("claim due competing retry")
         .expect("competing retry claim");
     assert_eq!(competing_claim.job().id(), competing.job_id());
+    assert_eq!(
+        db.reconcile_next_receiver_job(301_400)
+            .expect("persist recovery behind competing live claim")
+            .expect("recovery effect")
+            .action(),
+        ReceiverReconciliationAction::ScheduleRecovery
+    );
 
     let target_before = db
         .receiver_job(target.job_id())

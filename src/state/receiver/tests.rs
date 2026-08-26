@@ -58,6 +58,13 @@ mod recovery_claim {
     include!("tests/recovery_claim.rs");
 }
 
+mod reconciliation {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/reconciliation.rs");
+}
+
 mod binding {
     use super::support::*;
     use super::*;

@@ -16,6 +16,7 @@ use super::super::{
 struct ClaimCandidate {
     job_id: String,
     state: String,
+    attempt_kind: String,
 }
 
 impl Db {
@@ -63,6 +64,9 @@ impl Db {
         let Some(candidate) = candidate else {
             return Ok(None);
         };
+        if candidate.attempt_kind == "recovery" {
+            return Ok(None);
+        }
         if matches!(
             candidate.state.as_str(),
             "launching" | "launched" | "accepted" | "processing"
@@ -98,7 +102,7 @@ fn oldest_ready_candidate(
 ) -> Result<Option<ClaimCandidate>> {
     Ok(transaction
         .query_row(
-            "SELECT job_id, state
+            "SELECT job_id, state, attempt_kind
              FROM receiver_jobs
              WHERE workspace_id = ?1
                AND (
@@ -118,6 +122,7 @@ fn oldest_ready_candidate(
                 Ok(ClaimCandidate {
                     job_id: row.get(0)?,
                     state: row.get(1)?,
+                    attempt_kind: row.get(2)?,
                 })
             },
         )
@@ -145,14 +150,16 @@ fn replace_candidate_lease(
          WHERE workspace_id = ?1 AND job_id = ?5
            AND (
              state = 'queued'
-             OR (state = 'retrying' AND retry_at_unix_ms <= ?2)
+             OR (state = 'retrying' AND retry_at_unix_ms <= ?2
+                 AND attempt_kind = 'ordinary')
              OR (
                state NOT IN ('failed', 'done')
                AND claim_owner IS NOT NULL
                AND claim_expires_at_unix_ms <= ?2
              )
            )
-           AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)",
+           AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)
+           AND attempt_kind = 'ordinary'",
         rusqlite::params![workspace_id, now, owner, expires, job_id, launch_expires],
     )? == 1)
 }

@@ -44,6 +44,95 @@ pub enum ReceiverLaunchRetryOutcome {
     Exhausted,
 }
 
+/// Durable transition published by one receiver reconciliation transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverReconciliationAction {
+    RequeuePreAcceptance,
+    ScheduleRecovery,
+    TerminalFailure,
+}
+
+/// Stable content-free reason for one durable reconciliation transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverReconciliationReason {
+    PreAcceptanceTimeout,
+    PreAcceptanceExhausted,
+    AcceptedStall,
+    AbsoluteWorkExpired,
+    RecoveryExpired,
+    RecoveryExhausted,
+    NativeSessionUnavailable,
+    IncompleteLegacyCompletion,
+}
+
+impl ReceiverReconciliationReason {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::PreAcceptanceTimeout => "recovery-pre-acceptance-timeout",
+            Self::PreAcceptanceExhausted => "recovery-pre-acceptance-exhausted",
+            Self::AcceptedStall => "recovery-accepted-stall",
+            Self::AbsoluteWorkExpired => "recovery-absolute-work-expired",
+            Self::RecoveryExpired => "recovery-attempt-expired",
+            Self::RecoveryExhausted => "recovery-attempt-exhausted",
+            Self::NativeSessionUnavailable => "recovery-native-session-unavailable",
+            Self::IncompleteLegacyCompletion => "recovery-incomplete-legacy-completion",
+        }
+    }
+}
+
+/// Content-free identifiers for the one effect a reconciliation winner may execute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverReconciliationEffect {
+    action: ReceiverReconciliationAction,
+    reason: ReceiverReconciliationReason,
+    job_id: ReceiverJobId,
+    token: ReceiverJobToken,
+    cleanup_instance: Option<String>,
+}
+
+impl ReceiverReconciliationEffect {
+    pub(super) fn new(
+        action: ReceiverReconciliationAction,
+        reason: ReceiverReconciliationReason,
+        job_id: ReceiverJobId,
+        token: ReceiverJobToken,
+        cleanup_instance: Option<String>,
+    ) -> Self {
+        Self {
+            action,
+            reason,
+            job_id,
+            token,
+            cleanup_instance,
+        }
+    }
+
+    #[must_use]
+    pub const fn action(&self) -> ReceiverReconciliationAction {
+        self.action
+    }
+
+    #[must_use]
+    pub const fn reason(&self) -> ReceiverReconciliationReason {
+        self.reason
+    }
+
+    #[must_use]
+    pub const fn job_id(&self) -> ReceiverJobId {
+        self.job_id
+    }
+
+    #[must_use]
+    pub const fn token(&self) -> ReceiverJobToken {
+        self.token
+    }
+
+    #[must_use]
+    pub fn cleanup_instance(&self) -> Option<&str> {
+        self.cleanup_instance.as_deref()
+    }
+}
+
 /// One frontend-neutral nonterminal receiver lifecycle fact.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverNonterminalObservationPhase {

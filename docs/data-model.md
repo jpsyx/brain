@@ -1178,21 +1178,25 @@ only the exact unexpired owner of `claimed`, or a due retry whose recorded
 origin is `claimed`/`launching`, then atomically moves it to `launching`. Only a
 proved synchronous spawn failure may turn that attempt into a bounded Spawn
 retry. Once spawn succeeds, an
-uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
-`launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
-lease, registration, lifecycle, retry metadata, and FIFO position until the
-recurring recovery transaction is wired.
-The explicit recovery-claim seam is separate from ordinary FIFO claim. In one
-immediate transaction it reloads the current accepted snapshot, requires the
-pure policy to authorize same-session recovery and the prior writer fence to be
-expired, and refuses the transition while any other workspace job has a live
-lease, then compare-and-swaps the row to a claimed `recovery` attempt. It
-increments only `recovery_count`, preserves the job token, conversation,
-immutable inbound identity, absolute limit, and first accepted/progress facts,
-clears the prior attempt's instance, session cursor, revision, and progress
-evidence, and establishes a new two-minute launch limit plus a five-minute
-recovery limit clamped by the original absolute limit. A failed comparison
-commits nothing. The recurring coordinator does not invoke this seam yet.
+uncommitted `launching` row is ambiguous and cannot be reclaimed by ordinary
+claim selection. The recovery transaction scans the oldest blocking
+nonterminal row under an immediate writer lock and compares a complete snapshot
+of its token, owner, instance/session, attempt, deadlines, recovery count,
+cursor, and retry facts. A failed comparison commits nothing and publishes no
+effect.
+
+An expired unaccepted attempt releases its owner and registration, clears the
+superseded cursor, increments only the bounded launch retry counter, and becomes
+an ordinary due retry. A first accepted stall instead preserves the job token,
+conversation, immutable inbound identity, absolute limit, first
+accepted/progress facts, frontend, and exact native binding. It clears the
+superseded attempt cursor, increments `recovery_count`, sets `attempt_kind` to
+`recovery`, and persists an ownerless due retry with `recovery_expires_at` capped
+by the absolute limit. The separate recovery-claim seam accepts only that due
+row, establishes its launch deadline, and never rediscovers accepted work or
+increments recovery count. Exhaustion, absolute expiry, missing resume evidence,
+and incomplete legacy completion become `failed` with a content-free stable
+reason and `pending_unavailable_notice = 1`; terminal rows do not block FIFO.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures

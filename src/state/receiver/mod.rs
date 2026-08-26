@@ -17,6 +17,7 @@ pub use model::{
     ReceiverConversation, ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverJobToken,
     ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
+    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
     ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
     ReceiverSessionBindingError, ReceiverSessionPlan,
 };

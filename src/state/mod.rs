@@ -125,6 +125,7 @@ pub use receiver::{
     ReceiverJobId, ReceiverJobState, ReceiverJobToken, ReceiverLaunchFailure,
     ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverLifecycleDeadlines,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
+    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
     ReceiverRecoveryDecision, ReceiverRecoverySnapshot, ReceiverRunClaim,
     ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
     ReceiverSessionPlan, decide_receiver_recovery, receiver_acceptance_expires_at,

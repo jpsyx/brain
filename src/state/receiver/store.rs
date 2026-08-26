@@ -12,6 +12,7 @@ mod completion;
 mod control;
 mod load;
 mod observation;
+mod reconciliation;
 mod session;
 
 use load::{load_receiver_conversation, load_receiver_job};

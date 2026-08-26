@@ -1,17 +1,63 @@
-//! Exact compare-and-swap claim for one accepted same-session recovery.
+//! Exact compare-and-swap claim for one already-persisted same-session recovery.
 
 use anyhow::Result;
+use rusqlite::OptionalExtension as _;
 
 use super::{live::has_live_receiver_claim, next::commit_loaded_claim};
 use crate::state::{
-    Db, MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverJobId, ReceiverRecoveryDecision, ReceiverRunClaim,
-    decide_receiver_recovery, receiver_launch_expires_at, receiver_recovery_expires_at,
+    Db, ReceiverAttemptKind, ReceiverJobId, ReceiverJobState, ReceiverRunClaim,
+    receiver_launch_expires_at,
 };
 
 use super::super::{load::load_receiver_job, to_i64, validated_owner};
 
 impl Db {
-    /// Atomically claim one exactly stalled accepted job as its sole recovery attempt.
+    /// Find and claim the oldest due recovery persisted by reconciliation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid owner or claim interval, an unrepresentable
+    /// timestamp, malformed durable state, or a database failure.
+    pub fn claim_next_receiver_recovery_run(
+        &self,
+        owner: &str,
+        now_unix_ms: u64,
+        expires_at_unix_ms: u64,
+    ) -> Result<Option<ReceiverRunClaim>> {
+        validated_owner(owner)?;
+        anyhow::ensure!(
+            expires_at_unix_ms > now_unix_ms,
+            "receiver claim expiry must follow claim time"
+        );
+        let now = to_i64(now_unix_ms, "receiver recovery discovery time")?;
+        let job_id = self
+            .conn
+            .query_row(
+                "SELECT job_id FROM receiver_jobs
+                 WHERE workspace_id = ?1 AND state = 'retrying'
+                   AND attempt_kind = 'recovery' AND claim_owner IS NULL
+                   AND claim_expires_at_unix_ms IS NULL
+                   AND retry_at_unix_ms <= ?2
+                   AND recovery_expires_at_unix_ms > ?2
+                   AND absolute_work_expires_at_unix_ms > ?2
+                 ORDER BY received_at_unix_ms, job_id
+                 LIMIT 1",
+                rusqlite::params![self.workspace_id, now],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(job_id) = job_id else {
+            return Ok(None);
+        };
+        self.claim_receiver_recovery_run(
+            ReceiverJobId::parse(&job_id)?,
+            owner,
+            now_unix_ms,
+            expires_at_unix_ms,
+        )
+    }
+
+    /// Atomically claim one due recovery that reconciliation already persisted.
     ///
     /// # Errors
     ///
@@ -45,73 +91,57 @@ impl Db {
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, job_id)? else {
             return Ok(None);
         };
-        if decide_receiver_recovery(job.recovery_snapshot(now_unix_ms))
-            != ReceiverRecoveryDecision::RecoverSameSession
+        if job.state() != ReceiverJobState::Retrying
+            || job.attempt_kind() != ReceiverAttemptKind::Recovery
+            || job
+                .retry_at_unix_ms()
+                .is_none_or(|retry_at| retry_at > now_unix_ms)
+            || job
+                .recovery_expires_at_unix_ms()
+                .is_none_or(|expires_at| expires_at <= now_unix_ms)
+            || job
+                .absolute_work_expires_at_unix_ms()
+                .is_none_or(|expires_at| expires_at <= now_unix_ms)
         {
             return Ok(None);
         }
-        let Some(absolute_work_expires_at_unix_ms) = job.absolute_work_expires_at_unix_ms() else {
-            return Ok(None);
-        };
-        let recovery_expires = to_i64(
-            receiver_recovery_expires_at(now_unix_ms, absolute_work_expires_at_unix_ms),
-            "receiver recovery expiry",
-        )?;
         let changed = transaction.execute(
             "UPDATE receiver_jobs
              SET state = 'claimed', claim_owner = ?3, claim_expires_at_unix_ms = ?4,
                  retry_at_unix_ms = NULL, retry_from_state = NULL, last_error = NULL,
-                 observation_instance = NULL, observation_session_id = NULL,
-                 observation_revision = 0, attempt_accepted_at_unix_ms = NULL,
-                 attempt_progressing_at_unix_ms = NULL,
-                 latest_progress_at_unix_ms = NULL,
                  launch_expires_at_unix_ms = ?5,
-                 acceptance_expires_at_unix_ms = NULL,
-                 progress_expires_at_unix_ms = NULL,
-                 recovery_expires_at_unix_ms = ?6,
-                 recovery_count = recovery_count + 1, attempt_kind = 'recovery',
                  pending_unavailable_notice = 0, updated_at_unix_ms = ?2
-             WHERE workspace_id = ?1 AND job_id = ?7
-               AND state = ?8 AND attempt_kind = 'ordinary'
-               AND recovery_count = ?9 AND recovery_count < ?10
-               AND claim_owner IS NOT NULL AND claim_expires_at_unix_ms <= ?2
-               AND observation_revision = ?11
-               AND progress_expires_at_unix_ms IS ?12
-               AND recovery_expires_at_unix_ms IS ?13
-               AND absolute_work_expires_at_unix_ms = ?14
-               AND observation_instance IS ?15
-               AND observation_session_id IS ?16
-               AND attempt_accepted_at_unix_ms IS ?17
-               AND attempt_progressing_at_unix_ms IS ?18",
+             WHERE workspace_id = ?1 AND job_id = ?6 AND job_token = ?7
+               AND state = 'retrying' AND attempt_kind = 'recovery'
+               AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL
+               AND retry_at_unix_ms = ?8 AND retry_at_unix_ms <= ?2
+               AND recovery_count = ?9
+               AND recovery_expires_at_unix_ms = ?10
+               AND recovery_expires_at_unix_ms > ?2
+               AND absolute_work_expires_at_unix_ms = ?11
+               AND absolute_work_expires_at_unix_ms > ?2
+               AND observation_instance IS NULL
+               AND observation_session_id IS NULL
+               AND observation_revision = 0
+               AND attempt_accepted_at_unix_ms IS NULL
+               AND attempt_progressing_at_unix_ms IS NULL",
             rusqlite::params![
                 self.workspace_id,
                 now,
                 owner,
                 expires,
                 launch_expires,
-                recovery_expires,
                 job_id.to_string(),
-                job.state().as_str(),
+                job.token().to_string(),
+                job.retry_at_unix_ms()
+                    .map(|value| to_i64(value, "receiver recovery due time"))
+                    .transpose()?,
                 i64::from(job.recovery_count()),
-                i64::from(MAX_RECEIVER_RECOVERY_ATTEMPTS),
-                to_i64(job.observation_revision(), "receiver observation revision")?,
-                job.progress_expires_at_unix_ms()
-                    .map(|value| to_i64(value, "receiver progress expiry"))
-                    .transpose()?,
                 job.recovery_expires_at_unix_ms()
-                    .map(|value| to_i64(value, "receiver prior recovery expiry"))
+                    .map(|value| to_i64(value, "receiver recovery expiry"))
                     .transpose()?,
-                to_i64(
-                    absolute_work_expires_at_unix_ms,
-                    "receiver absolute-work expiry",
-                )?,
-                job.observation_instance(),
-                job.observation_session_id(),
-                job.attempt_accepted_at_unix_ms()
-                    .map(|value| to_i64(value, "receiver attempt acceptance"))
-                    .transpose()?,
-                job.attempt_progressing_at_unix_ms()
-                    .map(|value| to_i64(value, "receiver attempt progress"))
+                job.absolute_work_expires_at_unix_ms()
+                    .map(|value| to_i64(value, "receiver absolute-work expiry"))
                     .transpose()?,
             ],
         )?;

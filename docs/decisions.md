@@ -2514,16 +2514,27 @@ current-attempt accepted/progressing fields plus revision form the polling
 cursor. A recovery process can therefore begin at revision zero under the same
 job token, conversation, and immutable inbound identity. Terminal completion
 merges against the current attempt and preserves the lifetime facts atomically.
-The recovery-claim store seam materializes that boundary in one immediate
-transaction. It reloads and evaluates the current snapshot under the write
-lock, requires an expired prior writer fence, consumes only the one recovery
-count, resets the current-attempt cursor, and establishes launch plus recovery
-deadlines capped by the original absolute limit. Its guarded update either
-publishes the complete recovery attempt and claim or leaves the row unchanged.
+Recovery materialization and claiming are deliberately separate durable
+boundaries. The reconciler first reloads the oldest blocking row and evaluates
+the current snapshot under one immediate write lock. Its compare-and-swap guard
+covers the token, owner, retry facts, remote/native identity, attempt kind,
+deadlines, recovery count, and observation cursor. A first accepted stall spends
+the one recovery count while persisting an ownerless due recovery, resets the
+current-attempt cursor, preserves lifetime facts and the exact native binding,
+and caps recovery expiry by the original absolute limit. Only afterward may the
+claim seam attach a writer and establish the launch deadline. The claim cannot
+rediscover accepted work or increment the budget, so a crash between these
+boundaries remains restart-safe.
 Ordinary and recovery claims call the same workspace-wide live-claim predicate
 after acquiring their immediate transaction. The transaction's writer lock
 keeps that check and the later claim update indivisible, without maintaining
 separate SQL copies of the exclusion.
+
+Terminal reconciliation persists a stable content-free reason and a pending
+unavailable-notice bit in the same transaction that releases ownership and the
+superseded registration. Semantic effects carry only opaque job, token, and
+cleanup instance identifiers. Frontend validation, process cleanup, recovery
+launch, and provider notice delivery remain outside the state layer.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come

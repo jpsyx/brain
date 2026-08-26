@@ -1093,9 +1093,11 @@ Which session to run is decided by the **lock + recency** model in
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
    outcomes use a stable content-free diagnostic containing opaque job and
-   instance IDs, frontend, prior phase, boundary or `none`, and category. BR-16
-   owns stalled-run recovery, while BR-17 owns answer persistence and
-   delivery-only retry.
+   instance IDs, frontend, prior phase, boundary or `none`, and category. The
+   state layer now returns similarly content-free reconciliation effects for
+   cleanup, one persisted recovery, or terminal notice intent. Task 4 still
+   owns controller actions and notice dispatch; BR-17 owns answer persistence
+   and delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1360,10 +1362,13 @@ succeeds, Brain crosses a no-auto-replay boundary before any later fallible
 step: it reauthorizes and commits `launched` before allocating the tab. Owner
 loss or a launch-commit error preserves the exact registration and fenced
 `launching` row; allocation failure or later owner loss preserves `launched`.
-Child exit, orderly shutdown, and lease expiry then permit local cleanup only;
-the durable job and exact session correlation remain unchanged. Schema v10 now
-persists and classifies the independent lifecycle deadlines, but later BR-16
-tasks still own the atomic reconciler and its App effects.
+Child exit, orderly shutdown, and lease expiry then permit local cleanup only.
+The state reconciler now atomically converts the complete stale snapshot into a
+bounded retry, one ownerless due same-session recovery, or a terminal notice
+intent. Its neutral effect carries only opaque cleanup identifiers and a stable
+reason. It never invokes an adapter, inspects native history, launches a
+controller, or contacts a provider; those App effects remain the next BR-16
+boundary.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are not rerun before later BR-16 tasks
