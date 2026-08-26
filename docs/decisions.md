@@ -2583,6 +2583,14 @@ saturation. Writing a larger JSON integer would create evidence the durable
 transaction cannot represent and would turn an otherwise valid observation
 file into a permanent poll failure.
 
+Saturation does not make a trusted exact Stop invalid. The producer protocol
+distinguishes a snapshot write, an exact terminal settlement without mutation,
+and rejection. An exact Stop over saturated accepted or progressing evidence
+uses the no-mutation outcome, so the stop hook can commit the separate
+completed-session and artifact surfaces while the terminal store retains the
+maximum revision. Wrong scope, malformed evidence, nonterminal events, and
+failed writes remain rejected.
+
 Artifact validation remains independent because lifecycle evidence deliberately
 contains no response text. When both terminal forms arrive together, the exact
 artifact path wins and delivers once, while the completed boundary's validated
@@ -2628,7 +2636,10 @@ settles the content-free completed observation while the exact session is still
 `active`, then publishes the private artifact and commits `completed`. The TUI's
 terminal transaction requires that exact completed row. This makes the early
 observation unconsumable until the stop commit and prevents the completed row or
-artifact from becoming acceptable before observation settlement.
+artifact from becoming acceptable before observation settlement. At a saturated
+cursor, an exact terminal no-mutation outcome counts as settlement because the
+snapshot cannot advance and the store already represents artifact-only
+completion at that retained revision.
 
 Process restart does not by itself prove a stalled native run. Claim selection
 therefore leaves expired `launched`, `accepted`, and `processing` rows exactly

@@ -313,6 +313,10 @@ fn produce_stage(
     }
 }
 
+pub(super) fn produce_completion(app: &App, kind: AgentKind, session: &AgentSession, path: &Path) {
+    produce_stage(app, kind, session, path, ProducerStage::Completed);
+}
+
 fn run_opencode_stage(app: &App, session: &AgentSession, path: &Path, stage: ProducerStage) {
     let stage = match stage {
         ProducerStage::ReorderedProgress => "reordered_progress",

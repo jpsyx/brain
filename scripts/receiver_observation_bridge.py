@@ -2,6 +2,7 @@
 """Write content-free receiver lifecycle observations for Brain."""
 from __future__ import annotations
 
+import enum
 import fcntl
 import json
 import os
@@ -30,6 +31,12 @@ FIELDS = {
     "progressing_at_unix_ms",
     "completed_at_unix_ms",
 }
+
+
+class TransitionOutcome(enum.Enum):
+    WRITE = "write"
+    EXACT_TERMINAL_NO_MUTATION = "exact_terminal_no_mutation"
+    REJECTED = "rejected"
 
 
 def canonical_token(value: object) -> str | None:
@@ -363,12 +370,13 @@ def next_snapshot(
     session: str,
     turn_id: object,
     now: int,
-) -> dict[str, object] | None:
+) -> tuple[TransitionOutcome, dict[str, object] | None]:
     if phase == "accepted":
         if current is None:
             updated = accepted_snapshot(token, instance, session, now)
-            return updated if valid_snapshot(updated) else None
-        return None
+            if valid_snapshot(updated):
+                return TransitionOutcome.WRITE, updated
+        return TransitionOutcome.REJECTED, None
     if phase == "completed" and current is None:
         updated = {
             "version": VERSION,
@@ -382,11 +390,17 @@ def next_snapshot(
             "progressing_at_unix_ms": None,
             "completed_at_unix_ms": now,
         }
-        return updated if valid_snapshot(updated) else None
+        if valid_snapshot(updated):
+            return TransitionOutcome.WRITE, updated
+        return TransitionOutcome.REJECTED, None
     if current is None or not same_scope(current, token, instance, session):
-        return None
+        return TransitionOutcome.REJECTED, None
+    if phase == "completed" and current.get("phase") == "completed":
+        return TransitionOutcome.EXACT_TERMINAL_NO_MUTATION, None
     if current["revision"] >= MAX_REVISION:
-        return None
+        if phase == "completed" and current.get("phase") in ("accepted", "progressing"):
+            return TransitionOutcome.EXACT_TERMINAL_NO_MUTATION, None
+        return TransitionOutcome.REJECTED, None
     prior_timestamps = [
         timestamp
         for timestamp in (
@@ -405,7 +419,9 @@ def next_snapshot(
             turn_id=turn_id if valid_identifier(turn_id) else None,
             progressing_at_unix_ms=monotonic_now,
         )
-        return updated if valid_snapshot(updated) else None
+        if valid_snapshot(updated):
+            return TransitionOutcome.WRITE, updated
+        return TransitionOutcome.REJECTED, None
     if phase == "completed" and current.get("phase") in ("accepted", "progressing"):
         updated = dict(current)
         updated.update(
@@ -418,8 +434,10 @@ def next_snapshot(
             ),
             completed_at_unix_ms=monotonic_now,
         )
-        return updated if valid_snapshot(updated) else None
-    return None
+        if valid_snapshot(updated):
+            return TransitionOutcome.WRITE, updated
+        return TransitionOutcome.REJECTED, None
+    return TransitionOutcome.REJECTED, None
 
 
 def main() -> bool:
@@ -472,7 +490,7 @@ def main() -> bool:
         prior_is_trusted, current = read_snapshot(directory, target.name)
         if not prior_is_trusted:
             return False
-        updated = next_snapshot(
+        outcome, updated = next_snapshot(
             current,
             phase,
             token,
@@ -481,14 +499,13 @@ def main() -> bool:
             payload.get("turn_id"),
             now,
         )
-        if updated is not None and valid_snapshot(updated):
+        if outcome is TransitionOutcome.WRITE:
+            if updated is None or not valid_snapshot(updated):
+                return False
             return write_snapshot(directory, target.name, updated)
-        return bool(
-            phase == "completed"
-            and current is not None
-            and current.get("phase") == "completed"
-            and same_scope(current, token, instance_id, session_id)
-        )
+        if outcome is TransitionOutcome.EXACT_TERMINAL_NO_MUTATION:
+            return True
+        return False
     finally:
         os.close(descriptor)
         os.close(directory)

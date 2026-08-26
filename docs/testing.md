@@ -383,7 +383,13 @@ first move is a failing test that reproduces it, *then* the fix.
   `launched`, `accepted`, and `processing` rows are neither reclaimed nor
   replayed. Exact `i64::MAX` characterization crosses the strict snapshot,
   reader, controller, App, SQLite, reconstructed cursor, saturated producer,
-  and a subsequent no-newer poll without wrap or timestamp loss. The privacy
+  and a subsequent no-newer poll without wrap or timestamp loss. Composed
+  saturation regressions start from accepted and progressing snapshots, run the
+  real required-write stop path for Claude and Codex plus OpenCode's real
+  `session.idle`, and prove the unchanged maximum snapshot can still yield one
+  artifact-only TUI completion, exact cleanup, and no repeated delivery. The
+  focused bridge contract also proves mismatched, nonterminal, malformed, and
+  injected failed-write inputs remain rejected. The privacy
   guard discovers relevant Rust, Python, JavaScript, completion, controller,
   store, migration, and fixture surfaces by both semantic markers and
   observation/receiver-completion path names, so a future module joins the audit

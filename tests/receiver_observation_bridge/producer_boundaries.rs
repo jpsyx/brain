@@ -1,4 +1,7 @@
 use super::*;
+use std::io::Write as _;
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
 
 fn run_bridge_at(snapshot: &Path, payload: &serde_json::Value, now_unix_ms: u64) -> Output {
     let script = r#"
@@ -262,4 +265,105 @@ fn revision_saturation_preserves_the_last_valid_snapshot_for_later_events() {
             "case {index} replaced the last representable revision"
         );
     }
+}
+
+#[test]
+fn required_saturated_stop_accepts_only_an_exact_valid_terminal_event() {
+    for (index, (phase, progressing_at)) in [("accepted", None), ("progressing", Some(1_100))]
+        .into_iter()
+        .enumerate()
+    {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = observation_path(&temporary, format!("required-saturated-{index}.json"));
+        let before = serde_json::json!({
+            "version": 1,
+            "revision": i64::MAX,
+            "phase": phase,
+            "job_token": JOB_TOKEN,
+            "instance_id": INSTANCE_ID,
+            "session_id": SESSION_ID,
+            "turn_id": progressing_at.map(|_| "turn-before-saturation"),
+            "accepted_at_unix_ms": 1_000,
+            "progressing_at_unix_ms": progressing_at,
+            "completed_at_unix_ms": null,
+        });
+        std::fs::write(&path, before.to_string()).expect("saturated snapshot");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only saturated snapshot");
+        let completed = serde_json::json!({
+            "hook_event_name": "Stop",
+            "session_id": SESSION_ID,
+            "turn_id": "turn-after-saturation",
+        });
+
+        let output = run_required_bridge(&path, &completed);
+
+        assert!(output.status.success(), "{phase} stop failed: {output:?}");
+        assert_eq!(snapshot(&path), before, "{phase} stop mutated saturation");
+
+        let mismatched = serde_json::json!({
+            "hook_event_name": "Stop",
+            "session_id": "different-session",
+            "turn_id": "turn-after-saturation",
+        });
+        assert!(
+            !run_required_bridge(&path, &mismatched).status.success(),
+            "{phase} accepted a mismatched stop"
+        );
+        assert_eq!(
+            snapshot(&path),
+            before,
+            "mismatched stop mutated saturation"
+        );
+
+        let nonterminal = progress_payload(SESSION_ID, "turn-after-saturation");
+        assert!(
+            !run_required_bridge(&path, &nonterminal).status.success(),
+            "{phase} accepted a saturated nonterminal event"
+        );
+        assert_eq!(
+            snapshot(&path),
+            before,
+            "nonterminal event mutated saturation"
+        );
+
+        std::fs::write(&path, b"{\"revision\":9223372036854775807}").expect("malformed snapshot");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only malformed snapshot");
+        assert!(
+            !run_required_bridge(&path, &completed).status.success(),
+            "{phase} accepted a malformed stored snapshot"
+        );
+    }
+
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = observation_path(&temporary, "rejected-write.json");
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    assert!(
+        run_bridge(&path, &accepted_payload(&marker))
+            .status
+            .success()
+    );
+    let before = snapshot(&path);
+    let completed = serde_json::json!({
+        "hook_event_name": "Stop",
+        "session_id": SESSION_ID,
+        "turn_id": "turn-with-rejected-write",
+    });
+
+    let output = run_required_bridge_with_setup(
+        &path,
+        &completed,
+        "bridge.write_snapshot = lambda *args: False",
+    );
+
+    assert!(
+        !output.status.success(),
+        "accepted a rejected snapshot write"
+    );
+    assert_eq!(
+        snapshot(&path),
+        before,
+        "rejected write mutated the snapshot"
+    );
 }

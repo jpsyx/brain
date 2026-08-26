@@ -1892,7 +1892,11 @@ a wall-clock rollback cannot publish an invalid timeline. The constructed
 snapshot is validated again before replacement.
 Revisions stop at SQLite's maximum signed integer. Once saturated, later
 producer events preserve the last valid snapshot instead of writing evidence
-the durable store cannot represent.
+the durable store cannot represent. The bridge represents a trusted exact Stop
+over saturated accepted or progressing evidence as terminal settlement without
+a snapshot mutation, distinct from rejection. This lets the stop transaction
+publish its completed-session row and separate artifact while the durable store
+retains the maximum cursor.
 Completion may create revision 1 with null intermediate timestamps when submit
 and tool evidence was missed; private text remains separate. A
 verified artifact completion retains the strict lifecycle completion timestamp

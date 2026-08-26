@@ -921,7 +921,12 @@ Which session to run is decided by the **lock + recency** model in
    constructed snapshot must pass the full schema and timeline validator before
    publication. Revision is capped at SQLite's
    maximum signed integer; a saturated producer preserves the last valid
-   snapshot instead of writing an unrepresentable revision. It stores no
+   snapshot instead of writing an unrepresentable revision. A trusted exact
+   Stop over a saturated accepted or progressing snapshot returns an explicit
+   successful no-mutation outcome. That outcome satisfies the stop hook's
+   required-publication gate so it can commit the independently validated
+   completed session and artifact. Rejected transitions and failed writes still
+   fail that gate. It stores no
    prompt, marker, tool, response, sender, recipient, path, cwd, credential, or
    transcript content. The opaque token's Debug representation is a fixed redacted
    placeholder, so derived observation values cannot reveal the token. If

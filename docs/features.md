@@ -1532,7 +1532,11 @@ its owner-only cache, observation directory, lock, temporary, and replacement
 operations, rejects symlink races, and clamps new timestamps across wall-clock
 rollback before validating the constructed snapshot. Producer revision saturation
 also preserves the last valid snapshot rather than emitting an unrepresentable
-revision. A later producer event cannot repair or replace an untrusted prior
+revision. An exact Stop against a trusted saturated accepted or progressing
+snapshot is a successful terminal settlement without a snapshot mutation. The
+stop bridge may then publish its independently validated completed session and
+artifact, while malformed, mismatched, and failed writes remain rejected. A
+later producer event cannot repair or replace an untrusted prior
 entry: symlinks, non-owner-only files, malformed or truncated JSON, wrong
 identity, and ambiguous lifecycle shapes are preserved for the strict App poll
 to reject in its stable category.
