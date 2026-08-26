@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use super::next::commit_loaded_claim;
+use super::{live::has_live_receiver_claim, next::commit_loaded_claim};
 use crate::state::{
     Db, MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverJobId, ReceiverRecoveryDecision, ReceiverRunClaim,
     decide_receiver_recovery, receiver_launch_expires_at, receiver_recovery_expires_at,
@@ -39,6 +39,9 @@ impl Db {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
+        if has_live_receiver_claim(&transaction, &self.workspace_id, now)? {
+            return Ok(None);
+        }
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, job_id)? else {
             return Ok(None);
         };

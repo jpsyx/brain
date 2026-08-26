@@ -1164,12 +1164,13 @@ exact owner may mutate the row. After claim expiry,
 queued work becomes claimed by the new owner. A due retry keeps `retrying`,
 retains its retry schedule and origin until a phase-specific compare-and-swap
 consumes them, and lets the live owner transition to the phase being retried.
-The FIFO claim transaction refuses another job while any workspace job has a
-live lease and returns the immutable job plus logical conversation without
-deleting either row. Launch preparation accepts only the exact unexpired owner
-of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
-then atomically moves it to `launching`. Only a proved synchronous spawn failure
-may turn that attempt into a bounded Spawn retry. Once spawn succeeds, an
+Every ordinary or recovery claim transaction refuses another job while any
+workspace job has a live lease. FIFO claim returns the immutable job plus
+logical conversation without deleting either row. Launch preparation accepts
+only the exact unexpired owner of `claimed`, or a due retry whose recorded
+origin is `claimed`/`launching`, then atomically moves it to `launching`. Only a
+proved synchronous spawn failure may turn that attempt into a bounded Spawn
+retry. Once spawn succeeds, an
 uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
 `launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
 lease, registration, lifecycle, retry metadata, and FIFO position until the
@@ -1177,7 +1178,8 @@ recurring recovery transaction is wired.
 The explicit recovery-claim seam is separate from ordinary FIFO claim. In one
 immediate transaction it reloads the current accepted snapshot, requires the
 pure policy to authorize same-session recovery and the prior writer fence to be
-expired, then compare-and-swaps the row to a claimed `recovery` attempt. It
+expired, and refuses the transition while any other workspace job has a live
+lease, then compare-and-swaps the row to a claimed `recovery` attempt. It
 increments only `recovery_count`, preserves the job token, conversation,
 immutable inbound identity, absolute limit, and first accepted/progress facts,
 clears the prior attempt's instance, session cursor, revision, and progress

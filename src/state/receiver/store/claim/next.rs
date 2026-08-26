@@ -3,7 +3,7 @@
 use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
-use super::restart::has_ready_restart;
+use super::{live::has_live_receiver_claim, restart::has_ready_restart};
 use crate::state::{
     Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim, receiver_launch_expires_at,
 };
@@ -54,6 +54,9 @@ impl Db {
             rusqlite::TransactionBehavior::Immediate,
         )?;
         if has_ready_restart(&transaction, &self.workspace_id)? {
+            return Ok(None);
+        }
+        if has_live_receiver_claim(&transaction, &self.workspace_id, now)? {
             return Ok(None);
         }
         let candidate = oldest_ready_candidate(&transaction, &self.workspace_id, now)?;
@@ -108,13 +111,6 @@ fn oldest_ready_candidate(
                  )
                )
                AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)
-               AND NOT EXISTS (
-                 SELECT 1 FROM receiver_jobs AS live
-                 WHERE live.workspace_id = ?1
-                   AND live.claim_owner IS NOT NULL
-                   AND live.claim_expires_at_unix_ms > ?2
-                   AND live.state NOT IN ('failed', 'done')
-               )
              ORDER BY received_at_unix_ms, job_id
              LIMIT 1",
             rusqlite::params![workspace_id, now],
@@ -156,14 +152,7 @@ fn replace_candidate_lease(
                AND claim_expires_at_unix_ms <= ?2
              )
            )
-           AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)
-           AND NOT EXISTS (
-             SELECT 1 FROM receiver_jobs AS live
-             WHERE live.workspace_id = ?1
-               AND live.claim_owner IS NOT NULL
-               AND live.claim_expires_at_unix_ms > ?2
-               AND live.state NOT IN ('failed', 'done')
-           )",
+           AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)",
         rusqlite::params![workspace_id, now, owner, expires, job_id, launch_expires],
     )? == 1)
 }

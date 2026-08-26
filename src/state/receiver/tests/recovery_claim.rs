@@ -186,3 +186,171 @@ fn recovery_claim_cas_failure_leaves_the_complete_job_and_claim_unchanged() {
         .expect("load claim after failed CAS");
     assert_eq!(after_claim, before_claim);
 }
+
+#[test]
+fn live_claim_on_another_job_blocks_recovery_until_its_lease_expires() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let competing_inbound = receiver_job(Some("competing-live-claim"), 50);
+    let competing = db
+        .accept_receiver_job(&competing_inbound, &identity)
+        .expect("accept competing job");
+    db.claim_next_receiver_run("competing-owner", 1_000, 2_000)
+        .expect("claim competing job")
+        .expect("competing claim");
+    assert_eq!(
+        db.record_receiver_launch_retry(
+            competing.job_id(),
+            "competing-owner",
+            1_100,
+            301_000,
+            ReceiverLaunchFailure::Planning,
+        )
+        .expect("schedule competing retry"),
+        Some(ReceiverLaunchRetryOutcome::Scheduled)
+    );
+
+    let target_inbound = receiver_job(Some("recovery-target"), 100);
+    let target = db
+        .accept_receiver_job(&target_inbound, &identity)
+        .expect("accept recovery target");
+    db.claim_next_receiver_run("ordinary-owner", 1_200, 2_000)
+        .expect("claim recovery target")
+        .expect("target claim");
+    assert!(
+        db.prepare_receiver_job_launch(target.job_id(), "ordinary-owner", 1_250)
+            .expect("prepare target launch")
+    );
+    register_observation_session(
+        &db,
+        target.conversation_id(),
+        &target_inbound,
+        "ordinary-instance",
+        "native-session",
+    );
+    let target_token = db
+        .receiver_job(target.job_id())
+        .expect("load target")
+        .expect("target job")
+        .token();
+    assert!(
+        db.commit_receiver_job_launch(
+            target.job_id(),
+            "ordinary-owner",
+            &launch_observation(
+                target_token,
+                "ordinary-instance",
+                "native-session",
+                1_300,
+            ),
+        )
+        .expect("commit target launch")
+    );
+    assert!(
+        db.apply_receiver_observation(
+            target.job_id(),
+            "ordinary-owner",
+            &observation(
+                target_token,
+                "ordinary-instance",
+                "native-session",
+                ReceiverNonterminalObservationPhase::Accepted,
+                1,
+                1_350,
+            ),
+        )
+        .expect("commit target acceptance")
+    );
+    assert!(
+        db.apply_receiver_observation(
+            target.job_id(),
+            "ordinary-owner",
+            &observation(
+                target_token,
+                "ordinary-instance",
+                "native-session",
+                ReceiverNonterminalObservationPhase::Progressing,
+                2,
+                1_400,
+            ),
+        )
+        .expect("commit target progress")
+    );
+    let competing_claim = db
+        .claim_next_receiver_run("competing-owner", 301_399, 331_400)
+        .expect("claim due competing retry")
+        .expect("competing retry claim");
+    assert_eq!(competing_claim.job().id(), competing.job_id());
+
+    let target_before = db
+        .receiver_job(target.job_id())
+        .expect("load target before rejected recovery")
+        .expect("target before rejected recovery");
+    let competing_before = db
+        .receiver_job(competing.job_id())
+        .expect("load competitor before rejected recovery")
+        .expect("competitor before rejected recovery");
+    let claims_before: Vec<(String, Option<String>, Option<i64>, i64)> = db
+        .conn
+        .prepare(
+            "SELECT job_id, claim_owner, claim_expires_at_unix_ms, updated_at_unix_ms
+             FROM receiver_jobs WHERE workspace_id = ?1 ORDER BY job_id",
+        )
+        .expect("prepare claim snapshot")
+        .query_map([receiver_workspace_id().to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("read claims before rejected recovery")
+        .collect::<rusqlite::Result<_>>()
+        .expect("collect claims before rejected recovery");
+
+    assert!(
+        db.claim_receiver_recovery_run(
+            target.job_id(),
+            "recovery-owner",
+            301_400,
+            331_400,
+        )
+        .expect("reject recovery behind live competing claim")
+        .is_none(),
+        "a workspace may have only one live receiver claim"
+    );
+    assert_eq!(
+        db.receiver_job(target.job_id())
+            .expect("reload target after rejected recovery")
+            .expect("target after rejected recovery"),
+        target_before
+    );
+    assert_eq!(
+        db.receiver_job(competing.job_id())
+            .expect("reload competitor after rejected recovery")
+            .expect("competitor after rejected recovery"),
+        competing_before
+    );
+    let claims_after: Vec<(String, Option<String>, Option<i64>, i64)> = db
+        .conn
+        .prepare(
+            "SELECT job_id, claim_owner, claim_expires_at_unix_ms, updated_at_unix_ms
+             FROM receiver_jobs WHERE workspace_id = ?1 ORDER BY job_id",
+        )
+        .expect("prepare unchanged claim snapshot")
+        .query_map([receiver_workspace_id().to_string()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .expect("read claims after rejected recovery")
+        .collect::<rusqlite::Result<_>>()
+        .expect("collect claims after rejected recovery");
+    assert_eq!(claims_after, claims_before);
+
+    assert!(
+        db.claim_receiver_recovery_run(
+            target.job_id(),
+            "recovery-owner",
+            331_400,
+            361_400,
+        )
+        .expect("claim recovery after competing lease expiry")
+        .is_some(),
+        "the recovery must become claimable at competing lease expiry"
+    );
+}

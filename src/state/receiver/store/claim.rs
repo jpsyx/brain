@@ -7,6 +7,7 @@ use crate::state::{
     ReceiverLaunchRetryOutcome,
 };
 
+mod live;
 mod next;
 mod recovery;
 mod restart;

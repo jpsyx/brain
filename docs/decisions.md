@@ -2500,6 +2500,10 @@ lock, requires an expired prior writer fence, consumes only the one recovery
 count, resets the current-attempt cursor, and establishes launch plus recovery
 deadlines capped by the original absolute limit. Its guarded update either
 publishes the complete recovery attempt and claim or leaves the row unchanged.
+Ordinary and recovery claims call the same workspace-wide live-claim predicate
+after acquiring their immediate transaction. The transaction's writer lock
+keeps that check and the later claim update indivisible, without maintaining
+separate SQL copies of the exclusion.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come
