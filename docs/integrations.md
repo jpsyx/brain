@@ -298,8 +298,9 @@ receiver tab identity, resolves the lifecycle-owned current native session, and
 constructs a frontend-neutral observation request. `BrainPanelState` invokes
 only that tab's `AgentController`; the coordinator never calls a concrete
 adapter or snapshot reader. It rebuilds the opaque cursor from the durable
-revision and accepted, progressing, and completed timestamps, so restart and
-session rotation resume from durable facts. One newer normalized result is
+revision, current-attempt boundary timestamps, and current-attempt latest
+progress evidence, so restart and session rotation resume from durable facts.
+One newer normalized result is
 applied through one fresh-time exact-owner transaction. Multiple missed
 boundaries commit atomically, and the revision advances once. For a nonterminal
 result, that same transaction requires the exact current `brain_sessions`
@@ -901,7 +902,11 @@ Which session to run is decided by the **lock + recency** model in
    token's exact marker as the prompt's final line. Progress requires an
    accepted snapshot with the same token, remote instance, and native session.
    Native Claude/Codex child events carrying `agent_id`, other recognized child
-   payloads, mismatches, duplicates, and regressions are no-ops.
+   payloads, mismatches, exact duplicate tool events, and reordered producer
+   timestamps are no-ops. Each distinct later tool event may publish another
+   progress pulse without rewriting the first progressing boundary. OpenCode
+   additionally revokes that eligibility when a later unrelated root user turn
+   begins, then restores it only after another exact token marker.
 
    The normalized observation is an owner-only JSON snapshot and owner-only
    advisory lock below the workspace UUID's receiver-observation cache. On
@@ -912,14 +917,16 @@ Which session to run is decided by the **lock + recency** model in
    confined observation-directory descriptor. Unsupported platforms fail
    closed. Schema
    version 1 is limited to 4096 bytes and has only `version`, `revision`,
-   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, and the three
-   boundary timestamps. Writers serialize, flush an owner-only same-directory
+   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, the three
+   boundary timestamps, and `latest_progress_at_unix_ms`. Writers serialize,
+   flush an owner-only same-directory
    temporary file, and atomically replace the snapshot. Revisions increase
-   only on `accepted`, `progressing`, or `completed` transitions, and each
-   later snapshot retains earlier timestamps. A new producer timestamp is
-   clamped to the latest retained boundary across wall-clock rollback, and the
-   constructed snapshot must pass the full schema and timeline validator before
-   publication. Revision is capped at SQLite's
+   on `accepted`, first `progressing`, later progress pulses, or `completed`, and
+   each later snapshot retains the first boundary timestamps. The latest pulse
+   must move producer time forward; an equal or older pulse is rejected. A new
+   boundary timestamp is clamped to the latest retained evidence across
+   wall-clock rollback, and the constructed snapshot must pass the full schema
+   and timeline validator before publication. Revision is capped at SQLite's
    maximum signed integer; a saturated producer preserves the last valid
    snapshot instead of writing an unrepresentable revision. A trusted exact
    Stop over a saturated accepted or progressing snapshot returns an explicit
@@ -933,7 +940,7 @@ Which session to run is decided by the **lock + recency** model in
    a prior snapshot exists, the writer opens it no-follow and nonblocking where
    supported, verifies the opened regular owner-only descriptor and exact byte
    length before and after one bounded read, and accepts only the strict
-   ten-field schema, canonical token and instance, bounded session and turn,
+   eleven-field schema, canonical token and instance, bounded session and turn,
    valid revision/timestamps, and exact token/instance/session lineage. A bad
    symlink, mode, body, identity, or lifecycle is left untouched; a later event
    cannot launder it into a valid atomic replacement. If
@@ -955,18 +962,25 @@ Which session to run is decided by the **lock + recency** model in
    true not-found result as pending, reject symlink and nonregular entries as
    invalid file types, and otherwise fail closed without reading the snapshot.
    One poll reads at most 4097 bytes, accepts only the
-   exact ten-field schema, and returns content-free accepted, progressing, and
-   completed boundaries in lifecycle order with an opaque next cursor.
+   exact eleven-field schema, and returns content-free accepted, progressing,
+   and completed boundaries plus an optional newer progress pulse with an opaque
+   next cursor. A pulse can therefore be the only new fact in a bounded read.
    Missing files and equal revisions are pending/no-change. Oversize,
    non-owner-only, symlink, malformed, mismatched, regressed, or ambiguous
    evidence fails in a stable category whose display contains no request or
    snapshot data. The opaque cursor retains the timestamps already emitted, so
    a higher revision cannot rewrite or erase prior facts, introduce an earlier
-   phase after a later one, or make the emitted timestamp stream decrease. A
+   phase after a later one, regress the latest progress timestamp, or make the
+   emitted timestamp stream decrease. A
    higher revision can still recover genuinely missed intermediate boundaries;
    a prior rotated or placeholder session cannot advance the lifecycle. This
    operation only reads evidence. The active receiver coordinator owns polling
-   and converts only these normalized results into durable transitions.
+   and converts only these normalized results into durable transitions. Its
+   exact-owner transaction advances a newer pulse only for the same instance,
+   native session, live registration, and monotonic revision. Fresh local
+   authorization time renews the five-minute progress deadline through
+   `ReceiverLifecycleDeadlines::after_progress`; the immutable 30-minute limit
+   clamps that renewal, while producer time is retained only as evidence.
 
    The repository privacy guard recursively discovers observation and receiver
    completion surfaces by semantic markers and observation/completion path

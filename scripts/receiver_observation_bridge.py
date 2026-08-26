@@ -29,6 +29,7 @@ FIELDS = {
     "turn_id",
     "accepted_at_unix_ms",
     "progressing_at_unix_ms",
+    "latest_progress_at_unix_ms",
     "completed_at_unix_ms",
 }
 
@@ -270,26 +271,30 @@ def valid_snapshot(value: object) -> bool:
     timestamps = [
         value.get("accepted_at_unix_ms"),
         value.get("progressing_at_unix_ms"),
+        value.get("latest_progress_at_unix_ms"),
         value.get("completed_at_unix_ms"),
     ]
     if any(timestamp is not None and not valid_timestamp(timestamp) for timestamp in timestamps):
         return False
-    accepted, progressing, completed = timestamps
+    accepted, progressing, latest_progress, completed = timestamps
     phase = value.get("phase")
     consistent = (
         phase == "accepted"
         and accepted is not None
         and progressing is None
+        and latest_progress is None
         and completed is None
     ) or (
         phase == "progressing"
         and accepted is not None
         and progressing is not None
+        and latest_progress is not None
         and completed is None
     ) or (
         phase == "completed"
         and completed is not None
         and not (accepted is None and progressing is not None)
+        and (progressing is None) == (latest_progress is None)
     )
     present = [timestamp for timestamp in timestamps if timestamp is not None]
     return consistent and present == sorted(present)
@@ -358,6 +363,7 @@ def accepted_snapshot(token: str, instance: str, session: str, now: int) -> dict
         "turn_id": None,
         "accepted_at_unix_ms": now,
         "progressing_at_unix_ms": None,
+        "latest_progress_at_unix_ms": None,
         "completed_at_unix_ms": None,
     }
 
@@ -388,6 +394,7 @@ def next_snapshot(
             "turn_id": turn_id if valid_identifier(turn_id) else None,
             "accepted_at_unix_ms": None,
             "progressing_at_unix_ms": None,
+            "latest_progress_at_unix_ms": None,
             "completed_at_unix_ms": now,
         }
         if valid_snapshot(updated):
@@ -406,6 +413,7 @@ def next_snapshot(
         for timestamp in (
             current.get("accepted_at_unix_ms"),
             current.get("progressing_at_unix_ms"),
+            current.get("latest_progress_at_unix_ms"),
             current.get("completed_at_unix_ms"),
         )
         if valid_timestamp(timestamp)
@@ -418,6 +426,25 @@ def next_snapshot(
             phase="progressing",
             turn_id=turn_id if valid_identifier(turn_id) else None,
             progressing_at_unix_ms=monotonic_now,
+            latest_progress_at_unix_ms=monotonic_now,
+        )
+        if valid_snapshot(updated):
+            return TransitionOutcome.WRITE, updated
+        return TransitionOutcome.REJECTED, None
+    if phase == "progressing" and current.get("phase") == "progressing":
+        latest_progress = current.get("latest_progress_at_unix_ms")
+        if (
+            not valid_identifier(turn_id)
+            or turn_id == current.get("turn_id")
+            or not valid_timestamp(latest_progress)
+            or now <= latest_progress
+        ):
+            return TransitionOutcome.REJECTED, None
+        updated = dict(current)
+        updated.update(
+            revision=current["revision"] + 1,
+            turn_id=turn_id,
+            latest_progress_at_unix_ms=now,
         )
         if valid_snapshot(updated):
             return TransitionOutcome.WRITE, updated

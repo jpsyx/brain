@@ -29,7 +29,7 @@ pub use hooks::HookMetadata;
 pub use input::{InputSequence, InputWrite};
 pub use observation::{
     AgentObservationBoundary, AgentObservationCursor, AgentObservationError, AgentObservationPhase,
-    AgentObservationRequest, AgentObservationResult,
+    AgentObservationRequest, AgentObservationResult, AgentProgressPulse,
 };
 pub use session::{
     AgentKind, AgentSession, CompletionStatus, CompletionStrategy, SessionPlan, SessionScope,

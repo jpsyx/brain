@@ -1521,11 +1521,18 @@ session for the isolated receiver tab, and asks that tab's `AgentController`
 for one bounded content-free observation. Missing evidence remains pending.
 Token-, instance-, session-, and owner-matched newer evidence durably proves
 `accepted` and `processing`; one snapshot containing both facts applies them
-atomically and advances its revision once. The same state transaction requires
+atomically and advances its revision once. After exact progressing evidence,
+each distinct later tool event can advance the same revision stream with a
+content-free progress pulse while retaining the first progressing timestamp.
+Pulse-only reads cross the same `AgentController` facade and exact state
+transaction for Claude, Codex, and OpenCode; unrelated turns, children, prior
+sessions, wrong scope, duplicate events, and reordered timestamps cannot renew
+the job. The same state transaction requires
 that exact session tuple to remain locked and registered to the conversation;
 stored observation-session continuity cannot substitute for a current lock.
-The poll cursor is rebuilt from the durable revision and the current attempt's
-evidence timestamps on every tick, so process restart does
+The poll cursor is rebuilt from the durable revision, current attempt's
+boundary timestamps, and current attempt's latest progress evidence on every
+tick, so process restart does
 not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
 or regressed evidence leaves the job unchanged. The producer descriptor-confines
 its owner-only cache, observation directory, lock, temporary, and replacement
@@ -1540,6 +1547,14 @@ later producer event cannot repair or replace an untrusted prior
 entry: symlinks, non-owner-only files, malformed or truncated JSON, wrong
 identity, and ambiguous lifecycle shapes are preserved for the strict App poll
 to reject in its stable category.
+
+A committed pulse stores its producer timestamp only as monotonic evidence.
+Brain samples fresh local authorization time after validation, renews the
+five-minute progress deadline from that time, and clamps it to the immutable
+30-minute accepted-work deadline. Renewing the 30-second claim remains only a
+writer fence and cannot extend either liveness limit. Task 2 establishes these
+repeated bounded pulses; the later BR-16 recurring stalled-job reconciler and
+recovery-launch App effects remain separate work.
 
 The stop bridge settles a completed observation inside its session transaction
 before publishing the artifact or completed-session state. The TUI requires
@@ -1593,16 +1608,17 @@ exact correlation rather than scheduling a retry. Schema v10 separately
 persists the two-minute launch, 90-second acceptance, five-minute progress,
 recovery, and immutable 30-minute accepted-work deadlines. The renewable
 30-second claim remains only a writer fence. Exact claims, launch commits,
-acceptance, and progress establish the corresponding lifecycle limits from
-trusted local authorization time, never from a future-skewed producer timestamp.
+acceptance, and every exact progress pulse establish or renew the corresponding
+lifecycle limits from trusted local authorization time, never from a
+future-skewed producer timestamp.
 The pure policy can classify a durable snapshot as wait, safe pre-acceptance
 requeue, one same-session recovery, terminal failure, or an incomplete legacy
 completion state. Recovery count and attempt kind remain separate from the
 existing three-attempt launch retry budget. A policy-checked store transaction
 can atomically claim the single recovery, preserve lifetime identity and first
 facts, reset the current-attempt cursor, and establish launch and recovery
-deadlines without changing the ordinary retry counter. The current Task 1
-foundation does not yet invoke that transaction from the recurring coordinator
+deadlines without changing the ordinary retry counter. The combined Task 1 and
+Task 2 foundation does not yet invoke recovery from the recurring coordinator
 or execute App effects, so expired `launching`, `launched`, `accepted`, and
 `processing` rows still preserve their complete ownership, state, and retry
 evidence and block FIFO replay.

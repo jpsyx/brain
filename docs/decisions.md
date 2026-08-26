@@ -2647,6 +2647,28 @@ lifecycle validation, the coordinator samples a fresh App clock for the lease
 comparison and passes both values to the transaction. A valid future producer
 timestamp therefore remains evidence without delaying or authorizing the
 commit.
+
+## Why receiver activity is a progress pulse, not another phase
+
+Accepted, progressing, and completed are one-time lifecycle boundaries, but a
+healthy long-running turn may produce several exact tool events. Rewriting the
+progressing boundary would destroy the first proof; inventing more phases would
+leak frontend event grammar into the coordinator. Schema-v1 snapshots therefore
+retain the first progressing timestamp and advance a separate monotonic
+`latest_progress_at_unix_ms` on each distinct later tool event. The opaque
+controller result exposes that value as an optional neutral pulse, so a bounded
+read can report activity even when its boundary list is empty.
+
+The producer rejects the same event identity and any timestamp that does not
+advance the prior pulse. The store then applies a pulse through the same live
+owner, token, instance, native-session, registration, and monotonic-revision
+transaction as boundary evidence. Producer time is stored only as evidence.
+Fresh authorization time renews the five-minute progress lease through the pure
+deadline policy, and the original absolute accepted-work deadline remains an
+immutable clamp. Claim renewal stays independent writer fencing. At revision
+saturation no pulse can advance, but an exact Stop can still settle through the
+existing terminal no-mutation path.
+
 Artifact delivery precedence is only a body decision. The terminal store still
 merges all accepted, progressing, and completed boundaries, the revision and
 session cursor, and exact completed-session binding in one immediate owner

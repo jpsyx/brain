@@ -117,6 +117,7 @@ fn observation_boundary_violation(relative: &str, source: &str) -> Option<&'stat
         "ParsedSnapshot",
         "accepted_at_unix_ms",
         "progressing_at_unix_ms",
+        "latest_progress_at_unix_ms",
         "completed_at_unix_ms",
     ] {
         if source.contains(forbidden) {

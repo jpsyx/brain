@@ -82,6 +82,7 @@ pub struct ReceiverObservationSet {
     pub revision: u64,
     pub accepted_at_unix_ms: Option<u64>,
     pub progressing_at_unix_ms: Option<u64>,
+    pub latest_progress_at_unix_ms: Option<u64>,
     pub completed_at_unix_ms: Option<u64>,
     pub authorized_at_unix_ms: u64,
 }
@@ -517,10 +518,14 @@ impl ReceiverJob {
     pub fn observation_cursor(
         &self,
     ) -> Result<crate::agent::AgentObservationCursor, crate::agent::AgentObservationError> {
+        let attempt_latest_progress = self
+            .attempt_progressing_at_unix_ms
+            .and(self.latest_progress_at_unix_ms);
         crate::agent::AgentObservationCursor::from_durable(
             self.observation_revision,
             self.attempt_accepted_at_unix_ms,
             self.attempt_progressing_at_unix_ms,
+            attempt_latest_progress,
             self.completed_at_unix_ms,
         )
     }

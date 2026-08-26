@@ -6,7 +6,7 @@ const SESSION: &str = "native-session-7";
 
 fn accepted_snapshot() -> String {
     format!(
-        r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{TOKEN}","instance_id":"{INSTANCE}","session_id":"{SESSION}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"completed_at_unix_ms":null}}"#
+        r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{TOKEN}","instance_id":"{INSTANCE}","session_id":"{SESSION}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"latest_progress_at_unix_ms":null,"completed_at_unix_ms":null}}"#
     )
 }
 

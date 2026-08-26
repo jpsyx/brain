@@ -364,6 +364,9 @@ fn receiver_observation_set(
         revision: result.snapshot_revision(),
         accepted_at_unix_ms,
         progressing_at_unix_ms,
+        latest_progress_at_unix_ms: result
+            .progress_pulse()
+            .map(crate::agent::AgentProgressPulse::observed_at_unix_ms),
         completed_at_unix_ms,
         authorized_at_unix_ms,
     }

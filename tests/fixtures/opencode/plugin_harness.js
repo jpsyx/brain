@@ -414,14 +414,72 @@ const observationScenario = async (BrainPlugin) => {
   );
   assert.equal(JSON.parse(fs.readFileSync(observationPath, "utf8")).revision, 1);
   await plugin["tool.execute.after"](
-    { sessionID: "root-observed", messageID: "turn-1", tool: "synthetic-tool" },
+    {
+      sessionID: "root-observed",
+      messageID: "assistant-1",
+      callID: "turn-1",
+      tool: "synthetic-tool",
+    },
     { output: "synthetic-output" },
   );
   const progressing = JSON.parse(fs.readFileSync(observationPath, "utf8"));
   assert.equal(progressing.phase, "progressing");
   assert.equal(progressing.revision, 2);
   assert.equal(progressing.turn_id, "turn-1");
+  assert.equal(progressing.progressing_at_unix_ms, progressing.latest_progress_at_unix_ms);
   assert.deepEqual(fake.calls, [], "progress must not fetch message history");
+
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await plugin["tool.execute.after"](
+    {
+      sessionID: "root-observed",
+      messageID: "assistant-1",
+      callID: "turn-2",
+      tool: "synthetic-tool",
+    },
+    { output: "synthetic-output" },
+  );
+  const pulsed = JSON.parse(fs.readFileSync(observationPath, "utf8"));
+  assert.equal(pulsed.phase, "progressing");
+  assert.equal(pulsed.revision, 3);
+  assert.equal(pulsed.turn_id, "turn-2");
+  assert.equal(pulsed.progressing_at_unix_ms, progressing.progressing_at_unix_ms);
+  assert(pulsed.latest_progress_at_unix_ms > progressing.latest_progress_at_unix_ms);
+
+  await dispatch(
+    plugin,
+    messageUpdated({
+      id: "unrelated-user",
+      sessionID: "root-observed",
+      role: "user",
+      time: { created: 100 },
+    }),
+  );
+  await dispatch(
+    plugin,
+    partUpdated({
+      id: "part-current-delayed-duplicate",
+      sessionID: "root-observed",
+      messageID: "user-39",
+      type: "text",
+      text: `synthetic\n${marker}`,
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await plugin["tool.execute.after"](
+    {
+      sessionID: "root-observed",
+      messageID: "unrelated-assistant",
+      callID: "turn-unrelated",
+      tool: "synthetic-tool",
+    },
+    { output: "synthetic-output" },
+  );
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(observationPath, "utf8")),
+    pulsed,
+    "an unrelated user turn must revoke progress eligibility",
+  );
   const serialized = JSON.stringify(progressing);
   for (const forbidden of ["synthetic", "tool", "output", "sender", "recipient", "cwd"]) {
     assert.equal(serialized.includes(forbidden), false, `snapshot leaked ${forbidden}`);

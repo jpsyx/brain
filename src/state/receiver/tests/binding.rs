@@ -406,6 +406,8 @@ fn exact_completion_accepts_launched_accepted_and_processing_without_fabricating
                 job.observation_revision(),
                 job.accepted_at_unix_ms(),
                 job.progressing_at_unix_ms(),
+                job.progressing_at_unix_ms()
+                    .and_then(|_| job.latest_progress_at_unix_ms()),
                 job.completed_at_unix_ms(),
             )
             .is_ok(),
@@ -467,6 +469,7 @@ fn recovery_completion_preserves_first_facts_and_commits_its_own_cursor() {
         revision: 3,
         accepted_at_unix_ms: Some(1_300),
         progressing_at_unix_ms: Some(1_400),
+        latest_progress_at_unix_ms: Some(1_400),
         completed_at_unix_ms: Some(1_500),
         authorized_at_unix_ms: 1_500,
     };
@@ -605,6 +608,7 @@ fn terminal_lifecycle_observation_waits_for_the_exact_completed_session() {
         revision: 1,
         accepted_at_unix_ms: None,
         progressing_at_unix_ms: None,
+        latest_progress_at_unix_ms: None,
         completed_at_unix_ms: Some(1_400),
         authorized_at_unix_ms: 1_500,
     };

@@ -148,6 +148,7 @@ fn exact_maximum_revision_roundtrips_without_wrap_or_false_newer_evidence() {
             "turn_id": "maximum-turn",
             "accepted_at_unix_ms": 1_000,
             "progressing_at_unix_ms": 1_100,
+            "latest_progress_at_unix_ms": 1_100,
             "completed_at_unix_ms": null,
         }),
     );
@@ -180,6 +181,7 @@ fn exact_maximum_revision_roundtrips_without_wrap_or_false_newer_evidence() {
             crate::agent::AgentObservationCursor::from_durable(
                 maximum,
                 Some(1_000),
+                Some(1_100),
                 Some(1_100),
                 None,
             )
@@ -269,6 +271,7 @@ fn write_snapshot_with_missed_boundaries(app: &App, session: &AgentSession) {
             "turn_id": null,
             "accepted_at_unix_ms": 1_000,
             "progressing_at_unix_ms": 1_100,
+            "latest_progress_at_unix_ms": 1_100,
             "completed_at_unix_ms": 1_200,
         })
         .to_string(),

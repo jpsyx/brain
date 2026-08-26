@@ -52,6 +52,7 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
         revision: 3,
         accepted_at_unix_ms: Some(1_000),
         progressing_at_unix_ms: Some(1_100),
+        latest_progress_at_unix_ms: Some(1_100),
         completed_at_unix_ms: Some(1_200),
         authorized_at_unix_ms: 1_300,
     };
@@ -132,6 +133,27 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
     });
     assert_safe_process(&run_bridge(&observation, "claude", &tool));
     assert_safe_snapshot(&observation);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let later_tool = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "session_id": SESSION,
+        "turn_id": "privacy-turn-later",
+        "prompt": PRIVATE_CANARIES[0],
+        "body": PRIVATE_CANARIES[1],
+        "response": PRIVATE_CANARIES[2],
+        "recipient": PRIVATE_CANARIES[3],
+        "credential": PRIVATE_CANARIES[4],
+        "sender": SENDER_CANARY,
+        "local_path": LOCAL_PATH_CANARY,
+        "private_host": PRIVATE_HOST_CANARY,
+    });
+    assert_safe_process(&run_bridge(&observation, "claude", &later_tool));
+    assert_safe_snapshot(&observation);
+    let pulsed: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&observation).unwrap()).unwrap();
+    assert_eq!(pulsed["revision"], 3);
+    assert_eq!(pulsed["turn_id"], "privacy-turn-later");
+    assert!(pulsed["latest_progress_at_unix_ms"].as_u64().is_some());
 
     let stop = serde_json::json!({
         "session_id": SESSION,
@@ -301,7 +323,7 @@ fn assert_safe_snapshot(path: &Path) {
         assert!(!snapshot.contains(canary), "snapshot leaked {canary}");
     }
     let value: serde_json::Value = serde_json::from_str(&snapshot).expect("snapshot JSON");
-    assert_eq!(value.as_object().expect("snapshot object").len(), 10);
+    assert_eq!(value.as_object().expect("snapshot object").len(), 11);
     assert_eq!(value["job_token"], TOKEN);
     assert_eq!(value["instance_id"], INSTANCE);
     assert_eq!(value["session_id"], SESSION);

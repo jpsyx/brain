@@ -177,6 +177,7 @@ const handleIdle = async (client, directory, sessionID) => {
 export const BrainPlugin = async ({ client, directory }) => {
   const rootSessions = new Map();
   const userMessages = new Map();
+  const currentUserMessages = new Map();
   const acceptedSessions = new Map();
 
   return {
@@ -212,7 +213,9 @@ export const BrainPlugin = async ({ client, directory }) => {
           typeof info.sessionID === "string" &&
           rootSessions.get(info.sessionID) === true
         ) {
+          acceptedSessions.delete(info.sessionID);
           boundedSet(userMessages, info.id, info.sessionID);
+          boundedSet(currentUserMessages, info.sessionID, info.id);
         }
         return;
       }
@@ -224,6 +227,7 @@ export const BrainPlugin = async ({ client, directory }) => {
           typeof part.messageID !== "string" ||
           typeof part.sessionID !== "string" ||
           userMessages.get(part.messageID) !== part.sessionID ||
+          currentUserMessages.get(part.sessionID) !== part.messageID ||
           !exactReceiverMarker(part.text)
         ) {
           return;
@@ -255,7 +259,12 @@ export const BrainPlugin = async ({ client, directory }) => {
         {
           hook_event_name: "PostToolUse",
           session_id: input.sessionID,
-          turn_id: typeof input.messageID === "string" ? input.messageID : null,
+          turn_id:
+            typeof input.callID === "string"
+              ? input.callID
+              : typeof input.messageID === "string"
+                ? input.messageID
+                : null,
         },
       );
     },

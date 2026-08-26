@@ -323,8 +323,9 @@ first move is a failing test that reproduces it, *then* the fix.
   integration tests launch all three frontends through `AgentController` and a
   recording transport. The adapter contract table also drives identical
   normalized observation requests through Claude, Codex, and OpenCode, proving
-  ordered missed-boundary recovery and explicit current/prior/placeholder
-  session rotation behavior. Focused parser tests cover the exact ten fields,
+  ordered missed-boundary recovery, pulse-only newer revisions, and explicit
+  current/prior/placeholder session rotation behavior. Focused parser tests
+  cover the exact eleven fields,
   duplicate/missing/unknown fields, identifier and revision bounds,
   phase/timestamp consistency, equal and regressed cursors, identity/session
   mismatches, missing files, exact 4096-byte acceptance, one-byte-over-limit
@@ -332,7 +333,8 @@ first move is a failing test that reproduces it, *then* the fix.
   nonblocking FIFO rejection, symlinked cache ancestors, metadata-to-open
   replacement, stable-length short reads, trailing JSON, and redacted
   diagnostics. Cross-poll tests pin timestamp immutability, phase preservation,
-  lifecycle order, and a nondecreasing emitted stream. Producer tests also
+  lifecycle order, and a nondecreasing emitted stream while allowing a newer
+  progress pulse with no new phase. Producer tests also
   force accepted-to-progressing and progressing-to-completed wall-clock
   rollback, proving each new snapshot clamps to durable producer time and
   validates before publication. Lock-leaf, parent-directory, post-replace, and
@@ -375,7 +377,9 @@ first move is a failing test that reproduces it, *then* the fix.
   progress, exact submit, later progress, and terminal evidence for every
   frontend. Claude and Codex finish through `agent_session_stop_hook.py`;
   OpenCode finishes through its real `session.idle` to stop-hook path. Normal,
-  duplicate, and completion-first cases preserve every producer timestamp.
+  duplicate, repeated-progress, and completion-first cases preserve every first
+  boundary while advancing only the latest progress evidence. The OpenCode
+  harness also proves a later unrelated user turn revokes pulse eligibility.
   Replacement tests then send later progress after symlink, permissive,
   malformed, truncated, wrong-token, and ambiguous same-scope entries, proving
   the producer preserves each entry and the App retains the durable row and tab

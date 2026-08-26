@@ -445,7 +445,7 @@ The frontend-neutral agent boundary. `controller` owns the semantic
 queue, start sessions, launch, inspect completion and session eligibility, snapshot,
 observe bounded receiver lifecycle facts, and shut down without constructing
 frontend keystrokes. `observation` owns the opaque cursor and neutral
-phase/boundary/request/result/error model, exact current-session ownership gates,
+phase/boundary/progress-pulse/request/result/error model, exact current-session ownership gates,
 and the shared descriptor-bound schema-v1 snapshot validator. The controller
 validates the trusted token, instance, canonical path, lifecycle session, actor,
 workspace, channel, and selected frontend before delegation, then reopens
@@ -456,7 +456,8 @@ only those handle-bound bytes. Receiver coordination therefore never parses
 provider transcripts, rollouts, event names, or snapshot grammar.
 `BrainPanelState` provides the smallest exact-tab observation facade, while
 `AppServices` loads durable cursor facts and applies one atomic receiver
-observation batch. The single-observation state API exposes only accepted and
+observation batch, including a pulse that carries no new lifecycle phase. The
+single-observation state API exposes only accepted and
 progressing phases through `ReceiverNonterminalObservationPhase`; terminal
 evidence can reach persistence only through the registration-aware batch
 transaction. The active coordinator resolves the current lifecycle
@@ -1876,8 +1877,9 @@ native correlation while parent-bearing child updates remain ineligible. Native
 Claude/Codex `agent_id` child hooks are rejected. The owner-only,
 advisory-locked JSON snapshot is at most
 4096 bytes; same-directory flush and atomic replacement make its monotonic
-revision safe across duplicate or concurrent delivery. It retains accepted,
-progressing, and completed timestamps but never stores prompt, tool, response,
+revision safe across duplicate or concurrent delivery. It retains the first
+accepted, progressing, and completed timestamps plus the latest monotonic
+progress timestamp, but never stores prompt, tool, response,
 sender, recipient, attachment, cwd, credential, or transcript content.
 Before deriving a later phase, the writer descriptor-walks the absolute cache
 path without following links, makes the opened workspace-cache and observation
@@ -1889,8 +1891,9 @@ regular owner-only descriptor, byte bound, exact schema, lifecycle, and
 token/instance/session lineage before and after one bounded read. A replaced,
 malformed, or ambiguous entry is preserved and cannot be normalized into
 trusted evidence by a later hook.
-Each new boundary time is clamped to the latest retained producer boundary, so
-a wall-clock rollback cannot publish an invalid timeline. The constructed
+Each new boundary time is clamped to the latest retained producer evidence, and
+a later pulse must strictly advance that producer time, so a wall-clock rollback
+cannot publish an invalid timeline. The constructed
 snapshot is validated again before replacement.
 Revisions stop at SQLite's maximum signed integer. Once saturated, later
 producer events preserve the last valid snapshot instead of writing evidence

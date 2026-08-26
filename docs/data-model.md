@@ -1099,20 +1099,25 @@ receiver_session_registrations(
 
 **Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
 frontend-neutral controller and is never persisted as provider grammar. It
-retains the highest parsed revision, represented lifecycle phases, and the
-exact accepted/progressing/completed timestamps already observed. A later poll
+retains the highest parsed revision, represented lifecycle phases, the exact
+accepted/progressing/completed timestamps already observed, and the latest
+monotonic progress timestamp. A later poll
 may add only phases that follow the cursor's lifecycle order while preserving
 every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
 emission order fail conservatively before any durable receiver mutation.
 The TUI rebuilds this opaque cursor from `observation_revision`, the current
-attempt's accepted/progressing timestamps, and the terminal completion timestamp
-before every poll. The lifetime `accepted_at_unix_ms` and
+attempt's accepted/progressing timestamps, its latest progress evidence when
+that attempt has progressed, and the terminal completion timestamp before every
+poll. The lifetime `accepted_at_unix_ms` and
 `progressing_at_unix_ms` fields retain the first facts across a recovery attempt
 and are not cursor input. Revision zero therefore means no evidence for the
 current process even when the job has lifetime accepted or progress proof. A
 positive revision must correspond to a possible lifecycle. Completion-only
 evidence is valid; progress without acceptance,
 timestamp reversal, and revision/evidence disagreement are rejected.
+Once progressing exists, a higher revision may carry only a strictly newer
+progress pulse. Equal or lower pulse timestamps are not new evidence; the first
+progressing timestamp remains immutable.
 The exact signed SQLite maximum is a valid nonnegative revision across JSON
 parsing, controller normalization, App conversion, SQLite storage, and cursor
 reconstruction. At that value, an equal snapshot is no-change and producers
