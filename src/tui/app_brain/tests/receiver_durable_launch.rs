@@ -282,6 +282,20 @@ fn progressed_stale_job_is_not_rerun_before_recovery_policy_exists() {
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
     let db = Db::open(app.context.workspace()).expect("state DB");
     let accepted = accept_email_job(&app, &db, "already progressed", 100);
+    let previous_session = AgentSession::new("previous-session").expect("previous session");
+    let previous_scope = crate::agent::SessionScope::new(
+        AgentKind::Claude,
+        app.context.workspace().id(),
+        email_actor(),
+    );
+    db.register_receiver_session(
+        accepted.conversation_id(),
+        &previous_session,
+        "previous-instance",
+        42,
+        &previous_scope,
+    )
+    .expect("register previous lifecycle session");
     let now = clock.unix_ms();
     let claim = db
         .claim_next_receiver_run("previous-owner", now, now + 1_000)

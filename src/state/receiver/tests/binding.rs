@@ -401,7 +401,46 @@ fn exact_completion_accepts_launched_accepted_and_processing_without_fabricating
         assert_eq!(job.completed_at_unix_ms(), Some(1_500));
         assert_eq!(job.accepted_at_unix_ms(), accepted_at);
         assert_eq!(job.progressing_at_unix_ms(), progressing_at);
+        assert!(
+            crate::agent::AgentObservationCursor::from_durable(
+                job.observation_revision(),
+                job.accepted_at_unix_ms(),
+                job.progressing_at_unix_ms(),
+                job.completed_at_unix_ms(),
+            )
+            .is_ok(),
+            "{state:?} artifact completion must leave a representable cursor"
+        );
+        if state == ReceiverJobState::Launched {
+            assert_eq!(job.observation_revision(), 1);
+            assert_eq!(
+                job.observation_session_id(),
+                Some(fixture.completed_session.as_str())
+            );
+        }
     }
+}
+
+#[test]
+fn exact_completion_clamps_local_artifact_time_to_future_stored_progress() {
+    let fixture = completion_fixture(ReceiverJobState::Processing);
+    let request = ReceiverCompletionRequest {
+        observed_at_unix_ms: 1_350,
+        ..fixture.request()
+    };
+
+    assert!(fixture
+        .db
+        .complete_receiver_job_with_binding(&request)
+        .expect("complete future-skewed receiver job"));
+
+    let completed = fixture
+        .db
+        .receiver_job(fixture.job_id)
+        .expect("load completed job")
+        .expect("receiver job");
+    assert_eq!(completed.progressing_at_unix_ms(), Some(1_400));
+    assert_eq!(completed.completed_at_unix_ms(), Some(1_400));
 }
 
 #[test]
@@ -488,6 +527,50 @@ fn exact_completion_rejects_a_wrong_native_session() {
             .db
             .receiver_job(fixture.job_id)
             .expect("load rejected job")
+            .expect("receiver job")
+            .state(),
+        ReceiverJobState::Launched
+    );
+}
+
+#[test]
+fn terminal_lifecycle_observation_waits_for_the_exact_completed_session() {
+    let fixture = completion_fixture(ReceiverJobState::Launched);
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE brain_sessions SET completion_status = 'active'
+             WHERE brain_instance_id = 'completion-instance'",
+            [],
+        )
+        .expect("restore active session");
+    let observation = ReceiverObservationSet {
+        token: fixture.token,
+        instance: fixture.registration.instance().to_owned(),
+        session_id: fixture.completed_session.as_str().to_owned(),
+        revision: 1,
+        accepted_at_unix_ms: None,
+        progressing_at_unix_ms: None,
+        completed_at_unix_ms: Some(1_400),
+        authorized_at_unix_ms: 1_500,
+    };
+
+    assert!(!fixture
+        .db
+        .apply_terminal_receiver_observation_set(
+            fixture.job_id,
+            "owner",
+            &observation,
+            &fixture.registration,
+            &fixture.completed_session,
+        )
+        .expect("defer lifecycle completion"));
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load deferred job")
             .expect("receiver job")
             .state(),
         ReceiverJobState::Launched

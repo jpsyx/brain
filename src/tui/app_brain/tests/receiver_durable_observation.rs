@@ -1,4 +1,6 @@
-use super::receiver_durable_support::{accept_email_job, publish_valid_rotated_completion};
+use super::receiver_durable_support::{
+    accept_email_job, mark_receiver_session_completed, publish_valid_rotated_completion,
+};
 use super::*;
 
 use crate::state::ReceiverJobState;
@@ -127,15 +129,26 @@ fn completion_only_evidence_finishes_without_a_response_and_unblocks_fifo() {
         .replace_receiver_transport(first_transport.transport());
     app.tick_receiver();
     let session = rotate_active_session(&app, "native-completion-only");
-    write_active_snapshot(&app, &session, 1, "completed", None, None, Some(1_200));
+    write_active_snapshot(
+        &app,
+        &session,
+        3,
+        "completed",
+        Some(1_000),
+        Some(1_100),
+        Some(1_200),
+    );
+    mark_receiver_session_completed(&app, &session);
 
     app.tick_receiver();
 
     let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
     assert_eq!(completed.state(), ReceiverJobState::Done);
-    assert_eq!(completed.accepted_at_unix_ms(), None);
-    assert_eq!(completed.progressing_at_unix_ms(), None);
+    assert_eq!(completed.accepted_at_unix_ms(), Some(1_000));
+    assert_eq!(completed.progressing_at_unix_ms(), Some(1_100));
     assert_eq!(completed.completed_at_unix_ms(), Some(1_200));
+    assert_eq!(completed.observation_revision(), 3);
+    assert_eq!(completed.observation_session_id(), Some(session.as_str()));
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(first_transport.shutdowns(), 1);
     assert_eq!(
@@ -166,14 +179,25 @@ fn artifact_and_lifecycle_completion_in_one_tick_finish_once_through_artifact_de
     let response =
         publish_valid_rotated_completion(&app, "native-artifact-and-lifecycle", "exact response");
     let session = AgentSession::new("native-artifact-and-lifecycle").unwrap();
-    write_active_snapshot(&app, &session, 1, "completed", None, None, Some(1_200));
+    write_active_snapshot(
+        &app,
+        &session,
+        3,
+        "completed",
+        Some(1_000),
+        Some(1_100),
+        Some(1_200),
+    );
 
     app.tick_receiver();
 
     let completed = db.receiver_job(accepted.job_id()).unwrap().unwrap();
     assert_eq!(completed.state(), ReceiverJobState::Done);
-    assert_eq!(completed.accepted_at_unix_ms(), None);
-    assert_eq!(completed.progressing_at_unix_ms(), None);
+    assert_eq!(completed.accepted_at_unix_ms(), Some(1_000));
+    assert_eq!(completed.progressing_at_unix_ms(), Some(1_100));
+    assert_eq!(completed.completed_at_unix_ms(), Some(1_200));
+    assert_eq!(completed.observation_revision(), 3);
+    assert_eq!(completed.observation_session_id(), Some(session.as_str()));
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(transport.shutdowns(), 1);
     assert!(!response.exists());
@@ -213,6 +237,57 @@ fn owner_loss_between_observation_and_commit_preserves_evidence_and_cleans_local
     assert_eq!(durable.observation_revision(), 0);
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(transport.shutdowns(), 1);
+}
+
+#[test]
+fn session_unlock_between_observation_and_commit_rejects_stored_session_continuity() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    app.receiver.record_intent(true);
+    let db = Db::open(app.context.workspace()).expect("state DB");
+    let accepted = accept_email_job(&app, &db, "session ownership race", 100);
+    app.brain
+        .replace_receiver_transport(TransportRecording::default().transport());
+    app.tick_receiver();
+    let session = rotate_active_session(&app, "native-session-race");
+    write_active_snapshot(&app, &session, 1, "accepted", Some(1_000), None, None);
+    app.tick_receiver();
+    write_active_snapshot(
+        &app,
+        &session,
+        2,
+        "progressing",
+        Some(1_000),
+        Some(1_100),
+        None,
+    );
+    let state_db = app.context.state_db_path().to_owned();
+    let instance = app
+        .receiver
+        .active_durable_run()
+        .expect("active receiver")
+        .attribution
+        .instance()
+        .to_owned();
+    app.receiver
+        .install_after_observation_validation_hook(Box::new(move || {
+            rusqlite::Connection::open(&state_db)
+                .expect("racing state DB")
+                .execute(
+                    "UPDATE brain_sessions SET locked_pid = NULL
+                     WHERE brain_instance_id = ?1",
+                    [instance],
+                )
+                .expect("release exact native session");
+        }));
+
+    app.tick_receiver();
+
+    let durable = db.receiver_job(accepted.job_id()).unwrap().unwrap();
+    assert_eq!(durable.state(), ReceiverJobState::Accepted);
+    assert_eq!(durable.observation_revision(), 1);
+    assert_eq!(durable.progressing_at_unix_ms(), None);
 }
 
 fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {

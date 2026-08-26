@@ -282,17 +282,17 @@ after this renewal succeeds. When a boundary fails under the exact owner,
 cleanup finishes first; the coordinator then takes a new clock observation
 immediately before the retry CAS. This keeps retry timestamps and lease checks
 independent of slow cleanup.
-After successful spawn and tab allocation, one final exact-owner observation
-commits the Task 1 `launched` boundary with the job token, remote instance, and
-registered session before the run becomes active. Completion remains forbidden
-from `launching`; it is accepted only from `launched`, `accepted`, or
-`processing`. Only failures before that commit can take the bounded
-pre-acceptance retry path. Once `launched` is durable, a child exit, orderly
-shutdown, or expired lease is ambiguous: Brain cleans local controller, tab,
-artifact, and staged-file resources but preserves the complete durable job and
-session correlation. Claim polling cannot renew, replace, retry, or overtake
-expired `launched`, `accepted`, or `processing` rows before BR-16 supplies a
-proved recovery policy.
+Successful spawn itself is the no-auto-replay boundary. Brain immediately
+reauthorizes and commits `launched` with the job token, remote instance, and
+registered session before attempting tab allocation. A synchronous spawn
+failure may take the bounded pre-spawn retry path. Any owner loss or error after
+spawn instead preserves the exact registration and leaves `launching` or
+`launched` fenced. Completion remains forbidden from `launching`; it is
+accepted only from `launched`, `accepted`, or `processing`. Child exit, orderly
+shutdown, and lease expiry clean local controller, tab, artifact, and staged
+files but preserve durable correlation. Claim polling cannot renew, replace,
+retry, or overtake expired `launching`, `launched`, `accepted`, or `processing`
+rows before BR-16 supplies a proved recovery policy.
 On each later active tick, Brain renews that same owner, validates the exact
 receiver tab identity, resolves the lifecycle-owned current native session, and
 constructs a frontend-neutral observation request. `BrainPanelState` invokes
@@ -301,7 +301,11 @@ adapter or snapshot reader. It rebuilds the opaque cursor from the durable
 revision and accepted, progressing, and completed timestamps, so restart and
 session rotation resume from durable facts. One newer normalized result is
 applied through one fresh-time exact-owner transaction. Multiple missed
-boundaries commit atomically, and the revision advances once. Evidence
+boundaries commit atomically, and the revision advances once. For a nonterminal
+result, that same transaction requires the exact current `brain_sessions`
+tuple to remain locked and registered to the logical conversation. A stored
+session ID is only an additional continuity check, not authorization after an
+unlock or rotation. Evidence
 timestamps remain producer facts and never authorize an expired claim.
 The adjacent ownership seam gives every run a unique remote
 `BRAIN_INSTANCE_ID`, registers a fresh Brain-supplied ID before spawn or claims
@@ -494,8 +498,9 @@ The TUI separately tracks whether a prompt has actually been submitted.
 Opening the interactive panel is therefore not itself considered active work.
 Receiver work no longer consumes or replaces that panel: every SMS or email job
 gets a separate background controller and PTY. The main-panel Stop response
-still clears only its own active-turn state. A failed receiver launch releases
-its exact remote registration and records a durable pre-acceptance retry.
+still clears only its own active-turn state. A planning or registration failure,
+or a synchronous process-spawn failure, releases its exact remote registration
+and records a durable pre-spawn retry. Post-spawn failures remain fenced.
 
 Receiver behavior is frontend-neutral after authentication. An SMS or email
 job carries the same immutable workspace, actor, channel, response email, and
@@ -899,13 +904,22 @@ Which session to run is decided by the **lock + recency** model in
    payloads, mismatches, duplicates, and regressions are no-ops.
 
    The normalized observation is an owner-only JSON snapshot and owner-only
-   advisory lock below the workspace UUID's receiver-observation cache. Schema
+   advisory lock below the workspace UUID's receiver-observation cache. On
+   Unix the producer descriptor-walks the absolute path with no-follow opens,
+   enforces owner-only workspace-cache and observation directories on their
+   opened descriptors, rejects symlink ancestors and lock leaves, and performs
+   temporary creation, replacement, cleanup, and directory sync relative to the
+   confined observation-directory descriptor. Unsupported platforms fail
+   closed. Schema
    version 1 is limited to 4096 bytes and has only `version`, `revision`,
    `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, and the three
    boundary timestamps. Writers serialize, flush an owner-only same-directory
    temporary file, and atomically replace the snapshot. Revisions increase
    only on `accepted`, `progressing`, or `completed` transitions, and each
-   later snapshot retains earlier timestamps. Revision is capped at SQLite's
+   later snapshot retains earlier timestamps. A new producer timestamp is
+   clamped to the latest retained boundary across wall-clock rollback, and the
+   constructed snapshot must pass the full schema and timeline validator before
+   publication. Revision is capped at SQLite's
    maximum signed integer; a saturated producer preserves the last valid
    snapshot instead of writing an unrepresentable revision. It stores no
    prompt, marker, tool, response, sender, recipient, path, cwd, credential, or
@@ -956,8 +970,9 @@ Which session to run is decided by the **lock + recency** model in
    reserved example, test, and invalid namespaces; and URL or IP values outside
    localhost, loopback, documentation, and reserved example namespaces.
    Path-discovered observation and receiver-completion producers also reject a
-   standalone non-reserved bare hostname from the literal alone, without using
-   its binding name or surrounding source words. This keeps external dotted
+   standalone non-reserved bare hostname, hostname with a numeric port, or bare
+   IPv6 address from the literal alone, without using its binding name or
+   surrounding source words. This keeps external dotted
    lifecycle identifiers in semantic-only consumers from being mistaken for
    hosts. Only the guard's own policy and runtime-canary modules are excluded
    from self-audit. Runtime prompt, body, response, sender,
@@ -979,16 +994,22 @@ Which session to run is decided by the **lock + recency** model in
    single optional field; a turn with no recoverable final text is the only
    no-op. The hook stages a unique, synced file, starts `BEGIN IMMEDIATE`,
    rechecks that locked tuple, and updates the same predicate only when exactly
-   one row matches. It publishes and syncs the artifact before committing the
-   `completed` state. A publication or commit failure rolls back the database
+   one row matches. For a receiver run it first requires the content-free
+   completed observation to settle successfully while that transaction still
+   keeps the session `active`. It then publishes and syncs the artifact before
+   committing the session's `completed` state. The TUI requires that exact
+   completed row in its own immediate terminal transaction, so the earlier
+   observation cannot become terminal authority before the stop transaction
+   commits. An observation, publication, or commit failure rolls back the database
    and removes or restores only the file owned by that attempt. A concurrent
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
    independent of the frontend session ID, which gives Codex turns the
    same completion path as Claude and OpenCode. The artifact includes frontend,
    workspace, session, response, actor, channel, and completion status. For a
-   receiver run it also includes the exact job token, then publishes the
-   content-free `completed` observation after the response and database commit.
+   receiver run it also includes the exact job token. The observation therefore
+   precedes artifact/session visibility, while all three become consumable only
+   after the database commit.
    Completion-first production remains valid when earlier hooks were missed;
    private response text stays only in the separate completion artifact.
    An interactive turn accepts only its launched session context and has no job
@@ -1007,8 +1028,11 @@ Which session to run is decided by the **lock + recency** model in
    `launching`-to-`done` remains forbidden. Exact completion may move a
    `launched` job directly to `done` when intermediate observations were missed.
    Lifecycle-only completion uses the same exact owner and identity gates, may
-   also finish directly without inventing a response body, and atomically
-   replaces the conversation binding with its exact observed native session.
+   also finish directly without inventing a response body, and enters the same
+   transaction as artifact completion. That transaction validates stored and
+   incoming timelines, merges every accepted/progress/completed boundary and
+   cursor, requires the exact lifecycle session to remain locked and
+   `completed`, replaces the conversation binding, and marks the job done.
    A binding persistence failure rolls back the terminal job update. A valid
    artifact still wins when both terminal forms exist in one tick and delivers
    its exact body once. When that poll also contains a strict completed
@@ -1273,10 +1297,14 @@ new active session. Neither process spawn nor screen activity is completion
 evidence. Terminal cleanup releases that session owner, shuts down the
 controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Spawn failure before the durable `launched` commit
-performs explicit registration cleanup and durable pre-acceptance retry. After
-that commit, child exit, orderly shutdown, and lease expiry permit local cleanup
-only; the durable job and exact session correlation remain unchanged for BR-16.
+the active view or focus. Only a synchronous spawn failure performs explicit
+registration cleanup and a durable pre-spawn retry. Once process spawn
+succeeds, Brain crosses a no-auto-replay boundary before any later fallible
+step: it reauthorizes and commits `launched` before allocating the tab. Owner
+loss or a launch-commit error preserves the exact registration and fenced
+`launching` row; allocation failure or later owner loss preserves `launched`.
+Child exit, orderly shutdown, and lease expiry then permit local cleanup only;
+the durable job and exact session correlation remain unchanged for BR-16.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are not rerun before
@@ -1340,16 +1368,13 @@ keyboard input or shell shutdown.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact
-Planning retry is sampled. A still-owned active run releases its exact
-registration, shuts down and removes only its receiver tab, removes the exact
-artifact, and drops the owning staged directory before sampling the clock for
-one exact Spawn retry. Lost ownership permits those local removals only.
-The stage is idempotent. After an unclean exit, the FIFO claim transaction
-atomically converts only an expired `launching` row into an immediately due
-bounded Spawn retry while removing its stale exact registration and session
-lock. An exhausted row becomes `failed`, and only a later tick may select the
-next FIFO job. Expired `launched`, `accepted`, and `processing` rows remain
-untouched for BR-16; answer-ready and delivery recovery remain BR-17 work.
+Planning retry is sampled. A successful-spawn run shuts down and removes only
+its local receiver tab and exact instance files, drops the owning staged
+directory, and preserves its registration and durable state without recording
+a Spawn retry. Lost ownership permits the same local removals only. The stage
+is idempotent. After an unclean exit, expired `launching`, `launched`,
+`accepted`, and `processing` rows remain unchanged and stop FIFO for BR-16;
+answer-ready and delivery recovery remain BR-17 work.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

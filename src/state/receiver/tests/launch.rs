@@ -72,9 +72,11 @@ fn launch_preparation_requires_the_exact_live_owner_and_launch_eligible_state() 
 fn launched_observations_require_the_exact_owner_instance_session_and_revision() {
     let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let job = receiver_job(None, 100);
     let accepted = db
-        .accept_receiver_job(&receiver_job(None, 100), &identity)
+        .accept_receiver_job(&job, &identity)
         .expect("accept receiver job");
+    register_observation_session(&db, accepted.conversation_id(), &job, "instance-a", "session-a");
     db.claim_next_receiver_run("owner", 1_000, 2_000)
         .expect("claim receiver job")
         .expect("receiver claim");
@@ -138,9 +140,11 @@ struct ObservationFixture {
 fn prepared_observation_fixture() -> ObservationFixture {
     let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let job = receiver_job(None, 100);
     let accepted = db
-        .accept_receiver_job(&receiver_job(None, 100), &identity)
+        .accept_receiver_job(&job, &identity)
         .expect("accept receiver job");
+    register_observation_session(&db, accepted.conversation_id(), &job, "instance-a", "session-a");
     db.claim_next_receiver_run("owner", 1_000, 2_000)
         .expect("claim receiver job")
         .expect("receiver claim");

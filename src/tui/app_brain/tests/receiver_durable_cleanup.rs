@@ -1,4 +1,6 @@
-use super::receiver_durable_support::{accept_email_job, publish_valid_rotated_completion};
+use super::receiver_durable_support::{
+    accept_email_job, mark_receiver_session_completed, publish_valid_rotated_completion,
+};
 use super::*;
 
 use crate::state::ReceiverJobState;
@@ -25,6 +27,7 @@ fn lifecycle_completion_removes_only_the_exact_instance_files() {
     let session = rotate_active_session(&app, uuid::Uuid::new_v4().to_string());
     let files = ReceiverInstanceFiles::seed(&app, false);
     write_completed_snapshot(&app, &session);
+    mark_receiver_session_completed(&app, &session);
 
     app.tick_receiver();
 
@@ -32,6 +35,8 @@ fn lifecycle_completion_removes_only_the_exact_instance_files() {
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Done
     );
+    files.assert_exact_removed_and_unrelated_retained();
+    app.tick_receiver();
     files.assert_exact_removed_and_unrelated_retained();
     assert_eq!(transport.shutdowns(), 1);
 }

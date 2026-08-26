@@ -123,8 +123,9 @@ durable job, and launches a new PTY and frontend-neutral `AgentController` in
 that background tab even while the main panel is busy. Later arrivals remain
 durable until the active run reaches a valid exact completion. Terminal close
 shuts down only that controller, reloads tasks, preserves provider reply
-behavior, and leaves the active view, tab, and focus unchanged. A child exit
-without exact completion returns the job through bounded pre-acceptance retry.
+  behavior, and leaves the active view, tab, and focus unchanged. Only a proved
+  synchronous spawn failure enters bounded retry. A later child exit without
+  exact completion preserves the fenced post-spawn job for BR-16.
 
 Every skill session is **ephemeral**: never recorded in the session DB, never
 resumed. Because a run can involve back-and-forth with you, "the agent stopped
@@ -1520,25 +1521,39 @@ session for the isolated receiver tab, and asks that tab's `AgentController`
 for one bounded content-free observation. Missing evidence remains pending.
 Token-, instance-, session-, and owner-matched newer evidence durably proves
 `accepted` and `processing`; one snapshot containing both facts applies them
-atomically and advances its revision once. The poll cursor is rebuilt from the
+atomically and advances its revision once. The same state transaction requires
+that exact session tuple to remain locked and registered to the conversation;
+stored observation-session continuity cannot substitute for a current lock.
+The poll cursor is rebuilt from the
 durable revision and evidence timestamps on every tick, so process restart does
 not replay a prior boundary. Malformed, unrelated, ambiguous, equal-revision,
-or regressed evidence leaves the job unchanged. Producer revision saturation
+or regressed evidence leaves the job unchanged. The producer descriptor-confines
+its owner-only cache, observation directory, lock, temporary, and replacement
+operations, rejects symlink races, and clamps new timestamps across wall-clock
+rollback before validating the constructed snapshot. Producer revision saturation
 also preserves the last valid snapshot rather than emitting an unrepresentable
 revision. A later producer event cannot repair or replace an untrusted prior
 entry: symlinks, non-owner-only files, malformed or truncated JSON, wrong
 identity, and ambiguous lifecycle shapes are preserved for the strict App poll
 to reject in its stable category.
 
-An exact lifecycle completion artifact and lifecycle-only completion are both
-terminal evidence. A valid artifact wins when both appear in one tick, so its
-private response is delivered once through the existing exact completion path.
-When the same poll contains a validated lifecycle completion, its producer
+The stop bridge settles a completed observation inside its session transaction
+before publishing the artifact or completed-session state. The TUI requires
+that exact completed session in its own atomic terminal transaction, so neither
+surface is accepted from a partially published stop. An exact lifecycle
+completion artifact and lifecycle-only completion are both terminal evidence.
+A valid artifact wins when both appear in one tick, so its private response is
+delivered once through the existing exact completion path. When the same poll
+contains a validated lifecycle completion, all normalized boundaries plus its
+revision/session cursor are merged atomically even though the artifact body wins
+delivery. Its producer
 timestamp remains the durable terminal evidence time, even if it is later than
 the renewed lease. Producer evidence never authorizes completion. After exact
 artifact and lifecycle validation, Brain samples a fresh App clock for the
 lease check; without a lifecycle completion boundary, that same fresh value is
-also the durable completion-time fallback.
+  also the durable completion-time fallback. Artifact-only completion records a
+  representable terminal cursor at revision one or later and the exact completed
+  native session, without inventing accepted or progressing timestamps.
 Lifecycle-only completion can move `launched`, `accepted`, or `processing`
 directly to `done` without inventing missed intermediate timestamps or a
 response body. Its
@@ -1567,7 +1582,10 @@ model. It preserves immutable accepted inputs,
 provider delivery IDs, explicit queued through terminal lifecycle states,
 bounded retry metadata, and expiring claim ownership across Brain or machine
 restarts. Claims never pop a job from storage. If a consumer crashes, another
-owner can replace an eligible pre-acceptance or delivery lease. Expired
+owner can replace an eligible proved-pre-spawn or delivery lease. Successful
+process spawn is the no-auto-replay boundary. Brain commits `launched` before
+tab allocation; any owner, allocation, or store failure after spawn preserves
+exact correlation rather than scheduling a retry. Expired `launching`,
 `launched`, `accepted`, and `processing` rows preserve their complete ownership,
 state, and retry evidence and block FIFO replay until BR-16 decides whether to
 recover their native session.

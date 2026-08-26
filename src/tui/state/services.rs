@@ -221,34 +221,9 @@ impl AppServices {
         result: &crate::agent::AgentObservationResult,
         authorized_at_unix_ms: u64,
     ) -> Result<ReceiverObservationApplyOutcome> {
-        let mut accepted_at_unix_ms = None;
-        let mut progressing_at_unix_ms = None;
-        let mut completed_at_unix_ms = None;
-        for boundary in result.boundaries() {
-            match boundary.phase() {
-                crate::agent::AgentObservationPhase::Launched => {}
-                crate::agent::AgentObservationPhase::Accepted => {
-                    accepted_at_unix_ms = Some(boundary.observed_at_unix_ms());
-                }
-                crate::agent::AgentObservationPhase::Progressing => {
-                    progressing_at_unix_ms = Some(boundary.observed_at_unix_ms());
-                }
-                crate::agent::AgentObservationPhase::Completed => {
-                    completed_at_unix_ms = Some(boundary.observed_at_unix_ms());
-                }
-            }
-        }
-        let completed = completed_at_unix_ms.is_some();
-        let observation = crate::state::ReceiverObservationSet {
-            token,
-            instance: registration.instance().to_owned(),
-            session_id: result.session().as_str().to_owned(),
-            revision: result.snapshot_revision(),
-            accepted_at_unix_ms,
-            progressing_at_unix_ms,
-            completed_at_unix_ms,
-            authorized_at_unix_ms,
-        };
+        let observation =
+            receiver_observation_set(token, registration, result, authorized_at_unix_ms);
+        let completed = observation.completed_at_unix_ms.is_some();
         let changed = if completed {
             self.db.apply_terminal_receiver_observation_set(
                 job_id,
@@ -262,6 +237,24 @@ impl AppServices {
                 .apply_receiver_observation_set(job_id, owner, &observation)?
         };
         Ok(ReceiverObservationApplyOutcome { changed, completed })
+    }
+
+    pub(crate) fn receiver_observation_set(
+        token: crate::state::ReceiverJobToken,
+        registration: &crate::state::ReceiverSessionAttribution,
+        result: &crate::agent::AgentObservationResult,
+        authorized_at_unix_ms: u64,
+    ) -> crate::state::ReceiverObservationSet {
+        receiver_observation_set(token, registration, result, authorized_at_unix_ms)
+    }
+
+    pub(crate) fn complete_receiver_job_with_observation(
+        &self,
+        request: &crate::state::ReceiverCompletionRequest<'_>,
+        observation: Option<&crate::state::ReceiverObservationSet>,
+    ) -> Result<bool> {
+        self.db
+            .complete_receiver_job_with_observation(request, observation)
     }
 
     pub(crate) fn record_receiver_launch_retry(
@@ -279,13 +272,6 @@ impl AppServices {
             retry_at_unix_ms,
             failure,
         )
-    }
-
-    pub(crate) fn complete_receiver_job_with_binding(
-        &self,
-        request: &crate::state::ReceiverCompletionRequest<'_>,
-    ) -> Result<bool> {
-        self.db.complete_receiver_job_with_binding(request)
     }
 
     #[must_use]
@@ -353,6 +339,41 @@ impl AppServices {
         refresher: Box<dyn ReceiverIntentRefresher>,
     ) {
         self.receiver_intent_refresher = refresher;
+    }
+}
+
+fn receiver_observation_set(
+    token: crate::state::ReceiverJobToken,
+    registration: &crate::state::ReceiverSessionAttribution,
+    result: &crate::agent::AgentObservationResult,
+    authorized_at_unix_ms: u64,
+) -> crate::state::ReceiverObservationSet {
+    let mut accepted_at_unix_ms = None;
+    let mut progressing_at_unix_ms = None;
+    let mut completed_at_unix_ms = None;
+    for boundary in result.boundaries() {
+        match boundary.phase() {
+            crate::agent::AgentObservationPhase::Launched => {}
+            crate::agent::AgentObservationPhase::Accepted => {
+                accepted_at_unix_ms = Some(boundary.observed_at_unix_ms());
+            }
+            crate::agent::AgentObservationPhase::Progressing => {
+                progressing_at_unix_ms = Some(boundary.observed_at_unix_ms());
+            }
+            crate::agent::AgentObservationPhase::Completed => {
+                completed_at_unix_ms = Some(boundary.observed_at_unix_ms());
+            }
+        }
+    }
+    crate::state::ReceiverObservationSet {
+        token,
+        instance: registration.instance().to_owned(),
+        session_id: result.session().as_str().to_owned(),
+        revision: result.snapshot_revision(),
+        accepted_at_unix_ms,
+        progressing_at_unix_ms,
+        completed_at_unix_ms,
+        authorized_at_unix_ms,
     }
 }
 

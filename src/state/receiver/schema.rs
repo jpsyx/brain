@@ -1,9 +1,10 @@
-use std::collections::HashSet;
-
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension as _};
 
 use super::ReceiverJobToken;
+
+mod token;
+use token::populate_job_tokens;
 
 pub(super) const VERSION: i32 = 9;
 const REGISTRATION_VERSION: i32 = 8;
@@ -233,53 +234,6 @@ fn ensure_observation_columns(
     Ok(())
 }
 
-fn populate_job_tokens(
-    connection: &Connection,
-    next_token: &mut impl FnMut() -> ReceiverJobToken,
-) -> Result<()> {
-    let mut statement =
-        connection.prepare("SELECT job_id, job_token FROM receiver_jobs ORDER BY job_id")?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    drop(statement);
-    let mut unavailable = HashSet::with_capacity(rows.len());
-    for (_, token) in &rows {
-        if let Some(token) = token.as_ref().filter(|token| !token.is_empty()) {
-            unavailable.insert(token.clone());
-        }
-    }
-    let mut retained = HashSet::with_capacity(unavailable.len());
-    for (job_id, token) in rows {
-        if token
-            .filter(|token| !token.is_empty())
-            .is_some_and(|token| retained.insert(token))
-        {
-            continue;
-        }
-        // Cover every reserved value once, plus one slot for a fresh candidate.
-        let attempt_limit = unavailable.len().saturating_add(1);
-        let token = (0..attempt_limit)
-            .find_map(|_| {
-                let candidate = next_token().to_string();
-                unavailable.insert(candidate.clone()).then_some(candidate)
-            })
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "receiver job token allocation exhausted for job {job_id} after \
-                     {attempt_limit} attempts"
-                )
-            })?;
-        connection.execute(
-            "UPDATE receiver_jobs SET job_token = ?1 WHERE job_id = ?2",
-            rusqlite::params![token, job_id],
-        )?;
-    }
-    Ok(())
-}
-
 fn has_launch_retry_origin(connection: &Connection) -> Result<bool> {
     has_column(connection, "retry_from_state")
 }
@@ -327,9 +281,33 @@ pub(crate) fn down_observation_to_registration_path(path: &std::path::Path) -> R
             received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
             retry_count, retry_at_unix_ms, retry_from_state, last_error)
          SELECT job_id, workspace_id, conversation_id, channel, provider_id, inbound_json,
-            CASE state WHEN 'launched' THEN 'launching' ELSE state END,
-            received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
-            retry_count, retry_at_unix_ms, retry_from_state, last_error FROM receiver_jobs_v9;
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN 'failed' ELSE state END,
+            received_at_unix_ms, updated_at_unix_ms,
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN NULL ELSE claim_owner END,
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN NULL ELSE claim_expires_at_unix_ms END,
+            retry_count,
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN NULL ELSE retry_at_unix_ms END,
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN NULL ELSE retry_from_state END,
+            CASE WHEN state IN (
+              'launching', 'launched', 'accepted', 'processing',
+              'answer-ready', 'delivering', 'retrying'
+            ) THEN 'downgrade-no-replay' ELSE last_error END
+         FROM receiver_jobs_v9;
          DROP TABLE receiver_jobs_v9;
          CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
     )?;

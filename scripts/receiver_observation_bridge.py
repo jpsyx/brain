@@ -8,7 +8,6 @@ import os
 import pathlib
 import stat
 import sys
-import tempfile
 import time
 import unicodedata
 import uuid
@@ -51,47 +50,156 @@ def terminal_marker_matches(prompt: object, token: str) -> bool:
     return bool(lines) and lines[-1] == f"<!-- brain:receiver-job-token={token} -->"
 
 
-def owner_only_file(path: pathlib.Path) -> int:
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    os.fchmod(descriptor, 0o600)
-    return descriptor
+def confined_io_available() -> bool:
+    return (
+        os.name == "posix"
+        and hasattr(os, "geteuid")
+        and hasattr(os, "fchmod")
+        and all(hasattr(os, name) for name in ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW"))
+        and os.open in os.supports_dir_fd
+        and os.mkdir in os.supports_dir_fd
+        and os.rename in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.unlink in os.supports_dir_fd
+    )
 
 
-def sync_directory(path: pathlib.Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
+def valid_directory(value: os.stat_result, owner_only: bool) -> bool:
+    return (
+        stat.S_ISDIR(value.st_mode)
+        and (not owner_only or value.st_uid == os.geteuid())
+        and (not owner_only or stat.S_IMODE(value.st_mode) & 0o077 == 0)
+    )
+
+
+def open_confined_parent(path: pathlib.Path) -> int | None:
+    if not confined_io_available() or not path.is_absolute() or path.name in ("", ".", ".."):
+        return None
+    parts = path.parent.parts
+    if not parts or parts[0] != "/" or any(part in ("", ".", "..") for part in parts[1:]):
+        return None
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW
     try:
-        os.fsync(descriptor)
+        descriptor = os.open("/", flags)
+    except OSError:
+        return None
+    keep_open = False
+    try:
+        for index, part in enumerate(parts[1:], start=1):
+            owner_only = index >= len(parts) - 2
+            try:
+                child = os.open(part, flags, dir_fd=descriptor)
+            except FileNotFoundError:
+                if not valid_directory(os.fstat(descriptor), True):
+                    return None
+                os.mkdir(part, 0o700, dir_fd=descriptor)
+                child = os.open(part, flags, dir_fd=descriptor)
+            facts = os.fstat(child)
+            if (
+                owner_only
+                and stat.S_ISDIR(facts.st_mode)
+                and facts.st_uid == os.geteuid()
+                and stat.S_IMODE(facts.st_mode) & 0o077 != 0
+            ):
+                os.fchmod(child, 0o700)
+                facts = os.fstat(child)
+            if not valid_directory(facts, owner_only):
+                os.close(child)
+                return None
+            os.close(descriptor)
+            descriptor = child
+        keep_open = True
+        return descriptor
+    except OSError:
+        return None
     finally:
-        os.close(descriptor)
+        if not keep_open:
+            os.close(descriptor)
 
 
-def write_snapshot(path: pathlib.Path, snapshot: dict[str, object]) -> None:
+def same_entry(directory: int, name: str, identity: os.stat_result) -> bool:
+    try:
+        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    except OSError:
+        return False
+    return opened_file_facts(current) == opened_file_facts(identity)
+
+
+def owner_only_lock(directory: int, name: str) -> int | None:
+    flags = os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        try:
+            descriptor = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=directory)
+        except FileExistsError:
+            descriptor = os.open(name, flags, dir_fd=directory)
+        facts = os.fstat(descriptor)
+        if not valid_opened_file(facts) or not same_entry(directory, name, facts):
+            os.close(descriptor)
+            return None
+        return descriptor
+    except OSError:
+        return None
+
+
+def write_snapshot(directory: int, name: str, snapshot: dict[str, object]) -> bool:
     body = json.dumps(snapshot, separators=(",", ":"), sort_keys=True)
     encoded = body.encode("utf-8")
     if len(encoded) > MAX_SNAPSHOT_BYTES:
-        return
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    temporary = pathlib.Path(temporary_name)
+        return False
+    temporary_name = None
+    descriptor = None
+    temporary_identity = None
     try:
-        os.fchmod(descriptor, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
+        for _ in range(32):
+            candidate = f".{name}.{uuid.uuid4().hex}.tmp"
+            try:
+                descriptor = os.open(candidate, flags, 0o600, dir_fd=directory)
+                temporary_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if descriptor is None or temporary_name is None:
+            return False
         with os.fdopen(descriptor, "wb") as output:
             output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, path)
-        os.chmod(path, 0o600)
-        sync_directory(path.parent)
+        descriptor = None
+        temporary_identity = os.stat(
+            temporary_name,
+            dir_fd=directory,
+            follow_symlinks=False,
+        )
+        if not valid_opened_file(temporary_identity):
+            return False
+        os.replace(
+            temporary_name,
+            name,
+            src_dir_fd=directory,
+            dst_dir_fd=directory,
+        )
+        if not same_entry(directory, name, temporary_identity):
+            return False
+        os.fsync(directory)
+        return True
     except BaseException:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
-        temporary.unlink(missing_ok=True)
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         raise
+    finally:
+        if (
+            temporary_name is not None
+            and temporary_identity is not None
+            and same_entry(directory, temporary_name, temporary_identity)
+        ):
+            try:
+                os.unlink(temporary_name, dir_fd=directory)
+            except OSError:
+                pass
 
 
 def valid_identifier(value: object) -> bool:
@@ -129,6 +237,7 @@ def opened_file_facts(value: os.stat_result) -> tuple[int, int, int, int, int]:
 def valid_opened_file(value: os.stat_result) -> bool:
     return (
         stat.S_ISREG(value.st_mode)
+        and value.st_uid == os.geteuid()
         and stat.S_IMODE(value.st_mode) & 0o077 == 0
         and 0 <= value.st_size <= MAX_SNAPSHOT_BYTES
     )
@@ -179,12 +288,12 @@ def valid_snapshot(value: object) -> bool:
     return consistent and present == sorted(present)
 
 
-def read_snapshot(path: pathlib.Path) -> tuple[bool, dict[str, object] | None]:
-    flags = os.O_RDONLY
-    for name in ("O_CLOEXEC", "O_NOFOLLOW", "O_NONBLOCK", "O_NOCTTY"):
-        flags |= getattr(os, name, 0)
+def read_snapshot(directory: int, name: str) -> tuple[bool, dict[str, object] | None]:
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+    for flag in ("O_NONBLOCK", "O_NOCTTY"):
+        flags |= getattr(os, flag, 0)
     try:
-        descriptor = os.open(path, flags)
+        descriptor = os.open(name, flags, dir_fd=directory)
     except FileNotFoundError:
         return True, None
     except OSError:
@@ -194,7 +303,7 @@ def read_snapshot(path: pathlib.Path) -> tuple[bool, dict[str, object] | None]:
         if not valid_opened_file(before):
             return False, None
         try:
-            entry_before = os.lstat(path)
+            entry_before = os.stat(name, dir_fd=directory, follow_symlinks=False)
         except OSError:
             return False, None
         if opened_file_facts(entry_before) != opened_file_facts(before):
@@ -202,7 +311,7 @@ def read_snapshot(path: pathlib.Path) -> tuple[bool, dict[str, object] | None]:
         encoded = os.read(descriptor, MAX_SNAPSHOT_BYTES + 1)
         after = os.fstat(descriptor)
         try:
-            entry_after = os.lstat(path)
+            entry_after = os.stat(name, dir_fd=directory, follow_symlinks=False)
         except OSError:
             return False, None
         if (
@@ -257,10 +366,11 @@ def next_snapshot(
 ) -> dict[str, object] | None:
     if phase == "accepted":
         if current is None:
-            return accepted_snapshot(token, instance, session, now)
+            updated = accepted_snapshot(token, instance, session, now)
+            return updated if valid_snapshot(updated) else None
         return None
     if phase == "completed" and current is None:
-        return {
+        updated = {
             "version": VERSION,
             "revision": 1,
             "phase": "completed",
@@ -272,19 +382,30 @@ def next_snapshot(
             "progressing_at_unix_ms": None,
             "completed_at_unix_ms": now,
         }
+        return updated if valid_snapshot(updated) else None
     if current is None or not same_scope(current, token, instance, session):
         return None
     if current["revision"] >= MAX_REVISION:
         return None
+    prior_timestamps = [
+        timestamp
+        for timestamp in (
+            current.get("accepted_at_unix_ms"),
+            current.get("progressing_at_unix_ms"),
+            current.get("completed_at_unix_ms"),
+        )
+        if valid_timestamp(timestamp)
+    ]
+    monotonic_now = max([now, *prior_timestamps])
     if phase == "progressing" and current.get("phase") == "accepted":
         updated = dict(current)
         updated.update(
             revision=current["revision"] + 1,
             phase="progressing",
             turn_id=turn_id if valid_identifier(turn_id) else None,
-            progressing_at_unix_ms=now,
+            progressing_at_unix_ms=monotonic_now,
         )
-        return updated
+        return updated if valid_snapshot(updated) else None
     if phase == "completed" and current.get("phase") in ("accepted", "progressing"):
         updated = dict(current)
         updated.update(
@@ -295,58 +416,62 @@ def next_snapshot(
                 if valid_identifier(turn_id)
                 else current.get("turn_id")
             ),
-            completed_at_unix_ms=now,
+            completed_at_unix_ms=monotonic_now,
         )
-        return updated
+        return updated if valid_snapshot(updated) else None
     return None
 
 
-def main() -> None:
+def main() -> bool:
     token = canonical_token(os.environ.get("BRAIN_RECEIVER_JOB_TOKEN"))
     observation_path = os.environ.get("BRAIN_RECEIVER_OBSERVATION_PATH")
     instance_id = canonical_token(os.environ.get("BRAIN_INSTANCE_ID"))
     if not token or not observation_path or not instance_id:
-        return
+        return False
     try:
         payload = json.load(sys.stdin)
     except Exception:
-        return
+        return False
     if not isinstance(payload, dict):
-        return
+        return False
     if (
         payload.get("agent_id")
         or payload.get("parent_session_id")
         or payload.get("parentID")
         or payload.get("parent_id")
     ):
-        return
+        return False
     session_id = payload.get("session_id")
     if not session_id and os.environ.get("BRAIN_AGENT_KIND") == "codex":
         session_id = payload.get("thread_id")
     if not valid_identifier(session_id):
-        return
+        return False
     event = payload.get("hook_event_name")
     if event == "UserPromptSubmit":
         phase = "accepted"
         if not terminal_marker_matches(payload.get("prompt"), token):
-            return
+            return False
     elif event == "PostToolUse":
         phase = "progressing"
     elif event == "Stop":
         phase = "completed"
     else:
-        return
+        return False
 
     target = pathlib.Path(observation_path)
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    lock_path = pathlib.Path(f"{target}.lock")
-    descriptor = owner_only_file(lock_path)
+    directory = open_confined_parent(target)
+    if directory is None:
+        return False
+    descriptor = owner_only_lock(directory, f"{target.name}.lock")
+    if descriptor is None:
+        os.close(directory)
+        return False
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         now = time.time_ns() // 1_000_000
-        prior_is_trusted, current = read_snapshot(target)
+        prior_is_trusted, current = read_snapshot(directory, target.name)
         if not prior_is_trusted:
-            return
+            return False
         updated = next_snapshot(
             current,
             phase,
@@ -356,15 +481,24 @@ def main() -> None:
             payload.get("turn_id"),
             now,
         )
-        if updated is not None:
-            write_snapshot(target, updated)
+        if updated is not None and valid_snapshot(updated):
+            return write_snapshot(directory, target.name, updated)
+        return bool(
+            phase == "completed"
+            and current is not None
+            and current.get("phase") == "completed"
+            and same_scope(current, token, instance_id, session_id)
+        )
     finally:
         os.close(descriptor)
+        os.close(directory)
 
 
 if __name__ == "__main__":
     os.umask(0o077)
     try:
-        main()
+        succeeded = main()
     except Exception:
-        pass
+        succeeded = False
+    if "--require-write" in sys.argv[1:] and not succeeded:
+        raise SystemExit(1)

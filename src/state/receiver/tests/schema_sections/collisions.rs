@@ -215,3 +215,69 @@ fn partial_v8_generated_candidates_do_not_replace_existing_tokens() {
         vec![replacement.to_string(), reserved.to_string()]
     );
 }
+
+#[test]
+fn current_v9_reconciliation_canonicalizes_and_repairs_semantic_uuid_collisions() {
+    let db = Db::open_in_memory().expect("receiver state");
+    accept_jobs_with_ids(
+        &db,
+        &[
+            (
+                "semantic-uppercase",
+                "10000000-0000-4000-8000-000000000001",
+            ),
+            (
+                "semantic-canonical",
+                "20000000-0000-4000-8000-000000000002",
+            ),
+            (
+                "semantic-invalid",
+                "30000000-0000-4000-8000-000000000003",
+            ),
+            (
+                "semantic-reserved",
+                "40000000-0000-4000-8000-000000000004",
+            ),
+        ],
+    );
+    let duplicate = ReceiverJobToken::parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        .expect("duplicate token");
+    let reserved = ReceiverJobToken::parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        .expect("reserved token");
+    db.conn
+        .execute_batch(&format!(
+            "UPDATE receiver_jobs SET job_token = '{}'
+               WHERE job_id = '10000000-0000-4000-8000-000000000001';
+             UPDATE receiver_jobs SET job_token = '{duplicate}'
+               WHERE job_id = '20000000-0000-4000-8000-000000000002';
+             UPDATE receiver_jobs SET job_token = 'not-a-uuid'
+               WHERE job_id = '30000000-0000-4000-8000-000000000003';
+             UPDATE receiver_jobs SET job_token = '{reserved}'
+               WHERE job_id = '40000000-0000-4000-8000-000000000004';",
+            duplicate.to_string().to_uppercase(),
+        ))
+        .expect("stage semantically damaged v9 tokens");
+    let first_replacement =
+        ReceiverJobToken::parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc").unwrap();
+    let second_replacement =
+        ReceiverJobToken::parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd").unwrap();
+    let mut candidates = [reserved, first_replacement, second_replacement].into_iter();
+
+    super::super::schema::up_with_token_factory(&db.conn, 9, || {
+        candidates.next().expect("bounded token candidate")
+    })
+    .expect("repair current v9 token identities");
+
+    let expected = vec![
+        first_replacement.to_string(),
+        duplicate.to_string(),
+        second_replacement.to_string(),
+        reserved.to_string(),
+    ];
+    assert_eq!(job_tokens_in_id_order(&db), expected);
+    super::super::schema::up_with_token_factory(&db.conn, 9, || {
+        panic!("idempotent canonical rows must not allocate another token")
+    })
+    .expect("reconcile canonical v9 tokens idempotently");
+    assert_eq!(job_tokens_in_id_order(&db), expected);
+}

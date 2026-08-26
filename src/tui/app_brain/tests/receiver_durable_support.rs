@@ -161,6 +161,15 @@ pub(super) fn publish_valid_rotated_completion(
     write_completion_artifact(app, &active.attribution, &native_session, message)
 }
 
+pub(super) fn mark_receiver_session_completed(app: &App, session: &AgentSession) {
+    let active = app
+        .receiver
+        .active_durable_run()
+        .expect("active receiver run");
+    SessionStore::mark_completed(&app.services, session, active.attribution.scope())
+        .expect("mark lifecycle-observed receiver session completed");
+}
+
 fn write_completion_artifact(
     app: &App,
     attribution: &crate::state::ReceiverSessionAttribution,

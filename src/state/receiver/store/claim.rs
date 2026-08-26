@@ -8,7 +8,6 @@ use crate::state::{
 };
 
 mod next;
-mod recovery;
 mod restart;
 
 impl Db {

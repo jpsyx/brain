@@ -74,6 +74,8 @@ fn newly_discovered_observation_sources_reject_private_home_email_and_host_liter
         ),
         ("email", "PRIVATE_LITERAL", r"sender@private.corp"),
         ("host", "VALUE", r"receiver.private.lan"),
+        ("host-port", "VALUE", r"receiver.private.lan:8443"),
+        ("bare-private-ipv6", "VALUE", r"fd12:3456:789a::1"),
     ] {
         let temporary = tempfile::tempdir().expect("temporary repository");
         for directory in ["src", "scripts", "tests"] {
@@ -109,6 +111,7 @@ fn generic_home_email_and_host_literals_remain_allowed() {
         const LOCAL_URL: &str = "http://localhost:8080/callback";
         const LOOPBACK_URL: &str = "http://127.0.0.1:8080/callback";
         const IPV6_LOOPBACK_URL: &str = "http://[::1]:8080/callback";
+        const IPV6_DOCUMENTATION: &str = "2001:db8::1";
     "#;
 
     assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());

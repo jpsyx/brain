@@ -44,20 +44,6 @@ impl<'app> ReceiverLaunchEffects<'app> {
         let launch = controller.launch(request);
         #[cfg(test)]
         receiver.run_launch_boundary_hook(crate::tui::receiver::ReceiverLaunchBoundary::Spawn);
-        match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                let _ = cleanup_receiver_launch(Some(registration), &mut controller);
-                return;
-            }
-            Err(error) => {
-                crate::logging::log(format!(
-                    "receiver post-spawn claim validation failed: {error:#}"
-                ));
-                let _ = cleanup_receiver_launch(Some(registration), &mut controller);
-                return;
-            }
-        }
         if let Err(error) = launch {
             crate::logging::log(format!("receiver process spawn failed: {error}"));
             let _ = cleanup_receiver_launch(Some(registration), &mut controller);
@@ -68,48 +54,17 @@ impl<'app> ReceiverLaunchEffects<'app> {
             );
             return;
         }
-
-        let title = format!(
-            "Receiver · {}",
-            match claimed.claim.job().inbound().channel {
-                crate::server::receiver::Channel::Sms => "SMS",
-                crate::server::receiver::Channel::Email => "Email",
-            }
-        );
-        let tab = brain.add_receiver_run(
-            claimed.claim.job().id(),
-            title,
-            claimed.remote.instance().to_owned(),
-            controller,
-        );
-        #[cfg(test)]
-        receiver.run_launch_boundary_hook(crate::tui::receiver::ReceiverLaunchBoundary::Allocation);
         let owner = match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
             Ok(Some(owner)) => owner,
             Ok(None) => {
-                remove_new_receiver_tab(brain, &tab);
-                let _ = registration.cleanup();
+                preserve_successful_spawn(registration, &mut controller);
                 return;
             }
             Err(error) => {
                 crate::logging::log(format!(
-                    "receiver post-allocation claim validation failed: {error:#}"
+                    "receiver post-spawn claim validation failed: {error:#}"
                 ));
-                remove_new_receiver_tab(brain, &tab);
-                let _ = registration.cleanup();
-                return;
-            }
-        };
-        let tab_id = match tab {
-            Ok(tab_id) => tab_id,
-            Err(error) => {
-                crate::logging::log(format!("receiver tab allocation failed: {error}"));
-                let _ = registration.cleanup();
-                let _ = super::ownership::retry_receiver_owner_now(
-                    services,
-                    &claimed.claim,
-                    ReceiverLaunchFailure::Allocation,
-                );
+                preserve_successful_spawn(registration, &mut controller);
                 return;
             }
         };
@@ -128,21 +83,54 @@ impl<'app> ReceiverLaunchEffects<'app> {
         ) {
             Ok(true) => {}
             Ok(false) => {
-                let _ = brain.remove_receiver_run(tab_id);
-                let _ = registration.cleanup();
+                preserve_successful_spawn(registration, &mut controller);
                 return;
             }
             Err(error) => {
                 crate::logging::log(format!(
                     "receiver launch observation commit failed: {error:#}"
                 ));
+                preserve_successful_spawn(registration, &mut controller);
+                return;
+            }
+        }
+
+        let title = format!(
+            "Receiver · {}",
+            match claimed.claim.job().inbound().channel {
+                crate::server::receiver::Channel::Sms => "SMS",
+                crate::server::receiver::Channel::Email => "Email",
+            }
+        );
+        let tab = brain.add_receiver_run(
+            claimed.claim.job().id(),
+            title,
+            claimed.remote.instance().to_owned(),
+            controller,
+        );
+        #[cfg(test)]
+        receiver.run_launch_boundary_hook(crate::tui::receiver::ReceiverLaunchBoundary::Allocation);
+        let tab_id = match tab {
+            Ok(tab_id) => tab_id,
+            Err(error) => {
+                crate::logging::log(format!("receiver tab allocation failed: {error}"));
+                let _ = registration.commit();
+                return;
+            }
+        };
+        match super::ownership::authorize_receiver_owner_now(services, &claimed.claim) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 let _ = brain.remove_receiver_run(tab_id);
-                let _ = registration.cleanup();
-                let _ = super::ownership::retry_receiver_owner_now(
-                    services,
-                    &claimed.claim,
-                    ReceiverLaunchFailure::Spawn,
-                );
+                let _ = registration.commit();
+                return;
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver post-allocation claim validation failed: {error:#}"
+                ));
+                let _ = brain.remove_receiver_run(tab_id);
+                let _ = registration.commit();
                 return;
             }
         }
@@ -158,11 +146,10 @@ impl<'app> ReceiverLaunchEffects<'app> {
     }
 }
 
-fn remove_new_receiver_tab<Error>(
-    brain: &mut BrainPanelState,
-    tab: &Result<crate::tui::model::SessionTabId, Error>,
+fn preserve_successful_spawn(
+    registration: ReceiverSessionRegistration<'_, AppServices>,
+    controller: &mut AgentController,
 ) {
-    if let Ok(tab_id) = tab {
-        let _ = brain.remove_receiver_run(*tab_id);
-    }
+    let _ = registration.commit();
+    let _ = controller.shutdown();
 }

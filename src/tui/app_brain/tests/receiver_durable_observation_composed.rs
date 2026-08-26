@@ -1,4 +1,4 @@
-use super::receiver_durable_support::accept_email_job;
+use super::receiver_durable_support::{accept_email_job, mark_receiver_session_completed};
 use super::*;
 
 use crate::state::{ReceiverJobState, ReceiverNonterminalObservationPhase, ReceiverObservation};
@@ -77,6 +77,7 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
                 .expect("record pre-transaction durable evidence");
         }));
     write_snapshot_with_missed_boundaries(&app, &native);
+    mark_receiver_session_completed(&app, &native);
 
     app.tick_receiver();
 

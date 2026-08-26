@@ -224,7 +224,6 @@ impl Db {
 #[derive(Clone, Copy)]
 pub(super) enum ReceiverBindingTarget<'session> {
     Current,
-    ExactObserved(&'session AgentSession),
     ExactCompleted(&'session AgentSession),
 }
 
@@ -238,7 +237,6 @@ pub(super) fn replace_receiver_binding_in_transaction(
     let scope = registration.scope();
     let (exact_session, require_completion) = match target {
         ReceiverBindingTarget::Current => (None, false),
-        ReceiverBindingTarget::ExactObserved(session) => (Some(session.as_str()), false),
         ReceiverBindingTarget::ExactCompleted(session) => (Some(session.as_str()), true),
     };
     let native_session = transaction

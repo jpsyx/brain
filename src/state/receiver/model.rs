@@ -13,22 +13,16 @@ pub const MAX_RECEIVER_LAUNCH_ATTEMPTS: u32 = 3;
 pub enum ReceiverLaunchFailure {
     Planning,
     Registration,
-    Allocation,
     Spawn,
 }
 
 impl ReceiverLaunchFailure {
-    pub const ALL: [Self; 4] = [
-        Self::Planning,
-        Self::Registration,
-        Self::Allocation,
-        Self::Spawn,
-    ];
+    pub const ALL: [Self; 3] = [Self::Planning, Self::Registration, Self::Spawn];
 
     pub(super) const fn expected_state(self) -> ReceiverJobState {
         match self {
             Self::Planning | Self::Registration => ReceiverJobState::Claimed,
-            Self::Allocation | Self::Spawn => ReceiverJobState::Launching,
+            Self::Spawn => ReceiverJobState::Launching,
         }
     }
 
@@ -36,7 +30,6 @@ impl ReceiverLaunchFailure {
         match self {
             Self::Planning => "launch-planning",
             Self::Registration => "launch-registration",
-            Self::Allocation => "launch-allocation",
             Self::Spawn => "launch-spawn",
         }
     }

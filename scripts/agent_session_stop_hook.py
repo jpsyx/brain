@@ -150,19 +150,25 @@ def rollback_publication(
         pass
 
 
-def publish_completed_observation(session_id: str, turn_id: object) -> None:
-    if not os.environ.get("BRAIN_RECEIVER_JOB_TOKEN") or not os.environ.get(
-        "BRAIN_RECEIVER_OBSERVATION_PATH"
-    ):
-        return
+def publish_completed_observation(session_id: str, turn_id: object) -> bool:
+    token = os.environ.get("BRAIN_RECEIVER_JOB_TOKEN")
+    observation_path = os.environ.get("BRAIN_RECEIVER_OBSERVATION_PATH")
+    if not token and not observation_path:
+        return True
+    if not token or not observation_path:
+        return False
     payload = {
         "hook_event_name": "Stop",
         "session_id": session_id,
         "turn_id": turn_id if isinstance(turn_id, str) and turn_id else None,
     }
     try:
-        subprocess.run(
-            ["python3", pathlib.Path(__file__).with_name("receiver_observation_bridge.py")],
+        result = subprocess.run(
+            [
+                "python3",
+                pathlib.Path(__file__).with_name("receiver_observation_bridge.py"),
+                "--require-write",
+            ],
             input=json.dumps(payload),
             text=True,
             stdout=subprocess.DEVNULL,
@@ -170,8 +176,9 @@ def publish_completed_observation(session_id: str, turn_id: object) -> None:
             check=False,
             timeout=5,
         )
+        return result.returncode == 0
     except Exception:
-        pass
+        return False
 
 
 def main() -> None:
@@ -250,6 +257,8 @@ def main() -> None:
         if not registered:
             conn.rollback()
             return
+        if not publish_completed_observation(session_id, payload.get("turn_id")):
+            raise RuntimeError("receiver completion observation was not published")
         updated = conn.execute(
             """
             UPDATE brain_sessions SET completion_status = 'completed'
@@ -269,7 +278,6 @@ def main() -> None:
         sync_directory(target.parent)
         conn.commit()
         committed = True
-        publish_completed_observation(session_id, payload.get("turn_id"))
     except Exception:
         if published and not committed and target is not None and published_identity is not None:
             rollback_publication(target, published_identity, backup)

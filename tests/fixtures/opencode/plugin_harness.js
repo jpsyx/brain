@@ -61,7 +61,9 @@ with open(capture_file, "a", encoding="utf-8") as output:
 `;
 
 const setupCaptureRoot = () => {
-  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "brain-opencode-plugin-"));
+  const temporary = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "brain-opencode-plugin-")),
+  );
   const root = path.join(temporary, "root with spaces");
   const hookDirectory = path.join(root, ".brain", "hooks");
   const captureFile = path.join(temporary, "capture.jsonl");

@@ -1,4 +1,6 @@
-use super::receiver_durable_support::accept_email_job_in_thread;
+use super::receiver_durable_support::{
+    accept_email_job_in_thread, mark_receiver_session_completed,
+};
 use super::*;
 
 use crate::state::ReceiverJobState;
@@ -47,6 +49,7 @@ fn lifecycle_completion_persists_the_exact_native_session_for_the_next_message()
         );
         rotate_active_session(&app, &native);
         write_completed_snapshot(&app, &native, 1_200);
+        mark_receiver_session_completed(&app, &native);
 
         app.tick_receiver();
 
@@ -130,6 +133,7 @@ fn lifecycle_completion_stays_retryable_when_native_binding_persistence_fails() 
     let native = AgentSession::new("session-1").expect("native OpenCode session");
     rotate_active_session(&app, &native);
     let snapshot = write_completed_snapshot(&app, &native, 1_200);
+    mark_receiver_session_completed(&app, &native);
     rusqlite::Connection::open(app.context.state_db_path())
         .expect("binding fault connection")
         .execute_batch(

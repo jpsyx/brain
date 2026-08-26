@@ -92,6 +92,7 @@ fn only_the_live_claim_owner_can_renew_or_advance_a_job() {
     let accepted = db
         .accept_receiver_job(&job, &identity)
         .expect("accept receiver job");
+    register_observation_session(&db, accepted.conversation_id(), &job, "instance-a", "session-a");
     db.claim_next_receiver_job("worker-a", 1_000, 1_100)
         .expect("claim job")
         .expect("claim available");

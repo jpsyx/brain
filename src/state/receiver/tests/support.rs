@@ -107,3 +107,20 @@ pub(super) fn observation(
         authorized_at_unix_ms: at,
     }
 }
+
+pub(super) fn register_observation_session(
+    db: &crate::state::Db,
+    conversation_id: crate::state::ReceiverConversationId,
+    job: &crate::server::receiver::InboundJob,
+    instance: &str,
+    session_id: &str,
+) {
+    let scope = crate::agent::SessionScope::new(
+        crate::agent::AgentKind::Codex,
+        job.workspace_id,
+        job.actor.clone(),
+    );
+    let session = crate::agent::AgentSession::new(session_id).expect("observation session");
+    db.register_receiver_session(conversation_id, &session, instance, 42, &scope)
+        .expect("register exact live observation session");
+}

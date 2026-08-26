@@ -5,8 +5,9 @@ fn fresh_lifecycle(
     session_id: &str,
 ) -> (tempfile::TempDir, PathBuf, PathBuf, String) {
     let temporary = tempfile::tempdir().unwrap();
-    let state_db = temporary.path().join("state.db");
-    let response_dir = temporary.path().join("responses");
+    let temporary_root = temporary.path().canonicalize().unwrap();
+    let state_db = temporary_root.join("state.db");
+    let response_dir = temporary_root.join("responses");
     let instance = match agent_kind {
         "claude" => "22222222-2222-4222-8222-222222222222",
         "codex" => "33333333-3333-4333-8333-333333333333",

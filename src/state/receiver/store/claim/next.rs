@@ -1,9 +1,8 @@
-//! Atomic FIFO claim selection and expired-launch normalization.
+//! Atomic FIFO claim selection with post-spawn ambiguity fencing.
 
 use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
-use super::recovery::{ExpiredLaunchingRecovery, recover_expired_launching};
 use super::restart::has_ready_restart;
 use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim};
 
@@ -15,9 +14,6 @@ use super::super::{
 struct ClaimCandidate {
     job_id: String,
     state: String,
-    conversation_id: String,
-    owner: Option<String>,
-    retry_count: i64,
 }
 
 impl Db {
@@ -60,38 +56,9 @@ impl Db {
         };
         if matches!(
             candidate.state.as_str(),
-            "launched" | "accepted" | "processing"
+            "launching" | "launched" | "accepted" | "processing"
         ) {
             return Ok(None);
-        }
-        if candidate.state == "launching" {
-            match recover_expired_launching(
-                &transaction,
-                &self.workspace_id,
-                &candidate.job_id,
-                &candidate.conversation_id,
-                candidate.owner.as_deref(),
-                candidate.retry_count,
-                owner,
-                now,
-                expires,
-            )? {
-                ExpiredLaunchingRecovery::Retrying => {
-                    return commit_loaded_claim(
-                        transaction,
-                        &self.workspace_id,
-                        &candidate.job_id,
-                        owner,
-                        expires_at_unix_ms,
-                        "recovered",
-                    );
-                }
-                ExpiredLaunchingRecovery::Exhausted => {
-                    transaction.commit()?;
-                    return Ok(None);
-                }
-                ExpiredLaunchingRecovery::ChangedElsewhere => return Ok(None),
-            }
         }
         if !replace_candidate_lease(
             &transaction,
@@ -121,7 +88,7 @@ fn oldest_ready_candidate(
 ) -> Result<Option<ClaimCandidate>> {
     Ok(transaction
         .query_row(
-            "SELECT job_id, state, conversation_id, claim_owner, retry_count
+            "SELECT job_id, state
              FROM receiver_jobs
              WHERE workspace_id = ?1
                AND (
@@ -148,9 +115,6 @@ fn oldest_ready_candidate(
                 Ok(ClaimCandidate {
                     job_id: row.get(0)?,
                     state: row.get(1)?,
-                    conversation_id: row.get(2)?,
-                    owner: row.get(3)?,
-                    retry_count: row.get(4)?,
                 })
             },
         )

@@ -1146,15 +1146,14 @@ The FIFO claim transaction refuses another job while any workspace job has a
 live lease and returns the immutable job plus logical conversation without
 deleting either row. Launch preparation accepts only the exact unexpired owner
 of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
-then atomically moves it to `launching`. An expired `launching` row is still
-pre-acceptance: the claim transaction removes only its stale exact registration
-and session lock, records an immediately due bounded spawn retry, and assigns
-the replacement owner. Exhaustion marks that row `failed`, so a later tick may
-select the next FIFO row. Expired `launched`, `accepted`, and `processing` jobs
-are not reclaimed: their owner, lease, lifecycle, retry metadata, and FIFO
-position remain unchanged until BR-16. Answer-ready and delivery phases retain
+then atomically moves it to `launching`. Only a proved synchronous spawn failure
+may turn that attempt into a bounded Spawn retry. Once spawn succeeds, an
+uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
+`launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
+lease, registration, lifecycle, retry metadata, and FIFO position until BR-16.
+Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
-Pre-acceptance planning, registration, allocation, and spawn failures
+Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
 Retries originating at `accepted`, `processing`, or delivery phases cannot be
@@ -1171,9 +1170,12 @@ unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A post-spawn launch first commits
 `launching` to `launched`. Newer exact lifecycle evidence can then move it to
 `accepted` or `processing`. Every boundary from one normalized snapshot is
-written in one exact-owner transaction, the current lifecycle session replaces
-the launch placeholder only when that session remains locked to the exact
-instance, and `observation_revision` advances once. Equal revision, expired or
+written in one exact-owner transaction. That transaction requires the exact
+current `brain_sessions` tuple to remain locked and registered to the same
+conversation; `observation_session_id` adds continuity but cannot authorize an
+unlocked or rotated session. The current lifecycle session replaces the launch
+placeholder only under that exact proof, and `observation_revision` advances
+once. Equal revision, expired or
 replaced ownership, identity mismatch, and state mismatch mutate no field.
 The generic single-observation value uses
 `ReceiverNonterminalObservationPhase`, whose complete variant set is accepted
@@ -1182,19 +1184,25 @@ registration-aware batch transaction below.
 
 A valid completion can move `launched`, `accepted`, or `processing` directly to
 `done` without fabricating missing accepted or progressing timestamps. Artifact
-completion's terminal compare-and-swap shares one immediate
-transaction with exact lifecycle-native binding proof and persistence. The
-same rule applies to lifecycle-only completion: its exact observed native
-session replaces the conversation binding before the terminal update may
-commit. Both paths therefore make `done`, claim clearing, and conversation
-continuity one atomic fact; any binding write failure preserves the prior job,
+and lifecycle-only completion use one immediate transaction. It validates both
+the stored and incoming timelines, merges every normalized boundary plus the
+revision/session cursor, requires the exact lifecycle-native session to remain
+locked and `completed`, persists that binding, and only then marks the job done
+and clears its claim. Artifact body delivery precedence does not discard
+lifecycle evidence observed in the same poll. Both paths therefore make
+`done`, evidence, cursor, claim clearing, and conversation continuity one atomic
+fact; any binding or evidence write failure preserves the prior job,
 claim, registration, and binding for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
 passes it independently into the terminal transaction as authorization, so
 validation cannot outlive the owner's lease. A validated completed producer
 timestamp remains the durable evidence time even when it is later than that
 lease; it is never reused for authorization. Without a completed lifecycle
-boundary, the same fresh App time is the durable fallback. A binding mismatch,
+boundary, the same fresh App time is the durable fallback, clamped at least to
+the latest stored accepted or progressing boundary. That artifact evidence
+advances a revision-zero cursor to revision one and records the exact completed
+native session, so every durable terminal row remains cursor-representable
+without inventing accepted or progressing timestamps. A binding mismatch,
 concurrent lifecycle rotation, or
 storage error rolls the
 whole attempt back, so the run remains nonterminal with its claim,
@@ -1251,9 +1259,16 @@ table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
 lifecycle evidence timestamps, exact observation instance/session identity,
 and monotonic revision. Every DB open reconciles the tables and managed
 columns for new, partially repaired, damaged, and already-current workspaces.
+Token reconciliation parses UUID identity, chooses one canonical spelling per
+identity, regenerates invalid or semantically colliding rows through the bounded
+allocator, and is idempotent once every row is canonical and unique.
 The automatic 0.80.0 migration upgrades every existing registered workspace
 state DB without creating an otherwise unused DB. Its down operation rebuilds
-a v8-compatible jobs table before the older downgrade chain continues. A newly
+a v8-compatible jobs table before the older downgrade chain continues. Every
+`launching`, `launched`, `accepted`, `processing`, `answer-ready`, `delivering`,
+or `retrying` row becomes a conservative `failed` row with claim and retry
+authority cleared, so the old coordinator cannot replay post-spawn ambiguity.
+A newly
 attached workspace receives v9 on its first ordinary DB open. The older v6
 down operation still transactionally removes the receiver schema and returns a
 v6 DB to v5. BR-18 still owns the remaining representation cleanup and any
@@ -1264,10 +1279,11 @@ Receiver attachment staging owns one exact job directory. Downloads write only
 result into the prepared run; dropping either removes the whole directory,
 including unread queued results and partial files. Orderly receiver shutdown
 runs before generic controller shutdown. It cancels and reaps the one published
-provider process group and joins its worker, releases exact lifecycle state only
-for a still-live owner, removes the local tab and artifact, and drops the owning
-staging-directory guard. The retry clock is sampled only after those cleanup
-steps for the exact Planning or Spawn CAS. Repeated shutdown is a no-op.
+provider process group and joins its worker. Work that has not spawned may take
+its exact Planning retry after cleanup. A successful-spawn run removes only the
+local tab and exact instance files while preserving durable lifecycle and
+registration correlation, then drops the owning staging-directory guard.
+Repeated shutdown is a no-op.
 
 The `meta` table is a generic key/value store, so a new key like
 `skills_synced_version` needs no schema migration. It records the

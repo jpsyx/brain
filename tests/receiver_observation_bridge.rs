@@ -7,10 +7,29 @@ const JOB_TOKEN: &str = "11111111-1111-4111-8111-111111111111";
 const INSTANCE_ID: &str = "22222222-2222-4222-8222-222222222222";
 const SESSION_ID: &str = "receiver-session-1";
 
+#[path = "receiver_observation_bridge/producer_boundaries.rs"]
+mod producer_boundaries;
+
 fn bridge_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
         .join("receiver_observation_bridge.py")
+}
+
+fn observation_directory(temporary: &tempfile::TempDir) -> PathBuf {
+    let root = std::fs::canonicalize(temporary.path()).expect("canonical temporary directory");
+    let cache = root.join("workspace-cache");
+    let observations = cache.join("receiver-observations");
+    std::fs::create_dir_all(&observations).expect("observation directories");
+    for directory in [&cache, &observations] {
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .expect("owner-only observation directory");
+    }
+    observations
+}
+
+fn observation_path(temporary: &tempfile::TempDir, name: impl AsRef<Path>) -> PathBuf {
+    observation_directory(temporary).join(name)
 }
 
 fn run_bridge(snapshot: &Path, payload: &serde_json::Value) -> Output {
@@ -31,6 +50,51 @@ fn run_bridge(snapshot: &Path, payload: &serde_json::Value) -> Output {
         .write_all(payload.to_string().as_bytes())
         .expect("write bridge payload");
     child.wait_with_output().expect("wait observation bridge")
+}
+
+fn run_bridge_with_setup(
+    snapshot: &Path,
+    payload: &serde_json::Value,
+    setup: &str,
+    environment: &[(&str, &Path)],
+) -> Output {
+    let script = format!(
+        r#"
+import importlib.util
+import os
+
+spec = importlib.util.spec_from_file_location("brain_receiver_bridge", os.environ["BRAIN_TEST_BRIDGE"])
+bridge = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bridge)
+{setup}
+os.umask(0o077)
+try:
+    bridge.main()
+except Exception:
+    pass
+"#
+    );
+    let mut command = Command::new("python3");
+    command
+        .args(["-c", &script])
+        .env("BRAIN_TEST_BRIDGE", bridge_path())
+        .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
+        .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
+        .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    let mut child = command.spawn().expect("spawn configured bridge");
+    child
+        .stdin
+        .take()
+        .expect("bridge stdin")
+        .write_all(payload.to_string().as_bytes())
+        .expect("write bridge payload");
+    child.wait_with_output().expect("wait configured bridge")
 }
 
 fn accepted_payload(prompt: &str) -> serde_json::Value {
@@ -77,7 +141,7 @@ fn spawn_bridge(snapshot: &Path, payload: &serde_json::Value) -> std::process::C
 #[test]
 fn exact_terminal_receiver_marker_writes_one_private_fixed_schema_snapshot() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("nested/observation.json");
+    let path = observation_path(&temporary, "nested/observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
     let output = run_bridge(&path, &accepted_payload(&format!("synthetic\n{marker}")));
 
@@ -162,7 +226,7 @@ fn acceptance_rejects_nonterminal_mismatched_and_child_markers_without_artifacts
         ),
     ] {
         let temporary = tempfile::tempdir().expect("temporary directory");
-        let path = temporary.path().join(format!("{name}.json"));
+        let path = observation_path(&temporary, format!("{name}.json"));
         let output = run_bridge(&path, &payload);
         assert!(output.status.success(), "{name} failed: {output:?}");
         assert!(!path.exists(), "{name} produced acceptance evidence");
@@ -172,7 +236,7 @@ fn acceptance_rejects_nonterminal_mismatched_and_child_markers_without_artifacts
 #[test]
 fn native_agent_id_child_submit_cannot_establish_root_acceptance() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("observation.json");
+    let path = observation_path(&temporary, "observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
     let payload = serde_json::json!({
         "hook_event_name": "UserPromptSubmit",
@@ -191,7 +255,7 @@ fn native_agent_id_child_submit_cannot_establish_root_acceptance() {
 #[test]
 fn native_agent_id_child_post_tool_cannot_advance_root_progress() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("observation.json");
+    let path = observation_path(&temporary, "observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
     assert!(
         run_bridge(&path, &accepted_payload(&marker))
@@ -217,7 +281,7 @@ fn native_agent_id_child_post_tool_cannot_advance_root_progress() {
 #[test]
 fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_noops() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("observation.json");
+    let path = observation_path(&temporary, "observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
 
     assert!(
@@ -278,7 +342,7 @@ fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_n
 #[test]
 fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("observation.json");
+    let path = observation_path(&temporary, "observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
     assert!(
         run_bridge(&path, &accepted_payload(&marker))
@@ -328,84 +392,4 @@ fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
         value,
         "duplicate completion mutated evidence"
     );
-}
-
-#[test]
-fn completion_first_writes_revision_one_with_null_intermediate_boundaries() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("observation.json");
-    let completed = serde_json::json!({
-        "hook_event_name": "Stop",
-        "session_id": SESSION_ID,
-        "turn_id": "turn-final",
-    });
-
-    assert!(run_bridge(&path, &completed).status.success());
-    let value = snapshot(&path);
-    assert_eq!(value["revision"], 1);
-    assert_eq!(value["phase"], "completed");
-    assert_eq!(value["job_token"], JOB_TOKEN);
-    assert_eq!(value["instance_id"], INSTANCE_ID);
-    assert_eq!(value["session_id"], SESSION_ID);
-    assert_eq!(value["turn_id"], "turn-final");
-    assert!(value["accepted_at_unix_ms"].is_null());
-    assert!(value["progressing_at_unix_ms"].is_null());
-    assert!(value["completed_at_unix_ms"].as_u64().is_some());
-}
-
-#[test]
-fn revision_saturation_preserves_the_last_valid_snapshot_for_later_events() {
-    let cases = [
-        (
-            serde_json::json!({
-                "version": 1,
-                "revision": i64::MAX,
-                "phase": "accepted",
-                "job_token": JOB_TOKEN,
-                "instance_id": INSTANCE_ID,
-                "session_id": SESSION_ID,
-                "turn_id": null,
-                "accepted_at_unix_ms": 1_000,
-                "progressing_at_unix_ms": null,
-                "completed_at_unix_ms": null,
-            }),
-            progress_payload(SESSION_ID, "turn-after-saturation"),
-        ),
-        (
-            serde_json::json!({
-                "version": 1,
-                "revision": i64::MAX,
-                "phase": "progressing",
-                "job_token": JOB_TOKEN,
-                "instance_id": INSTANCE_ID,
-                "session_id": SESSION_ID,
-                "turn_id": "turn-before-saturation",
-                "accepted_at_unix_ms": 1_000,
-                "progressing_at_unix_ms": 1_100,
-                "completed_at_unix_ms": null,
-            }),
-            serde_json::json!({
-                "hook_event_name": "Stop",
-                "session_id": SESSION_ID,
-                "turn_id": "turn-after-saturation",
-            }),
-        ),
-    ];
-
-    for (index, (before, event)) in cases.into_iter().enumerate() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let path = temporary.path().join(format!("saturated-{index}.json"));
-        std::fs::write(&path, before.to_string()).expect("saturated snapshot");
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .expect("owner-only saturated snapshot");
-
-        let output = run_bridge(&path, &event);
-
-        assert!(output.status.success(), "bridge failed: {output:?}");
-        assert_eq!(
-            snapshot(&path),
-            before,
-            "case {index} replaced the last representable revision"
-        );
-    }
 }

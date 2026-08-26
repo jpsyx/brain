@@ -1,4 +1,5 @@
 use std::io::Write as _;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -96,7 +97,7 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
 #[test]
 fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_output() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let observation = temporary.path().join("observation.json");
+    let observation = observation_path(&temporary, "observation.json");
     let state_db = temporary.path().join("state.db");
     let responses = temporary.path().join("responses");
     create_active_session(&state_db, "claude");
@@ -159,7 +160,7 @@ fn opencode_plugin_submit_tool_and_idle_paths_do_not_log_or_snapshot_private_con
     let temporary = tempfile::tempdir().expect("temporary directory");
     let root = temporary.path().join("workspace");
     std::fs::create_dir_all(&root).expect("workspace root");
-    let observation = temporary.path().join("opencode-observation.json");
+    let observation = observation_path(&temporary, "opencode-observation.json");
     let state_db = temporary.path().join("opencode-state.db");
     let responses = temporary.path().join("opencode-responses");
     create_active_session(&state_db, "opencode");
@@ -215,6 +216,18 @@ fn run_bridge(path: &Path, kind: &str, payload: &serde_json::Value) -> Output {
             .env("BRAIN_INSTANCE_ID", INSTANCE),
         payload,
     )
+}
+
+fn observation_path(temporary: &tempfile::TempDir, name: &str) -> PathBuf {
+    let root = std::fs::canonicalize(temporary.path()).expect("canonical privacy directory");
+    let cache = root.join("workspace-cache");
+    let observations = cache.join("receiver-observations");
+    std::fs::create_dir_all(&observations).expect("privacy observation directories");
+    for directory in [&cache, &observations] {
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .expect("owner-only privacy observation directory");
+    }
+    observations.join(name)
 }
 
 fn run_stop_hook(

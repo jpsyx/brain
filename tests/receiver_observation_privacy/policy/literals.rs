@@ -60,12 +60,12 @@ pub(super) fn source_privacy_violations(
         }) {
             violations.push("non-generic URL host");
         }
-        if reject_bare_hosts
-            && HOST.is_match(&literal)
-            && !is_reserved_host(&literal)
-            && !looks_like_filename(&literal)
-        {
-            violations.push("non-generic host");
+        if reject_bare_hosts {
+            if let Some(host) = bare_host(&literal, &HOST) {
+                if !is_reserved_host(host) && !looks_like_filename(host) {
+                    violations.push("non-generic host");
+                }
+            }
         }
         if IPV4
             .find_iter(&literal)
@@ -143,14 +143,23 @@ fn is_reserved_host(host: &str) -> bool {
     {
         return true;
     }
-    if normalized == "::1" || normalized == "localhost" || normalized.ends_with(".localhost") {
+    if normalized == "localhost" || normalized.ends_with(".localhost") {
         return true;
     }
-    if let Ok(address) = normalized.parse::<std::net::Ipv4Addr>() {
-        return address.is_loopback()
-            || address.octets()[..3] == [192, 0, 2]
-            || address.octets()[..3] == [198, 51, 100]
-            || address.octets()[..3] == [203, 0, 113];
+    if let Ok(address) = normalized.parse::<std::net::IpAddr>() {
+        return match address {
+            std::net::IpAddr::V4(address) => {
+                address.is_loopback()
+                    || address.octets()[..3] == [192, 0, 2]
+                    || address.octets()[..3] == [198, 51, 100]
+                    || address.octets()[..3] == [203, 0, 113]
+            }
+            std::net::IpAddr::V6(address) => {
+                address.is_loopback()
+                    || address.is_unspecified()
+                    || address.segments()[..2] == [0x2001, 0x0db8]
+            }
+        };
     }
     ["test", "example", "invalid"]
         .into_iter()
@@ -158,6 +167,22 @@ fn is_reserved_host(host: &str) -> bool {
         || ["example.com", "example.net", "example.org"]
             .into_iter()
             .any(|domain| normalized == domain || normalized.ends_with(&format!(".{domain}")))
+}
+
+fn bare_host<'source>(literal: &'source str, host: &Regex) -> Option<&'source str> {
+    if host.is_match(literal) || literal.parse::<std::net::Ipv6Addr>().is_ok() {
+        return Some(literal);
+    }
+    let (candidate, port) = literal.rsplit_once(':')?;
+    if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let candidate = candidate
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(candidate);
+    (host.is_match(candidate) || candidate.parse::<std::net::Ipv6Addr>().is_ok())
+        .then_some(candidate)
 }
 
 fn looks_like_filename(host: &str) -> bool {

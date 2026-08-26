@@ -177,10 +177,10 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
-| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v9 schema plus ordered, row-scaled, bounded token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, session, and revision observation commits; `store/claim/next.rs` owns FIFO selection, replacement leases, and the no-replay stop at expired `launched`, `accepted`, or `processing` rows; `store/claim/recovery.rs` owns atomic expired pre-spawn `launching` cleanup only; `store/claim.rs` owns launch CAS, transitions, and bounded pre-spawn retry state; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `schema.rs` owns the atomic v9 schema and conservative downgrade mapping, while `schema/token.rs` owns semantic UUID token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, live-session, and revision observation commits; `store/completion.rs` owns the single atomic merge of lifecycle evidence, cursor, exact completed-session binding, and terminal job state; `store/claim/next.rs` owns FIFO selection, replacement leases, and the no-replay stop at every expired `launching`, `launched`, `accepted`, or `processing` row; `store/claim.rs` owns launch CAS, transitions, and bounded failures that remain provably pre-spawn; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-acceptance controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, fresh-time atomic observation commits, terminal completion, and conservative post-spawn outcomes; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
@@ -238,8 +238,9 @@ checks, fresh registration, planning, and launch preparation;
 `launch_effects.rs` owns controller spawn and background insertion; and
 `ownership.rs` owns the semantic fresh-clock exact-owner gates used after slow
 effects and before retry mutation. `attachment_dispatch.rs` owns nonblocking
-staging-result decisions; `active.rs` owns exact-claim renewal and terminal
-cleanup; `artifact.rs` owns content-free exact completion correlation;
+staging-result decisions; `active.rs` owns exact-claim renewal and polling,
+while `active/terminal.rs` owns terminal authorization and cleanup;
+`artifact.rs` owns content-free exact completion correlation;
 and `reply.rs` preserves immutable provider delivery. No receiver branch injects
 the main panel.
 
@@ -1876,12 +1877,19 @@ advisory-locked JSON snapshot is at most
 revision safe across duplicate or concurrent delivery. It retains accepted,
 progressing, and completed timestamps but never stores prompt, tool, response,
 sender, recipient, attachment, cwd, credential, or transcript content.
-Before deriving a later phase, the writer opens any prior snapshot without
-following links and in nonblocking mode where supported. It validates the same
+Before deriving a later phase, the writer descriptor-walks the absolute cache
+path without following links, makes the opened workspace-cache and observation
+directories owner-only, and performs lock, temporary-file, replacement, and
+directory-sync operations relative to the confined directory descriptor. A
+symlinked ancestor or lock leaf fails closed. It opens any prior snapshot in
+nonblocking mode where supported and validates the same
 regular owner-only descriptor, byte bound, exact schema, lifecycle, and
 token/instance/session lineage before and after one bounded read. A replaced,
 malformed, or ambiguous entry is preserved and cannot be normalized into
 trusted evidence by a later hook.
+Each new boundary time is clamped to the latest retained producer boundary, so
+a wall-clock rollback cannot publish an invalid timeline. The constructed
+snapshot is validated again before replacement.
 Revisions stop at SQLite's maximum signed integer. Once saturated, later
 producer events preserve the last valid snapshot instead of writing evidence
 the durable store cannot represent.
@@ -1893,13 +1901,17 @@ the renewed lease. After claim renewal and exact artifact/lifecycle validation,
 the App samples a separate fresh clock for terminal authorization. The producer
 timestamp never participates in the lease comparison; when no completed
 lifecycle boundary exists, that fresh App time is also the durable fallback.
-The committed completion then launches an immediate push. Failed PTY launches
-release the exact registration and claim, shut down the new controller once,
-and record a durable pre-acceptance retry with a clock observation sampled
-after cleanup, without changing the main panel. Once the post-spawn `launched`
-commit succeeds, exit, shutdown, and lease expiry clean local resources but do
-not release durable correlation or make `launched`, `accepted`, or `processing`
-work claimable again; BR-16 owns that ambiguous recovery policy. Every
+The committed completion then launches an immediate push. A synchronous PTY
+spawn failure releases the exact registration and claim, shuts down the new
+controller once, and records a durable pre-spawn retry with a clock observation
+sampled after cleanup, without changing the main panel. Successful spawn is the
+no-auto-replay boundary: Brain immediately reauthorizes and commits `launched`
+before tab allocation. Owner loss or a store error before that commit preserves
+the exact registration and leaves `launching` fenced; allocation or later owner
+loss preserves `launched`. None of those successful-spawn outcomes becomes a
+retry. Exit, shutdown, and lease expiry clean local resources but do not release
+durable correlation or make any fenced state claimable again; BR-16 owns that
+ambiguous recovery policy. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;
@@ -1910,15 +1922,12 @@ shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.
 Orderly shell teardown runs the receiver-specific stage before generic agent
-controller shutdown. It cancels, reaps, and joins attachment work, releases an
-active exact registration only while the durable owner is live, removes the
-exact receiver tab and artifact, and drops the prepared attachment directory.
-Only then does it sample the clock for one exact Planning or Spawn retry. An
-expired `launching` row left by an unclean exit is
-handled inside the next FIFO claim transaction: stale exact lifecycle lineage
-is removed and a due bounded Spawn retry is assigned, or exhaustion marks the
-row failed before a later tick selects the next FIFO job. Accepted and later
-progressed rows remain unchanged for BR-16.
+controller shutdown. It cancels, reaps, and joins attachment work and may record
+an exact Planning retry only for work that has not spawned. For a successful
+spawn it removes the exact local receiver tab, artifact, observation, and lock
+without releasing or retrying the durable correlation. Expired `launching`,
+`launched`, `accepted`, and `processing` rows stop FIFO unchanged until BR-16
+provides a positive recovery policy.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` and the thin binary
