@@ -259,12 +259,14 @@ first move is a failing test that reproduces it, *then* the fix.
   hook and environment boundaries.
 - **Agent compatibility and acceptance boundaries.** Registry and controller
   tests run executable Claude fixtures below, at, and above the 2.1.196
-  `prompt_id` floor, plus malformed output and an unavailable command. They
-  prove doctor requires Claude compatibility, the controller rejects an old
-  Claude before transport work, configured commands stay redacted, Codex
-  remains unprobed, and OpenCode retains its existing feature probe. Shared
-  bounded-runner characterization still covers timeout, output, wrapper, and
-  process-group behavior. `tests/opencode_smoke.rs`
+  `prompt_id` floor, plus malformed output, identity-free numeric output,
+  noisy or ambiguous wrapper output, and an unavailable command. They prove
+  only one exact official Claude Code version record is accepted, doctor
+  requires Claude compatibility, the controller rejects an old Claude before
+  transport work, configured commands stay redacted, Codex remains unprobed,
+  and OpenCode retains its existing feature probe. Shared bounded-runner
+  characterization still covers timeout, output, wrapper, and process-group
+  behavior. `tests/opencode_smoke.rs`
   covers `--open-code`,
   normalized `-oc`, mutually exclusive selection, adapter command generation,
   trusted named-agent configuration, semantic input translation, session

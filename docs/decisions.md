@@ -805,13 +805,15 @@ an acceptable fallback because a later unrelated turn can reuse that session.
 
 The registry therefore owns a Claude `--version` compatibility probe and the
 Claude adapter invokes it through `AgentController` before any frontend
-operation. Brain accepts 2.1.196 and newer numeric releases, rejects older or
-malformed output, and reports an unavailable configured command with exact
-upgrade and `claude_cmd` remediation. Claude and OpenCode share one bounded,
-process-group-aware runner with disposable HOME/XDG state, while keeping their
-compatibility policies and successful-command caches separate. Codex remains
-unchanged because its exact `turn_id` hook contract does not require this
-Claude capability floor.
+operation. Brain accepts one official version record shaped exactly as
+`major.minor.patch (Claude Code)` when its version is 2.1.196 or newer. It
+rejects older releases, identity-free numeric output, wrapper noise, multiple
+version records, and malformed output, and reports an unavailable configured
+command with exact upgrade and `claude_cmd` remediation. Claude and OpenCode
+share one bounded, process-group-aware runner with disposable HOME/XDG state,
+while keeping their compatibility policies and successful-command caches
+separate. Codex remains unchanged because its exact `turn_id` hook contract
+does not require this Claude capability floor.
 
 Inherited `OPENCODE_CONFIG_CONTENT` is merged rather than replaced because it
 may contain unrelated user choices. Brain owns only its named agent, default

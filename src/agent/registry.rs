@@ -348,6 +348,30 @@ mod tests {
     }
 
     #[test]
+    fn claude_compatibility_rejects_numeric_output_without_claude_identity() {
+        let (_temporary, command) = fake_claude_command("Python 3.9.6");
+
+        assert_eq!(
+            claude_compatibility(&command)
+                .expect_err("numeric output from a non-Claude command")
+                .to_string(),
+            "frontend error: Claude is incompatible: the configured command returned an unrecognized version. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_noisy_or_ambiguous_wrapper_output() {
+        let (_temporary, command) = fake_claude_command("wrapper 9.9.9\n2.1.195 (Claude Code)");
+
+        assert_eq!(
+            claude_compatibility(&command)
+                .expect_err("wrapper output with multiple numeric versions")
+                .to_string(),
+            "frontend error: Claude is incompatible: the configured command returned an unrecognized version. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+    }
+
+    #[test]
     fn claude_compatibility_rejects_an_unavailable_command() {
         assert_eq!(
             claude_compatibility("brain-missing-claude-command-9bde08bd")

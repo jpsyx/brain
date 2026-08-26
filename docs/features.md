@@ -1255,16 +1255,18 @@ session-start and session-stop bridge commands; bridge and plugin files must
 exactly match Brain's bundled bytes. OpenCode compatibility additionally checks
 the configured command's version, required TUI flags, JSON session listing,
 generated capability schema, and plugin load in disposable HOME/XDG roots.
-Claude compatibility requires a runnable, parseable Claude Code 2.1.196 or
-later because receiver observation depends on its `prompt_id` hook field. An
-older, malformed, or unavailable configured Claude command is reported with an
-upgrade or `claude_cmd` remediation before Brain attempts a launch. It reports the rclone
-probe, and appends the same redacted requirements matrix used by other status
-surfaces. Missing rclone with sync off is informational and does not fail
-doctor. After the common startup migration has reconciled lifecycle artifacts,
-Doctor opens an existing SQLite database read-only, probes rclone with an
-explicit no-config path, and never creates cache, journal, or skill-render
-state. Hook repair names the exact installer and selected root.
+Claude compatibility requires a runnable Claude Code 2.1.196 or later whose
+version command returns one exact `major.minor.patch (Claude Code)` record,
+because receiver observation depends on its `prompt_id` hook field. Older,
+malformed, identity-free numeric, noisy, ambiguous, or unavailable configured
+Claude commands are reported with an upgrade or `claude_cmd` remediation before
+Brain attempts a launch. It reports the rclone probe, and appends the same
+redacted requirements matrix used by other status surfaces. Missing rclone with
+sync off is informational and does not fail doctor. After the common startup
+migration has reconciled lifecycle artifacts, Doctor opens an existing SQLite
+database read-only, probes rclone with an explicit no-config path, and never
+creates cache, journal, or skill-render state. Hook repair names the exact
+installer and selected root.
 
 ### `brain persona`
 

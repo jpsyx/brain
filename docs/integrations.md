@@ -208,12 +208,14 @@ reject availability and setup before a transport side effect.
 Claude receiver observation requires the content-free `prompt_id` field added
 in Claude Code 2.1.196. Before controller operations, and during doctor, Brain
 runs the configured `claude_cmd` with `--version` through the registry-owned
-bounded compatibility runner. Versions below 2.1.196, malformed version output,
-and commands that cannot run fail closed with an actionable upgrade or
-`claude_cmd` remediation. The check uses a disposable HOME/XDG root, accepts an
-exact configured wrapper plus its existing flags, caches only successful
-evidence for that exact command, and never exposes the configured command in a
-diagnostic.
+bounded compatibility runner. Only one official output record shaped exactly
+as `major.minor.patch (Claude Code)` is recognized. Versions below 2.1.196,
+identity-free numeric output, wrapper noise, multiple version records,
+malformed output, and commands that cannot run fail closed with an actionable
+upgrade or `claude_cmd` remediation. The check uses a disposable HOME/XDG root,
+accepts an exact configured wrapper plus its existing flags, caches only
+successful evidence for that exact command, and never exposes the configured
+command in a diagnostic.
 
 OpenCode compatibility is a supported-feature policy, not a promise about
 every future release. Before launch, and during doctor, Brain checks the

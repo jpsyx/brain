@@ -499,11 +499,12 @@ root, and translates semantic controller actions to OpenCode's native input.
 Its compatibility probe runs version, TUI-option, session-list, generated-config,
 and plugin-load checks in disposable HOME/XDG roots. Claude's compatibility
 probe uses that same isolated runner to require the `prompt_id` hook capability
-represented by Claude Code 2.1.196 or later. `agent/command_probe.rs` owns the
-bounded process-group runner and read-only command capture; each frontend's
-`probe.rs` retains only compatibility policy and caching. Successful reports are
-cached by configured command for the process; failed probes remain actionable
-and are not cached as compatibility evidence. Session discovery runs
+represented by Claude Code 2.1.196 or later, recognizing only one exact
+`major.minor.patch (Claude Code)` output record. `agent/command_probe.rs` owns
+the bounded process-group runner and read-only command capture; each frontend's
+`probe.rs` retains only compatibility policy and caching. Successful reports
+are cached by configured command for the process; failed probes remain
+actionable and are not cached as compatibility evidence. Session discovery runs
 `session list --format json` in the selected root and admits only non-archived,
 non-deleted root sessions whose reported directory resolves to that same root.
 `LaunchRequest::HookMetadata` is trusted input that adapters merge into the

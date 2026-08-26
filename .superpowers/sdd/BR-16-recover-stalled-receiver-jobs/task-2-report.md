@@ -826,3 +826,202 @@ invocation.
 ### Concerns
 
 None.
+
+## Fix round 3
+
+### Status
+
+DONE
+
+### Summary
+
+Claude compatibility now recognizes only one official version record shaped
+exactly as `major.minor.patch (Claude Code)`, allowing only surrounding process
+whitespace. A successful unrelated command such as Python can no longer satisfy
+the Claude hook capability floor with a numeric token, and wrapper banners or
+multiple version records cannot hide the actual Claude version. Only exact
+minimum and newer official records become cacheable compatibility evidence.
+
+The registry, `AgentController`, bounded isolated runner, redacted diagnostics,
+and existing version floor remain unchanged. Codex remains unprobed, OpenCode
+retains its feature probe, and no Task 3 recovery behavior was added. Product
+documentation now states the exact recognized record. The crate version moved
+from 0.84.5 to 0.84.6.
+
+### RED evidence
+
+#### Successful non-Claude numeric output
+
+Command:
+
+```text
+cargo test --release agent::registry::tests::claude_compatibility_rejects_numeric_output_without_claude_identity -- --exact --nocapture
+```
+
+Observed failure against the permissive parser:
+
+```text
+numeric output from a non-Claude command: Some("3.9.6")
+test result: FAILED. 0 passed; 1 failed
+```
+
+The prior parser scanned whitespace tokens, so `Python 3.9.6` was accepted and
+could be cached as Claude compatibility evidence.
+
+#### Noisy or ambiguous wrapper output
+
+Command:
+
+```text
+cargo test --release agent::registry::tests::claude_compatibility_rejects_noisy_or_ambiguous_wrapper_output -- --exact --nocapture
+```
+
+Observed failure against the permissive parser:
+
+```text
+wrapper output with multiple numeric versions: Some("9.9.9")
+test result: FAILED. 0 passed; 1 failed
+```
+
+The fixture returned a newer wrapper banner followed by an older official
+Claude record. The prior first-token policy accepted the wrapper version and
+never inspected the actual Claude release.
+
+### GREEN and refactor evidence
+
+The two exact regressions passed after the parser required the complete official
+record:
+
+```text
+cargo test --release --lib agent::registry::tests::claude_compatibility_rejects_numeric_output_without_claude_identity -- --exact --nocapture
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --lib agent::registry::tests::claude_compatibility_rejects_noisy_or_ambiguous_wrapper_output -- --exact --nocapture
+test result: ok. 1 passed; 0 failed
+```
+
+The preserved compatibility matrix remained green:
+
+```text
+cargo test --release --lib agent::registry::tests::claude_compatibility_ -- --nocapture
+test result: ok. 7 passed; 0 failed
+```
+
+That matrix covers below-minimum, exact-minimum, newer, malformed, unavailable,
+identity-free numeric, and noisy or ambiguous output. Focused controller,
+doctor, and unchanged OpenCode coverage also passed:
+
+```text
+cargo test --release --lib agent::controller::tests::configured_claude_controller_rejects_a_version_without_prompt_id_hooks -- --exact --nocapture
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --lib tasks::doctor::tests -- --test-threads=1
+test result: ok. 5 passed; 0 failed
+
+cargo test --release --test doctor_integration -- --test-threads=1
+test result: ok. 11 passed; 0 failed
+
+cargo test --release --lib agent::opencode::probe::tests -- --test-threads=1
+test result: ok. 13 passed; 0 failed
+```
+
+Formatting, lint, and diff gates:
+
+```text
+cargo fmt --all -- --check
+exit code: 0
+
+cargo clippy --release --all-targets -- -D warnings
+Finished `release` profile; exit code: 0
+
+git diff --check
+exit code: 0
+```
+
+### Serial-gate debugging and final uninterrupted suite
+
+The first serial invocation reached `workspace_capabilities` after every library
+test and preceding integration target passed, then exposed one stale test input:
+
+```text
+frontend_claude::claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands ... FAILED
+Claude launch spec: Frontend("Claude is incompatible: the configured command returned an unrecognized version. ...")
+test result: FAILED. 34 passed; 1 failed
+```
+
+Systematic tracing showed that the test's first configured command became
+`<fake-claude>; printf bypass --version`. Its observed output was:
+
+```text
+2.1.196 (Claude Code)
+bypass
+```
+
+Rejecting that noise is the new required product behavior, while the test's
+subject was only advisory MCP classification. The test input was changed to the
+equally ambiguous but output-neutral `claude; :`, without changing product code
+or weakening the compatibility parser. Its exact test and the full capability
+target then passed:
+
+```text
+cargo test --release --test workspace_capabilities frontend_claude::claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands -- --exact --nocapture --test-threads=1
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --test workspace_capabilities -- --test-threads=1
+test result: ok. 35 passed; 0 failed
+```
+
+After rerunning formatting, strict Clippy, and diff checks, the required full
+suite was started again and completed once without interruption:
+
+```text
+cargo test --release -- --test-threads=1
+library: 2263 passed; 0 failed
+all integration targets: passed
+doc tests: 0 passed; 0 failed
+process exit code: 0
+```
+
+No code, fixture, timeout policy, test selection, or environment changed during
+that successful invocation.
+
+### Commit
+
+- `fix(agent): require official Claude version output` contains the 0.84.6
+  product, tests, docs, fixture correction, and this round-3 report. The final
+  hash is supplied in the task handoff because embedding a commit's own hash in
+  its contents would change that hash.
+
+### Files changed
+
+- Release metadata: `Cargo.toml`, `Cargo.lock`.
+- Product documentation: `docs/architecture.md`, `docs/decisions.md`,
+  `docs/features.md`, `docs/integrations.md`, `docs/testing.md`.
+- Claude compatibility policy and regression coverage:
+  `src/agent/claude/probe.rs`, `src/agent/registry.rs`.
+- Hermetic capability fixture:
+  `tests/workspace_capabilities/frontend_claude.rs`.
+- Delivery record:
+  `.superpowers/sdd/BR-16-recover-stalled-receiver-jobs/task-2-report.md`.
+
+### Self-review
+
+- The parser trims only surrounding process whitespace, requires the literal
+  official ` (Claude Code)` suffix, and parses the entire preceding value as
+  exactly three numeric components.
+- Identity-free numeric output, prefixes, suffixes, wrapper banners, and
+  multiple records fail closed through the existing actionable malformed-output
+  diagnostic. The configured command remains redacted.
+- Exact 2.1.196 and newer official records still pass numeric tuple comparison;
+  2.1.195 still returns the existing `prompt_id` remediation.
+- Successful evidence enters the exact-command cache only after strict parsing
+  and the version-floor check. Failures remain retryable and uncached.
+- The registry remains the single compatibility owner used by doctor and
+  `AgentController`. Shared bounded process execution, disposable HOME/XDG
+  isolation, and OpenCode behavior are unchanged.
+- No recurring reconciler, recovery launch, App recovery effect, claim-expiry
+  policy, or parallel liveness state was introduced.
+
+### Concerns
+
+None.

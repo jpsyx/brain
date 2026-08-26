@@ -66,15 +66,13 @@ fn inspect_with(command: &str, runner: &dyn ProbeRunner) -> Result<String, Agent
 }
 
 fn parse_version(output: &str) -> Option<(String, (u64, u64, u64))> {
-    output.split_whitespace().find_map(|token| {
-        let candidate = token.trim_start_matches(['v', 'V']);
-        let mut components = candidate.split('.');
-        let major = components.next()?.parse::<u64>().ok()?;
-        let minor = components.next()?.parse::<u64>().ok()?;
-        let patch = components.next()?.parse::<u64>().ok()?;
-        if components.next().is_some() {
-            return None;
-        }
-        Some((candidate.to_owned(), (major, minor, patch)))
-    })
+    let candidate = output.trim().strip_suffix(" (Claude Code)")?;
+    let mut components = candidate.split('.');
+    let major = components.next()?.parse::<u64>().ok()?;
+    let minor = components.next()?.parse::<u64>().ok()?;
+    let patch = components.next()?.parse::<u64>().ok()?;
+    if components.next().is_some() {
+        return None;
+    }
+    Some((candidate.to_owned(), (major, minor, patch)))
 }
