@@ -8,6 +8,7 @@ pub struct ReceiverAnswerCleanup {
     token: ReceiverJobToken,
     instance: String,
     frontend: AgentKind,
+    controller_shutdown_acknowledged: bool,
     session_released: bool,
     artifacts_removed: bool,
 }
@@ -24,6 +25,7 @@ impl ReceiverAnswerCleanup {
         token: ReceiverJobToken,
         instance: String,
         frontend: AgentKind,
+        controller_shutdown_acknowledged: bool,
         session_released: bool,
         artifacts_removed: bool,
     ) -> Self {
@@ -32,6 +34,7 @@ impl ReceiverAnswerCleanup {
             token,
             instance,
             frontend,
+            controller_shutdown_acknowledged,
             session_released,
             artifacts_removed,
         }
@@ -55,6 +58,11 @@ impl ReceiverAnswerCleanup {
     #[must_use]
     pub const fn frontend(&self) -> AgentKind {
         self.frontend
+    }
+
+    #[must_use]
+    pub const fn controller_shutdown_acknowledged(&self) -> bool {
+        self.controller_shutdown_acknowledged
     }
 
     #[must_use]

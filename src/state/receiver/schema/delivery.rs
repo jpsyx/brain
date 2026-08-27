@@ -64,6 +64,8 @@ const CREATE_ANSWER_CLEANUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_a
            channel                 TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
            registered_session_id   TEXT NOT NULL,
            actual_session_id       TEXT NOT NULL,
+           controller_shutdown_acknowledged INTEGER NOT NULL DEFAULT 0
+             CHECK (controller_shutdown_acknowledged IN (0, 1)),
            session_released        INTEGER NOT NULL DEFAULT 0 CHECK (session_released IN (0, 1)),
            artifacts_removed       INTEGER NOT NULL DEFAULT 0 CHECK (artifacts_removed IN (0, 1)),
            created_at_unix_ms      INTEGER NOT NULL,
@@ -75,6 +77,7 @@ pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(CREATE_DELIVERY_TABLE)?;
     connection.execute_batch(CREATE_ANSWER_CLEANUP_TABLE)?;
     ensure_optional_columns(connection)?;
+    ensure_answer_cleanup_optional_columns(connection)?;
     ensure_answer_cleanup_columns(connection)?;
     reconcile_rows(connection)?;
     ensure_table_contract(connection)?;
@@ -94,6 +97,7 @@ fn ensure_answer_cleanup_columns(connection: &Connection) -> Result<()> {
         "channel",
         "registered_session_id",
         "actual_session_id",
+        "controller_shutdown_acknowledged",
         "session_released",
         "artifacts_removed",
         "created_at_unix_ms",
@@ -109,6 +113,25 @@ fn ensure_answer_cleanup_columns(connection: &Connection) -> Result<()> {
         if !exists {
             bail!("receiver answer cleanup schema is missing required column {required}");
         }
+    }
+    Ok(())
+}
+
+fn ensure_answer_cleanup_optional_columns(connection: &Connection) -> Result<()> {
+    let acknowledged_exists: bool = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM pragma_table_info('receiver_answer_cleanups')
+           WHERE name = 'controller_shutdown_acknowledged'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !acknowledged_exists {
+        connection.execute_batch(
+            "ALTER TABLE receiver_answer_cleanups
+             ADD COLUMN controller_shutdown_acknowledged INTEGER NOT NULL DEFAULT 0
+               CHECK (controller_shutdown_acknowledged IN (0, 1));",
+        )?;
     }
     Ok(())
 }

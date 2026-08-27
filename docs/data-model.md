@@ -1132,6 +1132,7 @@ receiver_answer_cleanups(
   channel                 TEXT NOT NULL,
   registered_session_id   TEXT NOT NULL,
   actual_session_id       TEXT NOT NULL,
+  controller_shutdown_acknowledged INTEGER NOT NULL,  -- 0 | 1
   session_released        INTEGER NOT NULL,  -- 0 | 1
   artifacts_removed       INTEGER NOT NULL,  -- 0 | 1
   created_at_unix_ms      INTEGER NOT NULL,
@@ -1193,11 +1194,17 @@ work.
 machine-local `receiver_answer_cleanups` row with the exact job, token,
 conversation, instance, frontend, actor/channel, and registered plus actual
 session identity. It contains no message, recipient, provider payload, or
-credential. Independent flags acknowledge exact session release and private
-artifact removal. The row is not an agent claim and does not participate in
-FIFO blocking; a later job may launch while cleanup retries. Brain deletes it
-only after both flags, task reload, and any configured sync launch succeed, so
-startup and recurring ticks can finish cleanup without re-entering agent work.
+credential. A durable controller-shutdown acknowledgement fences the row until
+the originating exact Brain instance has stopped its controller. A different
+App may take over only after startup dead-lock reaping unlocks that exact
+session, or durable lock evidence shows that the PID now belongs to a different
+Brain instance. Independent flags acknowledge exact session release and private
+artifact removal. Artifact removal may succeed while session release is still
+pending; neither flag authorizes the other. The row is not an agent claim and
+does not participate in FIFO blocking, so a later job may launch while cleanup
+retries. Brain deletes it only after both flags, task reload, and any configured
+sync launch succeed, so recurring ticks can finish cleanup without re-entering
+agent work.
 The schema-v12 down path removes this machine-local table before the outbox.
 
 `actual_session_id` records the lifecycle-native session authorized for that
@@ -1473,19 +1480,22 @@ the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp. At
-terminal completion after a fresh launch, the job transition and binding-only
-mutation share one immediate transaction that reads the exact locked remote
-instance. It verifies the durable registration's workspace, logical
-conversation, frontend, actor, channel, instance, and original registered ID.
+answer completion after a fresh or resumed launch, the answer-ready job
+transition, portable transcript append, immutable final-answer insert, native
+binding replacement, cleanup-fence insert, and agent-claim release share one
+immediate transaction that reads the exact locked remote instance. It verifies
+the durable registration's workspace, logical conversation, frontend, actor,
+channel, instance, and original registered ID.
 Claude may report that Brain-supplied ID as its native session ID, so equality
 is accepted for a fresh Claude launch with exact locked lifecycle evidence.
 Fresh Codex and OpenCode launches must rotate their placeholder to a distinct
 lifecycle-reported native ID. A resumed launch is different: its registered ID
 already equals the exact same-frontend durable conversation binding, so that
 equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
-remain rejected. The transaction writes only the native ID to the conversation
-binding, leaves the portable transcript bytes untouched, and makes `done`
-visible only after both writes can commit.
+remain rejected. The transaction appends the authenticated user and assistant
+turn exactly once, writes the native ID to the conversation binding, and makes
+`answer-ready` visible only when every answer mutation can commit. Provider
+acknowledgement later owns the terminal delivery state.
 The ordinary launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh

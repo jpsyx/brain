@@ -21,7 +21,91 @@ impl Db {
 
     /// Load the oldest post-answer cleanup independently of agent FIFO work.
     pub fn next_receiver_answer_cleanup(&self) -> Result<Option<ReceiverAnswerCleanup>> {
-        load_cleanup(&self.conn, &self.workspace_id, "", None)
+        let sql = cleanup_select("");
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map([&self.workspace_id], load_cleanup_row)?;
+        for row in rows {
+            let cleanup = parse_cleanup_row(row?)?;
+            if controller_handoff_is_eligible(&self.conn, &self.workspace_id, &cleanup)? {
+                return Ok(Some(cleanup));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Persist the originating controller's exact successful shutdown handoff.
+    pub fn acknowledge_receiver_answer_controller_shutdown(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
+        instance: &str,
+        controller_pid: i32,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        anyhow::ensure!(
+            controller_pid > 0,
+            "receiver answer controller PID must be positive"
+        );
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let changed = transaction.execute(
+            "UPDATE receiver_answer_cleanups AS cleanup
+             SET controller_shutdown_acknowledged = 1, updated_at_unix_ms = ?6
+             WHERE cleanup.workspace_id = ?1 AND cleanup.job_id = ?2
+               AND cleanup.job_token = ?3 AND cleanup.brain_instance_id = ?4
+               AND cleanup.controller_shutdown_acknowledged = 0
+               AND EXISTS (
+                 SELECT 1
+                 FROM receiver_session_registrations AS registration
+                 JOIN brain_sessions AS session
+                   ON session.workspace_id = registration.workspace_id
+                  AND session.agent_kind = registration.agent_kind
+                  AND session.actor_id = registration.actor_id
+                  AND session.channel = registration.channel
+                  AND session.brain_instance_id = registration.brain_instance_id
+                  AND session.agent_session_id = registration.actual_session_id
+                 WHERE registration.workspace_id = cleanup.workspace_id
+                   AND registration.conversation_id = cleanup.conversation_id
+                   AND registration.agent_kind = cleanup.agent_kind
+                   AND registration.actor_id = cleanup.actor_id
+                   AND registration.channel = cleanup.channel
+                   AND registration.brain_instance_id = cleanup.brain_instance_id
+                   AND registration.registered_session_id = cleanup.registered_session_id
+                   AND registration.actual_session_id = cleanup.actual_session_id
+                   AND session.locked_pid = ?5
+               )",
+            rusqlite::params![
+                self.workspace_id,
+                job_id.to_string(),
+                token.to_string(),
+                instance,
+                controller_pid,
+                to_i64(observed_at_unix_ms, "receiver controller shutdown time")?,
+            ],
+        )?;
+        let acknowledged = if changed == 1 {
+            true
+        } else {
+            transaction.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM receiver_answer_cleanups
+                   WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
+                     AND brain_instance_id = ?4
+                     AND controller_shutdown_acknowledged = 1
+                 )",
+                rusqlite::params![
+                    self.workspace_id,
+                    job_id.to_string(),
+                    token.to_string(),
+                    instance,
+                ],
+                |row| row.get(0),
+            )?
+        };
+        transaction.commit()?;
+        Ok(acknowledged)
     }
 
     /// Release only the exact session registration retained by a cleanup row.
@@ -38,6 +122,9 @@ impl Db {
         let Some(stored) = stored else {
             return Ok(false);
         };
+        if !controller_handoff_is_eligible(&transaction, &self.workspace_id, cleanup)? {
+            return Ok(false);
+        }
         if stored.session_released {
             transaction.commit()?;
             return Ok(true);
@@ -146,7 +233,14 @@ impl Db {
         cleanup: &ReceiverAnswerCleanup,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
-        Ok(self.conn.execute(
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        if !controller_handoff_is_eligible(&transaction, &self.workspace_id, cleanup)? {
+            return Ok(false);
+        }
+        let changed = transaction.execute(
             "UPDATE receiver_answer_cleanups
              SET artifacts_removed = 1, updated_at_unix_ms = ?5
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
@@ -158,12 +252,21 @@ impl Db {
                 cleanup.instance(),
                 to_i64(observed_at_unix_ms, "receiver answer cleanup time")?,
             ],
-        )? == 1)
+        )? == 1;
+        transaction.commit()?;
+        Ok(changed)
     }
 
     /// Remove cleanup authority only after every local effect is complete.
     pub fn finish_receiver_answer_cleanup(&self, cleanup: &ReceiverAnswerCleanup) -> Result<bool> {
-        Ok(self.conn.execute(
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        if !controller_handoff_is_eligible(&transaction, &self.workspace_id, cleanup)? {
+            return Ok(false);
+        }
+        let changed = transaction.execute(
             "DELETE FROM receiver_answer_cleanups
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
                AND brain_instance_id = ?4
@@ -174,7 +277,9 @@ impl Db {
                 cleanup.token().to_string(),
                 cleanup.instance(),
             ],
-        )? == 1)
+        )? == 1;
+        transaction.commit()?;
+        Ok(changed)
     }
 }
 
@@ -227,13 +332,7 @@ fn load_cleanup(
     filter: &str,
     job_id: Option<ReceiverJobId>,
 ) -> Result<Option<ReceiverAnswerCleanup>> {
-    let sql = format!(
-        "SELECT cleanup.job_id, cleanup.job_token, cleanup.brain_instance_id,
-                cleanup.agent_kind, cleanup.session_released, cleanup.artifacts_removed
-         FROM receiver_answer_cleanups AS cleanup
-         WHERE cleanup.workspace_id = ?1 {filter}
-         ORDER BY cleanup.created_at_unix_ms, cleanup.job_id LIMIT 1"
-    );
+    let sql = format!("{} LIMIT 1", cleanup_select(filter));
     let row = job_id.map_or_else(
         || {
             connection
@@ -250,22 +349,12 @@ fn load_cleanup(
                 .optional()
         },
     )?;
-    row.map(|row| {
-        Ok(ReceiverAnswerCleanup::new(
-            ReceiverJobId::parse(&row.0)?,
-            crate::state::ReceiverJobToken::parse(&row.1)?,
-            row.2,
-            parse_frontend(&row.3)?,
-            row.4,
-            row.5,
-        ))
-    })
-    .transpose()
+    row.map(parse_cleanup_row).transpose()
 }
 
-fn load_cleanup_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<(String, String, String, String, bool, bool)> {
+type CleanupRow = (String, String, String, String, bool, bool, bool);
+
+fn load_cleanup_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CleanupRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -273,7 +362,78 @@ fn load_cleanup_row(
         row.get(3)?,
         row.get(4)?,
         row.get(5)?,
+        row.get(6)?,
     ))
+}
+
+fn cleanup_select(filter: &str) -> String {
+    format!(
+        "SELECT cleanup.job_id, cleanup.job_token, cleanup.brain_instance_id,
+                cleanup.agent_kind, cleanup.controller_shutdown_acknowledged,
+                cleanup.session_released, cleanup.artifacts_removed
+         FROM receiver_answer_cleanups AS cleanup
+         WHERE cleanup.workspace_id = ?1 {filter}
+         ORDER BY cleanup.created_at_unix_ms, cleanup.job_id"
+    )
+}
+
+fn parse_cleanup_row(row: CleanupRow) -> Result<ReceiverAnswerCleanup> {
+    Ok(ReceiverAnswerCleanup::new(
+        ReceiverJobId::parse(&row.0)?,
+        crate::state::ReceiverJobToken::parse(&row.1)?,
+        row.2,
+        parse_frontend(&row.3)?,
+        row.4,
+        row.5,
+        row.6,
+    ))
+}
+
+fn controller_handoff_is_eligible(
+    connection: &rusqlite::Connection,
+    workspace_id: &str,
+    cleanup: &ReceiverAnswerCleanup,
+) -> Result<bool> {
+    if cleanup.controller_shutdown_acknowledged() {
+        return Ok(true);
+    }
+    let state = connection
+        .query_row(
+            "SELECT session.locked_pid,
+                    EXISTS(
+                      SELECT 1 FROM brain_sessions AS replacement
+                      WHERE replacement.locked_pid = session.locked_pid
+                        AND replacement.brain_instance_id != session.brain_instance_id
+                    )
+             FROM receiver_answer_cleanups AS cleanup
+             JOIN receiver_session_registrations AS registration
+               ON registration.workspace_id = cleanup.workspace_id
+              AND registration.conversation_id = cleanup.conversation_id
+              AND registration.agent_kind = cleanup.agent_kind
+              AND registration.actor_id = cleanup.actor_id
+              AND registration.channel = cleanup.channel
+              AND registration.brain_instance_id = cleanup.brain_instance_id
+              AND registration.registered_session_id = cleanup.registered_session_id
+              AND registration.actual_session_id = cleanup.actual_session_id
+             JOIN brain_sessions AS session
+               ON session.workspace_id = registration.workspace_id
+              AND session.agent_kind = registration.agent_kind
+              AND session.actor_id = registration.actor_id
+              AND session.channel = registration.channel
+              AND session.brain_instance_id = registration.brain_instance_id
+              AND session.agent_session_id = registration.actual_session_id
+             WHERE cleanup.workspace_id = ?1 AND cleanup.job_id = ?2
+               AND cleanup.job_token = ?3 AND cleanup.brain_instance_id = ?4",
+            rusqlite::params![
+                workspace_id,
+                cleanup.job_id().to_string(),
+                cleanup.token().to_string(),
+                cleanup.instance(),
+            ],
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, bool>(1)?)),
+        )
+        .optional()?;
+    Ok(matches!(state, Some((None, _) | (Some(_), true))))
 }
 
 fn parse_frontend(value: &str) -> Result<crate::agent::AgentKind> {

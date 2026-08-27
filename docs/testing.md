@@ -389,12 +389,16 @@ first move is a failing test that reproduces it, *then* the fix.
   every identity mismatch. The reconciliation matrix separately proves that
   notice, control, and fallback-only rows cannot protect incomplete
   `answer-ready` or `delivering` jobs as final-answer proof. App boundary tests
-  cover crashes before and after commit, durable session-release and artifact-
-  cleanup retries, sync-start failures, durable answers, and next-job release.
-  They assert the exact controller-shutdown, session-release, artifact-cleanup,
-  task-reload, then sync-launch order, and prove a fresh App resumes cleanup
-  without reclaiming agent work. Schema tests cover same-version cleanup-table
-  repair, content and credential exclusion, and v12 downgrade removal. That matrix
+  cover crashes before and after commit, the two-App window between answer
+  commit and originating controller shutdown, exact origin acknowledgement,
+  dead-owner takeover after lock reaping, PID-reuse-equivalent Brain-instance
+  mismatch, durable session-release and artifact-cleanup retries, sync-start
+  failures, durable answers, and next-job release. They prove that controller
+  shutdown opens the cleanup fence, session and artifact flags progress
+  independently, and task reload plus sync wait for both. A fresh App resumes
+  only an eligible cleanup without reclaiming agent work. Schema tests cover
+  same-version cleanup-table and shutdown-ack column repair, content and
+  credential exclusion, and v12 downgrade removal. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a
@@ -1202,9 +1206,10 @@ response kind, optional-column ordering, stale managed-index rebuilding,
 duplicate uniqueness failure, nonblank provider acknowledgements,
 privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
-both directions. The startup migration
-registry pins 0.85.0 directly after 0.84.22. Runtime answer and provider IO
-tests remain later BR-17 work because this change does not wire those paths.
+both directions. The startup migration registry pins 0.85.0 directly after
+0.84.22. Atomic answer-ready runtime tests now cover exact transcript, binding,
+outbox, cleanup-fence, and claim-release behavior. Provider claim, IO result,
+and retry execution remain later BR-17 work.
 `tests/module_structure.rs` now includes the delivery envelope, identity,
 status, policy, and schema modules in its production-size guard.
 

@@ -280,6 +280,23 @@ impl AppServices {
         self.db.next_receiver_answer_cleanup()
     }
 
+    pub(crate) fn acknowledge_receiver_answer_controller_shutdown(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
+        instance: &str,
+        controller_pid: i32,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db.acknowledge_receiver_answer_controller_shutdown(
+            job_id,
+            token,
+            instance,
+            controller_pid,
+            observed_at_unix_ms,
+        )
+    }
+
     pub(crate) fn release_receiver_answer_cleanup_session(
         &self,
         cleanup: &crate::state::ReceiverAnswerCleanup,

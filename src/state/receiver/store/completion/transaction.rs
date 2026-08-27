@@ -166,8 +166,9 @@ pub(super) fn complete(
         "INSERT INTO receiver_answer_cleanups
            (job_id, job_token, workspace_id, conversation_id, brain_instance_id,
             agent_kind, actor_id, channel, registered_session_id, actual_session_id,
-            session_released, artifacts_removed, created_at_unix_ms, updated_at_unix_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?11)",
+            controller_shutdown_acknowledged, session_released, artifacts_removed,
+            created_at_unix_ms, updated_at_unix_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, 0, ?11, ?11)",
         rusqlite::params![
             request.job_id.to_string(),
             request.token.to_string(),

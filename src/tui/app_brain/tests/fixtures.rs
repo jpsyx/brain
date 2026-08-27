@@ -85,6 +85,15 @@ pub(super) fn test_app(
     task_options: impl Into<crate::tasks::view::TaskViewOptions>,
     agent_kind: AgentKind,
 ) -> App {
+    test_app_with_instance(temporary, task_options, agent_kind, "shell-under-test")
+}
+
+pub(super) fn test_app_with_instance(
+    temporary: &tempfile::TempDir,
+    task_options: impl Into<crate::tasks::view::TaskViewOptions>,
+    agent_kind: AgentKind,
+    instance: &str,
+) -> App {
     let task_options = task_options.into();
     let TestWorkspaceFixture { root, context } = TestWorkspaceFixture::build(temporary);
     let today = NaiveDate::from_ymd_opt(2026, 8, 4).expect("valid date");
@@ -116,7 +125,7 @@ pub(super) fn test_app(
             ..Config::default()
         },
         agent_kind,
-        instance: "shell-under-test".to_owned(),
+        instance: instance.to_owned(),
         db,
         search: crate::picker::App::new(&[], ""),
         panel_side: PanelSide::Right,

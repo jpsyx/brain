@@ -332,9 +332,10 @@ matches the workspace, logical conversation, frontend, actor, channel,
 instance, and registered ID may replace the durable binding. Equality is valid
 for fresh Claude lifecycle evidence and for a resumed Codex or OpenCode run
 whose exact conversation binding already names that native ID. Unproved or
-fresh reused placeholders remain rejected. The lifecycle-reported native ID
-is retained in that registration, and the binding-only update does not rewrite
-the portable transcript. Pre-launch rollback stops the controller,
+fresh reused placeholders remain rejected. The lifecycle-reported native ID is
+retained in that registration. Exact answer completion uses it in the atomic
+binding replacement, transcript append, final-answer insert, cleanup-fence
+insert, answer-ready transition, and claim release. Pre-launch rollback stops the controller,
 uses a fallible exact-registration cleanup, and still records its bounded
 durable retry before surfacing any shutdown or cleanup diagnostic; `Drop` is
 only a best-effort fallback.
@@ -1108,11 +1109,14 @@ Which session to run is decided by the **lock + recency** model in
    Only an artifact without lifecycle completion evidence uses that same fresh
    post-validation App time as its durable completion fallback.
    Lifecycle-only completion delivers nothing. After answer commit, Brain shuts
-   down the exact controller, releases the exact session registration, removes
-   only that instance's private files, reloads tasks, and only then launches the
-   configured sync push. Session and artifact progress stays in the machine-local
-   cleanup row until every remaining step succeeds, so a fresh App can retry it
-   without restoring agent ownership or blocking later jobs. Answer cleanup,
+   down the exact controller and durably acknowledges that exact-instance
+   handoff before another App may proceed. Session release and exact-instance
+   file removal then retry independently, so private artifacts may be gone while
+   session release is still pending. Task reload and the configured sync push
+   wait for both flags. Controller, session, and artifact progress stays in the
+   machine-local cleanup row until every remaining step succeeds. Startup
+   dead-lock reaping or same-PID/different-instance evidence permits a fresh App
+   to retry it without restoring agent ownership or blocking later jobs. Answer cleanup,
    child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
@@ -1433,13 +1437,14 @@ actual, and completed sessions plus the original answer, envelope, and rendered
 turn. Replay never depends on the conversation's later transcript tail or
 binding. Lifecycle completion alone may advance nonterminal facts,
 but it cannot close the run. Neither process spawn nor screen activity is
-completion evidence. Post-commit cleanup first shuts down the controller and
-closes only the matching receiver tab, then releases that exact session owner,
-removes only that instance's files, reloads tasks, and finally starts the sync
-push without changing the active view or focus. A cleanup-only local runtime
-retries controller shutdown. The machine-local `receiver_answer_cleanups` row
-retains the exact registration and artifact identity plus independent success
-flags until task reload and any configured sync launch also succeed. Startup
+completion evidence. Post-commit cleanup first shuts down the controller,
+closes only the matching receiver tab, and durably opens the exact-incarnation
+fence. Session release and exact-instance file removal then progress
+independently without changing the active view or focus. A cleanup-only local
+runtime retries controller shutdown. The machine-local
+`receiver_answer_cleanups` row retains the exact registration and artifact
+identity plus independent success flags; task reload and any configured sync
+launch wait until both flags succeed. Startup
 and later ticks can therefore retry cleanup without reclaiming agent work or
 blocking the next job. Cleanup or sync failure cannot undo the answer or
 relaunch agent work; a crash after sync launch but before row deletion may

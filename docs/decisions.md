@@ -2919,8 +2919,10 @@ revision before every fact was durable. The state store therefore validates and
 applies all newly represented timestamps in one exact-owner transaction, then
 advances the revision once. A fresh coordinator time authorizes the mutation;
 producer timestamps remain evidence only. Completion can be the first observed
-phase, so direct `launched` or `accepted` to `done` is valid and leaves absent
-intermediate timestamps null.
+phase, so an exact answer artifact may move `launched` or `accepted` directly
+to `answer-ready` while leaving absent intermediate timestamps null. Lifecycle
+completion without that artifact is nonterminal and cannot manufacture an
+answer or a delivered `done` state.
 
 SQLite stores the durable observation revision as a signed integer. Producers
 therefore stop at that same maximum and preserve the last valid snapshot at
@@ -3060,11 +3062,19 @@ failure, or sync failure cannot lose the answer or relaunch agent work.
 The answer transaction also inserts a content-free, machine-local cleanup row.
 Agent ownership ends at `answer-ready`, so post-commit cleanup must not retain or
 recreate a claim that would block the next job. Instead, the row preserves the
-exact session registration and private artifact identity with independent
-success flags. The App shuts down the exact controller, releases that session,
-removes those artifacts, reloads tasks, and starts configured sync in that
-order. It removes the row only after the sequence succeeds. A later tick or a
-fresh App can finish the remaining effects without re-entering agent execution.
+exact session registration and private artifact identity. It is initially
+fenced: no App may release the session or remove artifacts until the originating
+exact Brain instance durably acknowledges successful controller shutdown.
+Restart takeover requires the same session to have been unlocked by startup
+dead-lock reaping, or durable evidence that its PID is now attached to a
+different Brain instance. This distinguishes process incarnations instead of
+trusting bare PID liveness.
+
+Session release and artifact removal have independent success flags. Brain
+attempts both after the controller fence opens, and artifact removal may finish
+while session release is still pending. Task reload and configured sync wait
+for both flags. The row is removed only after those remaining effects succeed.
+A later tick or fresh App can finish them without re-entering agent execution.
 Sync launch is intentionally at-least-once across a crash after launch but
 before row deletion; duplicate sync is safer than discarding cleanup authority.
 

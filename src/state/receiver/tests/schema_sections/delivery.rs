@@ -103,6 +103,7 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
         "channel",
         "registered_session_id",
         "actual_session_id",
+        "controller_shutdown_acknowledged",
         "session_released",
         "artifacts_removed",
         "created_at_unix_ms",
@@ -131,6 +132,30 @@ fn v12_repair_recreates_a_missing_answer_cleanup_table() {
         )
         .expect("answer cleanup table count");
     assert_eq!(tables, 1);
+}
+
+#[test]
+fn v12_repair_adds_the_controller_shutdown_acknowledgement_to_an_older_cleanup_table() {
+    let db = Db::open_in_memory().expect("receiver state");
+    db.conn
+        .execute_batch(
+            "ALTER TABLE receiver_answer_cleanups
+             DROP COLUMN controller_shutdown_acknowledged;",
+        )
+        .expect("stage pre-handoff answer cleanup table");
+
+    super::super::schema::up(&db.conn, 12).expect("repair answer cleanup handoff column");
+
+    let column: (String, String) = db
+        .conn
+        .query_row(
+            "SELECT name, dflt_value FROM pragma_table_info('receiver_answer_cleanups')
+             WHERE name = 'controller_shutdown_acknowledged'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("controller shutdown acknowledgement column");
+    assert_eq!(column, ("controller_shutdown_acknowledged".to_owned(), "0".to_owned()));
 }
 
 #[test]

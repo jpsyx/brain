@@ -20,6 +20,21 @@ impl App {
             active.attribution.instance(),
         ) {
             Ok(true) => {
+                let controller_pid = i32::try_from(std::process::id()).unwrap_or(0);
+                if !self
+                    .services
+                    .acknowledge_receiver_answer_controller_shutdown(
+                        active.claim.job().id(),
+                        active.claim.job().token(),
+                        active.attribution.instance(),
+                        controller_pid,
+                        self.receiver_now_unix_ms(),
+                    )
+                    .unwrap_or(false)
+                {
+                    self.defer_receiver_answer_controller_cleanup(active);
+                    return;
+                }
                 if self
                     .brain
                     .remove_shutdown_receiver_run(

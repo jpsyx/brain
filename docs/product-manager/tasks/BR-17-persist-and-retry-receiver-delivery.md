@@ -52,10 +52,10 @@ recipient, subject, lineage, and authorization context.
 
 ### Pointers (as of 2026-08-27)
 
-- `src/tui/app_brain/receiver/active/terminal.rs` currently commits exact
-  completion directly to `done`, then calls the process-local reply worker.
-  `src/state/receiver/store/completion.rs` is the transaction that must instead
-  commit answer readiness, transcript advancement, and immutable delivery data.
+- Historical pointer, superseded by Task 2: exact completion previously moved
+  directly to `done` and called the process-local reply worker. It now commits
+  answer readiness, transcript advancement, immutable delivery data, and
+  durable cleanup authority atomically before post-commit cleanup.
 - `src/tui/app_brain/receiver/artifact.rs` validates token, session, response,
   frontend, workspace, actor, channel, and completed status, but reads an
   unbounded content-bearing file. Keep the exact identity gate and add a finite
