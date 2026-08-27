@@ -5,10 +5,16 @@ use super::ReceiverConversationId;
 use crate::state::ReceiverConversationIdentity;
 
 /// Current frontend-owned native session attached to a logical conversation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverSessionBinding {
     frontend: crate::agent::AgentKind,
     native_session_id: String,
+}
+
+impl std::fmt::Debug for ReceiverSessionBinding {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverSessionBinding(<redacted>)")
+    }
 }
 
 impl ReceiverSessionBinding {
@@ -68,19 +74,34 @@ impl Display for ReceiverSessionBindingError {
 impl Error for ReceiverSessionBindingError {}
 
 /// Session-continuity decision for the next isolated receiver run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ReceiverSessionPlan {
     ResumeNative(String),
     FreshFromTranscript(String),
 }
 
+impl std::fmt::Debug for ReceiverSessionPlan {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ResumeNative(_) => "ReceiverSessionPlan::ResumeNative(<redacted>)",
+            Self::FreshFromTranscript(_) => "ReceiverSessionPlan::FreshFromTranscript(<redacted>)",
+        })
+    }
+}
+
 /// One persisted logical receiver conversation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverConversation {
     id: ReceiverConversationId,
     identity: ReceiverConversationIdentity,
     transcript_markdown: String,
     binding: Option<ReceiverSessionBinding>,
+}
+
+impl std::fmt::Debug for ReceiverConversation {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverConversation(<redacted>)")
+    }
 }
 
 impl ReceiverConversation {

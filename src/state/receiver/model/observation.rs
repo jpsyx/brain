@@ -10,7 +10,7 @@ pub enum ReceiverNonterminalObservationPhase {
 }
 
 /// Content-free evidence and authorization timing for one post-spawn launch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverLaunchObservation {
     pub token: ReceiverJobToken,
     pub instance: String,
@@ -19,8 +19,14 @@ pub struct ReceiverLaunchObservation {
     pub authorized_at_unix_ms: u64,
 }
 
+impl std::fmt::Debug for ReceiverLaunchObservation {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverLaunchObservation(<redacted>)")
+    }
+}
+
 /// Content-free evidence and authorization timing for one nonterminal lifecycle fact.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverObservation {
     pub token: ReceiverJobToken,
     pub instance: String,
@@ -29,6 +35,12 @@ pub struct ReceiverObservation {
     pub revision: u64,
     pub observed_at_unix_ms: u64,
     pub authorized_at_unix_ms: u64,
+}
+
+impl std::fmt::Debug for ReceiverObservation {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverObservation(<redacted>)")
+    }
 }
 
 /// Every newly represented lifecycle boundary from one normalized snapshot.
@@ -92,7 +104,7 @@ impl ReceiverObservationSet {
 }
 
 /// Exact durable identity and timings required to complete one receiver job.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct ReceiverCompletionRequest<'a> {
     pub job_id: ReceiverJobId,
     pub token: ReceiverJobToken,
@@ -101,4 +113,10 @@ pub struct ReceiverCompletionRequest<'a> {
     pub completed_session: &'a crate::agent::AgentSession,
     pub observed_at_unix_ms: u64,
     pub authorized_at_unix_ms: u64,
+}
+
+impl std::fmt::Debug for ReceiverCompletionRequest<'_> {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverCompletionRequest(<redacted>)")
+    }
 }

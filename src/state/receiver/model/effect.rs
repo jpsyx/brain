@@ -129,7 +129,7 @@ impl ReceiverReconciliationReason {
 }
 
 /// Content-free identifiers for the one effect a reconciliation winner may execute.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverReconciliationEffect {
     action: ReceiverReconciliationAction,
     reason: ReceiverReconciliationReason,
@@ -137,6 +137,12 @@ pub struct ReceiverReconciliationEffect {
     token: ReceiverJobToken,
     cleanup_instance: Option<String>,
     cleanup_session_id: Option<String>,
+}
+
+impl std::fmt::Debug for ReceiverReconciliationEffect {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverReconciliationEffect(<redacted>)")
+    }
 }
 
 impl ReceiverReconciliationEffect {
@@ -186,13 +192,19 @@ impl ReceiverReconciliationEffect {
 
 /// One finite writer lease for handing a terminal unavailable notice to the
 /// process-local delivery worker.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverUnavailableNoticeClaim {
     job_id: ReceiverJobId,
     token: ReceiverJobToken,
     owner: String,
     expires_at_unix_ms: u64,
     inbound: crate::server::receiver::InboundJob,
+}
+
+impl std::fmt::Debug for ReceiverUnavailableNoticeClaim {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverUnavailableNoticeClaim(<redacted>)")
+    }
 }
 
 impl ReceiverUnavailableNoticeClaim {

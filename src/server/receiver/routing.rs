@@ -39,7 +39,7 @@ pub(crate) fn normalize_address(channel: Channel, raw: &str) -> Option<String> {
 }
 
 /// Which workspace an inbound message's destination belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ReceiverRoute {
     /// Exactly one registered workspace publishes one of the named addresses.
     Workspace(WorkspaceId),
@@ -48,6 +48,16 @@ pub(crate) enum ReceiverRoute {
     Ambiguous,
     /// No registered workspace publishes any of the named addresses.
     Unknown,
+}
+
+impl std::fmt::Debug for ReceiverRoute {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Workspace(_) => "ReceiverRoute::Workspace(<redacted>)",
+            Self::Ambiguous => "ReceiverRoute::Ambiguous",
+            Self::Unknown => "ReceiverRoute::Unknown",
+        })
+    }
 }
 
 /// Select the workspace that published one of `destinations`. Pure.

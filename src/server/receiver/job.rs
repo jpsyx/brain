@@ -10,7 +10,7 @@ pub enum Channel {
 }
 
 /// One provider-owned attachment reference accepted with an inbound job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentRef {
     pub url: String,
@@ -20,7 +20,13 @@ pub struct AttachmentRef {
     pub filename: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl std::fmt::Debug for AttachmentRef {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AttachmentRef(<redacted>)")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmailReplyContext {
     pub provider_email_id: String,
@@ -28,8 +34,14 @@ pub struct EmailReplyContext {
     pub message_id: Option<String>,
 }
 
+impl std::fmt::Debug for EmailReplyContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("EmailReplyContext(<redacted>)")
+    }
+}
+
 /// Immutable authenticated work accepted by exactly one live workspace TUI.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InboundJob {
     #[serde(with = "uuid_string")]
@@ -51,6 +63,12 @@ pub struct InboundJob {
     pub allowed_response_recipients: Vec<String>,
     #[serde(default)]
     pub email_reply: Option<EmailReplyContext>,
+}
+
+impl std::fmt::Debug for InboundJob {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("InboundJob(<redacted>)")
+    }
 }
 
 mod uuid_string {

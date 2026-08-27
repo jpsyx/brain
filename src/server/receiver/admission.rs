@@ -10,12 +10,17 @@ const CANCELLED: u8 = 2;
 const COMMITTED: u8 = 3;
 const COMPLETED: u8 = 4;
 
-#[derive(Debug)]
 pub(crate) struct ReceiverAdmission {
     workspace_id: crate::workspace::WorkspaceId,
     lease_id: crate::server::lifecycle::LeaseId,
     state: AtomicU8,
     completion: (Mutex<bool>, Condvar),
+}
+
+impl std::fmt::Debug for ReceiverAdmission {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverAdmission(<redacted>)")
+    }
 }
 
 impl ReceiverAdmission {

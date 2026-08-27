@@ -2,7 +2,7 @@ use super::{ReceiverConversationId, ReceiverJobId, ReceiverJobToken};
 use crate::state::{ReceiverAttemptKind, ReceiverJobState, ReceiverRecoverySnapshot};
 
 /// One persisted receiver job and its retry metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverJob {
     id: ReceiverJobId,
     token: ReceiverJobToken,
@@ -33,6 +33,12 @@ pub struct ReceiverJob {
     pending_unavailable_notice: bool,
     recovery_cleanup_instance: Option<String>,
     recovery_cleanup_session_id: Option<String>,
+}
+
+impl std::fmt::Debug for ReceiverJob {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverJob(<redacted>)")
+    }
 }
 
 pub(in crate::state::receiver) struct ReceiverRetryMetadata {

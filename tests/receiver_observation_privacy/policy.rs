@@ -6,6 +6,96 @@ mod literals;
 use literals::source_privacy_violations;
 
 #[test]
+fn content_bearing_receiver_types_cannot_derive_debug() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for (relative, types) in [
+        (
+            "src/server/receiver/job.rs",
+            &["AttachmentRef", "EmailReplyContext", "InboundJob"] as &[&str],
+        ),
+        ("src/server/receiver/attachments.rs", &["StagedAttachment"]),
+        ("src/server/receiver/admission.rs", &["ReceiverAdmission"]),
+        ("src/server/receiver/control.rs", &["RestartPlan"]),
+        (
+            "src/server/receiver/http/mod.rs",
+            &["ProviderConfig", "AuthenticatedInbound"],
+        ),
+        ("src/server/receiver/dispatch.rs", &["DispatchHttpError"]),
+        ("src/server/receiver/routing.rs", &["ReceiverRoute"]),
+        (
+            "src/state/receiver/identity.rs",
+            &["EmailLineage", "ReceiverConversationIdentity"],
+        ),
+        (
+            "src/state/receiver/model/claim.rs",
+            &["ReceiverRunClaim", "ReceiverClaim"],
+        ),
+        (
+            "src/state/receiver/model/conversation.rs",
+            &[
+                "ReceiverSessionBinding",
+                "ReceiverSessionPlan",
+                "ReceiverConversation",
+            ],
+        ),
+        (
+            "src/state/receiver/model/effect.rs",
+            &[
+                "ReceiverReconciliationEffect",
+                "ReceiverUnavailableNoticeClaim",
+            ],
+        ),
+        (
+            "src/state/receiver/model/identity.rs",
+            &["ReceiverSessionAttribution"],
+        ),
+        ("src/state/receiver/model/job.rs", &["ReceiverJob"]),
+        (
+            "src/state/receiver/model/observation.rs",
+            &[
+                "ReceiverLaunchObservation",
+                "ReceiverObservation",
+                "ReceiverCompletionRequest",
+            ],
+        ),
+    ] {
+        let source = std::fs::read_to_string(root.join(relative)).expect("receiver source");
+        for type_name in types {
+            assert!(
+                !item_automatically_derives_debug(&source, type_name),
+                "{type_name} must use a content-free manual Debug implementation"
+            );
+        }
+    }
+}
+
+#[test]
+fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for relative in [
+        "tests/receiver_observation_privacy.rs",
+        "tests/receiver_observation_privacy/debug.rs",
+        "tests/receiver_observation_privacy/harness.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(relative)).expect("privacy harness source");
+        for forbidden in [
+            "{output:?}",
+            "{rendered}",
+            "{canary}",
+            "leaked token:",
+            "assert_eq!(artifact[\"message\"]",
+            "assert_eq!(artifact[\"job_token\"]",
+            "assert_eq!(value[\"job_token\"]",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "privacy harness contains an unsafe failure-message pattern"
+            );
+        }
+    }
+}
+
+#[test]
 fn every_semantically_relevant_observation_and_completion_source_is_audited() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let audited = discover_relevant_sources(root);
@@ -142,6 +232,36 @@ fn generic_home_email_and_host_literals_remain_allowed() {
     "#;
 
     assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
+}
+
+fn item_automatically_derives_debug(source: &str, type_name: &str) -> bool {
+    let struct_marker = format!("struct {type_name}");
+    let enum_marker = format!("enum {type_name}");
+    let item_index = [struct_marker, enum_marker]
+        .iter()
+        .flat_map(|marker| source.match_indices(marker))
+        .filter(|(index, marker)| {
+            source[index + marker.len()..]
+                .chars()
+                .next()
+                .is_some_and(|character| {
+                    character.is_whitespace() || matches!(character, '<' | '{')
+                })
+        })
+        .map(|(index, _)| index)
+        .min()
+        .expect("receiver content-bearing type");
+    let item_line_start = source[..item_index]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    source[..item_line_start]
+        .lines()
+        .rev()
+        .take_while(|line| {
+            let line = line.trim();
+            line.is_empty() || line.starts_with("#[") || line.starts_with("///")
+        })
+        .any(|line| line.contains("derive") && line.contains("Debug"))
 }
 
 #[test]

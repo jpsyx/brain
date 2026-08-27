@@ -1,11 +1,17 @@
 use super::{ReceiverConversation, ReceiverConversationId, ReceiverJob, ReceiverJobId};
 
 /// One live FIFO claim with the immutable job and logical conversation it owns.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverRunClaim {
     claim: ReceiverClaim,
     job: ReceiverJob,
     conversation: ReceiverConversation,
+}
+
+impl std::fmt::Debug for ReceiverRunClaim {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverRunClaim(<redacted>)")
+    }
 }
 
 impl ReceiverRunClaim {
@@ -71,11 +77,17 @@ impl ReceiverAcceptance {
 }
 
 /// Expiring non-destructive ownership of one receiver job.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverClaim {
     job_id: ReceiverJobId,
     owner: String,
     expires_at_unix_ms: u64,
+}
+
+impl std::fmt::Debug for ReceiverClaim {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverClaim(<redacted>)")
+    }
 }
 
 impl ReceiverClaim {

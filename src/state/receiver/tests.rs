@@ -87,6 +87,13 @@ mod launch {
     include!("tests/launch.rs");
 }
 
+mod privacy {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/privacy.rs");
+}
+
 mod schema {
     use super::support::*;
     use super::*;

@@ -76,12 +76,18 @@ impl Display for ReceiverConversationId {
 }
 
 /// Exact durable attribution registered before one isolated receiver launch.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverSessionAttribution {
     conversation_id: ReceiverConversationId,
     instance: String,
     registered_session: crate::agent::AgentSession,
     scope: crate::agent::SessionScope,
+}
+
+impl std::fmt::Debug for ReceiverSessionAttribution {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverSessionAttribution(<redacted>)")
+    }
 }
 
 impl ReceiverSessionAttribution {

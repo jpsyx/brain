@@ -2785,6 +2785,27 @@ owns the sole live-TUI durable consumer and its isolated agent execution. BR-15
 added phase proof. BR-16 through BR-18 retain recovery, delivery, and final
 representation or schema work.
 
+## Why receiver Debug formatting is a privacy boundary
+
+Receiver values routinely cross assertion, error, and diagnostic boundaries
+where Rust may format an entire value after an unrelated failure. Automatic
+`Debug` on a durable job or claim recursively included the inbound prompt,
+sender and recipient routing, attachments, provider lineage, transcript,
+native session, owner, observation identity, and stored error. Keeping logs
+clean was therefore insufficient because a failing test could reproduce the
+same private data.
+
+Every content-bearing receiver type now owns a manual, content-free `Debug`
+implementation. Stable enum categories remain visible when they help diagnose
+control flow, such as native resume versus fresh-from-transcript planning, but
+their payloads render as `<redacted>`. Opaque IDs appear only where their
+existing contract already classifies them as content-free. Runtime canaries
+format the complete nested model graph, while a structural test prevents an
+automatic `Debug` derive from silently reopening the boundary. Privacy harness
+failures likewise report exit category, code or signal presence, byte lengths,
+and indexed canary categories without echoing captured bytes or expected
+private values.
+
 ## Why receiver observation polling rebuilds from durable facts
 
 The lifecycle snapshot is evidence, not the coordinator's source of truth. An

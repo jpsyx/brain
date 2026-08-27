@@ -433,7 +433,13 @@ first move is a failing test that reproduces it, *then* the fix.
   diagnostic paths. Snapshots, logs, diagnostics, and process output contain
   none of them; token values stay redacted from Debug and diagnostics, while
   trusted artifacts retain only their intentional opaque identity fields and
-  private completion body. A real `agent_session_stop_hook.py` producer creates
+  private completion body. Separate full-model canaries format the nested
+  inbound job, attachment, conversation identity and transcript, native binding
+  and session plan, durable job and claim graph, recovery effect, unavailable
+  notice, observation, and completion request. A structural guard forbids those
+  content-bearing types from regaining automatic `Debug`, and harness failure
+  messages report only stable labels, status categories, and byte lengths.
+  A real `agent_session_stop_hook.py` producer creates
   both the exact artifact and a valid completed observation beyond the renewed
   local lease, then crosses the controller and App transaction. That test proves
   the producer time is persisted as evidence while a separately sampled
