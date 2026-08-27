@@ -2522,8 +2522,9 @@ deadlines, recovery count, and observation cursor. A first accepted stall spends
 the one recovery count while persisting an ownerless due recovery, resets the
 current-attempt cursor, preserves lifetime facts and the exact native binding,
 caps recovery expiry by the original absolute limit, and persists the exact
-superseded instance/session as cleanup-pending. Task 4 must stop that native run
-before acknowledging the same token, tuple, registration, and full recovery
+superseded instance/session as cleanup-pending. The App stops that native run
+and removes its exact local artifacts before acknowledging the same token,
+tuple, registration, and full recovery
 snapshot. The acknowledgement transaction also rechecks that the registration
 and session still match the durable conversation's frontend, user, channel,
 and native binding plus the exact job. It then releases the retained
@@ -2555,6 +2556,43 @@ transition, preserving the single-launch recovery budget and setting notice
 intent. Semantic effects carry only opaque job, token, cleanup instance, and
 cleanup session identifiers. Frontend validation, process cleanup, recovery
 launch, and provider notice delivery remain outside the state layer.
+
+## Why accepted recovery is exact native resume, never transcript replay
+
+Exact acceptance proves a native conversation already crossed the point where
+replaying the inbound instruction could repeat side effects. Recovery therefore
+does not reuse the ordinary launch planner. The App constructs
+`AgentController` for the frontend stored in the durable conversation and
+resolves that frontend's current configured command, regardless of the current
+TUI default. The adapter must validate the exact native history and the session
+store must claim that same native ID for a fresh receiver instance. Missing,
+corrupt, unavailable, locked, or mismatched evidence terminalizes the recovery;
+none of it selects Fresh or the Brain-owned transcript.
+
+The recovery planner accepts only opaque job identity, token, and the validated
+native session. Its bounded resume-only instruction asks the existing
+conversation to inspect prior work, avoid duplicate effects, and finish the
+pending response. The immutable inbound body, attachments, transcript, routing,
+provider data, and prior answer are absent by construction. Observation and
+completion still use the ordinary exact transactions, so recovery adds no
+second lifecycle or response authority.
+
+## Why terminal notice handoff has its own finite lease
+
+The terminal notice is independent from cleanup and FIFO eligibility. Reusing
+the job claim would make a failed notification block later work; reusing the
+cleanup tuple would let delivery acknowledgement accidentally release a native
+session. Schema v11 therefore stores a content-free notice writer owner and
+expiry. One claimant loads the immutable accepted routing frame in memory and
+clears the intent only after Brain's bounded local delivery worker accepts the
+fixed unavailable message. Queue failure or a claimant crash leaves the intent
+retryable after expiry, while the terminal row remains nonblocking.
+
+This is deliberately a local handoff guarantee, not exactly-once provider
+delivery. A crash can occur after queue acceptance but before the exact durable
+acknowledgement, and the provider can fail after the intent is cleared. Removing
+those ambiguities requires BR-17's durable delivery ledger and provider
+acknowledgement; BR-16 does not pretend the local CAS proves more than it does.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come

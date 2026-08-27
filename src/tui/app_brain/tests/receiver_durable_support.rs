@@ -9,10 +9,21 @@ pub(super) struct ReceiverClock {
 
 impl ReceiverClock {
     pub(super) fn new() -> Self {
+        Self::at_unix_ms(
+            chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 8, 24, 12, 0, 0)
+                .unwrap()
+                .timestamp_millis()
+                .try_into()
+                .expect("test clock timestamp"),
+        )
+    }
+
+    pub(super) fn at_unix_ms(unix_ms: u64) -> Self {
+        let unix_ms = i64::try_from(unix_ms).expect("test clock timestamp fits i64");
         Self {
             state: Arc::new(Mutex::new((
                 std::time::Instant::now(),
-                chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 8, 24, 12, 0, 0).unwrap(),
+                chrono::DateTime::from_timestamp_millis(unix_ms).expect("valid test timestamp"),
             ))),
         }
     }

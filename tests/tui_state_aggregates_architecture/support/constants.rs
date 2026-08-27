@@ -141,6 +141,7 @@ pub(crate) const SERVICE_FIELDS: &[&str] = &[
     "receiver_intent_refresher",
     "receiver_sync_runtime",
     "receiver_attachment_coordinator",
+    "receiver_notice_delivery",
 ];
 
 pub(crate) const STATUS_FIELDS: &[&str] = &[

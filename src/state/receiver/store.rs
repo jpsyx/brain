@@ -14,6 +14,7 @@ mod load;
 mod observation;
 mod reconciliation;
 mod session;
+mod unavailable_notice;
 
 use load::{load_receiver_conversation, load_receiver_job};
 

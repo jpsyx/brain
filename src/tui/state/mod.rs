@@ -14,6 +14,8 @@ pub(crate) use brain::{
     RemovedReceiverRun,
 };
 pub(crate) use context::{AppContext, AppContextInit};
+#[cfg(test)]
+pub(crate) use services::ReceiverNoticeDelivery;
 pub(crate) use services::{AppServices, AppServicesInit};
 pub(crate) use shell::{SearchEffect, ShellState};
 pub(crate) use status::{StatusState, StatusStateInit};

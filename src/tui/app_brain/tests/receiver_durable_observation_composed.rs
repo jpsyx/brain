@@ -1,4 +1,6 @@
-use super::receiver_durable_support::{accept_email_job, mark_receiver_session_completed};
+use super::receiver_durable_support::{
+    ReceiverClock, accept_email_job, mark_receiver_session_completed,
+};
 use super::*;
 
 use crate::state::{ReceiverJobState, ReceiverNonterminalObservationPhase, ReceiverObservation};
@@ -9,6 +11,8 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
     app.receiver.record_intent(true);
+    app.services
+        .replace_receiver_sync_runtime(Box::new(ReceiverClock::at_unix_ms(1_000)));
     let db = Db::open(app.context.workspace()).expect("state DB");
     let accepted = accept_email_job(&app, &db, "missed lifecycle boundaries", 100);
     let transport = TransportRecording::default();

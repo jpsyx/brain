@@ -59,6 +59,13 @@ mod recovery_claim {
     include!("tests/recovery_claim_ordering.rs");
 }
 
+mod unavailable_notice {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/unavailable_notice.rs");
+}
+
 mod reconciliation {
     use super::support::*;
     use super::*;

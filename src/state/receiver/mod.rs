@@ -19,7 +19,7 @@ pub use model::{
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
     ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
     ReceiverRecoveryFailure, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverUnavailableNoticeClaim,
 };
 use model::{
     ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,

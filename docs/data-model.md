@@ -1094,6 +1094,8 @@ receiver_jobs(
   pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
   recovery_cleanup_instance TEXT,
   recovery_cleanup_session_id TEXT,
+  unavailable_notice_owner TEXT,
+  unavailable_notice_expires_at_unix_ms INTEGER,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1226,6 +1228,15 @@ registration, spawn, or shutdown failure also become `failed` with a
 content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
 do not block FIFO. The existing launch-retry mutation accepts only ordinary
 attempts.
+The cleanup fence and terminal notice have independent authority. A pending
+notice can be claimed by one non-blank writer only while its dedicated expiry
+is in the future. Claim returns the immutable accepted inbound frame in memory;
+it persists no notice body, derived recipient list, provider payload, or
+credential. Exact acknowledgement requires the same job, token, terminal state,
+and live notice owner, then clears the intent and both lease columns together.
+A failed local queue operation leaves the intent pending and the finite lease
+expires for another claimant. Terminal rows and notice leases never participate
+in ordinary FIFO blocking or the workspace live-job-claim predicate.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures
@@ -1287,8 +1298,9 @@ transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
 lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
-or `processing` row remains wholly unchanged for BR-16 rather than being
-reclaimed or launched again.
+or `processing` row remains unchanged until the recurring reconciler records
+its exact recovery or terminal action; it is never reclaimed or launched again
+as ordinary work.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.
@@ -1319,7 +1331,7 @@ equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
 remain rejected. The transaction writes only the native ID to the conversation
 binding, leaves the portable transcript bytes untouched, and makes `done`
 visible only after both writes can commit.
-The BR-14 launch planner treats a same-frontend pair as a candidate rather than
+The ordinary launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
 session supplied by the caller. That fresh plan carries a 47 KiB maximum recovery
@@ -1328,12 +1340,22 @@ section, and the accepted attachment references. A resumed plan carries only
 the current message and attachment references. The planner owns no tab,
 durable claim, binding update, or coordinator state.
 
+Accepted-work recovery uses a separate planner with different inputs and no
+fallback. It receives only the opaque job ID, opaque token, and already
+validated exact native session. Its session plan is always Resume. Its bounded
+instruction tells the existing conversation to inspect prior work, avoid
+repeating completed effects, and finish the pending response, then ends with the
+same token marker. Immutable inbound content, attachments, transcript, routing,
+provider data, and prior response text cannot enter that planner.
+
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
 nonterminal phases. Schema v8 adds the exact receiver-session registration
 table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
 lifecycle evidence timestamps, exact observation instance/session identity,
-and monotonic revision. Every DB open reconciles the tables and managed
+and monotonic revision. Schema v10 adds recovery deadlines, attempt identity,
+notice intent, and the exact cleanup fence. Schema v11 adds the all-or-none
+finite unavailable-notice owner and expiry. Every DB open reconciles the tables and managed
 columns for new, partially repaired, damaged, and already-current workspaces.
 Token reconciliation parses UUID identity, chooses one canonical spelling per
 identity, regenerates invalid or semantically colliding rows through the bounded
@@ -1344,8 +1366,8 @@ a v8-compatible jobs table before the older downgrade chain continues. Every
 `launching`, `launched`, `accepted`, `processing`, `answer-ready`, `delivering`,
 or `retrying` row becomes a conservative `failed` row with claim and retry
 authority cleared, so the old coordinator cannot replay post-spawn ambiguity.
-A newly
-attached workspace receives v9 on its first ordinary DB open. The older v6
+A newly attached workspace receives the current schema on its first ordinary
+DB open. The older v6
 down operation still transactionally removes the receiver schema and returns a
 v6 DB to v5. BR-18 still owns the remaining representation cleanup and any
 later schema migration or reconciliation it requires.

@@ -17,7 +17,7 @@ use support::{
     EXACT_SNAPSHOT_SQL, bind_exact_recovery_session, candidate_for_job, oldest_blocking_candidate,
     release_registration,
 };
-use terminal::{terminal_reason, terminalize};
+use terminal::{terminal_reason, terminalize, terminalize_launched_recovery};
 
 const PRE_ACCEPTANCE_RETRY_DELAY_MS: u64 = 5_000;
 
@@ -240,6 +240,7 @@ impl Db {
             owner,
             now_unix_ms,
             ReceiverReconciliationReason::NativeSessionUnavailable,
+            false,
         )
     }
 
@@ -256,7 +257,13 @@ impl Db {
         now_unix_ms: u64,
         failure: ReceiverRecoveryFailure,
     ) -> Result<Option<ReceiverReconciliationEffect>> {
-        self.fail_receiver_recovery_with_reason(job_id, owner, now_unix_ms, failure.reason())
+        self.fail_receiver_recovery_with_reason(
+            job_id,
+            owner,
+            now_unix_ms,
+            failure.reason(),
+            failure == ReceiverRecoveryFailure::Shutdown,
+        )
     }
 
     fn fail_receiver_recovery_with_reason(
@@ -265,6 +272,7 @@ impl Db {
         owner: &str,
         now_unix_ms: u64,
         reason: ReceiverReconciliationReason,
+        allow_launched: bool,
     ) -> Result<Option<ReceiverReconciliationEffect>> {
         let owner = validated_owner(owner)?;
         let now = to_i64(now_unix_ms, "receiver recovery failure time")?;
@@ -278,16 +286,28 @@ impl Db {
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, job_id)? else {
             return Ok(None);
         };
-        if !matches!(
+        let eligible_state = matches!(
             candidate.state,
             ReceiverJobState::Claimed | ReceiverJobState::Launching
-        ) || candidate.owner.as_deref() != Some(owner)
+        ) || (allow_launched && candidate.state == ReceiverJobState::Launched);
+        if !eligible_state
+            || candidate.owner.as_deref() != Some(owner)
             || candidate
                 .claim_expires_at_unix_ms
                 .is_none_or(|expires_at| expires_at <= now)
             || job.attempt_kind() != crate::state::ReceiverAttemptKind::Recovery
         {
             return Ok(None);
+        }
+        if candidate.state == ReceiverJobState::Launched {
+            return terminalize_launched_recovery(
+                transaction,
+                &self.workspace_id,
+                &candidate,
+                &job,
+                reason,
+                now,
+            );
         }
         terminalize(
             transaction,

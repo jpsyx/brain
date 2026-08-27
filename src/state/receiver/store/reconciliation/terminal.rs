@@ -107,3 +107,65 @@ pub(super) fn terminalize(
         cleanup_session_id,
     )))
 }
+
+pub(super) fn terminalize_launched_recovery(
+    transaction: rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    candidate: &ReconciliationCandidate,
+    job: &ReceiverJob,
+    reason: ReceiverReconciliationReason,
+    now: i64,
+) -> Result<Option<ReceiverReconciliationEffect>> {
+    let (Some(instance), Some(session_id)) =
+        (job.observation_instance(), job.observation_session_id())
+    else {
+        return Ok(None);
+    };
+    if job.recovery_cleanup_instance().is_some() || job.recovery_cleanup_session_id().is_some() {
+        return Ok(None);
+    }
+    let sql = format!(
+        "UPDATE receiver_jobs
+         SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+             retry_at_unix_ms = NULL, retry_from_state = NULL, last_error = ?5,
+             observation_instance = NULL, observation_session_id = NULL,
+             observation_revision = 0, attempt_accepted_at_unix_ms = NULL,
+             attempt_progressing_at_unix_ms = NULL,
+             latest_progress_at_unix_ms = NULL,
+             launch_expires_at_unix_ms = NULL,
+             acceptance_expires_at_unix_ms = NULL,
+             progress_expires_at_unix_ms = NULL,
+             pending_unavailable_notice = 1,
+             recovery_cleanup_instance = ?6,
+             recovery_cleanup_session_id = ?7,
+             updated_at_unix_ms = ?8
+         WHERE workspace_id = ?1 AND job_id = ?2 AND state = 'launched'
+           AND claim_owner = ?3 AND attempt_kind = 'recovery'
+           AND {EXACT_SNAPSHOT_SQL} = ?4"
+    );
+    if transaction.execute(
+        &sql,
+        rusqlite::params![
+            workspace_id,
+            candidate.job_id.to_string(),
+            candidate.owner,
+            candidate.exact_snapshot,
+            reason.as_str(),
+            instance,
+            session_id,
+            now,
+        ],
+    )? != 1
+    {
+        return Ok(None);
+    }
+    transaction.commit()?;
+    Ok(Some(ReceiverReconciliationEffect::new(
+        ReceiverReconciliationAction::TerminalFailure,
+        reason,
+        job.id(),
+        job.token(),
+        Some(instance.to_owned()),
+        Some(session_id.to_owned()),
+    )))
+}

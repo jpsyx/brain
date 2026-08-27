@@ -8,6 +8,7 @@ mod receiver_observation;
 mod receiver_recovery;
 mod receiver_recovery_cleanup;
 mod receiver_session_registration;
+mod receiver_unavailable_notice;
 mod version;
 
 use std::io::Write;
@@ -25,6 +26,7 @@ const RECEIVER_OBSERVATION_VERSION: Version = Version::new(0, 80, 0);
 const RECEIVER_LIFECYCLE_OBSERVATION_VERSION: Version = Version::new(0, 81, 0);
 const RECEIVER_RECOVERY_VERSION: Version = Version::new(0, 84, 0);
 const RECEIVER_RECOVERY_CLEANUP_VERSION: Version = Version::new(0, 84, 8);
+const RECEIVER_UNAVAILABLE_NOTICE_VERSION: Version = Version::new(0, 84, 12);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -33,7 +35,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 8] = [
+const MIGRATIONS: [Migration; 9] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -73,6 +75,11 @@ const MIGRATIONS: [Migration; 8] = [
         introduced: RECEIVER_RECOVERY_CLEANUP_VERSION,
         up: receiver_recovery_cleanup::up,
         down: receiver_recovery_cleanup::down,
+    },
+    Migration {
+        introduced: RECEIVER_UNAVAILABLE_NOTICE_VERSION,
+        up: receiver_unavailable_notice::up,
+        down: receiver_unavailable_notice::down,
     },
 ];
 
@@ -219,5 +226,24 @@ mod tests {
 
         assert_eq!(down, vec![RECEIVER_RECOVERY_CLEANUP_VERSION]);
         assert_eq!(up, vec![RECEIVER_RECOVERY_CLEANUP_VERSION]);
+    }
+
+    #[test]
+    fn unavailable_notice_boundary_is_exactly_adjacent_to_08411() {
+        let before = Version::new(0, 84, 11);
+        let notice = Version::new(0, 84, 12);
+        let down = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_downgrade(migration.introduced, notice, before))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+        let up = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_upgrade(migration.introduced, before, notice))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+
+        assert_eq!(down, vec![RECEIVER_UNAVAILABLE_NOTICE_VERSION]);
+        assert_eq!(up, vec![RECEIVER_UNAVAILABLE_NOTICE_VERSION]);
     }
 }

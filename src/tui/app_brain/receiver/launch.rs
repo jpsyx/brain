@@ -13,18 +13,18 @@ use crate::tui::receiver::{
 use crate::tui::state::AppServices;
 
 #[cfg(not(test))]
-fn receiver_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+pub(super) fn receiver_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     Box::new(PtyPane::new(24, 80))
 }
 
 #[cfg(test)]
-fn receiver_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
+pub(super) fn receiver_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
     app.brain
         .take_receiver_transport()
         .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
 }
 
-fn cleanup_unregistered(controller: &mut AgentController) {
+pub(super) fn cleanup_unregistered(controller: &mut AgentController) {
     let _ = cleanup_receiver_launch(
         None::<ReceiverSessionRegistration<'_, AppServices>>,
         controller,
@@ -298,7 +298,11 @@ impl App {
         );
     }
 
-    fn receiver_hook_metadata(&self, claimed: &ClaimedReceiverRun, pid: i32) -> HookMetadata {
+    pub(super) fn receiver_hook_metadata(
+        &self,
+        claimed: &ClaimedReceiverRun,
+        pid: i32,
+    ) -> HookMetadata {
         HookMetadata::new(vec![
             (
                 "BRAIN_INSTANCE_ID".to_owned(),

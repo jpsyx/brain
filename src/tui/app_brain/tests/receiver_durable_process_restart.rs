@@ -1,4 +1,4 @@
-use super::receiver_durable_support::accept_email_job;
+use super::receiver_durable_support::{ReceiverClock, accept_email_job};
 use super::*;
 
 use crate::state::{ReceiverNonterminalObservationPhase, ReceiverObservation};
@@ -10,6 +10,10 @@ fn fresh_app_preserves_expired_launched_and_observed_runs_without_replay() {
         let cli = Cli::parse_from(["tasks"]);
         let mut first_app = test_app(&temporary, &cli, AgentKind::Claude);
         first_app.receiver.record_intent(true);
+        let clock = ReceiverClock::at_unix_ms(1_000);
+        first_app
+            .services
+            .replace_receiver_sync_runtime(Box::new(clock.clone()));
         let db = Db::open(first_app.context.workspace()).expect("state DB");
         let accepted = accept_email_job(&first_app, &db, "synthetic restart", 100);
         first_app
@@ -79,6 +83,9 @@ fn fresh_app_preserves_expired_launched_and_observed_runs_without_replay() {
 
         let mut fresh_app = test_app(&temporary, &cli, AgentKind::Claude);
         fresh_app.receiver.record_intent(true);
+        fresh_app
+            .services
+            .replace_receiver_sync_runtime(Box::new(clock));
         let transport = TransportRecording::default();
         fresh_app
             .brain

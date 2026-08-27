@@ -1603,9 +1603,11 @@ observation snapshot, and observation lock while preserving durable facts and
 unrelated instance files. Poll diagnostics use one content-free shape containing
 only opaque job and instance IDs, frontend, prior phase, observed boundary or
 `none`, and a stable category. Child exit or orderly shutdown after `launched`
-without terminal evidence never replays the prompt. Durable stalled-run
-reconciliation now exists; local cleanup and one same-session launch remain the
-next BR-16 boundary, and BR-17 still owns durable answer and delivery-only recovery.
+without terminal evidence never replays the prompt. Each enabled receiver tick
+now reconciles stalled work before restart controls, executes exact cleanup,
+hands off one pending terminal notice, and claims a due same-session recovery
+before later ordinary FIFO work. BR-17 still owns durable answer and
+delivery-only recovery.
 Provider replies currently use the
 exact acceptance-time channel and recipient context on a bounded background
 worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
@@ -1655,11 +1657,28 @@ still matches the exact job and durable conversation. The pending notice remains
 terminal cleanup does not block later FIFO claims. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
-cleanup, native-history inspection, recovery launch, and notice delivery remain
-separate App effects. Automatic startup repair preserves this authority when
+cleanup, native-history inspection, recovery launch, and notice delivery are
+separate App effects. An accepted recovery creates a fresh receiver instance
+through `AgentController` for the frontend stored in the conversation, validates
+and claims only that frontend's exact native session, and sends a bounded
+resume-only instruction. It never selects Fresh, replays the inbound message,
+stages the original attachments, parses `/new`, or uses the current TUI's
+default frontend. Planning, registration, spawn, and shutdown failures use
+typed recovery reasons without spending an ordinary launch retry. Automatic
+startup repair preserves this authority when
 one cleanup identifier is missing only if one fully attributed durable
 registration and session row match the job plus the conversation's frontend,
 user, channel, and native binding.
+
+Terminal notice intent uses a dedicated 30-second content-free writer lease.
+One App claimant loads the immutable accepted routing context, queues the fixed
+unavailable message to Brain's bounded local delivery worker, and clears the
+intent only after that local queue accepts it. SMS keeps the authenticated
+sender; Email keeps the acceptance-time trusted recipients and reply context.
+A failed queue attempt or crash before acknowledgement leaves the intent
+retryable after lease expiry and never blocks later FIFO jobs. Local queue
+acceptance is not provider acknowledgement. The queue-to-CAS crash ambiguity,
+provider delivery proof, and general delivery retry remain BR-17 work.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only
@@ -1675,9 +1694,9 @@ trusted task-capture policy. Adaptive POSIX quoting keeps a maximally escaped
 prompt plus 12 KiB reserved for the configured command, trusted policy, and
 options within a 96 KiB shell argument ceiling. `AgentController` also checks
 the completed command and rejects it before spawn if it exceeds that ceiling,
-leaving margin below 128 KiB single-argument platforms. A resumed session
+leaving margin below 128 KiB single-argument platforms. A resumed ordinary session
 relies on its native history and receives only the bounded current authenticated
-message and local attachment paths. A fresh recovery also includes the portable
+message and local attachment paths. A fresh ordinary launch also includes the portable
 transcript, reserving
 up to 8 KiB for its newest context and up to 16 KiB for the current message
 before local attachment paths can use the remaining space. Final prompt planning
@@ -1690,8 +1709,10 @@ BR-12 established the storage contract, BR-13 moved authenticated provider
 admission onto it, and BR-14 made the isolated TUI coordinator its sole
 execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
-BR-15 added acceptance/progress evidence. BR-16 through BR-18 retain stalled-run
-recovery, durable answer/delivery separation, final migration, and reporting.
+BR-15 added acceptance/progress evidence. BR-16 now executes the one accepted
+same-session recovery and local unavailable-notice handoff; BR-17 and BR-18
+retain durable answer/delivery separation, final representation cleanup, and
+reporting.
 
 ### Steering the receiver from SMS or email
 

@@ -59,11 +59,20 @@ pub fn send_sms_background(
     to: String,
     body: String,
 ) {
-    if let Err(error) = dispatch_background(action, move || send_sms(&command, &to, &body)) {
+    if let Err(error) = queue_sms_background(command, action, to, body) {
         crate::logging::log(format!(
             "receiver delivery could not start action={action} error={error:#}"
         ));
     }
+}
+
+pub(crate) fn queue_sms_background(
+    command: crate::workspace::CommandContext,
+    action: &'static str,
+    to: String,
+    body: String,
+) -> anyhow::Result<()> {
+    dispatch_background(action, move || send_sms(&command, &to, &body))
 }
 
 pub fn send_email_background(
@@ -75,13 +84,25 @@ pub fn send_email_background(
     html: String,
     reply: Option<crate::server::receiver::EmailReplyContext>,
 ) {
-    if let Err(error) = dispatch_background(action, move || {
-        send_email(&command, &to, &subject, &text, &html, reply.as_ref())
-    }) {
+    if let Err(error) = queue_email_background(command, action, to, subject, text, html, reply) {
         crate::logging::log(format!(
             "receiver delivery could not start action={action} error={error:#}"
         ));
     }
+}
+
+pub(crate) fn queue_email_background(
+    command: crate::workspace::CommandContext,
+    action: &'static str,
+    to: Vec<String>,
+    subject: String,
+    text: String,
+    html: String,
+    reply: Option<crate::server::receiver::EmailReplyContext>,
+) -> anyhow::Result<()> {
+    dispatch_background(action, move || {
+        send_email(&command, &to, &subject, &text, &html, reply.as_ref())
+    })
 }
 
 /// Keep only addresses that appear in the inbound thread and are explicitly

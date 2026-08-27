@@ -103,6 +103,36 @@ fn second_tui_cannot_claim_recovery_until_exact_cleanup_is_acknowledged() {
     );
 }
 
+#[test]
+fn absent_tab_cleanup_requires_the_exact_registration_process_to_be_stale() {
+    let live = accepted_run("live-absent-tab-cleanup");
+    let live_effect = live
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("persist live cleanup effect")
+        .expect("live cleanup effect");
+    assert!(!live
+        .db
+        .receiver_cleanup_registration_is_stale(&live_effect)
+        .expect("inspect live cleanup registration"));
+
+    let stale = accepted_run_in(
+        Db::open_in_memory()
+            .expect("receiver state")
+            .with_pid_alive(|_| false),
+        "stale-absent-tab-cleanup",
+    );
+    let stale_effect = stale
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("persist stale cleanup effect")
+        .expect("stale cleanup effect");
+    assert!(stale
+        .db
+        .receiver_cleanup_registration_is_stale(&stale_effect)
+        .expect("inspect stale cleanup registration"));
+}
+
 #[derive(Clone, Copy)]
 enum CleanupRegistrationMismatch {
     Frontend,

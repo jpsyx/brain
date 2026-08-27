@@ -10,6 +10,74 @@ use crate::state::{
 use super::super::{load::load_receiver_job, to_i64};
 
 impl Db {
+    /// Return whether an exact cleanup registration is owned by a dead process.
+    ///
+    /// This is the narrow durable proof used after a TUI restart, when the tab
+    /// that owned the receiver run is no longer present in local memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for malformed cleanup identity or a database failure.
+    pub fn receiver_cleanup_registration_is_stale(
+        &self,
+        effect: &ReceiverReconciliationEffect,
+    ) -> Result<bool> {
+        let (Some(instance), Some(session_id)) =
+            (effect.cleanup_instance(), effect.cleanup_session_id())
+        else {
+            return Ok(false);
+        };
+        if instance.trim().is_empty() || session_id.trim().is_empty() {
+            return Ok(false);
+        }
+        let locked_pid = self
+            .conn
+            .query_row(
+                "SELECT session.locked_pid
+                 FROM receiver_jobs AS job
+                 JOIN receiver_conversations AS conversation
+                   ON conversation.workspace_id = job.workspace_id
+                  AND conversation.conversation_id = job.conversation_id
+                  AND conversation.channel = job.channel
+                 JOIN receiver_session_registrations AS registration
+                   ON registration.workspace_id = conversation.workspace_id
+                  AND registration.conversation_id = conversation.conversation_id
+                  AND registration.agent_kind = conversation.agent_kind
+                  AND registration.actor_id = conversation.user_id
+                  AND registration.channel = conversation.channel
+                 JOIN brain_sessions AS session
+                   ON session.workspace_id = registration.workspace_id
+                  AND session.brain_instance_id = registration.brain_instance_id
+                  AND session.agent_kind = registration.agent_kind
+                  AND session.actor_id = registration.actor_id
+                  AND session.channel = registration.channel
+                  AND session.agent_session_id = conversation.agent_session_id
+                 WHERE job.workspace_id = ?1 AND job.job_id = ?2
+                   AND job.job_token = ?3 AND job.state IN ('retrying', 'failed')
+                   AND job.attempt_kind = 'recovery' AND job.claim_owner IS NULL
+                   AND job.claim_expires_at_unix_ms IS NULL
+                   AND job.recovery_cleanup_instance = ?4
+                   AND job.recovery_cleanup_session_id = ?5
+                   AND registration.brain_instance_id = ?4
+                   AND COALESCE(registration.actual_session_id,
+                                registration.registered_session_id) = ?5",
+                rusqlite::params![
+                    self.workspace_id,
+                    effect.job_id().to_string(),
+                    effect.token().to_string(),
+                    instance,
+                    session_id,
+                ],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten();
+        let Some(pid) = locked_pid.and_then(|pid| i32::try_from(pid).ok()) else {
+            return Ok(false);
+        };
+        Ok(pid > 0 && !(self.pid_alive)(pid))
+    }
+
     /// Acknowledge exact local cleanup for a due or terminal persisted recovery.
     ///
     /// # Errors

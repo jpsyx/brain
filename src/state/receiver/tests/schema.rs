@@ -1,3 +1,24 @@
+#[derive(Debug)]
+enum SchemaRaceEvent {
+    Busy,
+    Finished(Result<(), String>),
+}
+
+static SCHEMA_RACE_EVENTS: std::sync::Mutex<
+    Option<std::sync::mpsc::SyncSender<SchemaRaceEvent>>,
+> = std::sync::Mutex::new(None);
+
+fn report_schema_busy(_attempt: i32) -> bool {
+    if let Some(sender) = SCHEMA_RACE_EVENTS
+        .lock()
+        .expect("schema race event lock")
+        .as_ref()
+    {
+        let _ = sender.try_send(SchemaRaceEvent::Busy);
+    }
+    true
+}
+
 #[test]
 fn receiver_schema_enforces_conversation_foreign_keys() {
     let db = Db::open_in_memory().expect("receiver state");
@@ -23,7 +44,67 @@ fn receiver_schema_enforces_conversation_foreign_keys() {
 }
 
 #[test]
-fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v10() {
+fn v10_reconciliation_reserves_the_writer_before_reading_schema() {
+    let temp = tempfile::TempDir::new().expect("temporary state directory");
+    let path = temp.path().join("state.db");
+    drop(Db::open_path(&path).expect("current receiver state"));
+    super::super::schema::down_unavailable_notice_path(&path)
+        .expect("stage adjacent v10 receiver state");
+
+    let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
+    let blocker_transaction = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("reserve blocking writer");
+    blocker_transaction
+        .execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema-race', 'held')",
+            [],
+        )
+        .expect("hold one writer");
+
+    let candidate = rusqlite::Connection::open(&path).expect("candidate connection");
+    candidate
+        .busy_handler(Some(report_schema_busy))
+        .expect("observe candidate writer wait");
+    let (event_sender, event_receiver) = std::sync::mpsc::sync_channel(1);
+    *SCHEMA_RACE_EVENTS
+        .lock()
+        .expect("install schema race sender") = Some(event_sender.clone());
+    let worker = std::thread::spawn(move || {
+        let result = super::super::schema::up(&candidate, 10).map_err(|error| error.to_string());
+        event_sender
+            .send(SchemaRaceEvent::Finished(result))
+            .expect("report schema reconciliation result");
+    });
+
+    let first_event = event_receiver.recv().expect("first schema race event");
+    *SCHEMA_RACE_EVENTS
+        .lock()
+        .expect("clear schema race sender") = None;
+    blocker_transaction
+        .commit()
+        .expect("release blocking writer");
+    let result = match first_event {
+        SchemaRaceEvent::Busy => loop {
+            if let SchemaRaceEvent::Finished(result) = event_receiver
+                .recv()
+                .expect("schema result after wait")
+            {
+                break result;
+            }
+        },
+        SchemaRaceEvent::Finished(result) => result,
+    };
+    worker.join().expect("schema reconciliation worker");
+
+    assert!(
+        result.is_ok(),
+        "schema reconciliation must wait for the current writer: {result:?}"
+    );
+}
+
+#[test]
+fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v11() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn
         .execute_batch("DROP TABLE receiver_jobs; PRAGMA user_version = 6;")
@@ -53,9 +134,67 @@ fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v10() {
             |row| row.get(0),
         )
         .expect("receiver registration table count");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     assert_eq!(retry_origin_columns, 1);
     assert_eq!(registration_tables, 1);
+}
+
+#[test]
+fn v10_upgrade_repairs_a_partial_unavailable_notice_lease() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&receiver_job(Some("partial-notice-lease"), 100), &identity)
+        .expect("accept receiver job");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET pending_unavailable_notice = 1,
+                 unavailable_notice_owner = 'interrupted-writer',
+                 unavailable_notice_expires_at_unix_ms = 2_000
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("seed notice lease");
+    db.conn
+        .execute_batch(
+            "ALTER TABLE receiver_jobs
+               DROP COLUMN unavailable_notice_expires_at_unix_ms;
+             PRAGMA user_version = 10;",
+        )
+        .expect("stage partial notice schema");
+
+    super::super::schema::up(&db.conn, 10).expect("repair notice schema");
+
+    let (version, notice_columns): (i64, i64) = (
+        db.conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("state schema version"),
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs')
+                 WHERE name IN (
+                   'unavailable_notice_owner',
+                   'unavailable_notice_expires_at_unix_ms'
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .expect("notice lease columns"),
+    );
+    let lease: (Option<String>, Option<i64>) = db
+        .conn
+        .query_row(
+            "SELECT unavailable_notice_owner,
+                    unavailable_notice_expires_at_unix_ms
+             FROM receiver_jobs WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("repaired notice lease");
+    assert_eq!(version, 11);
+    assert_eq!(notice_columns, 2);
+    assert_eq!(lease, (None, None));
 }
 
 fn stage_v8_receiver_jobs(db: &Db) {
@@ -225,7 +364,7 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
         .conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("receiver schema version");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     for (provider_id, job_id) in rows {
         let job = db
             .receiver_job(job_id)

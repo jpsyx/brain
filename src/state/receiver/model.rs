@@ -53,6 +53,54 @@ pub enum ReceiverRecoveryFailure {
     Shutdown,
 }
 
+/// One finite writer lease for handing a terminal unavailable notice to the
+/// process-local delivery worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReceiverUnavailableNoticeClaim {
+    job_id: ReceiverJobId,
+    token: ReceiverJobToken,
+    owner: String,
+    expires_at_unix_ms: u64,
+    inbound: crate::server::receiver::InboundJob,
+}
+
+impl ReceiverUnavailableNoticeClaim {
+    pub(super) fn new(job: &ReceiverJob, owner: String, expires_at_unix_ms: u64) -> Self {
+        Self {
+            job_id: job.id(),
+            token: job.token(),
+            owner,
+            expires_at_unix_ms,
+            inbound: job.inbound().clone(),
+        }
+    }
+
+    #[must_use]
+    pub const fn job_id(&self) -> ReceiverJobId {
+        self.job_id
+    }
+
+    #[must_use]
+    pub const fn token(&self) -> ReceiverJobToken {
+        self.token
+    }
+
+    #[must_use]
+    pub fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    #[must_use]
+    pub const fn expires_at_unix_ms(&self) -> u64 {
+        self.expires_at_unix_ms
+    }
+
+    #[must_use]
+    pub const fn inbound(&self) -> &crate::server::receiver::InboundJob {
+        &self.inbound
+    }
+}
+
 impl ReceiverRecoveryFailure {
     pub(super) const fn reason(self) -> ReceiverReconciliationReason {
         match self {

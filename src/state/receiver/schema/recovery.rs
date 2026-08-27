@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-use super::{OBSERVATION_VERSION, VERSION, has_column};
+use super::{OBSERVATION_VERSION, RECOVERY_VERSION, has_column};
 
 mod cleanup;
 
@@ -228,7 +228,7 @@ pub(crate) fn down_to_observation_path(path: &std::path::Path) -> Result<()> {
     }
     let connection = Connection::open(path)?;
     let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != VERSION {
+    if version != RECOVERY_VERSION {
         return Ok(());
     }
     let transaction = connection.unchecked_transaction()?;

@@ -133,9 +133,47 @@ impl App {
     }
 
     pub(super) fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {
+        if active.claim.job().attempt_kind() == crate::state::ReceiverAttemptKind::Recovery {
+            let now = self.receiver_now_unix_ms();
+            match self.services.fail_receiver_recovery_attempt(
+                active.claim.job().id(),
+                active.claim.claim().owner(),
+                now,
+                crate::state::ReceiverRecoveryFailure::Shutdown,
+            ) {
+                Ok(Some(effect)) => {
+                    if !self.cleanup_reconciled_active(&effect, active) {
+                        self.preserve_recovery_active(active);
+                    }
+                    return;
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    crate::logging::log(format!(
+                        "receiver recovery failed job={} boundary=process-exit-store",
+                        active.claim.job().id()
+                    ));
+                    self.preserve_recovery_active(active);
+                    return;
+                }
+            }
+        }
         self.remove_exact_receiver_tab(active);
         self.cleanup_receiver_instance_files(active.attribution.instance());
         crate::logging::log("receiver exited after launch; durable evidence remains unchanged");
+    }
+
+    fn preserve_recovery_active(&mut self, active: &ActiveReceiverRun) {
+        self.receiver
+            .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(
+                crate::tui::receiver::ActiveReceiverRun {
+                    claim: active.claim.clone(),
+                    attribution: active.attribution.clone(),
+                    tab_id: active.tab_id,
+                    _attachments:
+                        crate::tui::receiver::attachments::PreparedReceiverAttachments::empty(),
+                },
+            ));
     }
 
     pub(super) fn stop_locally_after_lost_receiver_ownership(

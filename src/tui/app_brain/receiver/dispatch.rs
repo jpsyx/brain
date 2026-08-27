@@ -11,6 +11,8 @@ impl App {
     pub(crate) fn tick_receiver(&mut self) {
         let receiver_enabled = self.receiver.is_enabled();
         if receiver_enabled {
+            self.reconcile_receiver_job();
+            self.handoff_pending_receiver_notice();
             self.apply_receiver_restarts();
             #[cfg(test)]
             self.receiver.run_after_restart_scan_hook();
@@ -18,7 +20,11 @@ impl App {
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
-            DurableReceiverRun::Idle if receiver_enabled => self.claim_receiver_run(),
+            DurableReceiverRun::Idle if receiver_enabled => {
+                if !self.claim_receiver_recovery_run() {
+                    self.claim_receiver_run();
+                }
+            }
             DurableReceiverRun::Idle => {}
         }
     }

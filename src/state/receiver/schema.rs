@@ -7,7 +7,8 @@ mod recovery;
 mod token;
 use token::populate_job_tokens;
 
-pub(super) const VERSION: i32 = 10;
+pub(super) const VERSION: i32 = 11;
+const RECOVERY_VERSION: i32 = 10;
 const OBSERVATION_VERSION: i32 = 9;
 const REGISTRATION_VERSION: i32 = 8;
 const LAUNCH_VERSION: i32 = 7;
@@ -21,7 +22,8 @@ pub(super) fn up_with_token_factory(
     current_version: i32,
     mut next_token: impl FnMut() -> ReceiverJobToken,
 ) -> Result<()> {
-    let transaction = connection.unchecked_transaction()?;
+    let transaction =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
     let had_any_recovery_column = recovery::had_any_column(&transaction);
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS receiver_conversations (
@@ -82,6 +84,8 @@ pub(super) fn up_with_token_factory(
              CHECK (pending_unavailable_notice IN (0, 1)),
            recovery_cleanup_instance  TEXT,
            recovery_cleanup_session_id TEXT,
+           unavailable_notice_owner TEXT,
+           unavailable_notice_expires_at_unix_ms INTEGER,
            UNIQUE (workspace_id, channel, provider_id),
            CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL)),
            CHECK ((recovery_cleanup_instance IS NULL) =
@@ -113,6 +117,7 @@ pub(super) fn up_with_token_factory(
     rebuild_v8_jobs_for_observations(&transaction)?;
     ensure_observation_columns(&transaction, &mut next_token)?;
     recovery::ensure_columns(&transaction)?;
+    ensure_unavailable_notice_columns(&transaction)?;
     if current_version < VERSION && !had_any_recovery_column {
         recovery::migrate_v9_metadata(&transaction)?;
     }
@@ -120,6 +125,52 @@ pub(super) fn up_with_token_factory(
     if current_version < VERSION {
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn ensure_unavailable_notice_columns(connection: &Connection) -> Result<()> {
+    if !has_column(connection, "unavailable_notice_owner")? {
+        connection
+            .execute_batch("ALTER TABLE receiver_jobs ADD COLUMN unavailable_notice_owner TEXT;")?;
+    }
+    if !has_column(connection, "unavailable_notice_expires_at_unix_ms")? {
+        connection.execute_batch(
+            "ALTER TABLE receiver_jobs
+             ADD COLUMN unavailable_notice_expires_at_unix_ms INTEGER;",
+        )?;
+    }
+    connection.execute_batch(
+        "UPDATE receiver_jobs
+         SET unavailable_notice_owner = NULL,
+             unavailable_notice_expires_at_unix_ms = NULL
+         WHERE (unavailable_notice_owner IS NULL)
+            != (unavailable_notice_expires_at_unix_ms IS NULL);",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn down_unavailable_notice_path(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let connection = Connection::open(path)?;
+    let has_owner = has_column(&connection, "unavailable_notice_owner")?;
+    let has_expiry = has_column(&connection, "unavailable_notice_expires_at_unix_ms")?;
+    if !has_owner && !has_expiry {
+        return Ok(());
+    }
+    let transaction = connection.unchecked_transaction()?;
+    if has_owner {
+        transaction
+            .execute_batch("ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;")?;
+    }
+    if has_expiry {
+        transaction.execute_batch(
+            "ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_expires_at_unix_ms;",
+        )?;
+    }
+    transaction.pragma_update(None, "user_version", RECOVERY_VERSION)?;
     transaction.commit()?;
     Ok(())
 }

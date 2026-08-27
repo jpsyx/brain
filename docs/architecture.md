@@ -183,6 +183,14 @@ rule applies across the large runtime families:
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
+BR-16 Task 4 adds three focused live-receiver seams:
+`app_brain/receiver/recovery.rs` executes neutral reconciliation effects,
+`recovery_launch.rs` constructs the persisted frontend's `AgentController` and
+performs exact native resume, and `notice.rs` owns the finite local notice
+handoff. In the state layer, `store/unavailable_notice.rs` owns the schema-v11
+notice lease claim and exact acknowledgement; the reconciliation cleanup helper
+owns the exact stale-registration PID proof used only after App reconstruction.
+
 Session-store persistence is colocated under `state/session_store.rs`, and sync
 identity's external command adapter lives under
 `sync/identity/remote_command.rs`. Large tests follow the same rule: behavior
@@ -228,8 +236,9 @@ immediate transaction before ordinary work may advance. It compares the full
 token, owner, retry, observation, attempt, and deadline snapshot. An unaccepted
 timeout becomes a bounded ordinary retry; a first accepted stall becomes one
 ownerless due recovery with the exact native binding preserved and an exact
-instance/session cleanup fence. A recovery claim remains blocked until Task 4
-shuts down that superseded native run and acknowledges its exact fence. Both
+instance/session cleanup fence. The App shuts down that superseded native run,
+removes its exact artifacts, and acknowledges the exact fence before a recovery
+claim can proceed. Both
 targeted and discovery claims also require the recovery to be the workspace's
 globally oldest claimable or blocking row. Exhaustion, ownerless recovery or
 absolute expiry, missing resume evidence, incomplete legacy completion, and
@@ -240,6 +249,8 @@ reconciliation redrives the same content-free cleanup identifiers across
 restart until an exact failed-state acknowledgement clears them. That terminal
 redrive neither duplicates notice state nor blocks later FIFO work. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
+The state layer separately leases a pending terminal notice to one finite writer
+without reusing claim or cleanup ownership.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error
@@ -249,7 +260,13 @@ back Fresh. Lost and deferred ownership are separate typed outcomes and can
 never become Fresh. `tui::receiver::planning` renders that already-authorized
 choice with a UTF-8-safe recovery prompt capped at 47 KiB. The isolated-tab coordinator
 uses these operations from the one recurring `App::tick_receiver` call.
-`app_brain/receiver/dispatch.rs` owns claim, freshness, and durable controls;
+`app_brain/receiver/dispatch.rs` owns the reconcile, notice, restart, held-run,
+recovery-claim, then ordinary-claim tick order;
+`recovery.rs` executes exact local cleanup effects, including the persisted
+stale-PID proof required when a restarted App has no local tab;
+`recovery_launch.rs` owns accepted-work resume validation, exact session claim,
+and launch through the persisted frontend; `notice.rs` owns finite local notice
+handoff and exact acknowledgement;
 `resume.rs` owns resume validation and registration; `launch.rs` owns capability
 checks, fresh registration, planning, and launch preparation;
 `launch_effects.rs` owns controller spawn and background insertion; and
@@ -356,7 +373,11 @@ repeats the same conversation/job attribution proof before releasing a complete
 tuple. Its down path terminalizes any
 cleanup-pending recovery without clearing the retained instance/session tuple,
 registration, or native-session lock, so a 0.84.7 binary cannot replay it and a
-later upgrade can finish exact cleanup. The version stamp lives at
+later upgrade can finish exact cleanup. The 0.84.12 receiver-notice migration
+adds the dedicated finite writer owner and expiry columns as schema v11,
+repairs a one-sided lease by clearing it, and has an exact down path that
+removes only those two columns before the recovery downgrade chain continues.
+The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
 
@@ -1124,17 +1145,25 @@ unread result or any rollback removes the exact job directory.
 The later capability-plan, frontend-probe, resume-validation, registration,
 spawn, and tab-allocation boundaries use the same semantic owner gate: each
 effect is followed by a new injected-clock observation and exact renewal before
-the next effect can begin. Resume validation false/error and exact resume
-registration rejection choose portable Fresh recovery only after that renewal;
+the next effect can begin. Ordinary continued-message resume validation
+false/error and exact resume registration rejection choose a portable Fresh
+plan only after that renewal;
 lost or deferred ownership stops the attempt instead. Failure cleanup completes before the coordinator
 samples the observation supplied to the exact-owner retry CAS. Losing or
 expiring the claim therefore permits local resource cleanup but no durable job
 or retry mutation.
-While receiver processing is enabled, the sole receiver tick first scans and
-applies every durable `/restart` control. It always continues the one claimed
-or active run, including after disable, and claims at most one FIFO job only
-when enabled and idle; a claimed job passes the sync-freshness gate, and `/new`
-completes before any agent launch. A terminal artifact becomes durable only
+While receiver processing is enabled, the sole receiver tick first reconciles
+the oldest durable blocker and executes its exact cleanup effect. It then
+leases and hands off one pending terminal notice, applies durable `/restart`
+controls, advances the already-held local run, and, if still idle, claims a due
+accepted-work recovery before ordinary FIFO work. A restarted App may
+acknowledge an absent cleanup tab only when the exact registration and session
+lock still match and the recorded PID is proved dead. A live matching PID from
+another TUI blocks acknowledgement. A claimed ordinary job passes the
+sync-freshness gate, and `/new` completes before any ordinary agent launch.
+Disabling receiver intent skips reconciliation, notice handoff, restart scans,
+and new claims while still allowing an already-held run to finish. A terminal
+artifact becomes durable only
 when one immediate state transaction proves that the exact session validated
 from the artifact is still the locked `completed` lifecycle-native
 registration, persists the exact binding, and moves the live owner's launch to
@@ -1651,14 +1680,15 @@ model is scoped lock + recency behind `agent::session::SessionStore`
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. `receiver/` separately owns durable logical
 conversations, immutable inbound jobs, explicit lifecycle and retry state,
-expiring owner fences, transcript/native-session bindings, and schema v10
-recovery metadata. Schema v7 added the retry origin required to distinguish
+expiring owner fences, transcript/native-session bindings, and schema v11
+recovery and notice metadata. Schema v7 added the retry origin required to distinguish
 pre-acceptance launch retries from progressed recovery work; schema v8 added
 exact receiver-session registrations; schema v9 added opaque job tokens,
 post-spawn lifecycle timestamps, and the bounded observation cursor; schema v10
 added independent lifecycle deadlines, attempt identity, the lifetime/current
 observation split, the pending unavailable-notice intent, and the exact
-superseded instance/session cleanup fence.
+superseded instance/session cleanup fence; schema v11 added the independent
+finite unavailable-notice writer lease.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -1968,9 +1998,9 @@ Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful
 spawn it removes the exact local receiver tab, artifact, observation, and lock
-without releasing or retrying the durable correlation. Expired `launching`,
-`launched`, `accepted`, and `processing` rows stop FIFO unchanged until BR-16
-wires the schema-v10 policy into its recurring recovery transaction.
+without releasing or retrying the durable correlation. The next enabled tick
+reconciles expired `launching`, `launched`, `accepted`, and `processing` rows
+before restart controls or new claim work.
 
 ### `lib.rs`
 Re-exports the modules so integration tests in `tests/` and the thin binary

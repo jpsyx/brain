@@ -1094,10 +1094,11 @@ Which session to run is decided by the **lock + recency** model in
    lock. Durable job evidence is retained for every nonterminal route. Poll
    outcomes use a stable content-free diagnostic containing opaque job and
    instance IDs, frontend, prior phase, boundary or `none`, and category. The
-   state layer now returns similarly content-free reconciliation effects for
-   cleanup, one persisted recovery, or terminal notice intent. Task 4 still
-   owns controller actions and notice dispatch; BR-17 owns answer persistence
-   and delivery-only retry.
+   state layer returns similarly content-free reconciliation effects for exact
+   cleanup, one persisted recovery, or terminal notice intent. The App executes
+   those controller actions through `AgentController` and leases notice handoff
+   through its narrow delivery service; BR-17 owns answer persistence,
+   provider acknowledgement, and delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1118,9 +1119,10 @@ Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress
 ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
-Expired `launched`, `accepted`, and `processing` leases do not change ownership.
-They retain their complete lifecycle and retry evidence and block FIFO replay
-until BR-16 wires the schema-v10 policy into the recurring reconciler. Eligible
+Expired `launched`, `accepted`, and `processing` leases are evaluated by the
+recurring reconciler before restart controls or new claims. They retain their
+complete lifecycle and retry evidence until the exact cleanup and recovery
+effects are durably fenced. Eligible
 pre-acceptance and delivery leases may still be replaced under their existing
 phase-specific rules.
 
@@ -1268,6 +1270,11 @@ pending-notice row while retaining the exact cleanup tuple, receiver
 registration, and native-session lock. Old code therefore cannot claim the
 work, and a later upgrade can redrive and acknowledge the original cleanup
 safely.
+The automatic 0.84.12 boundary advances receiver state to schema v11 by adding
+a dedicated unavailable-notice writer owner and expiry. Upgrade and same-version
+reconciliation add either missing column and clear a one-sided lease. Downgrade
+removes only those two columns, restores schema version 10, and then permits the
+existing recovery downgrade chain to continue.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1343,9 +1350,12 @@ only by a narrowly named legacy lifetime field until BR-18; it has no receiver
 read, poll, dispatch, or in-memory queue behavior.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle. The one `App::tick_receiver` call is the sole
-production consumer. Disabled intent blocks only a new idle claim; the tick
-continues to renew and manage an existing pending or active run. It renews an
-already claimed job before a pending freshness pull and otherwise does no new
+production consumer. While enabled, it reconciles one oldest blocker and
+executes exact cleanup, attempts one finite terminal-notice handoff, applies
+restart controls, advances any held local run, then claims a due recovery before
+ordinary FIFO work. Disabled intent skips those new effects but the tick still
+renews and manages an existing pending or active run. It renews an already
+claimed ordinary job before a pending freshness pull and otherwise does no new
 claim work while a receiver tab is active. When ready, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, and reauthorizes that exact claim
@@ -1381,7 +1391,7 @@ The state reconciler now atomically converts the complete stale snapshot into a
 bounded retry, one ownerless due same-session recovery, or a terminal notice
 intent. An accepted-stall effect carries only the opaque job/token plus exact
 superseded instance/session identifiers. The store retains that exact cleanup
-fence and registration until Task 4 shuts down the native run and acknowledges
+fence and registration until the App shuts down the native run and acknowledges
 the same tuple through the full-snapshot CAS. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
@@ -1393,16 +1403,42 @@ token, and durable conversation attribution; it then clears the tuple and
 releases both lock surfaces atomically. Wrong or misattributed identifiers
 change nothing. Read-only redrive does not duplicate the notice bit
 or prevent later FIFO work from being claimed.
+The App shuts down a matching local controller and removes only its exact
+response and observation artifacts before that acknowledgement. After a restart
+with no matching tab, it may perform the same acknowledgement only when the
+persisted registration and session lock still match the effect and their exact
+recorded PID is dead. A live matching PID prevents cleanup across TUIs.
 Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
 planning, registration, spawn, or shutdown failure uses an exact terminal
 transition with pending-notice intent. The state layer never invokes an adapter,
-inspects native history, launches a controller, or contacts a provider; those
-App effects remain the next BR-16 boundary.
+inspects native history, launches a controller, or contacts a provider.
+Accepted recovery therefore has a separate launch continuation. It constructs
+`AgentController` from the conversation's persisted frontend and that
+frontend's current configured command, even when the live TUI defaults to a
+different frontend. It validates `resume_candidate_exists`, claims the exact
+persisted native session for a fresh receiver instance, and launches a bounded
+resume-only prompt ending in the original job-token marker. No Fresh or
+transcript fallback exists for accepted work; the original prompt, attachments,
+sender, recipient, prior answer, and `/new` parsing never enter this planner.
+Recovery observation and completion use the ordinary exact lifecycle and
+response transactions with the preserved job identity. A child exit without
+completion becomes the typed recovery Shutdown terminal transition.
+
+Terminal notice handoff uses the schema-v11 owner/expiry fields, not the job's
+claim or cleanup fence. One claimant receives only the immutable accepted
+routing frame in memory. SMS queues to the authenticated sender; Email queues
+to the acceptance-time trusted recipients and reply context. Exact job, token,
+terminal state, and writer-owner acknowledgement clears the intent only after
+the bounded local delivery worker accepts it. Queue failure leaves the finite
+lease and intent for retry while later FIFO work remains eligible. This does
+not prove provider delivery. The crash window between local queue acceptance
+and the acknowledgement CAS, provider acknowledgement, and general delivery
+retry remain BR-17 work.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
-exact-owner CAS. Progressed stale states are not rerun before later BR-16 tasks
-execute the schema-v10 recovery policy.
-BR-15 still owns exact accepted/progress observations, and BR-17 still owns
+exact-owner CAS. Progressed stale states are never rerun as ordinary work; the
+enabled tick executes the schema-v10 recovery policy first.
+BR-15 owns exact accepted/progress observations, and BR-17 owns
 atomic answer persistence plus delivery-only retry. BR-18 retains final
 schema/migration reconciliation, durable status and diagnostics, and deletion
 of the legacy endpoint representation; receiver injection, warm-panel reuse,
