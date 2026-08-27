@@ -3,6 +3,7 @@
 use crate::agent::AgentController;
 use crate::tui::receiver::{
     ClaimedReceiverRun, DurableReceiverRun, PreSpawnRecoveryCleanup, PreSpawnRecoveryOutcome,
+    ReceiverCleanupAuthority,
 };
 
 pub(super) fn begin_recovery_pre_spawn_cleanup(
@@ -21,6 +22,7 @@ pub(super) fn begin_recovery_pre_spawn_cleanup(
             controller,
             attribution,
             outcome,
+            cleanup_authority: ReceiverCleanupAuthority::Unresolved,
             shutdown_complete: false,
             defer_once: false,
         },
@@ -51,12 +53,35 @@ pub(in crate::tui::app_brain::receiver) fn continue_recovery_pre_spawn_cleanup(
         }
         cleanup.shutdown_complete = true;
     }
-    if let Some(attribution) = cleanup.attribution.as_ref()
-        && services.release_receiver_session(attribution).is_err()
-    {
-        cleanup.defer_once = true;
-        receiver.store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
-        return;
+    match &cleanup.cleanup_authority {
+        ReceiverCleanupAuthority::Exact(effect) => {
+            #[cfg(test)]
+            if receiver.take_cleanup_failure(
+                crate::tui::receiver::ReceiverCleanupBoundary::Acknowledgement,
+            ) {
+                cleanup.defer_once = true;
+                receiver.store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
+                return;
+            }
+            let now = u64::try_from(services.utc_now().timestamp_millis()).unwrap_or(0);
+            if !matches!(
+                services.acknowledge_receiver_recovery_cleanup(effect, now),
+                Ok(true)
+            ) {
+                cleanup.defer_once = true;
+                receiver.store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
+            }
+            return;
+        }
+        ReceiverCleanupAuthority::Unresolved => {
+            if let Some(attribution) = cleanup.attribution.as_ref()
+                && services.release_receiver_session(attribution).is_err()
+            {
+                cleanup.defer_once = true;
+                receiver.store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
+                return;
+            }
+        }
     }
     let now = u64::try_from(services.utc_now().timestamp_millis()).unwrap_or(0);
     match cleanup.outcome {

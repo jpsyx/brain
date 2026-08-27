@@ -10,6 +10,8 @@ use crate::state::{
 };
 
 mod cleanup;
+mod recovery_registration;
+mod spawned_cleanup;
 mod support;
 mod terminal;
 

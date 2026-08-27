@@ -2615,6 +2615,33 @@ recovery operations require `attempt_kind = 'recovery'`. This prevents control
 parsing, attachment staging, Fresh planning, and original prompt construction
 from becoming a fallback for accepted work.
 
+## Why spawned recovery cleanup has one typed exact protocol
+
+A successful recovery spawn can outlive its 30-second writer lease, and a
+durable launch write can succeed even when its caller receives an error. Local
+launch-commit memory therefore cannot authorize registration release. Elapsed
+time and a missing launch observation cannot authorize it either, because the
+controller may still be running.
+
+After shutdown succeeds, Brain uses one immediate transaction for every
+spawned cleanup path. Exact job, token, recovery attempt, original owner,
+conversation, actor, channel, frontend, instance, registered/native session,
+present lifecycle source, registration actual value, and locked PID produce or
+redrive one terminal cleanup effect. A changed durable world produces a typed
+`Changed` result, while store failure remains an error; neither releases or
+drops local authority. The sole exact acknowledgement clears the tuple,
+registration, and native lock atomically. Child exit uses the same transition.
+Orderly App shutdown creates the tuple but waits for restart to prove the
+recorded PID dead before acknowledgement.
+
+Deadline reconciliation uses the same narrow Resume evidence before launch
+observation exists. Exact evidence creates the tuple without unlocking it.
+Incomplete evidence fails closed and retains the registration. If that effect
+meets a local pre-spawn or spawned capability, the capability attaches it and
+acknowledges only after shutdown. This makes reconciliation-first and
+local-cleanup-first races converge on the same tuple and removes the previous
+`Some`/`None`, boolean, and store-error ambiguity.
+
 ## Why terminal notice handoff has its own finite lease
 
 The terminal notice is independent from cleanup and FIFO eligibility. Reusing

@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use super::recovery_registration::exact_recovery_registration;
 use super::support::{EXACT_SNAPSHOT_SQL, ReconciliationCandidate, release_registration};
 use crate::state::{
     ReceiverAttemptKind, ReceiverJob, ReceiverJobState, ReceiverReconciliationAction,
@@ -93,12 +94,36 @@ fn terminalize_with_cleanup(
     let pending_cleanup = job
         .recovery_cleanup_instance()
         .zip(job.recovery_cleanup_session_id());
+    let observed_cleanup = include_observed_cleanup
+        .then(|| job.observation_instance().zip(job.observation_session_id()))
+        .flatten();
+    let registered_cleanup = if pending_cleanup.is_none()
+        && observed_cleanup.is_none()
+        && job.attempt_kind() == ReceiverAttemptKind::Recovery
+    {
+        candidate
+            .owner
+            .as_deref()
+            .map(|instance| {
+                exact_recovery_registration(&transaction, workspace_id, job, instance).map(
+                    |registration| {
+                        registration
+                            .map(|registration| (instance.to_owned(), registration.session_id))
+                    },
+                )
+            })
+            .transpose()?
+            .flatten()
+    } else {
+        None
+    };
     let cleanup_instance = pending_cleanup
         .map(|(instance, _)| instance.to_owned())
+        .or_else(|| observed_cleanup.map(|(instance, _)| instance.to_owned()))
         .or_else(|| {
-            include_observed_cleanup
-                .then(|| job.observation_instance().map(str::to_owned))
-                .flatten()
+            registered_cleanup
+                .as_ref()
+                .map(|(instance, _)| instance.clone())
         })
         .or_else(|| {
             include_observed_cleanup
@@ -107,11 +132,8 @@ fn terminalize_with_cleanup(
         });
     let cleanup_session_id = pending_cleanup
         .map(|(_, session_id)| session_id.to_owned())
-        .or_else(|| {
-            include_observed_cleanup
-                .then(|| job.observation_session_id().map(str::to_owned))
-                .flatten()
-        });
+        .or_else(|| observed_cleanup.map(|(_, session_id)| session_id.to_owned()))
+        .or_else(|| registered_cleanup.map(|(_, session_id)| session_id));
     let cleanup_is_fenced = cleanup_instance.is_some() && cleanup_session_id.is_some();
     let persisted_cleanup_instance = cleanup_is_fenced
         .then_some(cleanup_instance.as_deref())
@@ -156,7 +178,7 @@ fn terminalize_with_cleanup(
     if changed != 1 {
         return Ok(None);
     }
-    if !cleanup_is_fenced {
+    if !cleanup_is_fenced && job.attempt_kind() != ReceiverAttemptKind::Recovery {
         release_registration(
             &transaction,
             workspace_id,

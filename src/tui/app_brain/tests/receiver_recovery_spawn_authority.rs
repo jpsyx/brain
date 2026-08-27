@@ -106,7 +106,7 @@ fn successful_spawn_store_ambiguity_keeps_one_controller_until_activation() {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum CleanupSpawnCut {
     OwnerLost,
     CommitLost,
@@ -200,7 +200,33 @@ fn successful_spawn_cleanup_failure_retains_exact_fence_until_retry() {
 
         assert_eq!(transport.launch_specs().len(), 1);
         assert_eq!(transport.shutdowns(), 1);
-        assert!(claim_recovery_session(&fixture, "competing-after-cleanup"));
+        if matches!(cut, CleanupSpawnCut::CommitLost) {
+            assert!(
+                fixture
+                    .app
+                    .receiver
+                    .spawned_recovery_durable_run()
+                    .is_some()
+            );
+            assert!(!claim_recovery_session(
+                &fixture,
+                "competing-after-newer-owner"
+            ));
+            assert_eq!(
+                fixture
+                    .db
+                    .receiver_job(later.job_id())
+                    .expect("load FIFO follower behind changed owner")
+                    .expect("FIFO follower behind changed owner")
+                    .state(),
+                ReceiverJobState::Queued
+            );
+            continue;
+        }
+        assert!(
+            claim_recovery_session(&fixture, "competing-after-cleanup"),
+            "cleanup cut {cut:?} retained the exact session"
+        );
         SessionStore::release(&fixture.db, "competing-after-cleanup")
             .expect("release post-cleanup claim");
         let terminal = fixture

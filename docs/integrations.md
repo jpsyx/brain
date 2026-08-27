@@ -1397,7 +1397,16 @@ commit error is retried against the exact durable observation, so both absent
 and already-visible writes are safe. Proven loss or allocation failure
 transfers that same capability into shutdown-first cleanup; controller shutdown
 failure keeps the registration and native lock fenced for a later tick.
-Child exit, orderly shutdown, and lease expiry then permit local cleanup only.
+After shutdown, a typed immediate transaction either establishes or redrives
+one exact terminal cleanup effect, or reports a changed durable world. It
+validates the original job/token/owner plus the complete Resume registration,
+scope, frontend, native session, present lifecycle source, and exact locked PID, so
+claim expiry is not confused with success. An attached reconciliation effect
+always wins over stale local launch-commit memory. Exact acknowledgement is the
+only spawned path that releases the registration and native lock. Child exit
+uses the same transition, while orderly shutdown persists the exact tuple for
+dead-PID restart cleanup without acknowledging it. Store errors and mismatches
+retain local authority.
 The state reconciler now atomically converts the complete stale snapshot into a
 bounded retry, one ownerless due same-session recovery, or a terminal notice
 intent. An accepted-stall effect carries only the opaque job/token plus exact
@@ -1420,6 +1429,13 @@ prior session. Missing or changed attribution releases nothing and terminalizes
 without an observation-derived cleanup tuple. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
+For claimed or launching recovery, deadline reconciliation also recognizes one
+narrow pre-observation Resume proof. The job, token, conversation, actor,
+channel, frontend, claim instance, registered/native session, present source,
+registration actual value, and non-null lifecycle lock must all agree. Only
+then is the exact tuple persisted; otherwise the registration and lock remain
+untouched. A matching local pre-spawn or spawned capability attaches that
+effect and exact-acknowledges it after shutdown.
 Every terminalized live run with an exact instance/session pair retains that
 tuple, registration, and session lock and keeps returning the terminal cleanup
 effect across restart. Exact acknowledgement accepts the matching due or failed

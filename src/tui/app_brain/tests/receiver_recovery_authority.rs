@@ -39,6 +39,14 @@ impl DueRecoveryFixture {
         );
         SessionStore::register(&db, &session, "prior-recovery-owner", 41, &scope)
             .expect("register resumable session");
+        rusqlite::Connection::open(app.context.state_db_path())
+            .expect("recovery lifecycle source connection")
+            .execute(
+                "UPDATE brain_sessions SET source = 'startup'
+                 WHERE agent_session_id = ?1",
+                [session.as_str()],
+            )
+            .expect("record prior recovery lifecycle source");
         SessionStore::release(&db, "prior-recovery-owner")
             .expect("leave resumable session unlocked");
         let binding = ReceiverSessionBinding::new(AgentKind::Claude, session.as_str())

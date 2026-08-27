@@ -4,6 +4,7 @@ use crate::state::{ReceiverReconciliationAction, ReceiverReconciliationEffect};
 use crate::tui::App;
 use crate::tui::receiver::{
     ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
+    ReceiverCleanupAuthority,
 };
 
 impl App {
@@ -55,15 +56,31 @@ impl App {
                         .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed));
                 }
             }
-            DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup) => {
+            DurableReceiverRun::RecoveryPreSpawnCleanup(mut cleanup)
+                if effect_matches_pre_spawn(effect, &cleanup) =>
+            {
+                let first_effect = matches!(
+                    cleanup.cleanup_authority,
+                    ReceiverCleanupAuthority::Unresolved
+                );
+                cleanup.cleanup_authority = ReceiverCleanupAuthority::Exact(effect.clone());
+                if first_effect {
+                    cleanup.defer_once = true;
+                }
                 self.receiver
                     .store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
             }
+            DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup) => self
+                .receiver
+                .store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup)),
             DurableReceiverRun::RecoverySpawned(mut spawned)
                 if effect_matches_spawned(effect, &spawned) =>
             {
-                let first_effect = spawned.cleanup_effect.is_none();
-                spawned.cleanup_effect = Some(effect.clone());
+                let first_effect = matches!(
+                    spawned.cleanup_authority,
+                    ReceiverCleanupAuthority::Unresolved
+                );
+                spawned.cleanup_authority = ReceiverCleanupAuthority::Exact(effect.clone());
                 if first_effect {
                     spawned.defer_once = true;
                 }
@@ -245,6 +262,18 @@ impl App {
         self.receiver
             .store_durable_run(DurableReceiverRun::CleanupPending(pending));
     }
+}
+
+fn effect_matches_pre_spawn(
+    effect: &ReceiverReconciliationEffect,
+    cleanup: &crate::tui::receiver::PreSpawnRecoveryCleanup,
+) -> bool {
+    cleanup.claimed.claim.job().id() == effect.job_id()
+        && cleanup.claimed.claim.job().token() == effect.token()
+        && cleanup.attribution.as_ref().is_some_and(|attribution| {
+            effect.cleanup_instance() == Some(attribution.instance())
+                && effect.cleanup_session_id() == Some(attribution.registered_session().as_str())
+        })
 }
 
 fn effect_matches_claimed(

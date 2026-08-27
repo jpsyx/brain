@@ -3,8 +3,8 @@
 use crate::agent::{AgentController, LaunchRequest};
 use crate::state::{ReceiverRecoveryFailure, ReceiverRunClaim};
 use crate::tui::receiver::{
-    ClaimedReceiverRun, ReceiverSessionRegistration, SpawnedRecoveryRun, SpawnedRecoveryStage,
-    cleanup_receiver_launch,
+    ClaimedReceiverRun, ReceiverCleanupAuthority, ReceiverSessionRegistration, SpawnedRecoveryRun,
+    SpawnedRecoveryStage, cleanup_receiver_launch,
 };
 
 mod activation;
@@ -37,7 +37,7 @@ pub(super) fn spawn_claimed_receiver_recovery(
         pid,
         stage: SpawnedRecoveryStage::PostSpawnOwner(controller),
         durable_launch_committed: false,
-        cleanup_effect: None,
+        cleanup_authority: ReceiverCleanupAuthority::Unresolved,
         shutdown_complete: false,
         artifacts_removed: false,
         defer_once: false,

@@ -1226,6 +1226,20 @@ launch-commit error retains this shape and compares the exact job token,
 attempt, instance, and registered session on a later tick instead of guessing
 whether the durable write occurred.
 
+Both cleanup shapes carry an explicit cleanup authority: unresolved or one
+exact reconciliation effect. For a spawned recovery, shutdown completion is
+followed by one immediate transaction that returns `Exact(effect)` or
+`Changed`; database failure remains a separate error. The transition accepts a
+matching recovery even after its writer lease expires, validates the original
+job, token, conversation, claim owner, frontend, actor, channel, instance,
+registered/native session, present lifecycle source, registration actual value, and
+locked PID, and terminalizes it with the exact cleanup tuple. An already
+terminal matching tuple returns the same effect. Changed identity retains local
+authority. Only exact acknowledgement clears the tuple, registration, and lock.
+If launch-deadline reconciliation arrives first, the same narrow durable Resume
+proof derives the tuple before any launch observation; incomplete proof retains
+the registration without inventing a cleanup session.
+
 An expired unaccepted attempt releases its owner and registration, clears the
 superseded cursor, increments only the bounded launch retry counter, and becomes
 an ordinary due retry. A first accepted stall instead preserves the job token,

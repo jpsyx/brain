@@ -53,6 +53,13 @@ pub enum ReceiverRecoveryFailure {
     Shutdown,
 }
 
+/// Exhaustive durable result of establishing exact cleanup for a spawned recovery.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReceiverRecoveryCleanupOutcome {
+    Exact(ReceiverReconciliationEffect),
+    Changed,
+}
+
 /// One finite writer lease for handing a terminal unavailable notice to the
 /// process-local delivery worker.
 #[derive(Debug, Clone, PartialEq, Eq)]

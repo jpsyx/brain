@@ -45,8 +45,14 @@ pub(crate) struct PreSpawnRecoveryCleanup {
     pub(crate) controller: AgentController,
     pub(crate) attribution: Option<ReceiverSessionAttribution>,
     pub(crate) outcome: PreSpawnRecoveryOutcome,
+    pub(crate) cleanup_authority: ReceiverCleanupAuthority,
     pub(crate) shutdown_complete: bool,
     pub(crate) defer_once: bool,
+}
+
+pub(crate) enum ReceiverCleanupAuthority {
+    Unresolved,
+    Exact(ReceiverReconciliationEffect),
 }
 
 pub(crate) enum SpawnedRecoveryStage {
@@ -62,7 +68,7 @@ pub(crate) struct SpawnedRecoveryRun {
     pub(crate) pid: i32,
     pub(crate) stage: SpawnedRecoveryStage,
     pub(crate) durable_launch_committed: bool,
-    pub(crate) cleanup_effect: Option<ReceiverReconciliationEffect>,
+    pub(crate) cleanup_authority: ReceiverCleanupAuthority,
     pub(crate) shutdown_complete: bool,
     pub(crate) artifacts_removed: bool,
     pub(crate) defer_once: bool,

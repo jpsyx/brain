@@ -639,8 +639,15 @@ first move is a failing test that reproduces it, *then* the fix.
   after a visible write, both tab-allocation failures, final-owner loss or store
   failure, and shutdown failure at every cleanup cut. They assert one spawn,
   exact controller and session fencing, no private prompt replay, and later
-  exact cleanup or activation. All use injected clocks and recording transports;
-  none use wall-clock sleeps.
+  exact cleanup or activation. The spawned-cleanup matrix keeps shutdown failing
+  through launch-deadline equality, attempts a competing native-session claim,
+  checks pre-spawn effect attachment, and covers visible-write restart redrive,
+  claim-expiry cleanup, orderly shutdown proof, exact wrong-identity rejection,
+  live/dead PID restart decisions, and a real two-handle reconciliation race.
+  Registration mismatches cover job token, actor, channel, frontend, native
+  session, source, lock PID, and registration actual session, while unrelated
+  registrations remain unchanged. All use injected clocks and recording
+  transports; none use wall-clock sleeps.
   `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the

@@ -135,13 +135,16 @@ impl App {
     pub(super) fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {
         if active.claim.job().attempt_kind() == crate::state::ReceiverAttemptKind::Recovery {
             let now = self.receiver_now_unix_ms();
-            match self.services.fail_receiver_recovery_attempt(
+            let pid = i32::try_from(std::process::id()).unwrap_or(0);
+            match self.services.establish_receiver_spawned_recovery_cleanup(
                 active.claim.job().id(),
+                active.claim.job().token(),
                 active.claim.claim().owner(),
+                &active.attribution,
+                pid,
                 now,
-                crate::state::ReceiverRecoveryFailure::Shutdown,
             ) {
-                Ok(Some(effect)) => {
+                Ok(crate::state::ReceiverRecoveryCleanupOutcome::Exact(effect)) => {
                     self.continue_receiver_cleanup(CleanupPendingReceiverRun {
                         active: ActiveReceiverRun {
                             claim: active.claim.clone(),
@@ -156,7 +159,10 @@ impl App {
                     });
                     return;
                 }
-                Ok(None) => {}
+                Ok(crate::state::ReceiverRecoveryCleanupOutcome::Changed) => {
+                    self.preserve_recovery_active(active);
+                    return;
+                }
                 Err(_) => {
                     crate::logging::log(format!(
                         "receiver recovery failed job={} boundary=process-exit-store",

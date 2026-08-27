@@ -1631,6 +1631,17 @@ the final owner proof. A store error keeps that same capability for a later
 tick; an exact visible commit distinguishes the case where the write succeeded.
 Proven owner or allocation loss enters shutdown-first cleanup, and neither the
 registration nor native-session lock is released until shutdown succeeds.
+After shutdown, every successfully spawned recovery uses one atomic exact
+cleanup protocol. It either establishes or redrives the same terminal
+job/token/instance/session tuple, then releases the registration and lock only
+through exact acknowledgement. This remains true after the 30-second writer
+claim expires, when a launch write was visible despite a caller error, and when
+deadline reconciliation wins first. Incomplete or changed registration,
+lifecycle, scope, source, or PID evidence fails closed and keeps the lock.
+Deadline reconciliation can also derive the exact Resume tuple before a launch
+observation exists, so repeated shutdown failure never opens the session to a
+competing TUI. An orderly shell exit leaves that tuple for dead-PID restart
+cleanup instead of releasing it directly.
 Schema v10 separately
 persists the two-minute launch, 90-second acceptance, five-minute progress,
 recovery, and immutable 30-minute accepted-work deadlines. The renewable

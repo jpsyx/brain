@@ -5,7 +5,7 @@ use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
 use crate::tui::receiver::{
     ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
-    SpawnedRecoveryRun, SpawnedRecoveryStage,
+    ReceiverCleanupAuthority, SpawnedRecoveryRun, SpawnedRecoveryStage,
 };
 
 use super::diagnostic::receiver_observation_diagnostic;
@@ -26,6 +26,10 @@ impl App {
                     let _ = cleanup.controller.shutdown();
                 }
                 if cleanup.shutdown_complete
+                    && matches!(
+                        cleanup.cleanup_authority,
+                        ReceiverCleanupAuthority::Unresolved
+                    )
                     && let Some(attribution) = cleanup.attribution.as_ref()
                 {
                     let _ = self.services.release_receiver_session(attribution);
@@ -79,8 +83,19 @@ impl App {
             );
         }
         self.cleanup_receiver_instance_files(spawned.attribution.instance());
-        if !spawned.durable_launch_committed {
-            let _ = self.services.release_receiver_session(&spawned.attribution);
+        if matches!(
+            spawned.cleanup_authority,
+            ReceiverCleanupAuthority::Unresolved
+        ) {
+            let now = self.receiver_now_unix_ms();
+            let _ = self.services.establish_receiver_spawned_recovery_cleanup(
+                spawned.claimed.claim.job().id(),
+                spawned.claimed.claim.job().token(),
+                spawned.claimed.claim.claim().owner(),
+                &spawned.attribution,
+                spawned.pid,
+                now,
+            );
         }
         crate::logging::log("receiver shutdown preserved spawned recovery durable evidence");
     }

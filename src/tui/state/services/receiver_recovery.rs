@@ -69,6 +69,26 @@ impl AppServices {
             .fail_receiver_recovery_attempt(job_id, owner, now_unix_ms, failure)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn establish_receiver_spawned_recovery_cleanup(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
+        original_owner: &str,
+        registration: &crate::state::ReceiverSessionAttribution,
+        locked_pid: i32,
+        now_unix_ms: u64,
+    ) -> Result<crate::state::ReceiverRecoveryCleanupOutcome> {
+        self.db.establish_receiver_spawned_recovery_cleanup(
+            job_id,
+            token,
+            original_owner,
+            registration,
+            locked_pid,
+            now_unix_ms,
+        )
+    }
+
     pub(crate) fn prepare_receiver_recovery_launch(
         &self,
         job_id: crate::state::ReceiverJobId,

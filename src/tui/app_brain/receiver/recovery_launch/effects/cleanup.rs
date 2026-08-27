@@ -1,8 +1,10 @@
 //! Shutdown-first cleanup for one successfully spawned recovery controller.
 
-use crate::state::ReceiverRecoveryFailure;
+use crate::state::ReceiverRecoveryCleanupOutcome;
 use crate::tui::App;
-use crate::tui::receiver::{DurableReceiverRun, SpawnedRecoveryRun, SpawnedRecoveryStage};
+use crate::tui::receiver::{
+    DurableReceiverRun, ReceiverCleanupAuthority, SpawnedRecoveryRun, SpawnedRecoveryStage,
+};
 
 impl App {
     pub(in crate::tui::app_brain::receiver) fn continue_spawned_recovery_cleanup(
@@ -73,62 +75,43 @@ impl App {
             run.artifacts_removed = true;
         }
 
-        if run.durable_launch_committed {
-            if run.cleanup_effect.is_none() {
-                let now = self.receiver_now_unix_ms();
-                if let Ok(Some(effect)) = self.services.fail_receiver_recovery_attempt(
-                    run.claimed.claim.job().id(),
-                    run.claimed.claim.claim().owner(),
-                    now,
-                    ReceiverRecoveryFailure::Shutdown,
-                ) {
-                    run.cleanup_effect = Some(effect);
-                } else {
+        if matches!(run.cleanup_authority, ReceiverCleanupAuthority::Unresolved) {
+            let now = self.receiver_now_unix_ms();
+            match self.services.establish_receiver_spawned_recovery_cleanup(
+                run.claimed.claim.job().id(),
+                run.claimed.claim.job().token(),
+                run.claimed.claim.claim().owner(),
+                &run.attribution,
+                run.pid,
+                now,
+            ) {
+                Ok(ReceiverRecoveryCleanupOutcome::Exact(effect)) => {
+                    run.cleanup_authority = ReceiverCleanupAuthority::Exact(effect);
+                }
+                Ok(ReceiverRecoveryCleanupOutcome::Changed) | Err(_) => {
                     self.defer_spawned_recovery(run);
                     return;
                 }
             }
-            let effect = run
-                .cleanup_effect
-                .as_ref()
-                .expect("cleanup effect was established above");
-            #[cfg(test)]
-            if self.receiver.take_cleanup_failure(
-                crate::tui::receiver::ReceiverCleanupBoundary::Acknowledgement,
-            ) {
-                self.defer_spawned_recovery(run);
-                return;
-            }
-            let now = self.receiver_now_unix_ms();
-            if !matches!(
-                self.services
-                    .acknowledge_receiver_recovery_cleanup(effect, now),
-                Ok(true)
-            ) {
-                self.defer_spawned_recovery(run);
-            }
-        } else {
-            let now = self.receiver_now_unix_ms();
-            if self
-                .services
-                .fail_receiver_recovery_attempt(
-                    run.claimed.claim.job().id(),
-                    run.claimed.claim.claim().owner(),
-                    now,
-                    ReceiverRecoveryFailure::Shutdown,
-                )
-                .is_err()
-            {
-                self.defer_spawned_recovery(run);
-                return;
-            }
-            if self
-                .services
-                .release_receiver_session(&run.attribution)
-                .is_err()
-            {
-                self.defer_spawned_recovery(run);
-            }
+        }
+        #[cfg(test)]
+        if self
+            .receiver
+            .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Acknowledgement)
+        {
+            self.defer_spawned_recovery(run);
+            return;
+        }
+        let ReceiverCleanupAuthority::Exact(effect) = &run.cleanup_authority else {
+            unreachable!("spawned cleanup authority was established above");
+        };
+        let now = self.receiver_now_unix_ms();
+        if !matches!(
+            self.services
+                .acknowledge_receiver_recovery_cleanup(effect, now),
+            Ok(true)
+        ) {
+            self.defer_spawned_recovery(run);
         }
     }
 

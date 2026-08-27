@@ -195,6 +195,12 @@ recovery and unavailable-notice persistence in
 `store/unavailable_notice.rs` owns the schema-v11 notice lease claim and exact
 acknowledgement; the reconciliation cleanup helper owns the exact
 stale-registration PID proof used only after App reconstruction.
+`store/reconciliation/recovery_registration.rs` derives a recovery Resume
+cleanup fence only from the exact job, token, conversation, actor, channel,
+frontend, instance, native session, present lifecycle source, registration
+actual value, and non-null lock. `spawned_cleanup.rs` uses the same proof in
+one immediate transaction to return either exact cleanup authority or a
+changed durable world after local shutdown.
 Before an accepted observation can become a cleanup fence, reconciliation
 classifies its exact session attribution as bound, prior-binding Fresh conflict,
 or absent. The bound path writes the lifecycle-native session to the exact fresh
@@ -217,6 +223,13 @@ instance, registered and native session attribution, scope, frontend, PID, and
 durable-commit status until activation succeeds or shutdown-first exact cleanup
 finishes. Commit errors remain ambiguous and are rechecked against the exact
 visible launch identity before activation or cleanup is chosen.
+Once cleanup begins, local launch-commit memory no longer selects a release
+path. A reconciliation effect is authoritative, otherwise the typed spawned
+cleanup transition establishes the same exact tuple even after claim expiry.
+Pre-spawn cleanup with an attached exact effect uses that acknowledgement too.
+Any mismatch or store error retains the local capability, registration, and
+native lock. Orderly shutdown establishes restart cleanup evidence but leaves
+the exact acknowledgement to a later dead-PID proof.
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
 identity's external command adapter lives under
