@@ -1,7 +1,7 @@
 ---
 id: BR-16
 title: Recover stalled receiver jobs without blocking the queue
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [enhancement, server]
@@ -13,7 +13,7 @@ parent:
 github:
 blocked_by: []
 created: 2026-08-23
-updated: 2026-08-26
+updated: 2026-08-27
 ---
 
 # BR-16: Recover stalled receiver jobs without blocking the queue
@@ -34,27 +34,27 @@ ownership.
 
 ## Acceptance criteria
 
-- [ ] Launch, acceptance, progress, and recovery leases are explicit,
+- [x] Launch, acceptance, progress, and recovery leases are explicit,
       persisted, and evaluated through pure decisions with injected clocks.
-- [ ] A launch that never proves acceptance is terminated and requeued without
+- [x] A launch that never proves acceptance is terminated and requeued without
       consuming its one accepted-job recovery attempt.
-- [ ] A job proven accepted but stalled receives exactly one automatic recovery
+- [x] A job proven accepted but stalled receives exactly one automatic recovery
       attempt in the same logical/native session when resumable.
-- [ ] Recovery instructions name the same job and ask the resumed conversation
+- [x] Recovery instructions name the same job and ask the resumed conversation
       to reconcile prior work rather than blindly repeat side effects.
-- [ ] A second accepted-job failure records a terminal failure, sends the
+- [x] A second accepted-job failure records a terminal failure, sends the
       sender a clear unavailable response, and allows the next job to run.
-- [ ] Process exit, missing evidence, corrupt native history, and TUI or machine
+- [x] Process exit, missing evidence, corrupt native history, and TUI or machine
       restart use deterministic recovery rules rather than leaving an active
       claim indefinitely.
-- [ ] Startup reconciles stale claims and answer/delivery states before claiming
+- [x] Startup reconciles stale claims and answer/delivery states before claiming
       new work.
-- [ ] Progress-renewed leases have an absolute upper bound so continuously
+- [x] Progress-renewed leases have an absolute upper bound so continuously
       ambiguous state cannot block the queue forever.
-- [ ] Red/green tests cover every timeout boundary, missed event, restart point,
+- [x] Red/green tests cover every timeout boundary, missed event, restart point,
       safe requeue, one recovery, terminal failure, sender notice, and queue
       advancement without wall-clock sleeps.
-- [ ] BR-10's old screen-based inactivity watchdog is removed or narrowed to
+- [x] BR-10's old screen-based inactivity watchdog is removed or narrowed to
       non-authoritative diagnostics, with applicable docs updated.
 
 ## Notes
@@ -304,3 +304,11 @@ whole-branch acceptance review before integration.
   evidence. Current-code review replaced stale injection pointers with a
   five-task plan for explicit leases, repeated progress pulses, atomic
   reconciliation, one same-session recovery, and durable failure-notice intent.
+- 2026-08-27 completed in Brain 0.84.22 and merged to `main` as `bb4584a`.
+  Receiver lifecycle deadlines are durable and bounded, exact progress renews
+  only within the absolute limit, one accepted stall can resume its exact
+  native session, unsafe or repeated recovery fails closed, unavailable notice
+  intent survives restart, and the FIFO advances independently from cleanup.
+  The final integrated rereview reported no Critical, Important, or Minor
+  findings across recovery authority, migrations, all-frontends parity,
+  privacy, architecture, and BR-17/18 scope boundaries.

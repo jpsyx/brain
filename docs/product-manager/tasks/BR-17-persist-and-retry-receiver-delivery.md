@@ -11,9 +11,9 @@ milestone: MS-3
 cycle:
 parent:
 github:
-blocked_by: [BR-15]
+blocked_by: []
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-27
 ---
 
 # BR-17: Persist and retry receiver response delivery separately

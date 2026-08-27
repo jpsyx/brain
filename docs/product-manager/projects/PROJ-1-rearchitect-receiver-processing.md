@@ -9,7 +9,7 @@ initiative:
 target_date:
 github:
 created: 2026-08-23
-updated: 2026-08-26
+updated: 2026-08-27
 ---
 
 # PROJ-1: Rearchitect receiver processing
@@ -123,3 +123,8 @@ Out of scope:
   bounded, exact token-matched frontend observations. BR-16 is next and will
   recover stalled launched, accepted, or processing work without blindly
   duplicating a prompt.
+- **2026-08-27: on-track**: BR-16 shipped in Brain 0.84.22. Durable lifecycle
+  deadlines now drive bounded pre-acceptance retry, one exact same-session
+  accepted recovery, restart reconciliation, terminal unavailable notice, and
+  FIFO advancement across cleanup failure. BR-17 is unblocked and will make
+  answer persistence and provider delivery independently recoverable.
