@@ -624,9 +624,11 @@ the requested command retains its own diagnostics. `install.sh` detects an exist
 same forward transition during upgrade or the registered reverse transition
 before downgrade. The receiver cleanup fence has its own 0.84.8 boundary.
 Upgrade reconstructs a missing fence half only from one fully attributed
-registration and attributed native-session row, preserving exact redrive and
-acknowledgement. Ambiguous or mismatched evidence fails closed without
-releasing either unproved resource. Downgrade to 0.84.7 terminalizes
+registration and native-session row that match the durable conversation's
+frontend, user, channel, and native binding plus the job's workspace,
+conversation, channel, and known cleanup half. Exact acknowledgement repeats
+that proof before releasing a complete tuple. Ambiguous or mismatched evidence
+fails closed without releasing either unproved resource. Downgrade to 0.84.7 terminalizes
 cleanup-pending recovery, preserves the exact cleanup tuple and lock, and makes
 the work non-replayable by the older binary. Users do not run a migration
 command.
@@ -1648,14 +1650,16 @@ absolute deadline after reopen. If cleanup is still pending at that boundary,
 the terminal effect preserves and redrives the same opaque instance/session
 identifiers across later ticks and restarts. Exact acknowledgement then releases
 the retained registration and native-session lock from either the due recovery
-or terminal failed state. The pending notice remains one durable intent, and the
+or terminal failed state, but only while its registration/session attribution
+still matches the exact job and durable conversation. The pending notice remains one durable intent, and the
 terminal cleanup does not block later FIFO claims. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
 cleanup, native-history inspection, recovery launch, and notice delivery remain
 separate App effects. Automatic startup repair preserves this authority when
 one cleanup identifier is missing only if one fully attributed durable
-registration and attributed session row proves the exact missing half.
+registration and session row match the job plus the conversation's frontend,
+user, channel, and native binding.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

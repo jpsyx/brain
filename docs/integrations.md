@@ -1256,10 +1256,12 @@ terminalizes any nonterminal recovery attempt so an older coordinator cannot
 replay it.
 The automatic 0.84.8 receiver-cleanup boundary handles the cleanup fence added
 after schema v10. Upgrade and same-version reconciliation reconstruct a missing
-fence half only when one registration and attributed session row match every durable
-workspace, conversation, frontend, actor, channel, instance, and native-session
-identifier. That complete tuple keeps recurring cleanup redrive and exact
-acknowledgement available. Ambiguous or mismatched evidence terminalizes and
+fence half only when one registration and session row match the durable
+conversation's frontend, user, channel, and native session as well as the job's
+workspace, conversation, channel, and known cleanup identifier. That complete
+tuple keeps recurring cleanup redrive and exact acknowledgement available.
+Acknowledgement repeats the same job and conversation attribution proof before
+release. Ambiguous or mismatched evidence terminalizes and
 clears the invalid fence without releasing an unproved registration or session
 lock. Downgrade to 0.84.7 converts cleanup-pending recovery into a terminal
 pending-notice row while retaining the exact cleanup tuple, receiver
@@ -1386,8 +1388,10 @@ ownerless recovery remains reconcilable at its recovery or absolute deadline.
 If it terminalizes before cleanup acknowledgement, the store retains the exact
 tuple, registration, and session lock and keeps returning that terminal cleanup
 effect across restart. Exact acknowledgement accepts the matching due or failed
-recovery, clears the tuple, and releases both lock surfaces atomically. Wrong
-identifiers change nothing. Read-only redrive does not duplicate the notice bit
+recovery only when the registration/session pair still matches the exact job,
+token, and durable conversation attribution; it then clears the tuple and
+releases both lock surfaces atomically. Wrong or misattributed identifiers
+change nothing. Read-only redrive does not duplicate the notice bit
 or prevent later FIFO work from being claimed.
 Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
 planning, registration, spawn, or shutdown failure uses an exact terminal

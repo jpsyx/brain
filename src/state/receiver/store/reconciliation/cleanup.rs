@@ -59,7 +59,7 @@ impl Db {
         if !release_exact_cleanup_registration(
             &transaction,
             &self.workspace_id,
-            job.conversation_id(),
+            &job,
             instance,
             session_id,
             now,
@@ -147,7 +147,7 @@ pub(super) fn pending_cleanup_effect(
 fn release_exact_cleanup_registration(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
-    conversation_id: crate::state::ReceiverConversationId,
+    job: &crate::state::ReceiverJob,
     instance: &str,
     session_id: &str,
     now: i64,
@@ -161,18 +161,32 @@ fn release_exact_cleanup_registration(
             AND session.agent_kind = registration.agent_kind
             AND session.actor_id = registration.actor_id
             AND session.channel = registration.channel
+           JOIN receiver_conversations AS conversation
+             ON conversation.workspace_id = registration.workspace_id
+            AND conversation.conversation_id = registration.conversation_id
+            AND conversation.user_id = registration.actor_id
+            AND conversation.channel = registration.channel
+            AND conversation.agent_kind = registration.agent_kind
+            AND conversation.agent_session_id = session.agent_session_id
+           JOIN receiver_jobs AS job
+             ON job.workspace_id = conversation.workspace_id
+            AND job.conversation_id = conversation.conversation_id
+            AND job.channel = conversation.channel
            WHERE registration.workspace_id = ?1
              AND registration.conversation_id = ?2
              AND registration.brain_instance_id = ?3
              AND session.agent_session_id = ?4
              AND COALESCE(registration.actual_session_id,
                           registration.registered_session_id) = ?4
+             AND job.job_id = ?5 AND job.job_token = ?6
          )",
         rusqlite::params![
             workspace_id,
-            conversation_id.to_string(),
+            job.conversation_id().to_string(),
             instance,
-            session_id
+            session_id,
+            job.id().to_string(),
+            job.token().to_string(),
         ],
         |row| row.get::<_, bool>(0),
     )?;
@@ -182,7 +196,7 @@ fn release_exact_cleanup_registration(
     super::support::release_registration(
         transaction,
         workspace_id,
-        conversation_id,
+        job.conversation_id(),
         Some(instance),
         now,
     )?;

@@ -347,11 +347,13 @@ observation producers and has an exact down path that removes only its canonical
 hooks and script while restoring the frozen 0.80 OpenCode plugin. Same-basename
 user commands are not managed entries. The 0.84.8 receiver-cleanup migration
 reconciles the exact cleanup fence on upgrade. A one-sided fence is rebuilt only
-when one registration plus its attributed session row proves the missing identifier under
-the complete workspace, conversation, frontend, actor, channel, instance, and
-native-session identity. Ambiguous or mismatched evidence terminalizes the job
-and clears the invalid fence without releasing any unproved registration or
-session lock. Its down path terminalizes any
+when one registration plus its attributed session row matches the durable
+conversation's frontend, user, channel, and native session as well as the job's
+workspace, conversation, channel, and known cleanup half. Ambiguous or
+mismatched evidence terminalizes the job and clears the invalid fence without
+releasing any unproved registration or session lock. Exact acknowledgement
+repeats the same conversation/job attribution proof before releasing a complete
+tuple. Its down path terminalizes any
 cleanup-pending recovery without clearing the retained instance/session tuple,
 registration, or native-session lock, so a 0.84.7 binary cannot replay it and a
 later upgrade can finish exact cleanup. The version stamp lives at

@@ -880,3 +880,178 @@ reconciler supplies a complete tuple.
 The focused fix commit contains the 0.84.10 release metadata, source, tests,
 docs, and this appended report. Its final hash is supplied in the handoff
 because embedding it here would change that hash.
+
+## Fix round 4 of 5
+
+### Status
+
+DONE
+
+This round resolves the remaining Important finding in
+`task-3-rereview-3.md`. One-sided cleanup reconstruction and exact cleanup
+acknowledgement now require the receiver conversation and exact receiver job
+to prove the registration's complete attribution. The crate version moved
+from 0.84.10 to 0.84.11.
+
+### Behavior corrected
+
+- Automatic adjacent upgrade and current-version reconciliation reconstruct a
+  missing cleanup instance or session only when a registration, its locked
+  native session, the durable receiver conversation, and the exact receiver
+  job agree on workspace, conversation, frontend, actor, channel, effective
+  native session, and the known cleanup half.
+- The repair still requires exactly one baseline registration/session
+  candidate. A second candidate cannot be ignored merely because only one
+  candidate satisfies the newer conversation join.
+- A unique registration/session pair with a conflicting frontend, actor, or
+  channel now terminalizes queue-safe with one pending notice, clears the
+  invalid partial cleanup tuple, retains the unrelated registration and lock,
+  emits no cleanup redrive, and grants no acknowledgement authority.
+- Exact post-cleanup acknowledgement repeats the durable
+  conversation-and-job attribution proof. If the complete tuple's registered
+  resource is later changed to a different frontend, actor, or channel, the
+  acknowledgement is rejected without clearing the tuple or releasing the
+  resource.
+
+Durable cleanup metadata remains content-free. Task 4 still owns native
+process cleanup and effect execution; no App, TUI executor, frontend, provider,
+hook, prompt, or notice-delivery behavior changed.
+
+### RED evidence
+
+The six-case compiled reconstruction matrix covered both missing cleanup
+halves against unique frontend, actor, and channel mismatches. Before the
+production predicates changed:
+
+```text
+cargo test --release --test startup_migration receiver_recovery_cleanup_safety::adjacent_cleanup_upgrade_rejects_unique_conversation_attribution_mismatches -- --exact --test-threads=1 --nocapture
+
+adjacent_cleanup_upgrade_rejects_unique_conversation_attribution_mismatches ... FAILED
+assertion `left == right` failed
+left: Some("ordinary-instance")
+right: None
+```
+
+The old repair treated registration/session agreement alone as authority and
+reconstructed a tuple even though those rows conflicted with the durable
+conversation.
+
+The exact acknowledgement test was then added for all three attribution
+mismatches. Before the acknowledgement predicate changed:
+
+```text
+cargo test --release --lib state::receiver::tests::reconciliation::exact_cleanup_acknowledgement_rejects_registration_outside_conversation_attribution -- --exact --test-threads=1 --nocapture
+
+exact_cleanup_acknowledgement_rejects_registration_outside_conversation_attribution ... FAILED
+assertion failed: !fixture.db.acknowledge_receiver_recovery_cleanup(...)
+```
+
+The old acknowledgement released any registration/session pair matching the
+complete tuple without rejoining the receiver conversation and exact job.
+
+### GREEN and regression evidence
+
+After adding the conversation/job proof, both new tests passed:
+
+```text
+cargo test --release --test startup_migration receiver_recovery_cleanup_safety::adjacent_cleanup_upgrade_rejects_unique_conversation_attribution_mismatches -- --exact --test-threads=1 --nocapture
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests::reconciliation::exact_cleanup_acknowledgement_rejects_registration_outside_conversation_attribution -- --exact --test-threads=1 --nocapture
+test result: ok. 1 passed; 0 failed
+```
+
+The first broader startup run honestly exposed a regression in the existing
+ambiguity characterization:
+
+```text
+cargo test --release --test startup_migration -- --test-threads=1
+test result: FAILED. 19 passed; 1 failed
+receiver_recovery_cleanup_safety::adjacent_cleanup_upgrade_never_releases_ambiguous_or_mismatched_registration
+left: Some("ordinary-instance")
+right: None
+```
+
+The exact-attribution count had excluded a second conversation-conflicting
+candidate, allowing one valid candidate to look unique. Repair now requires
+both one baseline candidate and one exactly attributed candidate. The focused
+ambiguity and exact reconstruction suites then passed:
+
+```text
+cargo test --release --test startup_migration receiver_recovery_cleanup_safety:: -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+
+cargo test --release --test startup_migration receiver_recovery_cleanup::adjacent_cleanup_fence_upgrade_reconstructs_missing -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+```
+
+The first strict clippy run also reported that the strengthened helper had
+eight parameters. Refactoring it to borrow the already loaded `ReceiverJob`
+removed the warning and kept the acknowledgement tests green.
+
+Final focused suites:
+
+```text
+cargo test --release --lib state::receiver::tests::schema -- --test-threads=1
+test result: ok. 18 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests -- --test-threads=1
+test result: ok. 111 passed; 0 failed
+
+cargo test --release --lib startup_migration::tests -- --test-threads=1
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --test startup_migration -- --test-threads=1
+test result: ok. 20 passed; 0 failed
+
+cargo test --release --test install_script -- --test-threads=1
+test result: ok. 5 passed; 0 failed
+```
+
+### Final gates
+
+The final required serial release suite completed in one uninterrupted
+invocation after the last source refactor:
+
+```text
+cargo test --release -- --test-threads=1
+library: 2290 passed; 0 failed
+all integration test binaries passed
+startup_migration: 20 passed; 0 failed
+doc-tests: 0 passed; 0 failed
+```
+
+Final formatting and lint gates are recorded after the report-only update:
+
+```text
+cargo fmt --all -- --check
+exit code 0
+
+cargo clippy --release --all-targets -- -D warnings
+Finished `release` profile; exit code 0
+
+git diff --check
+exit code 0
+```
+
+### Files, privacy, and concerns
+
+- `state/receiver/schema/recovery/cleanup.rs` owns the strengthened one-sided
+  repair predicate and preserves the conservative total-uniqueness guard.
+- `state/receiver/store/reconciliation/cleanup.rs` repeats exact durable
+  attribution before releasing a cleanup registration and session lock.
+- Store and compiled startup tests cover both missing halves, every requested
+  mismatch category, valid reconstruction, ambiguity, redrive absence, notice
+  intent, resource retention, and acknowledgement refusal.
+- All six Task 3 contract documents and 0.84.11 release metadata were updated.
+
+The intentional fail-closed mismatch case retains an unrelated registration
+and lock without inventing cleanup authority. Manual diagnosis may be needed
+for such already-corrupt state, but recurring reconciliation remains FIFO-safe
+and does not release another conversation's native session.
+
+### Commit
+
+The focused fix commit contains the 0.84.11 release metadata, source, tests,
+docs, and this appended report. Its final hash is supplied in the handoff
+because embedding it here would change that hash.

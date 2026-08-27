@@ -18,11 +18,11 @@ pub(super) fn seed_cleanup_pending_recovery(path: &Path) {
              );
              INSERT INTO receiver_conversations
                (conversation_id, workspace_id, user_id, channel, conversation_key,
-                created_at_unix_ms, updated_at_unix_ms)
+                agent_kind, agent_session_id, created_at_unix_ms, updated_at_unix_ms)
              VALUES
                ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
                 '11111111-1111-4111-8111-111111111111', 'pablo', 'sms',
-                'cleanup-fence-conversation', 100, 100);
+                'cleanup-fence-conversation', 'codex', 'native-session', 100, 100);
              INSERT INTO brain_sessions
                (agent_kind, agent_session_id, brain_instance_id, locked_pid, source,
                 workspace_id, actor_id, channel, created_at, last_active_at)

@@ -102,3 +102,95 @@ fn second_tui_cannot_claim_recovery_until_exact_cleanup_is_acknowledged() {
         fixture.job_id
     );
 }
+
+#[derive(Clone, Copy)]
+enum CleanupRegistrationMismatch {
+    Frontend,
+    Actor,
+    Channel,
+}
+
+#[test]
+fn exact_cleanup_acknowledgement_rejects_registration_outside_conversation_attribution() {
+    for mismatch in [
+        CleanupRegistrationMismatch::Frontend,
+        CleanupRegistrationMismatch::Actor,
+        CleanupRegistrationMismatch::Channel,
+    ] {
+        assert_cleanup_acknowledgement_rejects_mismatch(mismatch);
+    }
+}
+
+fn assert_cleanup_acknowledgement_rejects_mismatch(mismatch: CleanupRegistrationMismatch) {
+    let fixture = accepted_run("cleanup-ack-attribution");
+    fixture
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("persist cleanup-pending recovery")
+        .expect("cleanup effect");
+    let mismatch_sql = match mismatch {
+        CleanupRegistrationMismatch::Frontend => {
+            "UPDATE receiver_session_registrations SET agent_kind = 'claude'
+             WHERE brain_instance_id = 'ordinary-instance';
+             UPDATE brain_sessions SET agent_kind = 'claude'
+             WHERE brain_instance_id = 'ordinary-instance';"
+        }
+        CleanupRegistrationMismatch::Actor => {
+            "UPDATE receiver_session_registrations SET actor_id = 'mallory'
+             WHERE brain_instance_id = 'ordinary-instance';
+             UPDATE brain_sessions SET actor_id = 'mallory'
+             WHERE brain_instance_id = 'ordinary-instance';"
+        }
+        CleanupRegistrationMismatch::Channel => {
+            "UPDATE receiver_session_registrations SET channel = 'email'
+             WHERE brain_instance_id = 'ordinary-instance';
+             UPDATE brain_sessions SET channel = 'email'
+             WHERE brain_instance_id = 'ordinary-instance';"
+        }
+    };
+    fixture
+        .db
+        .conn
+        .execute_batch(mismatch_sql)
+        .expect("misattribute cleanup registration");
+
+    assert!(
+        !fixture
+            .db
+            .acknowledge_receiver_recovery_cleanup(
+                fixture.job_id,
+                fixture.ordinary.token(),
+                "ordinary-instance",
+                "native-session",
+                301_401,
+            )
+            .expect("reject misattributed cleanup acknowledgement")
+    );
+    let pending = fixture
+        .db
+        .receiver_job(fixture.job_id)
+        .expect("load cleanup-pending recovery")
+        .expect("cleanup-pending recovery");
+    assert_eq!(
+        pending.recovery_cleanup_instance(),
+        Some("ordinary-instance")
+    );
+    assert_eq!(
+        pending.recovery_cleanup_session_id(),
+        Some("native-session")
+    );
+    let retained: (i64, Option<i64>) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT
+               (SELECT COUNT(*) FROM receiver_session_registrations
+                WHERE brain_instance_id = 'ordinary-instance'),
+               (SELECT locked_pid FROM brain_sessions
+                WHERE brain_instance_id = 'ordinary-instance')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load retained mismatched cleanup resources");
+    assert_eq!(retained, (1, Some(42)));
+}

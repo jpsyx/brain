@@ -2524,8 +2524,10 @@ current-attempt cursor, preserves lifetime facts and the exact native binding,
 caps recovery expiry by the original absolute limit, and persists the exact
 superseded instance/session as cleanup-pending. Task 4 must stop that native run
 before acknowledging the same token, tuple, registration, and full recovery
-snapshot. The acknowledgement transaction releases the retained registration
-and clears the fence atomically. Only afterward may the claim seam attach a
+snapshot. The acknowledgement transaction also rechecks that the registration
+and session still match the durable conversation's frontend, user, channel,
+and native binding plus the exact job. It then releases the retained
+registration and clears the fence atomically. Only afterward may the claim seam attach a
 writer and establish the launch deadline. The claim cannot rediscover accepted
 work or increment the budget, so a crash between these boundaries remains
 restart-safe. The ownerless recovery remains eligible for reconciliation and
@@ -2566,10 +2568,12 @@ attempt from replayable ordinary work.
 The cleanup fence was introduced after the original schema-v10 migration, so it
 has a separate automatic boundary at 0.84.8 even though the SQLite schema
 number remains 10. Upgrade and later reconciliation rebuild a one-sided fence
-only when exactly one receiver registration and attributed native-session row match the
-complete workspace, conversation, frontend, actor, channel, instance, and
-native-session identity. This preserves redrive and acknowledgement authority
-without guessing. Ambiguous or mismatched evidence terminalizes and clears the
+only when exactly one receiver registration and native-session row match the
+durable conversation's frontend, user, channel, and native binding plus the
+job's workspace, conversation, channel, and known cleanup half. Exact
+acknowledgement repeats the job/token and conversation attribution predicates
+before it releases a complete tuple. This defense in depth prevents later
+registration corruption from authorizing release. Ambiguous or mismatched evidence terminalizes and clears the
 invalid fence but retains every unproved registration and lock, because
 releasing an unrelated native session would be worse than requiring later
 manual repair. Downgrade to 0.84.7 terminalizes cleanup-pending recovery before

@@ -343,8 +343,11 @@ invocation still reconciles current managed artifacts even when this stamp
 already matches, which is how a missing hook is recreated without user action.
 The 0.84.8 receiver-cleanup boundary also reconciles one-sided cleanup-fence
 metadata. It reconstructs the missing identifier only when one fully
-attributed receiver registration and native-session row prove the exact
-tuple. Ambiguous or mismatched evidence becomes terminal with notice intent;
+attributed receiver registration and native-session row match the durable
+conversation's frontend, user, channel, and native binding plus the job's
+workspace, conversation, channel, and known cleanup half. Exact acknowledgement
+repeats those predicates against the job and complete tuple before release.
+Ambiguous or mismatched evidence becomes terminal with notice intent;
 the invalid partial fence is cleared, but unproved registrations and locks are
 retained. Its 0.84.7 down mapping makes cleanup-pending recovery terminal and
 non-replayable while retaining the complete instance/session tuple,
@@ -1205,7 +1208,8 @@ superseded attempt cursor, increments `recovery_count`, sets `attempt_kind` to
 by the absolute limit. It also persists the superseded instance and native
 session as an all-or-none cleanup fence while retaining their exact
 registration. The acknowledgement seam requires the same job, token, recovery
-snapshot, instance, session, and registration in one immediate transaction;
+snapshot, instance, session, registration, and matching durable conversation
+frontend, user, channel, and native binding in one immediate transaction;
 only then does it release the registration and native-session lock and clear
 the fence. The same exact acknowledgement is valid after the ownerless recovery
 has terminalized with pending notice intent. Until then, the failed row retains

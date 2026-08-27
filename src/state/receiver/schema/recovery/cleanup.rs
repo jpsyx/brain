@@ -37,12 +37,45 @@ pub(super) fn reconcile_partial_fences(connection: &Connection) -> Result<()> {
                       registration.actual_session_id,
                       registration.registered_session_id
                     )
+               JOIN receiver_conversations AS conversation
+                 ON conversation.workspace_id = registration.workspace_id
+                AND conversation.conversation_id = registration.conversation_id
+                AND conversation.user_id = registration.actor_id
+                AND conversation.channel = registration.channel
+                AND conversation.agent_kind = registration.agent_kind
+                AND conversation.agent_session_id = session.agent_session_id
                WHERE registration.workspace_id = receiver_jobs.workspace_id
                  AND registration.conversation_id = receiver_jobs.conversation_id
+                 AND conversation.channel = receiver_jobs.channel
                  AND session.agent_session_id = receiver_jobs.recovery_cleanup_session_id
              )
          WHERE recovery_cleanup_instance IS NULL
            AND recovery_cleanup_session_id IS NOT NULL
+           AND 1 = (
+             SELECT COUNT(*)
+             FROM receiver_session_registrations AS registration
+             JOIN brain_sessions AS session
+               ON session.workspace_id = registration.workspace_id
+              AND session.brain_instance_id = registration.brain_instance_id
+              AND session.agent_kind = registration.agent_kind
+              AND session.actor_id = registration.actor_id
+              AND session.channel = registration.channel
+              AND session.agent_session_id = COALESCE(
+                    registration.actual_session_id,
+                    registration.registered_session_id
+                  )
+             JOIN receiver_conversations AS conversation
+               ON conversation.workspace_id = registration.workspace_id
+              AND conversation.conversation_id = registration.conversation_id
+              AND conversation.user_id = registration.actor_id
+              AND conversation.channel = registration.channel
+              AND conversation.agent_kind = registration.agent_kind
+              AND conversation.agent_session_id = session.agent_session_id
+             WHERE registration.workspace_id = receiver_jobs.workspace_id
+               AND registration.conversation_id = receiver_jobs.conversation_id
+               AND conversation.channel = receiver_jobs.channel
+               AND session.agent_session_id = receiver_jobs.recovery_cleanup_session_id
+           )
            AND 1 = (
              SELECT COUNT(*)
              FROM receiver_session_registrations AS registration
@@ -82,12 +115,45 @@ pub(super) fn reconcile_partial_fences(connection: &Connection) -> Result<()> {
                       registration.actual_session_id,
                       registration.registered_session_id
                     )
+               JOIN receiver_conversations AS conversation
+                 ON conversation.workspace_id = registration.workspace_id
+                AND conversation.conversation_id = registration.conversation_id
+                AND conversation.user_id = registration.actor_id
+                AND conversation.channel = registration.channel
+                AND conversation.agent_kind = registration.agent_kind
+                AND conversation.agent_session_id = session.agent_session_id
                WHERE registration.workspace_id = receiver_jobs.workspace_id
                  AND registration.conversation_id = receiver_jobs.conversation_id
+                 AND conversation.channel = receiver_jobs.channel
                  AND registration.brain_instance_id = receiver_jobs.recovery_cleanup_instance
              )
          WHERE recovery_cleanup_instance IS NOT NULL
            AND recovery_cleanup_session_id IS NULL
+           AND 1 = (
+             SELECT COUNT(*)
+             FROM receiver_session_registrations AS registration
+             JOIN brain_sessions AS session
+               ON session.workspace_id = registration.workspace_id
+              AND session.brain_instance_id = registration.brain_instance_id
+              AND session.agent_kind = registration.agent_kind
+              AND session.actor_id = registration.actor_id
+              AND session.channel = registration.channel
+              AND session.agent_session_id = COALESCE(
+                    registration.actual_session_id,
+                    registration.registered_session_id
+                  )
+             JOIN receiver_conversations AS conversation
+               ON conversation.workspace_id = registration.workspace_id
+              AND conversation.conversation_id = registration.conversation_id
+              AND conversation.user_id = registration.actor_id
+              AND conversation.channel = registration.channel
+              AND conversation.agent_kind = registration.agent_kind
+              AND conversation.agent_session_id = session.agent_session_id
+             WHERE registration.workspace_id = receiver_jobs.workspace_id
+               AND registration.conversation_id = receiver_jobs.conversation_id
+               AND conversation.channel = receiver_jobs.channel
+               AND registration.brain_instance_id = receiver_jobs.recovery_cleanup_instance
+           )
            AND 1 = (
              SELECT COUNT(*)
              FROM receiver_session_registrations AS registration
