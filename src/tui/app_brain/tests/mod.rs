@@ -88,6 +88,7 @@ mod receiver_durable_slow_boundaries;
 mod receiver_durable_slow_launch_effects;
 mod receiver_durable_support;
 mod receiver_recovery_effects;
+mod receiver_recovery_native_cleanup;
 mod receiver_recovery_restart;
 mod receiver_sync;
 mod receiver_tab;

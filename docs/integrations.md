@@ -1397,7 +1397,12 @@ bounded retry, one ownerless due same-session recovery, or a terminal notice
 intent. An accepted-stall effect carries only the opaque job/token plus exact
 superseded instance/session identifiers. The store retains that exact cleanup
 fence and registration until the App shuts down the native run and acknowledges
-the same tuple through the full-snapshot CAS. Recovery claiming cannot cross
+the same tuple through the full-snapshot CAS. Before persisting that fence,
+accepted-work reconciliation writes the authorized lifecycle-native session to
+the exact registration in the same transaction that binds the conversation. It
+requires the unchanged job/token, conversation, frontend, actor, channel,
+instance, registered placeholder, current lock, and observed native session, and
+cannot overwrite a different established native binding. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
 Every terminalized live run with an exact instance/session pair retains that
@@ -1413,7 +1418,10 @@ controller once, and removes only its exact
 response and observation artifacts before that acknowledgement. After a restart
 with no matching tab, it may perform the same acknowledgement only when the
 persisted registration and session lock still match the effect and their exact
-recorded PID is dead. A live matching PID prevents cleanup across TUIs.
+recorded PID is dead. The sole unbound-conversation exception is an exact failed
+ordinary pre-acceptance lineage whose original registration and session are
+still fresh and whose PID is dead; recovery and already-bound lineages retain
+the native-conversation proof. A live matching PID prevents cleanup across TUIs.
 Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
 planning, registration, spawn, or shutdown failure uses an exact terminal
 transition with pending-notice intent. The state layer never invokes an adapter,

@@ -201,6 +201,21 @@ impl Db {
             }
             decision @ (ReceiverRecoveryDecision::TerminalFailure
             | ReceiverRecoveryDecision::IncompleteLegacyCompletion) => {
+                if matches!(
+                    candidate.state,
+                    ReceiverJobState::Accepted | ReceiverJobState::Processing
+                ) && !bind_exact_recovery_session(&transaction, &self.workspace_id, &job, now)?
+                {
+                    return terminalize(
+                        transaction,
+                        &self.workspace_id,
+                        &candidate,
+                        &job,
+                        ReceiverReconciliationReason::NativeSessionUnavailable,
+                        now,
+                        false,
+                    );
+                }
                 let reason = terminal_reason(&job, now_unix_ms, decision);
                 let consume_launch_attempt = decision == ReceiverRecoveryDecision::TerminalFailure
                     && job.attempt_kind() == crate::state::ReceiverAttemptKind::Ordinary

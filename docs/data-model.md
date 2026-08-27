@@ -1112,6 +1112,13 @@ receiver_session_registrations(
 )
 ```
 
+`actual_session_id` records the lifecycle-native session authorized for that
+exact registration. Accepted-work reconciliation writes it together with the
+conversation's frontend/native binding under the same exact job, token, actor,
+channel, instance, registered-placeholder, current-lock, and observed-session
+proof. It may confirm the same native ID but cannot replace a different existing
+registration or conversation binding.
+
 **Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
 frontend-neutral controller and is never persisted as provider grammar. It
 retains the highest parsed revision, represented lifecycle phases, the exact

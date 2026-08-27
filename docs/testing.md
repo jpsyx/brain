@@ -547,7 +547,14 @@ first move is a failing test that reproduces it, *then* the fix.
   deadline; second-stall and absolute-expiry terminalization that preserves and
   redrives the exact tuple after reopen; wrong-ack rejection; exact failed-state
   acknowledgement that releases registration and session lock; recovery
-  exhaustion; legacy completion ambiguity; single pending notice intent; FIFO
+  exhaustion. App tests begin with the real fresh placeholder registration,
+  rotate its lifecycle row to a distinct native session without prebinding the
+  fixture, and prove accepted-stall plus absolute-expiry cleanup cannot release
+  the native lock before acknowledgement and can release it afterward. A
+  separate restart case proves a dead non-rotating fresh registration remains
+  cleanable while its pre-acceptance conversation is still unbound, preserving
+  Claude parity. Store coverage includes legacy completion ambiguity; single
+  pending notice intent; FIFO
   release only after terminal cleanup; ordinary launch CAS rejection for a
   claimed recovery; and unsafe resume terminalization. Two store
   handles prove only one full-snapshot CAS mutates the row while the later

@@ -190,6 +190,11 @@ performs exact native resume, and `notice.rs` owns the finite local notice
 handoff. In the state layer, `store/unavailable_notice.rs` owns the schema-v11
 notice lease claim and exact acknowledgement; the reconciliation cleanup helper
 owns the exact stale-registration PID proof used only after App reconstruction.
+Before an accepted observation can become a cleanup fence, reconciliation
+attributes its lifecycle-native session to the exact fresh registration in the
+same transaction that binds the conversation. Restart cleanup also recognizes
+one narrower pre-acceptance case: an exact failed ordinary fresh registration
+whose conversation is still unbound and whose recorded PID is dead.
 The local durable-run handle keeps recovery claims separate from ordinary
 continuation and retains cleanup progress after shutdown, artifact, or store
 failure without returning to active renewal.
@@ -233,7 +238,10 @@ placeholder. A resumed run instead registers the conversation's already-bound
 native ID, so every frontend may confirm that same ID when the exact durable
 conversation binding proves the resume lineage.
 Registration and session ownership are created in one transaction, and binding
-replacement must match that complete durable tuple.
+replacement must match that complete durable tuple. Reconciliation applies the
+same rule when an accepted lifecycle session differs from its fresh placeholder:
+the registration's actual session and the conversation binding change together,
+without overwriting a different established native session.
 The durable reconciler inspects the oldest blocking nonterminal row under one
 immediate transaction before ordinary work may advance. It compares the full
 token, owner, retry, observation, attempt, and deadline snapshot. An unaccepted
@@ -252,7 +260,11 @@ session lock; recurring
 reconciliation redrives the same content-free cleanup identifiers across
 restart until an exact failed-state acknowledgement clears them. Store-level
 redrive does not itself make the terminal row a FIFO blocker. Local cleanup
-tracks successful shutdown and artifact removal independently, so a later tick
+after a crashed pre-acceptance ordinary run may use an unbound conversation only
+when the exact original fresh registration, current session lock, cleanup tuple,
+and dead recorded PID all still agree. Recovery and bound lineages retain the
+native-conversation requirement. Cleanup tracks successful shutdown and artifact
+removal independently, so a later tick
 resumes only the remaining step before FIFO advances. Notice acknowledgement
 is independent and cannot invalidate the cleanup acknowledgement. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.

@@ -37,9 +37,11 @@ pub(super) fn bind_exact_recovery_session(
     else {
         return Ok(false);
     };
-    let agent_kind = transaction
+    let actor_id = job.inbound().actor.user_id().as_str();
+    let channel = super::super::channel_str(job.inbound().channel);
+    let registration = transaction
         .query_row(
-            "SELECT registration.agent_kind
+            "SELECT registration.agent_kind, registration.registered_session_id
              FROM receiver_session_registrations AS registration
              JOIN brain_sessions AS session
                ON session.workspace_id = registration.workspace_id
@@ -47,37 +49,148 @@ pub(super) fn bind_exact_recovery_session(
               AND session.agent_kind = registration.agent_kind
               AND session.actor_id = registration.actor_id
               AND session.channel = registration.channel
+              AND session.agent_session_id = ?4
+              AND session.locked_pid IS NOT NULL
              JOIN receiver_conversations AS conversation
                ON conversation.workspace_id = registration.workspace_id
               AND conversation.conversation_id = registration.conversation_id
               AND conversation.user_id = registration.actor_id
               AND conversation.channel = registration.channel
+             JOIN receiver_jobs AS job
+               ON job.workspace_id = conversation.workspace_id
+              AND job.conversation_id = conversation.conversation_id
+              AND job.channel = conversation.channel
              WHERE registration.workspace_id = ?1
                AND registration.conversation_id = ?2
                AND registration.brain_instance_id = ?3
-               AND session.agent_session_id = ?4",
+               AND registration.actor_id = ?5
+               AND registration.channel = ?6
+               AND (registration.actual_session_id IS NULL
+                    OR registration.actual_session_id = ?4)
+               AND (conversation.agent_kind IS NULL
+                    OR conversation.agent_kind = registration.agent_kind)
+               AND (conversation.agent_session_id IS NULL
+                    OR conversation.agent_session_id = ?4)
+               AND job.job_id = ?7 AND job.job_token = ?8
+               AND job.observation_instance = ?3
+               AND job.observation_session_id = ?4",
             rusqlite::params![
                 workspace_id,
                 job.conversation_id().to_string(),
                 instance,
                 session_id,
+                actor_id,
+                channel,
+                job.id().to_string(),
+                job.token().to_string(),
             ],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
-    let Some(agent_kind) = agent_kind else {
+    let Some((agent_kind, registered_session_id)) = registration else {
         return Ok(false);
     };
+    if transaction.execute(
+        "UPDATE receiver_session_registrations AS registration
+         SET actual_session_id = ?4
+         WHERE registration.workspace_id = ?1
+           AND registration.conversation_id = ?2
+           AND registration.brain_instance_id = ?3
+           AND (registration.actual_session_id IS NULL
+                OR registration.actual_session_id = ?4)
+           AND registration.registered_session_id = ?5
+           AND registration.agent_kind = ?6
+           AND registration.actor_id = ?7
+           AND registration.channel = ?8
+           AND EXISTS (
+             SELECT 1 FROM brain_sessions AS session
+             WHERE session.workspace_id = ?1
+               AND session.brain_instance_id = ?3
+               AND session.agent_kind = ?6
+               AND session.actor_id = ?7
+               AND session.channel = ?8
+               AND session.agent_session_id = ?4
+               AND session.locked_pid IS NOT NULL
+           )
+           AND EXISTS (
+             SELECT 1 FROM receiver_conversations AS conversation
+             WHERE conversation.workspace_id = ?1
+               AND conversation.conversation_id = ?2
+               AND conversation.user_id = ?7
+               AND conversation.channel = ?8
+               AND (conversation.agent_kind IS NULL
+                    OR conversation.agent_kind = ?6)
+               AND (conversation.agent_session_id IS NULL
+                    OR conversation.agent_session_id = ?4)
+           )
+           AND EXISTS (
+             SELECT 1 FROM receiver_jobs AS job
+             WHERE job.workspace_id = ?1 AND job.job_id = ?9
+               AND job.job_token = ?10 AND job.conversation_id = ?2
+               AND job.channel = ?8 AND job.observation_instance = ?3
+               AND job.observation_session_id = ?4
+           )",
+        rusqlite::params![
+            workspace_id,
+            job.conversation_id().to_string(),
+            instance,
+            session_id,
+            registered_session_id,
+            agent_kind,
+            actor_id,
+            channel,
+            job.id().to_string(),
+            job.token().to_string(),
+        ],
+    )? != 1
+    {
+        return Ok(false);
+    }
     Ok(transaction.execute(
         "UPDATE receiver_conversations
          SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
-         WHERE workspace_id = ?1 AND conversation_id = ?2",
+         WHERE workspace_id = ?1 AND conversation_id = ?2
+           AND user_id = ?6 AND channel = ?7
+           AND ((agent_kind IS NULL AND agent_session_id IS NULL)
+                OR (agent_kind = ?3 AND agent_session_id = ?4))
+           AND EXISTS (
+             SELECT 1 FROM receiver_session_registrations AS registration
+             JOIN brain_sessions AS session
+               ON session.workspace_id = registration.workspace_id
+              AND session.brain_instance_id = registration.brain_instance_id
+              AND session.agent_kind = registration.agent_kind
+              AND session.actor_id = registration.actor_id
+              AND session.channel = registration.channel
+             WHERE registration.workspace_id = ?1
+               AND registration.conversation_id = ?2
+               AND registration.agent_kind = ?3
+               AND registration.actor_id = ?6
+               AND registration.channel = ?7
+               AND registration.brain_instance_id = ?8
+               AND registration.registered_session_id = ?9
+               AND registration.actual_session_id = ?4
+               AND session.agent_session_id = ?4
+               AND session.locked_pid IS NOT NULL
+           )
+           AND EXISTS (
+             SELECT 1 FROM receiver_jobs AS job
+             WHERE job.workspace_id = ?1 AND job.job_id = ?10
+               AND job.job_token = ?11 AND job.conversation_id = ?2
+               AND job.channel = ?7 AND job.observation_instance = ?8
+               AND job.observation_session_id = ?4
+           )",
         rusqlite::params![
             workspace_id,
             job.conversation_id().to_string(),
             agent_kind,
             session_id,
             now,
+            actor_id,
+            channel,
+            instance,
+            registered_session_id,
+            job.id().to_string(),
+            job.token().to_string(),
         ],
     )? == 1)
 }

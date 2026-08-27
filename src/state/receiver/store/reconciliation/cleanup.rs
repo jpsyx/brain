@@ -42,7 +42,6 @@ impl Db {
                  JOIN receiver_session_registrations AS registration
                    ON registration.workspace_id = conversation.workspace_id
                   AND registration.conversation_id = conversation.conversation_id
-                  AND registration.agent_kind = conversation.agent_kind
                   AND registration.actor_id = conversation.user_id
                   AND registration.channel = conversation.channel
                  JOIN brain_sessions AS session
@@ -51,7 +50,7 @@ impl Db {
                   AND session.agent_kind = registration.agent_kind
                   AND session.actor_id = registration.actor_id
                   AND session.channel = registration.channel
-                  AND session.agent_session_id = conversation.agent_session_id
+                  AND session.agent_session_id = ?5
                  WHERE job.workspace_id = ?1 AND job.job_id = ?2
                    AND job.job_token = ?3 AND job.state IN ('retrying', 'failed')
                    AND (job.state = 'failed' OR job.attempt_kind = 'recovery')
@@ -61,7 +60,19 @@ impl Db {
                    AND job.recovery_cleanup_session_id = ?5
                    AND registration.brain_instance_id = ?4
                    AND COALESCE(registration.actual_session_id,
-                                registration.registered_session_id) = ?5",
+                                registration.registered_session_id) = ?5
+                   AND (
+                     (conversation.agent_kind = registration.agent_kind
+                      AND conversation.agent_session_id = session.agent_session_id)
+                     OR (
+                       job.state = 'failed' AND job.attempt_kind = 'ordinary'
+                       AND conversation.agent_kind IS NULL
+                       AND conversation.agent_session_id IS NULL
+                       AND registration.actual_session_id IS NULL
+                       AND registration.registered_session_id = ?5
+                       AND session.source = 'fresh'
+                     )
+                   )",
                 rusqlite::params![
                     self.workspace_id,
                     effect.job_id().to_string(),
