@@ -827,7 +827,16 @@ Which session to run is decided by the **lock + recency** model in
    frontend/workspace/actor/channel scope
    and asks the selected adapter to validate each candidate. Claude requires
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl` (its project-dir
-   rule plus a fallback scan). OpenCode takes one read-only snapshot from
+   rule plus a fallback scan) to hold **at least one real turn** — a
+   `user` or `assistant` record, not just the `ai-title` / `agent-name`
+   bookkeeping Claude writes for a session that was named but never spoken in,
+   which `--resume` answers with *"No conversation found with session ID"* —
+   **and** no live process holding that id in Claude's session registry,
+   `~/.claude/sessions/<pid>.json`: Claude refuses `--resume` for a session
+   another process is still in (a background agent, or a second attached CLI),
+   so a held id is not a candidate however complete its transcript is. A
+   registry entry whose PID is gone is a leftover file, not a hold. OpenCode
+   takes one read-only snapshot from
    `session list --format json` in the selected root and accepts only live,
    non-archived, non-deleted root sessions whose reported directory resolves
    to that exact root. Child sessions and another workspace's IDs are never
@@ -835,7 +844,13 @@ Which session to run is decided by the **lock + recency** model in
    remains on disk. If Brain claims a valid candidate it uses the adapter's
    resume shape; otherwise it
    starts fresh and, if it skipped a stale candidate, shows a status-line alert:
-   *"couldn't find a session to resume; starting a new brain chat"*.
+   *"couldn't find a session to resume; starting a new brain chat"*. Should a
+   frontend refuse a resume brain believed was good, the agent quits on arrival;
+   brain retires that id for the run, opens a fresh session in its place, and
+   says *"couldn't resume your last conversation; started a new brain chat"* —
+   the user is never left with a dead panel. That relaunch is available once per
+   run, so a panel dying repeatedly (a missing or broken agent command) closes
+   normally instead of respawning on every tick.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
    `BRAIN_AGENT_KIND` plus
@@ -885,7 +900,11 @@ Which session to run is decided by the **lock + recency** model in
    `scripts/agent_session_start_hook.py`, is wired into Claude and Codex
    `hooks.SessionStart`; OpenCode's workspace plugin invokes it for a root
    `session.created` event. It fires on
-   every session start / resume / `/clear` / compact. Reading those env
+   every session start / resume / `/clear` / compact — but **never** a fork.
+   A fork branches into a new conversation rather than continuing this one, and
+   a background agent started from the panel forks its session while inheriting
+   its `BRAIN_*` environment, so recording one would hand the lineage's
+   registration to another agent and free the panel's own row. Reading those env
    vars, it accepts only an exact registered frontend/workspace/session/actor/
    channel tuple or a new frontend ID rotating an already registered active
    shell lineage. A receiver exact-ID event additionally requires the same

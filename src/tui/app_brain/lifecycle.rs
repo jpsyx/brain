@@ -4,6 +4,7 @@ use crate::tui::App;
 use crate::tui::modal_state::FlashKind;
 
 use crate::agent::SessionStore;
+use crate::tui::app_brain::launch::arrival::{ExitedPanel, decide_exited_panel};
 
 impl App {
     /// Close the brain panel: explicitly shut down its `AgentController`,
@@ -27,22 +28,41 @@ impl App {
             self.brain.record_interactive_agent_session(session_id);
         }
         self.brain.clear_session();
+        self.brain.disarm_resume_arrival();
         self.status.clear_alert();
         self.shell.focus_tasks();
         let _ = SessionStore::release(&self.services, self.brain.instance());
         self.reload_after_brain();
     }
 
+    /// Handle a brain panel whose agent has exited. A resume the frontend
+    /// refused quits on arrival, which would otherwise leave the user a dead
+    /// panel and nothing to message; that id is retired for the run and a fresh
+    /// session opens in its place. Returns whether the panel needed handling.
     pub(crate) fn close_exited_brain_panel(&mut self) -> bool {
-        if self
+        if !self
             .brain
             .main_controller()
             .is_some_and(|controller| controller.is_alive().is_ok_and(|alive| !alive))
         {
-            self.close_brain();
-            return true;
+            return false;
         }
-        false
+        let outcome = decide_exited_panel(self.brain.resume_arrival());
+        self.close_brain();
+        if let ExitedPanel::RetryFresh { refused } = outcome {
+            self.brain.refuse_resume_id(refused.clone());
+            if !self.brain.claim_resume_retry() {
+                return true;
+            }
+            crate::logging::log(format!(
+                "brain panel resume refused on arrival session={refused}; opening a fresh session"
+            ));
+            self.open_or_focus_brain(None);
+            self.status.set_alert(Some(
+                "⚠ couldn't resume your last conversation; started a new brain chat".to_owned(),
+            ));
+        }
+        true
     }
 
     /// End every live agent child before the owning shell drops its transports.

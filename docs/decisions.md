@@ -727,6 +727,86 @@ look in the same place. When the fallback to a fresh chat is caused by a
 missing transcript, we surface it in the status line rather than silently —
 the user asked to know when their conversation didn't carry over.
 
+## Why a transcript on disk isn't enough to resume a Claude session
+
+A transcript proves the conversation *exists*; it says nothing about whether
+anyone is still in it. `claude --resume <id>` refuses a session another live
+process owns and exits immediately — *"Session … is currently running as a
+background agent (bg). Use `claude agents` to find and attach to it, or add
+--fork-session to branch off a copy."* Brain treated that as a launch failure,
+so the panel never appeared and every later "Message brain" had no session to
+talk to.
+
+The id gets there honestly. A background agent started *from* the brain panel
+inherits `BRAIN_INSTANCE_ID` and friends, so its `SessionStart` hook registers
+its own session in `brain_sessions` like any other. Being the newest row, it
+became the first resume candidate — and, being a long-lived daemon, it was
+still holding that session hours later.
+
+So Claude's resume evidence is now two-sided: the transcript must exist **and**
+no live process may hold the id. The second half reads Claude's own
+per-process registry, `~/.claude/sessions/<pid>.json`, which names the session
+each running Claude owns; a claim whose PID is gone is a leftover file, not a
+hold, so the liveness probe (`kill -0`, the same one the session locks use)
+decides. Absent or unparseable evidence contributes no claim, so a missing
+registry can never make a resumable session look held.
+
+Because `open_or_focus_brain` already walks candidates by recency, rejecting
+the held id costs nothing: the panel falls through to the next eligible session
+and the user's real conversation comes back.
+
+## Why a background agent must never reach the panel's resume queue
+
+The held-session rule above fixed the symptom while the daemon was alive, and
+the panel broke again the moment it stopped. The cause was upstream of resume
+entirely. A Claude **background agent** started *from* the brain panel inherits
+`BRAIN_INSTANCE_ID`, `BRAIN_PID`, and `BRAIN_STATE_DB`, so when it forks the
+panel's conversation its `SessionStart` hook looks exactly like the panel
+rotating its own id (`/clear`, `/new`, compact). The hook did what it was built
+to do: it moved the lineage's registration onto the fork **and freed the
+panel's own row**. The user's real conversation was demoted, and a background
+agent's fork became the newest candidate for every later launch.
+
+So the bridge now ignores `source == "fork"` outright. A fork is by definition a
+branch into a *new* conversation, and brain's panel never forks its own session
+— it launches with `--session-id` or `--resume`. A `fork` therefore always
+belongs to somebody else, and the safest thing brain can do with somebody
+else's conversation is nothing at all. `sessions_by_recency` filters `fork` rows
+too, because DBs written by older versions still carry them.
+
+## Why a transcript must contain a turn, not just a name
+
+`<id>.jsonl` existing is weaker evidence than it looks. Claude writes metadata
+records — `ai-title`, `agent-name` — for a session that was named but never
+spoken in, which is exactly the stub a background agent's fork leaves behind.
+The file is there, so brain resumed it, and Claude answered *"No conversation
+found with session ID"*. Resume eligibility now requires at least one `user` or
+`assistant` record. Unreadable or unfamiliar lines contribute nothing rather
+than disqualifying the transcript: Claude owns this format and may add records
+we don't know about.
+
+## Why a resume that dies on arrival reopens as a fresh session
+
+Three separate reasons a frontend can refuse a resume turned up in one
+afternoon, each leaving the user the same useless outcome: a dead panel, and a
+"Message brain" that had no session to reach. Enumerating refusal reasons is a
+losing game, so brain now also handles the general case. A resumed panel arms a
+five-second arrival window; if its agent exits inside that window, the frontend
+refused, so brain retires that id for the rest of the run and opens a fresh
+session in its place.
+
+Three details keep this from misbehaving. Only *resumed* launches arm the window
+— a fresh session that dies just closes — so a refusal can never loop. The
+refused id goes into a per-run set the candidate walk skips, so the retry moves
+down the queue instead of picking the same conversation again. And the relaunch
+itself is available **once per run**: it costs a capability render and a
+frontend probe, and a panel that dies twice in a row is telling us about the
+environment (a missing binary, a broken command) rather than about one stale
+session id — retrying that on every tick just burns the machine. Five seconds
+is long enough to cover any refusal (they exit in well under a second) and
+short enough that a conversation the user deliberately ended loses nothing by
+reopening.
+
 ## Why the brain panel launch is frontend-aware
 
 The TUI and receiver call the `AgentController` facade's semantic launch,

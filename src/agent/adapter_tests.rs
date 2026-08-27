@@ -15,6 +15,7 @@ use crate::{
     workspace::{WorkspaceContext, WorkspaceId, WorkspaceName},
 };
 
+mod claude_resume;
 mod contract;
 
 #[test]
@@ -326,7 +327,11 @@ fn adapters_validate_resume_candidates_with_their_own_transcript_rules() {
     let projects = tempfile::tempdir().expect("projects dir");
     let project = projects.path().join("-workspaces-family brain");
     std::fs::create_dir(&project).expect("project dir");
-    std::fs::write(project.join("valid.jsonl"), "{}\n").expect("transcript");
+    std::fs::write(
+        project.join("valid.jsonl"),
+        r#"{"type":"user","message":{"role":"user","content":"hi"}}"#,
+    )
+    .expect("transcript");
     let claude = ClaudeFrontend::new(
         "claude",
         PathBuf::from("/workspaces/family brain"),

@@ -43,10 +43,10 @@ agent work flows through `AgentController`. The persistent shell keeps
 UUID-scoped state
 (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`, table
 `brain_sessions`) for frontend session locks, completion delivery, and panel
-layout. Claude validates transcripts, OpenCode validates exact-root live
-sessions, and Codex validates its exact on-disk rollout; each resumes an
-eligible workspace-scoped session and starts fresh when its evidence is
-missing. All three use the same frontend-neutral state and completion schema
+layout. Claude validates transcripts and its live-session registry, OpenCode
+validates exact-root live sessions, and Codex validates its exact on-disk
+rollout; each resumes an eligible workspace-scoped session and starts fresh
+when its evidence is missing. All three use the same frontend-neutral state and completion schema
 through registry-declared lifecycle integrations.
 One machine-wide shared HTTP process exists only for the lifetime of live TUI
 leases and stops after the final orderly close or expired crashed lease.
