@@ -1176,12 +1176,16 @@ first move is a failing test that reproduces it, *then* the fix.
 
 **Durable receiver delivery model.** `state::receiver::tests` covers frozen
 SMS and email envelopes, serialization round trips, redacted Debug, exact
-acceptance-time recipients and email lineage, every provider-result branch,
-one/five/30-minute retry delays, attempt exhaustion, deadline equality, the
-Resend 24-hour boundary, and terminal Twilio ambiguity. Its schema suite covers
-v12 create and repair, one row per job and semantic response kind,
-privacy-preserving v12-to-v11 downgrade, transcript retention, malformed lease
-repair, and immediate-writer ordering in both directions. The startup migration
+acceptance-time recipients and email lineage, whole-set recipient rejection,
+serialized-envelope validation, every provider-result branch, one/five/30-minute
+retry delays, permanent-category terminalization, attempt exhaustion, deadline
+equality, the scheduled Resend 24-hour boundary, and terminal Twilio ambiguity.
+Its schema suite covers v12 create and repair, one row per job and semantic
+response kind, optional-column ordering, stale managed-index rebuilding,
+duplicate uniqueness failure, nonblank provider acknowledgements,
+privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
+transcript retention, malformed lease repair, and immediate-writer ordering in
+both directions. The startup migration
 registry pins 0.85.0 directly after 0.84.22. Runtime answer and provider IO
 tests remain later BR-17 work because this change does not wire those paths.
 `tests/module_structure.rs` now includes the delivery envelope, identity,

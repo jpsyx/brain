@@ -446,10 +446,14 @@ repairs a one-sided lease by clearing it, and has an exact down path that
 removes only those two columns before the recovery downgrade chain continues.
 The 0.85.0 receiver-delivery migration adds schema v12 and its dedicated
 `receiver_deliveries` outbox. Upgrade and same-version reconciliation repair
-partial delivery leases conservatively. Downgrade first validates the complete
-v11 receiver shape under an immediate writer, maps acknowledged deliveries to
-done and every other delivery to a non-replayable terminal job, preserves
-conversation transcripts, and only then removes the outbox.
+partial delivery leases conservatively, add optional fields before rebuilding
+indexes, verify managed index uniqueness and columns, and fail closed when
+duplicate semantic rows prevent safe uniqueness repair. Blank acknowledged
+provider references become explicit ambiguity. Downgrade first validates every
+required v11 conversation, job, recovery, notice, and registration column under
+an immediate writer, maps only nonblank provider acknowledgements to done and
+every other delivery to a non-replayable terminal job, preserves conversation
+transcripts, and only then removes the outbox.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.

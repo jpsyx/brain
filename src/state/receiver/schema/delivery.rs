@@ -1,34 +1,15 @@
 use anyhow::{Result, bail};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 
-use super::{DELIVERY_PREVIOUS_VERSION, VERSION};
-use crate::state::Db;
+mod downgrade;
 
-const REQUIRED_JOB_COLUMNS: &[&str] = &[
-    "job_id",
-    "job_token",
-    "workspace_id",
-    "conversation_id",
-    "channel",
-    "inbound_json",
-    "state",
-    "received_at_unix_ms",
-    "updated_at_unix_ms",
-    "claim_owner",
-    "claim_expires_at_unix_ms",
-    "retry_count",
-    "retry_at_unix_ms",
-    "retry_from_state",
-    "last_error",
-    "attempt_kind",
-    "pending_unavailable_notice",
-    "unavailable_notice_owner",
-    "unavailable_notice_expires_at_unix_ms",
-];
+pub(crate) use downgrade::down_path;
+#[cfg(test)]
+pub(in crate::state::receiver) use downgrade::down_path_with_busy_observer;
 
-pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS receiver_deliveries (
+const PROVIDER_REFERENCE_CONSTRAINT: &str = "length(trim(provider_reference)) > 0";
+
+const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliveries (
            delivery_id                 TEXT PRIMARY KEY,
            job_id                      TEXT NOT NULL REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
            job_token                   TEXT NOT NULL,
@@ -65,16 +46,18 @@ pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
            )),
            CHECK (state = 'retrying' OR retry_at_unix_ms IS NULL),
            CHECK (state != 'retrying' OR retry_at_unix_ms IS NOT NULL),
-           CHECK (state != 'acknowledged' OR provider_reference IS NOT NULL),
+           CHECK (state != 'acknowledged' OR (
+             provider_reference IS NOT NULL AND length(trim(provider_reference)) > 0
+           )),
            CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL)
-         );
-         CREATE UNIQUE INDEX IF NOT EXISTS receiver_deliveries_job_kind
-           ON receiver_deliveries(job_id, response_kind);
-         CREATE INDEX IF NOT EXISTS receiver_deliveries_due
-           ON receiver_deliveries(state, retry_at_unix_ms, created_at_unix_ms, delivery_id);",
-    )?;
+         );";
+
+pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
+    connection.execute_batch(CREATE_DELIVERY_TABLE)?;
     ensure_optional_columns(connection)?;
     reconcile_rows(connection)?;
+    ensure_table_contract(connection)?;
+    ensure_managed_indexes(connection)?;
     Ok(())
 }
 
@@ -110,12 +93,6 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
             ))?;
         }
     }
-    connection.execute_batch(
-        "CREATE UNIQUE INDEX IF NOT EXISTS receiver_deliveries_job_kind
-           ON receiver_deliveries(job_id, response_kind);
-         CREATE INDEX IF NOT EXISTS receiver_deliveries_due
-           ON receiver_deliveries(state, retry_at_unix_ms, created_at_unix_ms, delivery_id);",
-    )?;
     Ok(())
 }
 
@@ -140,12 +117,125 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
          SET state = 'failed', error_category = 'invalid-request'
          WHERE state = 'retrying' AND retry_at_unix_ms IS NULL;
          UPDATE receiver_deliveries
-         SET state = 'ambiguous', ambiguity_reason = 'provider-acknowledgement-malformed'
-         WHERE state = 'acknowledged' AND provider_reference IS NULL;
+         SET state = 'ambiguous', provider_reference = NULL,
+             ambiguity_reason = 'provider-acknowledgement-malformed'
+         WHERE state = 'acknowledged'
+           AND (provider_reference IS NULL OR length(trim(provider_reference)) = 0);
          UPDATE receiver_deliveries
          SET ambiguity_reason = 'result-commit-unknown'
          WHERE state = 'ambiguous' AND ambiguity_reason IS NULL;",
     )?;
+    Ok(())
+}
+
+fn ensure_table_contract(connection: &Connection) -> Result<()> {
+    let sql: String = connection.query_row(
+        "SELECT sql FROM sqlite_master
+         WHERE type = 'table' AND name = 'receiver_deliveries'",
+        [],
+        |row| row.get(0),
+    )?;
+    if sql.contains(PROVIDER_REFERENCE_CONSTRAINT) {
+        return Ok(());
+    }
+    reject_duplicate_semantic_responses(connection)?;
+    connection.execute_batch(
+        "ALTER TABLE receiver_deliveries RENAME TO receiver_deliveries_v12_rebuild;",
+    )?;
+    connection.execute_batch(CREATE_DELIVERY_TABLE)?;
+    connection.execute_batch(
+        "INSERT INTO receiver_deliveries
+           (delivery_id, job_id, job_token, response_kind, envelope_json, state,
+            attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
+            claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
+            error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms)
+         SELECT delivery_id, job_id, job_token, response_kind, envelope_json, state,
+            attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
+            claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
+            error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms
+         FROM receiver_deliveries_v12_rebuild;
+         DROP TABLE receiver_deliveries_v12_rebuild;",
+    )?;
+    Ok(())
+}
+
+fn ensure_managed_indexes(connection: &Connection) -> Result<()> {
+    if !index_matches(
+        connection,
+        "receiver_deliveries_job_kind",
+        true,
+        &["job_id", "response_kind"],
+    )? {
+        reject_duplicate_semantic_responses(connection)?;
+        connection.execute_batch(
+            "DROP INDEX IF EXISTS receiver_deliveries_job_kind;
+             CREATE UNIQUE INDEX receiver_deliveries_job_kind
+               ON receiver_deliveries(job_id, response_kind);",
+        )?;
+    }
+    if !index_matches(
+        connection,
+        "receiver_deliveries_due",
+        false,
+        &[
+            "state",
+            "retry_at_unix_ms",
+            "created_at_unix_ms",
+            "delivery_id",
+        ],
+    )? {
+        connection.execute_batch(
+            "DROP INDEX IF EXISTS receiver_deliveries_due;
+             CREATE INDEX receiver_deliveries_due
+               ON receiver_deliveries(
+                 state, retry_at_unix_ms, created_at_unix_ms, delivery_id
+               );",
+        )?;
+    }
+    Ok(())
+}
+
+fn index_matches(
+    connection: &Connection,
+    index_name: &str,
+    expected_unique: bool,
+    expected_columns: &[&str],
+) -> Result<bool> {
+    let unique = connection
+        .query_row(
+            "SELECT \"unique\" FROM pragma_index_list('receiver_deliveries')
+             WHERE name = ?1",
+            [index_name],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?;
+    let Some(unique) = unique else {
+        return Ok(false);
+    };
+    let mut statement =
+        connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?;
+    let columns = statement
+        .query_map([index_name], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(unique == expected_unique
+        && columns
+            .iter()
+            .map(String::as_str)
+            .eq(expected_columns.iter().copied()))
+}
+
+fn reject_duplicate_semantic_responses(connection: &Connection) -> Result<()> {
+    let has_duplicates: bool = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM receiver_deliveries
+           GROUP BY job_id, response_kind HAVING COUNT(*) > 1
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_duplicates {
+        bail!("receiver delivery schema contains duplicate semantic responses");
+    }
     Ok(())
 }
 
@@ -155,112 +245,6 @@ fn has_delivery_column(connection: &Connection, name: &str) -> Result<bool> {
            SELECT 1 FROM pragma_table_info('receiver_deliveries') WHERE name = ?1
          )",
         [name],
-        |row| row.get(0),
-    )?)
-}
-
-pub(crate) fn down_path(path: &std::path::Path) -> Result<()> {
-    down_path_inner(path, None)
-}
-
-#[cfg(test)]
-pub(in crate::state::receiver) fn down_path_with_busy_observer(
-    path: &std::path::Path,
-    observer: fn(i32) -> bool,
-) -> Result<()> {
-    down_path_inner(path, Some(observer))
-}
-
-fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool>) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let connection = Connection::open(path)?;
-    Db::configure(&connection)?;
-    if let Some(observer) = busy_observer {
-        connection.busy_handler(Some(observer))?;
-    }
-    let transaction = rusqlite::Transaction::new_unchecked(
-        &connection,
-        rusqlite::TransactionBehavior::Immediate,
-    )?;
-    let version: i32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != VERSION {
-        transaction.commit()?;
-        return Ok(());
-    }
-    validate_previous_schema(&transaction)?;
-    if table_exists(&transaction, "receiver_deliveries")? {
-        transaction.execute_batch(
-            "UPDATE receiver_jobs
-             SET state = 'done', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
-                 retry_at_unix_ms = NULL, retry_from_state = NULL,
-                 pending_unavailable_notice = 0,
-                 unavailable_notice_owner = NULL,
-                 unavailable_notice_expires_at_unix_ms = NULL
-             WHERE EXISTS (
-               SELECT 1 FROM receiver_deliveries AS delivery
-               WHERE delivery.job_id = receiver_jobs.job_id
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM receiver_deliveries AS delivery
-               WHERE delivery.job_id = receiver_jobs.job_id
-                 AND delivery.state != 'acknowledged'
-             );
-             UPDATE receiver_jobs
-             SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
-                 retry_at_unix_ms = NULL, retry_from_state = NULL,
-                 last_error = 'downgrade-no-replay', pending_unavailable_notice = 0,
-                 unavailable_notice_owner = NULL,
-                 unavailable_notice_expires_at_unix_ms = NULL
-             WHERE EXISTS (
-               SELECT 1 FROM receiver_deliveries AS delivery
-               WHERE delivery.job_id = receiver_jobs.job_id
-                 AND delivery.state != 'acknowledged'
-             );",
-        )?;
-    }
-    transaction.execute_batch(
-        "DROP INDEX IF EXISTS receiver_deliveries_due;
-         DROP INDEX IF EXISTS receiver_deliveries_job_kind;
-         DROP TABLE IF EXISTS receiver_deliveries;",
-    )?;
-    transaction.pragma_update(None, "user_version", DELIVERY_PREVIOUS_VERSION)?;
-    transaction.commit()?;
-    Ok(())
-}
-
-fn validate_previous_schema(connection: &Connection) -> Result<()> {
-    for table in [
-        "receiver_conversations",
-        "receiver_jobs",
-        "receiver_session_registrations",
-    ] {
-        if !table_exists(connection, table)? {
-            bail!("receiver v11 schema is missing required table {table}");
-        }
-    }
-    for column in REQUIRED_JOB_COLUMNS {
-        let exists: bool = connection.query_row(
-            "SELECT EXISTS(
-               SELECT 1 FROM pragma_table_info('receiver_jobs') WHERE name = ?1
-             )",
-            [column],
-            |row| row.get(0),
-        )?;
-        if !exists {
-            bail!("receiver v11 schema is missing required job column {column}");
-        }
-    }
-    Ok(())
-}
-
-fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
-    Ok(connection.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1
-         )",
-        [table],
         |row| row.get(0),
     )?)
 }

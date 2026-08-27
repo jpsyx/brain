@@ -3054,10 +3054,15 @@ Retry safety depends on provider capability, not a generic transport error.
 Resend can repeat the same delivery ID as its idempotency key through the exact
 24-hour boundary. Twilio create exposes no equivalent key, so uncertainty after
 a Twilio attempt becomes terminal ambiguity instead of risking a duplicate SMS.
-Failures proved not accepted use only the bounded one, five, and 30 minute
-delays. Permanent rejection is terminal. This commit lands the pure renderer,
-policy, schema repair, and downgrade contract first; later BR-17 tasks wire
-answer recording, claims, provider results, and restart reconciliation.
+Only transport failures proved not accepted use the bounded one, five, and 30
+minute delays. Permanent categories remain terminal even when presented on the
+definitely-not-accepted branch. Resend ambiguity schedules a retry only when
+that retry deadline, not merely the current clock, remains inside the 24-hour
+window. Any malformed frozen recipient rejects the whole response intent, and
+persisted envelopes validate normalized destinations and static lineage without
+echoing their content. This commit lands the pure renderer, policy, schema
+repair, and downgrade contract first; later BR-17 tasks wire answer recording,
+claims, provider results, and restart reconciliation.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a

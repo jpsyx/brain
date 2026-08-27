@@ -71,7 +71,7 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
 #[test]
 fn email_delivery_rejects_an_empty_accepted_recipient_set_without_echoing_content() {
     let mut job = email_delivery_job();
-    job.response_email = Some("not-an-email".to_owned());
+    job.response_email = None;
     job.allowed_response_recipients.clear();
 
     let error = render_receiver_delivery(
@@ -85,6 +85,140 @@ fn email_delivery_rejects_an_empty_accepted_recipient_set_without_echoing_conten
     let rendered = format!("{error:?} {error}");
     assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));
     assert!(!rendered.contains("not-an-email"));
+}
+
+#[test]
+fn email_delivery_rejects_any_invalid_accepted_recipient_without_partial_delivery() {
+    for (response_email, allowed_response_recipients) in [
+        (
+            Some("not-an-email".to_owned()),
+            vec!["valid@example.test".to_owned()],
+        ),
+        (
+            Some("valid@example.test".to_owned()),
+            vec!["not-an-email".to_owned()],
+        ),
+    ] {
+        let mut job = email_delivery_job();
+        job.response_email = response_email;
+        job.allowed_response_recipients = allowed_response_recipients;
+
+        let error = render_receiver_delivery(
+            &job,
+            ReceiverResponseKind::FinalAnswer,
+            DELIVERY_PRIVATE_BODY,
+        )
+        .expect_err("one malformed accepted recipient must reject the entire delivery");
+
+        assert_eq!(
+            error.to_string(),
+            "receiver delivery has an invalid accepted email recipient"
+        );
+        let rendered = format!("{error:?} {error}");
+        assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));
+        assert!(!rendered.contains("not-an-email"));
+    }
+}
+
+#[test]
+fn sms_delivery_rejects_an_invalid_accepted_sender_without_echoing_it() {
+    let mut job = receiver_job(Some("provider-sms"), 100);
+    job.authenticated_sender = "private-invalid-sender".to_owned();
+
+    let error = render_receiver_delivery(
+        &job,
+        ReceiverResponseKind::FinalAnswer,
+        DELIVERY_PRIVATE_BODY,
+    )
+    .expect_err("invalid accepted SMS sender must fail closed");
+
+    assert_eq!(
+        error.to_string(),
+        "receiver delivery has an invalid accepted SMS recipient"
+    );
+    assert!(!format!("{error:?} {error}").contains("private-invalid-sender"));
+}
+
+#[test]
+fn serialized_sms_envelope_rejects_invalid_recipient_and_oversized_body() {
+    let oversized = "x".repeat(crate::server::reply::SMS_LIMIT + 1);
+    let cases = [
+        serde_json::json!({
+            "channel": "sms",
+            "value": {
+                "recipient": "private-invalid-sender",
+                "body": "safe",
+                "long_form_available": false
+            }
+        }),
+        serde_json::json!({
+            "channel": "sms",
+            "value": {
+                "recipient": "+12125550199",
+                "body": oversized,
+                "long_form_available": true
+            }
+        }),
+    ];
+
+    for encoded in cases {
+        let encoded = encoded.to_string();
+        let error = serde_json::from_str::<ReceiverDeliveryEnvelope>(&encoded)
+            .expect_err("malformed persisted SMS envelope must fail closed");
+        let rendered = error.to_string();
+        assert!(rendered.contains("receiver SMS delivery envelope is invalid"));
+        assert!(!rendered.contains("private-invalid-sender"));
+        assert!(!rendered.contains(&"x".repeat(64)));
+    }
+}
+
+#[test]
+fn serialized_email_envelope_rejects_malformed_frozen_invariants_without_echoing_content() {
+    let base = serde_json::json!({
+        "channel": "email",
+        "value": {
+            "recipients": ["member@example.test"],
+            "subject": "Re: Question",
+            "text": "Private answer",
+            "html": "<p>Private answer</p>",
+            "in_reply_to": "<message@example.test>",
+            "references": "<message@example.test>",
+            "provider_email_id": "provider-email"
+        }
+    });
+    let mut cases = Vec::new();
+    for (field, value) in [
+        ("recipients", serde_json::json!([])),
+        ("recipients", serde_json::json!(["not-an-email"])),
+        (
+            "recipients",
+            serde_json::json!(["member@example.test", "member@example.test"]),
+        ),
+        ("subject", serde_json::json!("  ")),
+        ("text", serde_json::json!(" Private answer ")),
+        ("html", serde_json::json!("  ")),
+        ("references", serde_json::json!("<different@example.test>")),
+        ("provider_email_id", serde_json::json!("  ")),
+    ] {
+        let mut candidate = base.clone();
+        candidate["value"][field] = value;
+        cases.push(candidate);
+    }
+
+    for encoded in cases {
+        let encoded = encoded.to_string();
+        let error = serde_json::from_str::<ReceiverDeliveryEnvelope>(&encoded)
+            .expect_err("malformed persisted email envelope must fail closed");
+        let rendered = error.to_string();
+        assert!(rendered.contains("receiver email delivery envelope is invalid"));
+        for private in [
+            "Private answer",
+            "not-an-email",
+            "different@example.test",
+        ] {
+            assert!(!rendered.contains(private));
+        }
+    }
 }
 
 #[test]

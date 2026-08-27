@@ -110,6 +110,29 @@ fn permanent_rejection_is_terminal_without_consuming_more_attempts() {
 }
 
 #[test]
+fn definitely_not_accepted_cannot_turn_permanent_categories_into_retries() {
+    for category in [
+        ReceiverDeliveryErrorCategory::Authorization,
+        ReceiverDeliveryErrorCategory::Credentials,
+        ReceiverDeliveryErrorCategory::InvalidRequest,
+        ReceiverDeliveryErrorCategory::ProviderRejected,
+        ReceiverDeliveryErrorCategory::RetryExhausted,
+        ReceiverDeliveryErrorCategory::IdempotencyWindowExpired,
+    ] {
+        assert_eq!(
+            policy(
+                ReceiverProviderCapability::Resend,
+                1,
+                Some(1_000),
+                2_000,
+                ReceiverProviderResultClass::DefinitelyNotAccepted(category),
+            ),
+            ReceiverDeliveryDecision::TerminalFailure(category)
+        );
+    }
+}
+
+#[test]
 fn twilio_ambiguity_is_terminal_because_create_has_no_idempotency_key() {
     assert_eq!(
         policy(
@@ -128,34 +151,40 @@ fn twilio_ambiguity_is_terminal_because_create_has_no_idempotency_key() {
 }
 
 #[test]
-fn resend_ambiguity_retries_within_and_at_the_24_hour_boundary() {
+fn resend_ambiguity_retries_when_the_candidate_deadline_is_at_the_24_hour_boundary() {
     let day = 24 * 60 * 60 * 1_000;
-    for now in [1_000 + day - 1, 1_000 + day] {
-        assert!(matches!(
-            policy(
-                ReceiverProviderCapability::Resend,
-                1,
-                Some(1_000),
-                now,
-                ReceiverProviderResultClass::Ambiguous(
-                    ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
-                ),
-            ),
-            ReceiverDeliveryDecision::RetryAt { .. }
-        ));
-    }
-}
-
-#[test]
-fn resend_ambiguity_after_24_hours_is_explicitly_terminal() {
-    let after_day = 1_000 + 24 * 60 * 60 * 1_000 + 1;
+    let first_attempt = 1_000;
+    let now = first_attempt + day - 60_000;
 
     assert_eq!(
         policy(
             ReceiverProviderCapability::Resend,
             1,
-            Some(1_000),
-            after_day,
+            Some(first_attempt),
+            now,
+            ReceiverProviderResultClass::Ambiguous(
+                ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
+            ),
+        ),
+        ReceiverDeliveryDecision::RetryAt {
+            retry_at_unix_ms: first_attempt + day,
+            error_category: ReceiverDeliveryErrorCategory::TransportUnavailable,
+        }
+    );
+}
+
+#[test]
+fn resend_ambiguity_is_terminal_when_the_candidate_deadline_exceeds_24_hours() {
+    let day = 24 * 60 * 60 * 1_000;
+    let first_attempt = 1_000;
+    let now = first_attempt + day - 60_000 + 1;
+
+    assert_eq!(
+        policy(
+            ReceiverProviderCapability::Resend,
+            1,
+            Some(first_attempt),
+            now,
             ReceiverProviderResultClass::Ambiguous(
                 ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
             ),

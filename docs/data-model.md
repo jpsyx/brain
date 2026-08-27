@@ -1140,16 +1140,25 @@ or notice. `envelope_json` freezes the acceptance-authorized SMS destination
 and shaped body, or the email recipient set, subject, text, HTML, provider
 lineage, `In-Reply-To`, and `References`. Credentials are never stored. Stable
 delivery and attempt IDs, finite claim columns, attempt count, retry deadline,
-provider reference, error category, and ambiguity reason remain content-free.
+nonblank provider reference, error category, and ambiguity reason remain
+content-free. Rendering rejects the entire email response when any frozen
+accepted recipient is invalid, so normalization can never silently narrow the
+authorized set. Loading a serialized envelope validates its channel shape,
+normalized destination set, SMS limit, and static email lineage invariants
+without copying attacker-controlled content into the error.
 The public status and every Debug implementation redact envelope, recipient,
 sender, provider reference, and answer content.
 
 The pure delivery policy permits one initial provider attempt followed by
-delays of one, five, and 30 minutes for results proved not accepted. A retry is
-due at exact deadline equality, and deadline arithmetic saturates. Resend may
+delays of one, five, and 30 minutes only for transport failures proved not
+accepted. Authorization, credentials, invalid request, provider rejection, and
+other permanent categories remain terminal even if an adapter misclassifies
+them as definitely not accepted. A retry is due at exact deadline equality,
+and deadline arithmetic saturates. Resend may
 repeat the byte-identical envelope and delivery ID after an ambiguous result
-only through the exact 24-hour idempotency boundary. Twilio ambiguity is
-terminal because create has no equivalent key. Runtime answer persistence,
+only when the scheduled retry itself remains inside the exact 24-hour
+idempotency boundary. Twilio ambiguity is terminal because create has no
+equivalent key. Runtime answer persistence,
 outbox claiming, and provider result commits are intentionally not wired in
 this model-first change.
 

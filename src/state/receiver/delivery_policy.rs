@@ -106,7 +106,11 @@ pub fn decide_receiver_delivery(
             ReceiverDeliveryDecision::TerminalFailure(category)
         }
         ReceiverProviderResultClass::DefinitelyNotAccepted(category) => {
-            retry_decision(snapshot.attempt_count, snapshot.now_unix_ms, category)
+            if category == ReceiverDeliveryErrorCategory::TransportUnavailable {
+                retry_decision(snapshot.attempt_count, snapshot.now_unix_ms, category)
+            } else {
+                ReceiverDeliveryDecision::TerminalFailure(category)
+            }
         }
         ReceiverProviderResultClass::Ambiguous(reason) => decide_ambiguity(&snapshot, reason),
     }
@@ -134,6 +138,13 @@ fn decide_ambiguity(
         snapshot.now_unix_ms,
         ReceiverDeliveryErrorCategory::TransportUnavailable,
     ) {
+        ReceiverDeliveryDecision::RetryAt {
+            retry_at_unix_ms, ..
+        } if retry_at_unix_ms > idempotency_deadline => {
+            ReceiverDeliveryDecision::TerminalAmbiguous(
+                ReceiverDeliveryAmbiguity::IdempotencyWindowExpired,
+            )
+        }
         ReceiverDeliveryDecision::TerminalFailure(_) => {
             ReceiverDeliveryDecision::TerminalAmbiguous(reason)
         }

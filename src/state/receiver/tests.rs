@@ -115,6 +115,8 @@ mod schema {
     include!("tests/schema_sections/collisions.rs");
     include!("tests/schema_sections/downgrade.rs");
     include!("tests/schema_sections/delivery.rs");
+    include!("tests/schema_sections/delivery_downgrade_v11.rs");
+    include!("tests/schema_sections/delivery_repair.rs");
     include!("tests/schema_sections/delivery_writer.rs");
     include!("tests/schema_sections/writer_ordering.rs");
 }

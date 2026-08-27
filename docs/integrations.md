@@ -1304,8 +1304,12 @@ rendered bodies, email lineage, and content-free provider-attempt metadata.
 Credentials remain in the machine-local provider adapter. Reconciliation
 terminalizes interrupted or malformed delivery leases without replay. Its down
 path reserves an immediate writer before schema inspection, verifies the v11
-shape, maps acknowledged rows to done and every other row to a non-replayable
-failed job, retains conversation transcripts, and drops the outbox last.
+conversation, job, recovery, notice, and registration shape, maps only an
+acknowledged row with a nonblank provider reference to done, and maps every
+other row to a non-replayable failed job. Repair adds optional columns before
+managed indexes, rebuilds stale index signatures, fails closed on duplicate
+semantic responses, converts blank acknowledgements to explicit ambiguity,
+retains conversation transcripts, and drops the outbox last on downgrade.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
