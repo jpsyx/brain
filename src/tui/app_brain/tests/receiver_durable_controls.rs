@@ -21,6 +21,7 @@ fn accept_thread_job(
     inbound.provider_id = Some(format!("provider-{}", inbound.job_id));
     inbound.authenticated_sender = "member@example.test".to_owned();
     inbound.thread_participants = vec!["member@example.test".to_owned()];
+    inbound.response_email = Some("member@example.test".to_owned());
     let identity = ReceiverConversationIdentity::email(
         app.context.workspace().id(),
         inbound.actor.user_id().clone(),

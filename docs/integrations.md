@@ -1315,9 +1315,10 @@ The standalone
 change Claude, Codex, or OpenCode integration state manually. Its root
 precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as the manual installer's
-single-workspace fallback. The session-stop bridge is
-required for receiver jobs: it records the completed assistant response so the
-TUI can deliver it over SMS or email without exposing the full thinking trace.
+single-workspace fallback. The session-stop bridge is required for receiver
+jobs: it records the completed assistant response so the TUI can commit a
+durable answer without exposing the full thinking trace. Provider delivery
+consumes that committed outbox later.
 
 Receiver setup stores provider credentials in the selected workspace's record
 in the machine-local brain env store, and the public base URL in that store's
@@ -1407,18 +1408,26 @@ controller before insertion, without moving the user.
 
 The active tick renews only its exact claim. A second arrival stays durable and
 unclaimed until the active run closes, then the next tick applies the same FIFO
-order. Completion requires the exact artifact and exact locked remote session.
+order. Completion requires the exact owner-only, regular, 256 KiB-bounded
+artifact and exact locked remote session. The descriptor-bound reader rejects
+symlinks, permissive or non-regular files, truncation or growth, malformed JSON,
+blank or oversized answers, and any identity mismatch.
 After validating both, the coordinator reads the injected clock again
 immediately before the terminal transaction. Thus validation cannot authorize
 completion after the exact lease expires or changes owners;
-the immediate binding/terminal transaction rechecks that the artifact's
-validated session is still that locked row and still `completed`. A concurrent
+the immediate answer transaction rechecks that the artifact's validated session
+is still that locked row and still `completed`. It atomically appends the
+portable transcript, inserts the immutable final-answer outbox row, replaces
+the binding, moves the job to `answer-ready`, and clears the agent claim. No
+provider adapter or local delivery queue runs before commit. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
-new active session. Neither process spawn nor screen activity is completion
-evidence. Terminal cleanup releases that session owner, shuts down the
-controller once, closes only the matching receiver tab, preserves the immutable
-provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Pre-spawn store ambiguity is not ownership loss.
+new active session. Lifecycle completion alone may advance nonterminal facts,
+but it cannot close the run. Neither process spawn nor screen activity is
+completion evidence. Post-commit cleanup releases that session owner, shuts
+down the controller once, closes only the matching receiver tab, removes only
+that instance's files, reloads tasks, and starts the sync push without changing
+the active view or focus. Cleanup or sync failure cannot undo the answer or
+relaunch agent work. Pre-spawn store ambiguity is not ownership loss.
 Brain retains an explicit cleanup capability until controller shutdown and
 exact registration release complete, then restores the same recovery claim.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
@@ -1594,8 +1603,9 @@ its local receiver tab and exact instance files, drops the owning staged
 directory, and preserves its registration and durable state without recording
 a Spawn retry. Lost ownership permits the same local removals only. The stage
 is idempotent. After an unclean exit, expired `launching`, `launched`,
-`accepted`, and `processing` rows remain unchanged and stop FIFO for BR-16;
-answer-ready and delivery recovery remain BR-17 work.
+`accepted`, and `processing` rows remain unchanged until recovery proves the
+next action. Answer-ready rows no longer participate in agent reconciliation or
+block the next ordinary claim; only delivery recovery owns them.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

@@ -15,14 +15,14 @@ fn artifact_completion_removes_only_the_exact_instance_files() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     files.assert_exact_removed_and_unrelated_retained();
     assert_eq!(transport.shutdowns(), 1);
 }
 
 #[test]
-fn lifecycle_completion_removes_only_the_exact_instance_files() {
+fn lifecycle_completion_waits_for_the_answer_artifact_before_cleanup() {
     let (_temporary, mut app, db, accepted, transport) = launched_receiver(AgentKind::Codex);
     let session = rotate_active_session(&app, uuid::Uuid::new_v4().to_string());
     let files = ReceiverInstanceFiles::seed(&app, false);
@@ -33,12 +33,12 @@ fn lifecycle_completion_removes_only_the_exact_instance_files() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::Launched
     );
-    files.assert_exact_removed_and_unrelated_retained();
+    files.assert_all_retained();
     app.tick_receiver();
-    files.assert_exact_removed_and_unrelated_retained();
-    assert_eq!(transport.shutdowns(), 1);
+    files.assert_all_retained();
+    assert_eq!(transport.shutdowns(), 0);
 }
 
 #[test]
@@ -160,6 +160,12 @@ impl ReceiverInstanceFiles {
                 path.exists(),
                 "unrelated receiver file was removed: {path:?}"
             );
+        }
+    }
+
+    fn assert_all_retained(&self) {
+        for path in self.exact.iter().chain(&self.unrelated) {
+            assert!(path.exists(), "receiver file was removed: {path:?}");
         }
     }
 }

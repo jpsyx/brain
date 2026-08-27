@@ -1,12 +1,12 @@
 use super::receiver_durable_support::{
-    accept_email_job_in_thread, mark_receiver_session_completed,
+    accept_email_job_in_thread, mark_receiver_session_completed, publish_valid_rotated_completion,
 };
 use super::*;
 
 use crate::state::ReceiverJobState;
 
 #[test]
-fn lifecycle_completion_persists_the_exact_native_session_for_the_next_message() {
+fn artifact_and_lifecycle_completion_persist_the_exact_session_for_the_next_message() {
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let cli = Cli::parse_from(["tasks"]);
@@ -49,13 +49,13 @@ fn lifecycle_completion_persists_the_exact_native_session_for_the_next_message()
         );
         rotate_active_session(&app, &native);
         write_completed_snapshot(&app, &native, 1_200);
-        mark_receiver_session_completed(&app, &native);
+        publish_valid_rotated_completion(&app, native.as_str(), "exact response");
 
         app.tick_receiver();
 
         assert_eq!(
             db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-            ReceiverJobState::Done,
+            ReceiverJobState::AnswerReady,
             "{kind:?}"
         );
         assert_eq!(
@@ -65,7 +65,7 @@ fn lifecycle_completion_persists_the_exact_native_session_for_the_next_message()
                 .binding()
                 .map(|binding| (binding.frontend(), binding.native_session_id().to_owned())),
             Some((kind, native.as_str().to_owned())),
-            "{kind:?} lifecycle completion must preserve its exact native binding"
+            "{kind:?} exact answer completion must preserve its native binding"
         );
 
         let _claude_transcript = (kind == AgentKind::Claude)

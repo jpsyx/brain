@@ -88,7 +88,10 @@ impl FreshConflictAppFixture {
             terminal.last_error(),
             Some("recovery-native-session-unavailable")
         );
-        assert!(terminal.pending_unavailable_notice());
+        assert!(
+            !terminal.pending_unavailable_notice(),
+            "the valid accepted email notice is handed off in the terminal tick"
+        );
         assert_eq!(
             terminal.recovery_cleanup_instance(),
             Some(self.run.instance.as_str())

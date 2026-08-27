@@ -375,9 +375,15 @@ first move is a failing test that reproduces it, *then* the fix.
   test permits only accepted and progressing, while the terminal continuity
   matrix proves the registration-aware path remains authorized. Terminal tests
   atomically combine the normalized boundary set, revision and session cursor,
-  exact completed-session binding, stored and incoming timeline validation, and
-  artifact completion. They prove artifact body precedence retains lifecycle
-  evidence and a future-skewed stored boundary remains monotonic. That matrix
+  exact completed-session binding, stored and incoming timeline validation,
+  portable transcript append, immutable final-answer outbox insert,
+  answer-ready transition, and agent-claim release. They prove exact duplicates
+  append once, conflicts fail closed, statement failure rolls back, artifact
+  body precedence retains lifecycle evidence, lifecycle-only completion stays
+  nonterminal, and a future-skewed stored boundary remains monotonic. The
+  descriptor-bound artifact matrix covers symlinked ancestors and leaves,
+  FIFOs, permissive files, short reads, growth, inode replacement, malformed or
+  unknown JSON, blank and oversized answers, and every identity mismatch. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a
@@ -386,8 +392,8 @@ first move is a failing test that reproduces it, *then* the fix.
   unrelated, equal-revision, and completion-only evidence; owner loss between
   read and transaction; artifact plus lifecycle completion in one tick; a
   paused stop-hook observation publication that cannot expose completion or an
-  artifact early; exact
-  artifact-body delivery once versus no lifecycle-only delivery; exact-instance
+  artifact early; exact artifact answer persistence without provider IO versus
+  no lifecycle-only completion; exact-instance
   response, snapshot, and lock cleanup for all five exit routes; stable
   content-free diagnostics; and FIFO release to the next durable job.
   The final BR-15 parity matrix ticks the App separately after reordered

@@ -125,7 +125,7 @@ fn native_binding_mismatch_keeps_exact_completion_retryable() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(transport.shutdowns(), 1);
     assert!(!completion_path.exists());
@@ -200,7 +200,7 @@ fn native_binding_write_error_keeps_exact_completion_retryable() {
 
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(transport.shutdowns(), 1);
     assert!(!completion_path.exists());

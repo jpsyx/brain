@@ -261,32 +261,36 @@ fn native_binding_replacement_cannot_cross_same_actor_channel_conversations() {
     );
 }
 
-struct CompletionFixture {
-    db: Db,
-    job_id: ReceiverJobId,
-    token: ReceiverJobToken,
-    registration: ReceiverSessionAttribution,
-    completed_session: crate::agent::AgentSession,
+pub(super) struct CompletionFixture {
+    pub(super) db: Db,
+    pub(super) job_id: ReceiverJobId,
+    pub(super) token: ReceiverJobToken,
+    pub(super) registration: ReceiverSessionAttribution,
+    pub(super) completed_session: crate::agent::AgentSession,
 }
 
 impl CompletionFixture {
-    fn request(&self) -> ReceiverCompletionRequest<'_> {
+    pub(super) fn request(&self) -> ReceiverCompletionRequest<'_> {
         ReceiverCompletionRequest {
             job_id: self.job_id,
             token: self.token,
             owner: "owner",
             registration: &self.registration,
             completed_session: &self.completed_session,
+            answer: "exact assistant answer",
             observed_at_unix_ms: 1_500,
             authorized_at_unix_ms: 1_500,
         }
     }
 }
 
-fn completion_fixture(state: ReceiverJobState) -> CompletionFixture {
+pub(super) fn completion_fixture(state: ReceiverJobState) -> CompletionFixture {
+    completion_fixture_in(Db::open_in_memory().expect("receiver state"), state)
+}
+
+pub(super) fn completion_fixture_in(db: Db, state: ReceiverJobState) -> CompletionFixture {
     use crate::agent::{AgentKind, AgentSession, SessionScope};
 
-    let db = Db::open_in_memory().expect("receiver state");
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
     let job = receiver_job(None, 100);
     let accepted = db
@@ -390,14 +394,15 @@ fn exact_completion_accepts_launched_accepted_and_processing_without_fabricating
         assert!(fixture
             .db
             .complete_receiver_job_with_binding(&fixture.request())
-            .expect("complete exact receiver job"));
+            .expect("complete exact receiver job")
+            .is_some());
 
         let job = fixture
             .db
             .receiver_job(fixture.job_id)
             .expect("load completed job")
             .expect("receiver job");
-        assert_eq!(job.state(), ReceiverJobState::Done);
+        assert_eq!(job.state(), ReceiverJobState::AnswerReady);
         assert_eq!(job.completed_at_unix_ms(), Some(1_500));
         assert_eq!(job.accepted_at_unix_ms(), accepted_at);
         assert_eq!(job.progressing_at_unix_ms(), progressing_at);
@@ -434,7 +439,8 @@ fn exact_completion_clamps_local_artifact_time_to_future_stored_progress() {
     assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("complete future-skewed receiver job"));
+        .expect("complete future-skewed receiver job")
+        .is_some());
 
     let completed = fixture
         .db
@@ -476,21 +482,16 @@ fn recovery_completion_preserves_first_facts_and_commits_its_own_cursor() {
 
     assert!(fixture
         .db
-        .apply_terminal_receiver_observation_set(
-            fixture.job_id,
-            "owner",
-            &observation,
-            &fixture.registration,
-            &fixture.completed_session,
-        )
-        .expect("complete recovery observation"));
+        .complete_receiver_job_with_observation(&fixture.request(), Some(&observation))
+        .expect("complete recovery observation")
+        .is_some());
 
     let completed = fixture
         .db
         .receiver_job(fixture.job_id)
         .expect("load completed recovery")
         .expect("completed recovery");
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
     assert_eq!(completed.accepted_at_unix_ms(), Some(500));
     assert_eq!(completed.progressing_at_unix_ms(), Some(600));
     assert_eq!(completed.attempt_accepted_at_unix_ms(), Some(1_300));
@@ -509,10 +510,11 @@ fn exact_completion_rejects_a_wrong_durable_token() {
         ..fixture.request()
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("reject wrong token"));
+        .expect("reject wrong token")
+        .is_none());
 }
 
 #[test]
@@ -523,10 +525,11 @@ fn exact_completion_rejects_a_stale_owner() {
         ..fixture.request()
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("reject stale owner"));
+        .expect("reject stale owner")
+        .is_none());
 }
 
 #[test]
@@ -537,10 +540,11 @@ fn exact_completion_uses_fresh_authorization_time_for_lease_validation() {
         ..fixture.request()
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("reject expired lease despite backdated evidence"));
+        .expect("reject expired lease despite backdated evidence")
+        .is_none());
 }
 
 #[test]
@@ -557,10 +561,11 @@ fn exact_completion_rejects_a_wrong_instance() {
         ..fixture.request()
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("reject wrong instance"));
+        .expect("reject wrong instance")
+        .is_none());
 }
 
 #[test]
@@ -574,10 +579,11 @@ fn exact_completion_rejects_a_wrong_native_session() {
         ..fixture.request()
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
         .complete_receiver_job_with_binding(&request)
-        .expect("reject wrong native session"));
+        .expect("reject wrong native session")
+        .is_none());
     assert_eq!(
         fixture
             .db
@@ -613,16 +619,11 @@ fn terminal_lifecycle_observation_waits_for_the_exact_completed_session() {
         authorized_at_unix_ms: 1_500,
     };
 
-    assert!(!fixture
+    assert!(fixture
         .db
-        .apply_terminal_receiver_observation_set(
-            fixture.job_id,
-            "owner",
-            &observation,
-            &fixture.registration,
-            &fixture.completed_session,
-        )
-        .expect("defer lifecycle completion"));
+        .complete_receiver_job_with_observation(&fixture.request(), Some(&observation))
+        .expect("defer lifecycle completion")
+        .is_none());
     assert_eq!(
         fixture
             .db

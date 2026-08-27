@@ -31,6 +31,13 @@ mod conversation {
     include!("tests/conversation.rs");
 }
 
+mod completion_answer {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/completion_answer.rs");
+}
+
 mod recovery {
     use super::support::*;
     use super::*;

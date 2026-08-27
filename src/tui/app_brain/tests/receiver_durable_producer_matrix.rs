@@ -145,7 +145,7 @@ fn normalized_producers_drive_one_controller_and_coordinator_lifecycle_matrix() 
         assert_terminal_duplicate(&app, kind, &first_session, &first_path);
         app.tick_receiver();
         let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
-        assert_eq!(completed.state(), ReceiverJobState::Done, "{kind:?}");
+        assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
         assert_eq!(completed.observation_revision(), 3, "{kind:?}");
         assert_eq!(
             completed.accepted_at_unix_ms(),
@@ -195,7 +195,7 @@ fn normalized_producers_drive_one_controller_and_coordinator_lifecycle_matrix() 
         let completion_first_job = db.receiver_job(second.job_id()).unwrap().unwrap();
         assert_eq!(
             completion_first_job.state(),
-            ReceiverJobState::Done,
+            ReceiverJobState::AnswerReady,
             "{kind:?}"
         );
         assert_eq!(completion_first_job.observation_revision(), 1, "{kind:?}");

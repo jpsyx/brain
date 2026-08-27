@@ -45,7 +45,7 @@ fn stop_hook_future_completion_evidence_uses_fresh_local_lease_authority() {
     app.tick_receiver();
 
     let completed = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
     assert_eq!(
         completed.completed_at_unix_ms(),
         Some(producer_completed_at),

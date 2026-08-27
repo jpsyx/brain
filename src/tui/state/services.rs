@@ -225,26 +225,23 @@ impl AppServices {
         result: &crate::agent::AgentObservationResult,
         authorized_at_unix_ms: u64,
     ) -> Result<ReceiverObservationApplyOutcome> {
-        let observation = crate::state::ReceiverObservationSet::from_agent_observation(
+        let observation = crate::state::ReceiverObservationSet::nonterminal_from_agent_observation(
             token,
             registration,
             result,
             authorized_at_unix_ms,
         );
-        let completed = result.is_completed();
-        let changed = if completed {
-            self.db.apply_terminal_receiver_observation_set(
-                job_id,
-                owner,
-                &observation,
-                registration,
-                result.session(),
-            )?
-        } else {
-            self.db
-                .apply_receiver_observation_set(job_id, owner, &observation)?
+        let changed = match observation {
+            Some(observation) => {
+                self.db
+                    .apply_receiver_observation_set(job_id, owner, &observation)?
+            }
+            None => false,
         };
-        Ok(ReceiverObservationApplyOutcome { changed, completed })
+        Ok(ReceiverObservationApplyOutcome {
+            changed,
+            completed: false,
+        })
     }
 
     pub(crate) fn receiver_observation_set(
@@ -265,7 +262,7 @@ impl AppServices {
         &self,
         request: &crate::state::ReceiverCompletionRequest<'_>,
         observation: Option<&crate::state::ReceiverObservationSet>,
-    ) -> Result<bool> {
+    ) -> Result<Option<crate::state::ReceiverCompletionOutcome>> {
         self.db
             .complete_receiver_job_with_observation(request, observation)
     }

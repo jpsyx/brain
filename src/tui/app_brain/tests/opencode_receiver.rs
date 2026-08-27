@@ -7,7 +7,7 @@ const DELIVERY_CHILD: &str = "BRAIN_OPENCODE_RECEIVER_DELIVERY_CHILD";
 const PRECEDENCE_CHILD: &str = "BRAIN_RECEIVER_DELIVERY_PRECEDENCE_CHILD";
 
 #[test]
-fn authenticated_completion_reaches_the_fake_provider_boundary() {
+fn authenticated_completion_persists_answer_without_calling_provider() {
     if std::env::var_os(DELIVERY_CHILD).is_none() {
         let temporary = tempfile::tempdir().expect("temporary provider boundary");
         let bin = temporary.path().join("bin");
@@ -30,7 +30,7 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
         let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
             .args([
                 "--exact",
-                "tui::app_brain::tests::opencode_receiver::authenticated_completion_reaches_the_fake_provider_boundary",
+                "tui::app_brain::tests::opencode_receiver::authenticated_completion_persists_answer_without_calling_provider",
                 "--nocapture",
             ])
             .env(DELIVERY_CHILD, "1")
@@ -44,11 +44,10 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        let config = std::fs::read_to_string(log).expect("fake provider invocation");
-        assert!(config.contains("url = \"https://"));
-        assert!(config.contains("/2010-04-01/Accounts/AC-test/Messages.json\""));
-        assert!(config.contains("data-urlencode = \"To=+15551234567\""));
-        assert!(config.contains("data-urlencode = \"Body=provider boundary response\""));
+        assert!(
+            !log.exists(),
+            "answer commit called the provider before delivery work"
+        );
         return;
     }
 
@@ -99,14 +98,17 @@ fn authenticated_completion_reaches_the_fake_provider_boundary() {
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let log = PathBuf::from(std::env::var_os("BRAIN_FAKE_CURL_LOG").expect("fake curl log"));
-    assert!(log.exists(), "provider boundary was not invoked");
+    assert!(
+        !log.exists(),
+        "provider boundary was invoked during answer commit"
+    );
 }
 
 #[test]
-fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_nothing() {
+fn artifact_precedence_persists_exact_body_and_lifecycle_only_waits_without_provider() {
     if std::env::var_os(PRECEDENCE_CHILD).is_none() {
         let temporary = tempfile::tempdir().expect("temporary provider boundary");
         let bin = temporary.path().join("bin");
@@ -130,7 +132,7 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
         let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
             .args([
                 "--exact",
-                "tui::app_brain::tests::opencode_receiver::artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_nothing",
+                "tui::app_brain::tests::opencode_receiver::artifact_precedence_persists_exact_body_and_lifecycle_only_waits_without_provider",
                 "--nocapture",
             ])
             .env(PRECEDENCE_CHILD, "1")
@@ -145,19 +147,8 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        let config = std::fs::read_to_string(log).expect("fake provider invocation");
-        assert!(
-            config.contains("data-urlencode = \"Body=exact artifact body\""),
-            "{config}"
-        );
-        assert_eq!(
-            std::fs::read_to_string(count)
-                .expect("fake provider invocation count")
-                .lines()
-                .count(),
-            1,
-            "artifact and lifecycle evidence in one tick must deliver once, while lifecycle-only completion must not deliver"
-        );
+        assert!(!log.exists(), "answer commit called the provider");
+        assert!(!count.exists(), "answer commit started provider delivery");
         return;
     }
 
@@ -184,7 +175,7 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
     crate::server::delivery::wait_for_background_delivery();
 
     let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
     assert_eq!(
         completed.completed_at_unix_ms(),
         Some(producer_completed_at),
@@ -214,9 +205,9 @@ fn artifact_precedence_delivers_the_exact_body_once_and_lifecycle_only_delivers_
 
     assert_eq!(
         db.receiver_job(second.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::Launched
     );
-    assert_eq!(second_transport.shutdowns(), 1);
+    assert_eq!(second_transport.shutdowns(), 0);
 }
 
 fn accept_sms_job(

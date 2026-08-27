@@ -33,6 +33,6 @@ pub(super) use job::{
     ReceiverStoredMetadata,
 };
 pub use observation::{
-    ReceiverCompletionRequest, ReceiverLaunchObservation, ReceiverNonterminalObservationPhase,
-    ReceiverObservation, ReceiverObservationSet,
+    ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverLaunchObservation,
+    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
 };

@@ -16,6 +16,7 @@ const PRIVATE_OWNER: &str = "private-owner-o515";
 const PRIVATE_INSTANCE: &str = "private-instance-p616";
 const PRIVATE_OBSERVATION_SESSION: &str = "private-observation-session-q717";
 const PRIVATE_STORED_ERROR: &str = "private-stored-error-r818";
+const PRIVATE_ANSWER: &str = "private-answer-s919";
 
 #[test]
 fn full_receiver_model_graph_debug_is_content_free() {
@@ -105,6 +106,7 @@ fn full_receiver_model_graph_debug_is_content_free() {
         owner: PRIVATE_OWNER,
         registration: &attribution,
         completed_session: &native_session,
+        answer: PRIVATE_ANSWER,
         observed_at_unix_ms: 1_300,
         authorized_at_unix_ms: 1_300,
     };
@@ -137,6 +139,7 @@ fn full_receiver_model_graph_debug_is_content_free() {
         PRIVATE_EMAIL_ID,
         PRIVATE_MESSAGE_ID,
         PRIVATE_PROVIDER_ID,
+        PRIVATE_ANSWER,
         PRIVATE_LINEAGE,
         PRIVATE_TRANSCRIPT,
         PRIVATE_NATIVE_SESSION,

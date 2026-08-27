@@ -131,7 +131,7 @@ fn expired_claim_after_resume_validation_stops_before_session_registration() {
     app.tick_receiver();
     assert_eq!(
         db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
 
     let second = accept_email_job_in_thread(&app, &db, "slow-resume", "second message", 200);
@@ -255,7 +255,7 @@ fn expired_claim_during_resume_registration_failure_does_not_fall_back_fresh() {
     app.tick_receiver();
     assert_eq!(
         db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
 
     let second = accept_email_job_in_thread(&app, &db, "resume-registration", "second", 200);

@@ -81,6 +81,7 @@ impl App {
             owner: active.claim.claim().owner(),
             registration: &active.attribution,
             completed_session,
+            answer: message,
             observed_at_unix_ms,
             authorized_at_unix_ms,
         };
@@ -88,8 +89,8 @@ impl App {
             .services
             .complete_receiver_job_with_observation(&request, observation);
         match completed {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 self.log_receiver_observation(&active, None, "artifact-not-committed");
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
@@ -107,11 +108,6 @@ impl App {
                 .services
                 .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
         }
-        self.reply_to_job(
-            active.claim.job().inbound(),
-            "final receiver response",
-            message,
-        );
         if self
             .services
             .release_receiver_session(&active.attribution)

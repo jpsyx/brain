@@ -43,7 +43,7 @@ fn reconciliation_winner_fences_every_late_writer_from_the_old_instance() {
             .expect("reject late progress")
     );
     assert!(
-        !fixture
+        fixture
             .db
             .complete_receiver_job_with_binding(&ReceiverCompletionRequest {
                 job_id: fixture.job_id,
@@ -51,10 +51,12 @@ fn reconciliation_winner_fences_every_late_writer_from_the_old_instance() {
                 owner: "ordinary-owner",
                 registration: &old_registration,
                 completed_session: &session,
+                answer: "late answer",
                 observed_at_unix_ms: 301_401,
                 authorized_at_unix_ms: 301_401,
             })
             .expect("reject late completion")
+            .is_none()
     );
     assert!(
         !fixture
@@ -244,10 +246,12 @@ fn exact_completion_winning_first_defeats_reconciliation() {
                 owner: "ordinary-owner",
                 registration: &registration,
                 completed_session: &session,
+                answer: "exact answer",
                 observed_at_unix_ms: 301_400,
                 authorized_at_unix_ms: 301_400,
             })
             .expect("exact completion wins")
+            .is_some()
     );
     assert!(
         fixture
@@ -263,6 +267,6 @@ fn exact_completion_winning_first_defeats_reconciliation() {
             .expect("load completed job")
             .expect("completed job")
             .state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
 }

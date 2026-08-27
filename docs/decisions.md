@@ -3034,11 +3034,23 @@ coordination, and the related App call sites.
 
 The current rule is smaller: one recurring App tick owns durable FIFO claim,
 claim renewal, isolated all-frontend launch, exact completion correlation, and
-terminal cleanup. It never reads a receiver socket, maintains an in-memory
-execution cursor, or coordinates with the interactive panel. BR-15 still owns
-accepted and processing proof, BR-16 owns progressed-run recovery, BR-17 owns
-answer-ready and delivery-only recovery, and BR-18 owns the final retained
-representation and schema cleanup.
+post-answer cleanup. It never reads a receiver socket, maintains an in-memory
+execution cursor, or coordinates with the interactive panel. BR-15 owns
+accepted and processing proof, BR-16 owns progressed-run recovery, BR-17 now
+separates atomic answer-ready persistence from delivery-only recovery, and
+BR-18 owns the final retained representation and schema cleanup.
+
+## Commit the portable answer before provider delivery
+
+Receiver lifecycle completion proves that an exact native session stopped, but
+it does not itself contain the user-visible answer. Brain therefore requires
+both the exact completed session and its bounded owner-only answer artifact.
+One immediate transaction appends the portable transcript, freezes the final
+delivery envelope, replaces the native binding, moves the job to
+`answer-ready`, and releases agent ownership. This boundary is idempotent for
+an exact duplicate and fails closed for any identity or content conflict.
+Provider IO begins only from the committed outbox, so a process crash, cleanup
+failure, or sync failure cannot lose the answer or relaunch agent work.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

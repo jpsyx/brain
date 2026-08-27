@@ -75,7 +75,7 @@ fn assert_saturated_stop_finishes_once(phase: &str, progressing_at: Option<u64>)
         app.tick_receiver();
 
         let completed = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-        assert_eq!(completed.state(), ReceiverJobState::Done, "{kind:?}");
+        assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
         assert_eq!(completed.observation_revision(), maximum, "{kind:?}");
         assert_eq!(completed.accepted_at_unix_ms(), Some(1_000), "{kind:?}");
         assert_eq!(

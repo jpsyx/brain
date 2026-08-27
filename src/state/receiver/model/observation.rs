@@ -101,6 +101,23 @@ impl ReceiverObservationSet {
             authorized_at_unix_ms,
         }
     }
+
+    pub(crate) fn nonterminal_from_agent_observation(
+        token: ReceiverJobToken,
+        registration: &ReceiverSessionAttribution,
+        result: &crate::agent::AgentObservationResult,
+        authorized_at_unix_ms: u64,
+    ) -> Option<Self> {
+        let mut observation =
+            Self::from_agent_observation(token, registration, result, authorized_at_unix_ms);
+        if observation.completed_at_unix_ms.take().is_some() {
+            observation.revision = observation.revision.saturating_sub(1);
+        }
+        (observation.accepted_at_unix_ms.is_some()
+            || observation.progressing_at_unix_ms.is_some()
+            || observation.latest_progress_at_unix_ms.is_some())
+        .then_some(observation)
+    }
 }
 
 /// Exact durable identity and timings required to complete one receiver job.
@@ -111,6 +128,7 @@ pub struct ReceiverCompletionRequest<'a> {
     pub owner: &'a str,
     pub registration: &'a ReceiverSessionAttribution,
     pub completed_session: &'a crate::agent::AgentSession,
+    pub answer: &'a str,
     pub observed_at_unix_ms: u64,
     pub authorized_at_unix_ms: u64,
 }
@@ -118,5 +136,48 @@ pub struct ReceiverCompletionRequest<'a> {
 impl std::fmt::Debug for ReceiverCompletionRequest<'_> {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("ReceiverCompletionRequest(<redacted>)")
+    }
+}
+
+/// Durable answer commit accepted for the first time or matched idempotently.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ReceiverCompletionOutcome {
+    delivery_id: super::ReceiverDeliveryId,
+    newly_recorded: bool,
+}
+
+impl ReceiverCompletionOutcome {
+    pub(in crate::state::receiver) const fn recorded(
+        delivery_id: super::ReceiverDeliveryId,
+    ) -> Self {
+        Self {
+            delivery_id,
+            newly_recorded: true,
+        }
+    }
+
+    pub(in crate::state::receiver) const fn existing(
+        delivery_id: super::ReceiverDeliveryId,
+    ) -> Self {
+        Self {
+            delivery_id,
+            newly_recorded: false,
+        }
+    }
+
+    #[must_use]
+    pub const fn delivery_id(self) -> super::ReceiverDeliveryId {
+        self.delivery_id
+    }
+
+    #[must_use]
+    pub const fn newly_recorded(self) -> bool {
+        self.newly_recorded
+    }
+}
+
+impl std::fmt::Debug for ReceiverCompletionOutcome {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverCompletionOutcome(<redacted>)")
     }
 }

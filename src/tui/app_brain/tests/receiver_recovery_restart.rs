@@ -193,7 +193,7 @@ fn restarted_tui_proves_stale_cleanup_then_resumes_the_exact_persisted_frontend(
     restarted.tick_receiver();
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
     assert!(!completed.pending_unavailable_notice());
     assert!(restarted.brain.receiver_run_observations().is_empty());
     assert!(!completion_path.exists());

@@ -168,7 +168,7 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     app.tick_receiver();
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done, "{kind:?}");
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
     assert_eq!(completed.observation_revision(), 3, "{kind:?}");
     assert!(!completed.pending_unavailable_notice(), "{kind:?}");
     assert!(!completion_path.exists(), "{kind:?}");

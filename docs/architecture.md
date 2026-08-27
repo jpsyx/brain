@@ -184,6 +184,15 @@ rule applies across the large runtime families:
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` distinguishes ordinary claimed, recovery claimed, active, and cleanup-pending local authority; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
+BR-17 extends those receiver seams without adding another runtime queue.
+`state/receiver/transcript.rs` renders deterministic portable turns, while
+`store/completion.rs` owns the immediate transcript, immutable final-answer
+outbox, exact binding, answer-ready, and agent-claim-release transaction.
+`tui/app_brain/receiver/artifact/file.rs` owns the finite descriptor-bound
+artifact snapshot; `active/terminal.rs` performs only exact authorization and
+post-commit registration, tab, file, sync, and reload effects. Provider answer
+delivery is no longer part of terminal App cleanup.
+
 The durable receiver model is split beneath the thin `model.rs` coordinator:
 `model/{identity,conversation,observation,job,claim,effect}.rs` separately own
 opaque identity, continuity, lifecycle evidence, persisted rows, claims, and
@@ -1256,7 +1265,9 @@ cross-feature sync launch, task reload, footer, and warning effects at the exact
 consumption boundary. It
 queues stale inbound work behind a pull and reloads tasks before dispatch. It
 also reloads tasks whenever a new successful downstream journal row appears.
-The receiver completion path launches an immediate push before delivery. The
+The receiver answer path commits transcript, binding, and immutable outbox
+before launching its best-effort immediate push. Provider delivery is a later
+outbox operation. The
 shared server does not own this gate. All paths are gated and best-effort; an
 unconfigured brain gets no watcher or automatic sync.
 
@@ -2060,7 +2071,7 @@ the renewed lease. After claim renewal and exact artifact/lifecycle validation,
 the App samples a separate fresh clock for terminal authorization. The producer
 timestamp never participates in the lease comparison; when no completed
 lifecycle boundary exists, that fresh App time is also the durable fallback.
-The committed completion then launches an immediate push. A synchronous PTY
+The committed answer-ready boundary then launches an immediate push. A synchronous PTY
 spawn failure releases the exact registration and claim, shuts down the new
 controller once, and records a durable pre-spawn retry with a clock observation
 sampled after cleanup, without changing the main panel. Successful spawn is the

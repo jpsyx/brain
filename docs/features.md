@@ -1583,27 +1583,31 @@ separate work.
 
 The stop bridge settles a completed observation inside its session transaction
 before publishing the artifact or completed-session state. The TUI requires
-that exact completed session in its own atomic terminal transaction, so neither
-surface is accepted from a partially published stop. An exact lifecycle
-completion artifact and lifecycle-only completion are both terminal evidence.
-A valid artifact wins when both appear in one tick, so its private response is
-delivered once through the existing exact completion path. When the same poll
-contains a validated lifecycle completion, all normalized boundaries plus its
-revision/session cursor are merged atomically even though the artifact body wins
-delivery. Its producer
+that exact completed session and an exact answer artifact in its atomic answer
+transaction, so neither surface is accepted from a partially published stop.
+Lifecycle completion without an answer is not terminal: Brain may retain its
+accepted or progressing facts, but it keeps the agent run active and FIFO
+blocked until the exact artifact exists. When both appear in one tick, all
+normalized boundaries plus the revision/session cursor are merged atomically
+with the artifact answer. Its producer
 timestamp remains the durable terminal evidence time, even if it is later than
 the renewed lease. Producer evidence never authorizes completion. After exact
 artifact and lifecycle validation, Brain samples a fresh App clock for the
 lease check; without a lifecycle completion boundary, that same fresh value is
-  also the durable completion-time fallback. Artifact-only completion records a
-  representable terminal cursor at revision one or later and the exact completed
-  native session, without inventing accepted or progressing timestamps.
-Lifecycle-only completion can move `launched`, `accepted`, or `processing`
-directly to `done` without inventing missed intermediate timestamps or a
-response body. Its
-terminal transaction also replaces the conversation binding with the exact
-lifecycle-reported native session; if that binding cannot be persisted, the job
-remains retryable instead of becoming `done`. Terminal completion, child exit,
+also the durable completion-time fallback. Artifact-only completion records a
+representable terminal cursor at revision one or later and the exact completed
+native session, without inventing accepted or progressing timestamps.
+The immediate answer transaction validates the exact job, token, owner, live
+claim, conversation, instance, registered and actual session, frontend,
+actor/channel scope, and lifecycle evidence. It appends one authenticated user
+turn and the exact assistant answer to the portable transcript, freezes one
+final-answer delivery envelope, replaces the native binding, moves the job to
+`answer-ready`, and releases the agent claim. An identical duplicate returns
+the existing delivery without another transcript turn or outbox row; any
+conflict fails closed. No provider IO begins in this transaction. After commit,
+Brain releases the exact registration, closes the exact tab, removes the exact
+instance files, starts the completion push, reloads tasks, and permits the next
+agent job. Artifact completion, child exit,
 lost ownership, and orderly shutdown remove only the exact instance's response,
 observation snapshot, and observation lock while preserving durable facts and
 unrelated instance files. Poll diagnostics use one content-free shape containing

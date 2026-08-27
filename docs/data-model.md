@@ -1339,10 +1339,10 @@ and live notice owner, then clears the intent and both lease columns together.
 A failed local queue operation leaves the intent pending and the finite lease
 expires for another claimant. Terminal rows and notice leases never participate
 in ordinary FIFO blocking or the workspace live-job-claim predicate.
-The schema-v12 outbox and pure delivery policy now define answer-ready and
-delivery recovery. The current App still retains its earlier phase-specific
-completion and replacement behavior until later BR-17 tasks wire those types
-into the runtime.
+The schema-v12 outbox and pure delivery policy define answer-ready and delivery
+recovery. Exact artifact completion now inserts the immutable final-answer row
+and moves its job to `answer-ready` before any provider IO. Later delivery work
+owns only the outbox state machine and cannot re-enter agent execution.
 Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
@@ -1376,18 +1376,21 @@ The generic single-observation value uses
 and progressing. It cannot represent completion; terminal evidence requires the
 registration-aware batch transaction below.
 
-A valid completion can move `launched`, `accepted`, or `processing` directly to
-`done` without fabricating missing accepted or progressing timestamps. Artifact
-and lifecycle-only completion use one immediate transaction. It validates the
-stored and incoming current-attempt timelines, preserves the first lifetime
-accepted/progress facts, merges every normalized boundary plus the
-revision/session cursor, requires the exact lifecycle-native session to remain
-locked and `completed`, persists that binding, and only then marks the job done
-and clears its claim. Artifact body delivery precedence does not discard
-lifecycle evidence observed in the same poll. Both paths therefore make
-`done`, evidence, cursor, claim clearing, and conversation continuity one atomic
-fact; any binding or evidence write failure preserves the prior job,
-claim, registration, and binding for another tick. The
+A valid exact artifact can move `launched`, `accepted`, or `processing` directly
+to `answer-ready` without fabricating missing accepted or progressing
+timestamps. One immediate transaction validates the exact workspace, job,
+token, owner, live claim, conversation, instance, registered and actual native
+session, frontend, actor/channel scope, and stored plus incoming lifecycle
+timelines. It preserves lifetime facts, merges the current-attempt cursor,
+appends one Markdown-fenced authenticated user and assistant turn, freezes one
+unique final-answer envelope, replaces the binding, clears the agent claim, and
+marks the job answer-ready. Lifecycle evidence without an artifact may advance
+only accepted or progressing state and cannot complete the job. An identical
+answer duplicate proves the stored envelope, transcript suffix, binding,
+identity, and evidence before returning its existing delivery ID. A differing
+answer or any immutable identity conflict fails closed. Any statement failure
+preserves the prior transcript, job, claim, registration, binding, and outbox
+for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
 passes it independently into the terminal transaction as authorization, so
 validation cannot outlive the owner's lease. A validated completed producer
@@ -1405,7 +1408,8 @@ registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
-lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
+lifecycle, answer, session, and job mutation. Provider delivery is a later
+outbox operation, never part of the answer transaction. An expired `launched`, `accepted`,
 or `processing` row remains unchanged until the recurring reconciler records
 its exact recovery or terminal action; it is never reclaimed or launched again
 as ordinary work.
