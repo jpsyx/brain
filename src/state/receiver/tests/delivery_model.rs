@@ -69,6 +69,91 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
 }
 
 #[test]
+fn email_delivery_rejects_blank_accepted_provider_lineage_before_persistence() {
+    for provider_email_id in ["", " \t "] {
+        let mut job = email_delivery_job();
+        job.email_reply
+            .as_mut()
+            .expect("email reply context")
+            .provider_email_id = provider_email_id.to_owned();
+
+        let error = render_receiver_delivery(
+            &job,
+            ReceiverResponseKind::FinalAnswer,
+            DELIVERY_PRIVATE_BODY,
+        )
+        .expect_err("blank provider lineage must fail before persistence");
+
+        assert_eq!(
+            error,
+            ReceiverDeliveryRenderError::InvalidAcceptedEmailProviderId
+        );
+        assert_eq!(
+            error.to_string(),
+            "receiver delivery has an invalid accepted email provider ID"
+        );
+        let rendered = format!("{error:?} {error}");
+        assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));
+        assert!(!rendered.contains(DELIVERY_PRIVATE_MESSAGE_ID));
+    }
+}
+
+#[test]
+fn email_delivery_rejects_blank_accepted_message_lineage_before_persistence() {
+    for message_id in ["", " \t "] {
+        let mut job = email_delivery_job();
+        job.email_reply
+            .as_mut()
+            .expect("email reply context")
+            .message_id = Some(message_id.to_owned());
+
+        let error = render_receiver_delivery(
+            &job,
+            ReceiverResponseKind::FinalAnswer,
+            DELIVERY_PRIVATE_BODY,
+        )
+        .expect_err("blank message lineage must fail before persistence");
+
+        assert_eq!(
+            error,
+            ReceiverDeliveryRenderError::InvalidAcceptedEmailMessageId
+        );
+        assert_eq!(
+            error.to_string(),
+            "receiver delivery has an invalid accepted email message ID"
+        );
+        let rendered = format!("{error:?} {error}");
+        assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));
+        assert!(!rendered.contains(DELIVERY_PRIVATE_MESSAGE_ID));
+    }
+}
+
+#[test]
+fn rendered_email_without_message_lineage_round_trips_through_validation() {
+    let mut job = email_delivery_job();
+    job.email_reply
+        .as_mut()
+        .expect("email reply context")
+        .message_id = None;
+
+    let envelope = render_receiver_delivery(
+        &job,
+        ReceiverResponseKind::FinalAnswer,
+        DELIVERY_PRIVATE_BODY,
+    )
+    .expect("missing optional message lineage is allowed");
+    let encoded = serde_json::to_string(&envelope).expect("serialize rendered envelope");
+    let decoded: ReceiverDeliveryEnvelope =
+        serde_json::from_str(&encoded).expect("reload rendered envelope");
+
+    assert_eq!(decoded, envelope);
+    let email = decoded.email().expect("email envelope");
+    assert_eq!(email.in_reply_to(), None);
+    assert_eq!(email.references(), None);
+    assert_eq!(email.provider_email_id(), Some("provider-email"));
+}
+
+#[test]
 fn email_delivery_rejects_an_empty_accepted_recipient_set_without_echoing_content() {
     let mut job = email_delivery_job();
     job.response_email = None;

@@ -182,6 +182,8 @@ impl std::fmt::Debug for ReceiverEmailEnvelope {
 pub enum ReceiverDeliveryRenderError {
     NoTrustedEmailRecipients,
     InvalidAcceptedEmailRecipient,
+    InvalidAcceptedEmailProviderId,
+    InvalidAcceptedEmailMessageId,
     InvalidAcceptedSmsRecipient,
 }
 
@@ -191,6 +193,12 @@ impl Display for ReceiverDeliveryRenderError {
             Self::NoTrustedEmailRecipients => "receiver delivery has no trusted email recipients",
             Self::InvalidAcceptedEmailRecipient => {
                 "receiver delivery has an invalid accepted email recipient"
+            }
+            Self::InvalidAcceptedEmailProviderId => {
+                "receiver delivery has an invalid accepted email provider ID"
+            }
+            Self::InvalidAcceptedEmailMessageId => {
+                "receiver delivery has an invalid accepted email message ID"
             }
             Self::InvalidAcceptedSmsRecipient => {
                 "receiver delivery has an invalid accepted SMS recipient"
@@ -206,7 +214,13 @@ impl std::error::Error for ReceiverDeliveryRenderError {}
 /// # Errors
 ///
 /// Returns [`ReceiverDeliveryRenderError::NoTrustedEmailRecipients`] when an
-/// accepted email job contains no authorized destination.
+/// accepted email job contains no authorized destination,
+/// [`ReceiverDeliveryRenderError::InvalidAcceptedEmailRecipient`] or
+/// [`ReceiverDeliveryRenderError::InvalidAcceptedSmsRecipient`] when an
+/// acceptance-time destination is invalid, and
+/// [`ReceiverDeliveryRenderError::InvalidAcceptedEmailProviderId`] or
+/// [`ReceiverDeliveryRenderError::InvalidAcceptedEmailMessageId`] when email
+/// lineage is blank.
 pub fn render_receiver_delivery(
     inbound: &crate::server::receiver::InboundJob,
     _response_kind: ReceiverResponseKind,
@@ -244,7 +258,25 @@ pub fn render_receiver_delivery(
             }
             let reply = crate::server::reply::email(content);
             let lineage = inbound.email_reply.as_ref();
-            let message_id = lineage.and_then(|context| context.message_id.clone());
+            let provider_email_id = lineage
+                .map(|context| {
+                    if context.provider_email_id.trim().is_empty() {
+                        Err(ReceiverDeliveryRenderError::InvalidAcceptedEmailProviderId)
+                    } else {
+                        Ok(context.provider_email_id.clone())
+                    }
+                })
+                .transpose()?;
+            let message_id = lineage
+                .and_then(|context| context.message_id.as_ref())
+                .map(|message_id| {
+                    if message_id.trim().is_empty() {
+                        Err(ReceiverDeliveryRenderError::InvalidAcceptedEmailMessageId)
+                    } else {
+                        Ok(message_id.clone())
+                    }
+                })
+                .transpose()?;
             Ok(ReceiverDeliveryEnvelope::Email {
                 value: ReceiverEmailEnvelope {
                     recipients,
@@ -253,7 +285,7 @@ pub fn render_receiver_delivery(
                     text: reply.text,
                     in_reply_to: message_id.clone(),
                     references: message_id,
-                    provider_email_id: lineage.map(|context| context.provider_email_id.clone()),
+                    provider_email_id,
                 },
             })
         }
