@@ -5,8 +5,11 @@ use super::{to_i64, validated_owner};
 use crate::state::{Db, ReceiverCompletionRequest, ReceiverObservationSet};
 
 struct StoredEvidence {
-    accepted: Option<i64>,
-    progressing: Option<i64>,
+    lifetime_accepted: Option<i64>,
+    lifetime_progressing: Option<i64>,
+    attempt_accepted: Option<i64>,
+    attempt_progressing: Option<i64>,
+    latest_progress: Option<i64>,
     completed: Option<i64>,
     revision: i64,
     session_id: Option<String>,
@@ -44,7 +47,9 @@ impl Db {
         let stored = transaction
             .query_row(
                 "SELECT accepted_at_unix_ms, progressing_at_unix_ms,
-                        completed_at_unix_ms, observation_revision, observation_session_id
+                        attempt_accepted_at_unix_ms, attempt_progressing_at_unix_ms,
+                        latest_progress_at_unix_ms, completed_at_unix_ms,
+                        observation_revision, observation_session_id
                  FROM receiver_jobs
                  WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
                    AND claim_owner = ?4 AND claim_expires_at_unix_ms > ?5
@@ -61,11 +66,14 @@ impl Db {
                 ],
                 |row| {
                     Ok(StoredEvidence {
-                        accepted: row.get(0)?,
-                        progressing: row.get(1)?,
-                        completed: row.get(2)?,
-                        revision: row.get(3)?,
-                        session_id: row.get(4)?,
+                        lifetime_accepted: row.get(0)?,
+                        lifetime_progressing: row.get(1)?,
+                        attempt_accepted: row.get(2)?,
+                        attempt_progressing: row.get(3)?,
+                        latest_progress: row.get(4)?,
+                        completed: row.get(5)?,
+                        revision: row.get(6)?,
+                        session_id: row.get(7)?,
                     })
                 },
             )
@@ -88,21 +96,27 @@ impl Db {
             "UPDATE receiver_jobs
              SET state = 'done', accepted_at_unix_ms = ?4,
                  progressing_at_unix_ms = ?5, completed_at_unix_ms = ?6,
-                 observation_revision = ?7, observation_session_id = ?8,
+                 attempt_accepted_at_unix_ms = ?7,
+                 attempt_progressing_at_unix_ms = ?8,
+                 latest_progress_at_unix_ms = COALESCE(?9, latest_progress_at_unix_ms),
+                 observation_revision = ?10, observation_session_id = ?11,
                  claim_owner = NULL, claim_expires_at_unix_ms = NULL,
                  retry_at_unix_ms = NULL, retry_from_state = NULL,
                  updated_at_unix_ms = ?6
-             WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3 AND claim_owner = ?9
-               AND claim_expires_at_unix_ms > ?10
-               AND observation_instance = ?11 AND state IN ('launched', 'accepted', 'processing')
-               AND conversation_id = ?12",
+             WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3 AND claim_owner = ?12
+               AND claim_expires_at_unix_ms > ?13
+               AND observation_instance = ?14 AND state IN ('launched', 'accepted', 'processing')
+               AND conversation_id = ?15",
             rusqlite::params![
                 self.workspace_id,
                 request.job_id.to_string(),
                 request.token.to_string(),
-                merged.accepted,
-                merged.progressing,
+                merged.lifetime_accepted,
+                merged.lifetime_progressing,
                 merged.completed,
+                merged.attempt_accepted,
+                merged.attempt_progressing,
+                merged.latest_progress,
                 merged.revision,
                 merged.session_id,
                 owner,
@@ -120,8 +134,11 @@ impl Db {
 }
 
 struct MergedEvidence {
-    accepted: Option<i64>,
-    progressing: Option<i64>,
+    lifetime_accepted: Option<i64>,
+    lifetime_progressing: Option<i64>,
+    attempt_accepted: Option<i64>,
+    attempt_progressing: Option<i64>,
+    latest_progress: Option<i64>,
     completed: i64,
     revision: i64,
     session_id: Option<String>,
@@ -133,16 +150,32 @@ fn merge_completion_evidence(
     request: &ReceiverCompletionRequest<'_>,
     local_completion: i64,
 ) -> Result<MergedEvidence> {
-    validate_timeline(stored.accepted, stored.progressing, stored.completed)?;
+    validate_timeline(
+        stored.lifetime_accepted,
+        stored.lifetime_progressing,
+        stored.completed,
+    )?;
+    validate_timeline(
+        stored.attempt_accepted,
+        stored.attempt_progressing,
+        stored.completed,
+    )?;
     anyhow::ensure!(
         stored.completed.is_none(),
         "receiver job is already completed"
     );
     let Some(observation) = observation else {
         return Ok(MergedEvidence {
-            accepted: stored.accepted,
-            progressing: stored.progressing,
-            completed: latest_boundary(local_completion, stored.accepted, stored.progressing),
+            lifetime_accepted: stored.lifetime_accepted,
+            lifetime_progressing: stored.lifetime_progressing,
+            attempt_accepted: stored.attempt_accepted,
+            attempt_progressing: stored.attempt_progressing,
+            latest_progress: stored.latest_progress,
+            completed: latest_boundary(
+                local_completion,
+                stored.attempt_accepted,
+                stored.latest_progress.or(stored.attempt_progressing),
+            ),
             revision: stored.revision.max(1),
             session_id: Some(request.completed_session.as_str().to_owned()),
         });
@@ -171,24 +204,51 @@ fn merge_completion_evidence(
         .progressing_at_unix_ms
         .map(|value| to_i64(value, "receiver progressing observation time"))
         .transpose()?;
+    let latest_progress = observation
+        .latest_progress_at_unix_ms
+        .map(|value| to_i64(value, "receiver latest-progress observation time"))
+        .transpose()?;
     let completed = observation
         .completed_at_unix_ms
         .map(|value| to_i64(value, "receiver completed observation time"))
         .transpose()?;
     validate_timeline(accepted, progressing, completed)?;
-    let accepted = merge_boundary(stored.accepted, accepted, "accepted")?;
-    let progressing = merge_boundary(stored.progressing, progressing, "progressing")?;
-    validate_timeline(accepted, progressing, completed)?;
-    let completed =
-        completed.unwrap_or_else(|| latest_boundary(local_completion, accepted, progressing));
     anyhow::ensure!(
-        accepted.is_none_or(|accepted| accepted <= completed)
-            && progressing.is_none_or(|progressing| progressing <= completed),
+        progressing.is_some() == latest_progress.is_some()
+            && progressing
+                .zip(latest_progress)
+                .is_none_or(|(first, latest)| first <= latest)
+            && latest_progress
+                .zip(completed)
+                .is_none_or(|(latest, completed)| latest <= completed),
+        "receiver progress-pulse observation is inconsistent"
+    );
+    let attempt_accepted = merge_boundary(stored.attempt_accepted, accepted, "accepted")?;
+    let attempt_progressing =
+        merge_boundary(stored.attempt_progressing, progressing, "progressing")?;
+    anyhow::ensure!(
+        stored
+            .latest_progress
+            .zip(latest_progress)
+            .is_none_or(|(stored, incoming)| stored <= incoming),
+        "receiver latest-progress observation regressed"
+    );
+    let latest_progress = latest_progress.or(stored.latest_progress);
+    validate_timeline(attempt_accepted, attempt_progressing, completed)?;
+    let completed = completed
+        .unwrap_or_else(|| latest_boundary(local_completion, attempt_accepted, latest_progress));
+    anyhow::ensure!(
+        attempt_accepted.is_none_or(|accepted| accepted <= completed)
+            && attempt_progressing.is_none_or(|progressing| progressing <= completed)
+            && latest_progress.is_none_or(|latest| latest <= completed),
         "receiver completion precedes durable lifecycle evidence"
     );
     Ok(MergedEvidence {
-        accepted,
-        progressing,
+        lifetime_accepted: stored.lifetime_accepted.or(attempt_accepted),
+        lifetime_progressing: stored.lifetime_progressing.or(attempt_progressing),
+        attempt_accepted,
+        attempt_progressing,
+        latest_progress,
         completed,
         revision,
         session_id: Some(observation.session_id.clone()),

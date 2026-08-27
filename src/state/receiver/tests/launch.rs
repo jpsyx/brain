@@ -186,6 +186,7 @@ fn one_newer_snapshot_applies_missed_accepted_and_progress_boundaries_atomically
         revision: 2,
         accepted_at_unix_ms: Some(1_300),
         progressing_at_unix_ms: Some(1_400),
+        latest_progress_at_unix_ms: Some(1_400),
         completed_at_unix_ms: None,
         authorized_at_unix_ms: 1_500,
     };
@@ -201,6 +202,85 @@ fn one_newer_snapshot_applies_missed_accepted_and_progress_boundaries_atomically
     assert_eq!(job.progressing_at_unix_ms(), Some(1_400));
     assert_eq!(job.completed_at_unix_ms(), None);
     assert_eq!(job.observation_revision(), 2);
+}
+
+#[test]
+fn newer_progress_pulses_use_authorization_time_and_never_extend_the_absolute_limit() {
+    let fixture = launched_observation_fixture();
+    let first = ReceiverObservationSet {
+        token: fixture.token,
+        instance: "instance-a".to_owned(),
+        session_id: "session-a".to_owned(),
+        revision: 2,
+        accepted_at_unix_ms: Some(1_300),
+        progressing_at_unix_ms: Some(1_400),
+        latest_progress_at_unix_ms: Some(1_400),
+        completed_at_unix_ms: None,
+        authorized_at_unix_ms: 1_500,
+    };
+    assert!(fixture
+        .db
+        .apply_receiver_observation_set(fixture.job_id, "owner", &first)
+        .expect("apply first progress"));
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_jobs SET claim_expires_at_unix_ms = 3000000 WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("extend writer fence for controlled authorization times");
+
+    let pulse = ReceiverObservationSet {
+        token: fixture.token,
+        instance: "instance-a".to_owned(),
+        session_id: "session-a".to_owned(),
+        revision: 3,
+        accepted_at_unix_ms: None,
+        progressing_at_unix_ms: None,
+        latest_progress_at_unix_ms: Some(9_000_000),
+        completed_at_unix_ms: None,
+        authorized_at_unix_ms: 1_700,
+    };
+    assert!(fixture
+        .db
+        .apply_receiver_observation_set(fixture.job_id, "owner", &pulse)
+        .expect("apply later pulse"));
+    let renewed = persisted_observation_job(&fixture);
+    assert_eq!(renewed.latest_progress_at_unix_ms(), Some(9_000_000));
+    assert_eq!(renewed.progress_expires_at_unix_ms(), Some(301_700));
+    assert_eq!(
+        renewed.absolute_work_expires_at_unix_ms(),
+        Some(1_801_500)
+    );
+    assert_eq!(renewed.progressing_at_unix_ms(), Some(1_400));
+
+    let clamped = ReceiverObservationSet {
+        revision: 4,
+        latest_progress_at_unix_ms: Some(9_000_001),
+        authorized_at_unix_ms: 2_000_000,
+        ..pulse
+    };
+    assert!(fixture
+        .db
+        .apply_receiver_observation_set(fixture.job_id, "owner", &clamped)
+        .expect("apply pulse beyond the absolute limit"));
+    let clamped_job = persisted_observation_job(&fixture);
+    assert_eq!(
+        clamped_job.progress_expires_at_unix_ms(),
+        clamped_job.absolute_work_expires_at_unix_ms()
+    );
+
+    let duplicate = ReceiverObservationSet {
+        revision: 5,
+        authorized_at_unix_ms: 2_000_100,
+        ..clamped
+    };
+    assert!(!fixture
+        .db
+        .apply_receiver_observation_set(fixture.job_id, "owner", &duplicate)
+        .expect("reject duplicate producer timestamp"));
+    assert_eq!(persisted_observation_job(&fixture), clamped_job);
 }
 
 fn persisted_observation_job(fixture: &ObservationFixture) -> ReceiverJob {
@@ -399,6 +479,7 @@ fn receiver_observations_reject_stale_revisions_and_phase_regressions_without_mu
                 revision: 1,
                 accepted_at_unix_ms: Some(1_250),
                 progressing_at_unix_ms: Some(1_300),
+                latest_progress_at_unix_ms: Some(1_300),
                 completed_at_unix_ms: None,
                 authorized_at_unix_ms: 1_300,
             },

@@ -91,6 +91,13 @@ pub(crate) fn launch_with_spawn_failure(
 }
 
 fn hermetic_frontend_command(kind: AgentKind, command: &str) -> String {
+    if kind == AgentKind::Claude {
+        let fake_claude = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/claude/claude")
+            .display()
+            .to_string();
+        return command.replacen("claude", &fake_claude, 1);
+    }
     if kind == AgentKind::OpenCode && command == "opencode" {
         return std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/opencode/fake_opencode.sh")

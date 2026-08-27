@@ -66,11 +66,21 @@ pub fn execute_pipeline<P: DispatchPipeline>(pipeline: &mut P) -> Result<P::Job>
 }
 
 /// Failure returned to the shared HTTP boundary.
-#[derive(Debug)]
 pub(crate) struct DispatchHttpError {
     status: u16,
     unavailable: bool,
     message: String,
+}
+
+impl std::fmt::Debug for DispatchHttpError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DispatchHttpError")
+            .field("status", &self.status)
+            .field("unavailable", &self.unavailable)
+            .field("message", &"<redacted>")
+            .finish()
+    }
 }
 
 impl DispatchHttpError {

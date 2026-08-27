@@ -16,7 +16,8 @@ use crate::{
 
 use super::planning::{
     RECOVERY_PROMPT_BUDGET_BYTES, ReceiverLaunchPlan,
-    plan_receiver_launch as build_receiver_launch_plan,
+    plan_receiver_launch as build_receiver_launch_plan, plan_receiver_recovery,
+    receiver_job_token_marker,
 };
 
 mod localized_paths;
@@ -224,6 +225,55 @@ fn render_receiver_launch_with_paths(
     let path_refs = paths.iter().map(PathBuf::as_path).collect::<Vec<_>>();
     build_receiver_launch_plan(job, conversation, &path_refs, fresh_session, resume_session)
         .expect("matching localized attachment paths")
+}
+
+#[test]
+fn accepted_recovery_plan_is_resume_only_bounded_and_contains_no_private_job_material() {
+    let private_message = "delete private inbound instruction after handling";
+    let private_transcript = "prior private answer and transcript material";
+    let (job, conversation) = durable_fixture_with_prompt(
+        AgentKind::Codex,
+        BindingKind::Matching,
+        private_transcript,
+        private_message,
+    );
+    let session = AgentSession::new("exact-native-session").expect("native session");
+
+    let plan = plan_receiver_recovery(job.id(), job.token(), session.clone());
+
+    assert_eq!(plan.session_plan(), &SessionPlan::resume(session));
+    assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
+    assert!(plan.initial_prompt().contains(&job.id().to_string()));
+    assert!(plan.initial_prompt().contains("Inspect the prior work"));
+    assert!(
+        plan.initial_prompt()
+            .contains("avoid repeating completed side effects")
+    );
+    assert!(
+        plan.initial_prompt()
+            .contains("finish the pending response")
+    );
+    assert!(
+        plan.initial_prompt()
+            .contains("Do not replay the original inbound instruction")
+    );
+    assert!(
+        plan.initial_prompt()
+            .ends_with(&receiver_job_token_marker(job.token()))
+    );
+    for private_value in [
+        private_message,
+        private_transcript,
+        job.inbound().authenticated_sender.as_str(),
+        job.inbound().provider_id.as_deref().expect("provider ID"),
+        job.inbound().attachments[0].url.as_str(),
+        conversation.transcript_markdown(),
+    ] {
+        assert!(
+            !plan.initial_prompt().contains(private_value),
+            "recovery prompt leaked private job material"
+        );
+    }
 }
 
 #[test]

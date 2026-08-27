@@ -94,8 +94,7 @@ impl Db {
         self
     }
 
-    #[cfg(test)]
-    fn configure(conn: &Connection) -> Result<()> {
+    pub(in crate::state) fn configure(conn: &Connection) -> Result<()> {
         Self::configure_with_busy_timeout(conn, std::time::Duration::from_secs(5))
     }
 

@@ -106,7 +106,7 @@ fn fake_executable(directory: &Path) -> (PathBuf, PathBuf) {
     std::fs::write(
         &executable,
         format!(
-            "#!/bin/sh\n: > '{}'\nfor argument do\n  printf '%s\\000' \"$argument\" >> '{}'\ndone\n",
+            "#!/bin/sh\nfor argument do\n  if [ \"$argument\" = '--version' ]; then\n    printf '%s\\n' '2.1.196 (Claude Code)'\n    exit 0\n  fi\ndone\n: > '{}'\nfor argument do\n  printf '%s\\000' \"$argument\" >> '{}'\ndone\n",
             captured.display(),
             captured.display()
         ),

@@ -39,12 +39,18 @@ pub fn parse(prompt: &str) -> Option<ControlCommand> {
 }
 
 /// What a restart found waiting when it arrived.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RestartPlan<T> {
     /// The restart command itself, whose sender is owed an acknowledgement.
     pub command: T,
     /// Work that was waiting and will never be answered.
     pub dropped: Vec<T>,
+}
+
+impl<T> std::fmt::Debug for RestartPlan<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RestartPlan(<redacted>)")
+    }
 }
 
 #[cfg(test)]

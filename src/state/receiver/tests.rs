@@ -38,6 +38,41 @@ mod recovery {
     include!("tests/recovery.rs");
 }
 
+mod recovery_policy {
+    use super::*;
+
+    include!("tests/recovery_policy.rs");
+}
+
+mod recovery_state {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/recovery_state.rs");
+}
+
+mod recovery_claim {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/recovery_claim.rs");
+    include!("tests/recovery_claim_ordering.rs");
+}
+
+mod unavailable_notice {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/unavailable_notice.rs");
+}
+
+mod reconciliation {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/reconciliation.rs");
+}
+
 mod binding {
     use super::support::*;
     use super::*;
@@ -52,6 +87,13 @@ mod launch {
     include!("tests/launch.rs");
 }
 
+mod privacy {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/privacy.rs");
+}
+
 mod schema {
     use super::support::*;
     use super::*;
@@ -59,4 +101,5 @@ mod schema {
     include!("tests/schema.rs");
     include!("tests/schema_sections/collisions.rs");
     include!("tests/schema_sections/downgrade.rs");
+    include!("tests/schema_sections/writer_ordering.rs");
 }

@@ -27,6 +27,8 @@ fn pid_log_observer_detects_same_size_reused_pid_log_mutation() {
 
 fn seed_ready_workspace(home: &Path) {
     let root = home.join("brain");
+    let fake_opencode = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/opencode/fake_opencode.sh");
     std::fs::create_dir_all(root.join(".config")).expect("workspace config directory");
     std::fs::create_dir_all(home.join(".config/brain")).expect("machine config directory");
     std::fs::write(
@@ -67,7 +69,10 @@ fn seed_ready_workspace(home: &Path) {
                     "aliases": [],
                     "local_user_id": "pablo",
                     "receiver_enabled": true,
-                    "env": {}
+                    "env": {
+                        "claude_cmd": "sh -c 'for argument do if [ \"$argument\" = --version ]; then printf \"2.1.196 (Claude Code)\\n\"; exit 0; fi; done; exit 64' brain-claude",
+                        "opencode_cmd": fake_opencode
+                    }
                 }
             }
         }))

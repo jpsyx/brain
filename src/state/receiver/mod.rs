@@ -3,6 +3,7 @@
 mod identity;
 mod job_state;
 mod model;
+mod recovery_policy;
 pub(crate) mod schema;
 mod store;
 
@@ -16,7 +17,17 @@ pub use model::{
     ReceiverConversation, ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverJobToken,
     ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
-    ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan,
+    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
+    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure, ReceiverRunClaim,
+    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
+    ReceiverSessionPlan, ReceiverUnavailableNoticeClaim,
 };
-use model::{ReceiverObservationMetadata, ReceiverRetryMetadata};
+use model::{
+    ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,
+    ReceiverStoredMetadata,
+};
+pub use recovery_policy::{
+    MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverAttemptKind, ReceiverLifecycleDeadlines,
+    ReceiverRecoveryDecision, ReceiverRecoverySnapshot, decide_receiver_recovery,
+    receiver_acceptance_expires_at, receiver_launch_expires_at, receiver_recovery_expires_at,
+};

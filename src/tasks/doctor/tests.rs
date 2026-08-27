@@ -44,6 +44,10 @@ fn doctor_plan_names_every_check_before_running() {
         "{plan}"
     );
     assert!(
+        plan.contains("Claude: probing configured command"),
+        "{plan}"
+    );
+    assert!(
         plan.contains("OpenCode: probing configured command"),
         "{plan}"
     );

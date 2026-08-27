@@ -41,18 +41,17 @@ fn normalized_completion_contract_preserves_exact_identity_for_every_frontend() 
         acceptance
             .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
             .env("BRAIN_RECEIVER_OBSERVATION_PATH", &observation_path);
-        assert!(
-            run_hook(
-                acceptance,
-                &serde_json::json!({
-                    "hook_event_name": "UserPromptSubmit",
-                    "session_id": session_id,
-                    "prompt": marker,
-                }),
-            )
-            .status
-            .success()
-        );
+        let mut acceptance_payload = serde_json::json!({
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": session_id,
+            "prompt": marker,
+        });
+        if agent_kind == "claude" {
+            acceptance_payload["prompt_id"] = serde_json::json!("receiver-turn");
+        } else {
+            acceptance_payload["turn_id"] = serde_json::json!("receiver-turn");
+        }
+        assert!(run_hook(acceptance, &acceptance_payload).status.success());
         let mut completion = attributed_hook_command(
             "agent_session_stop_hook.py",
             &state_db,

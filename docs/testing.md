@@ -257,7 +257,16 @@ first move is a failing test that reproduces it, *then* the fix.
   blank compatibility-plan session IDs), and `env_for`. The command matrix
   lives here once; the integration characterization suite keeps only its real
   hook and environment boundaries.
-- **OpenCode compatibility and acceptance boundaries.** `tests/opencode_smoke.rs`
+- **Agent compatibility and acceptance boundaries.** Registry and controller
+  tests run executable Claude fixtures below, at, and above the 2.1.196
+  `prompt_id` floor, plus malformed output, identity-free numeric output,
+  noisy or ambiguous wrapper output, and an unavailable command. They prove
+  only one exact official Claude Code version record is accepted, doctor
+  requires Claude compatibility, the controller rejects an old Claude before
+  transport work, configured commands stay redacted, Codex remains unprobed,
+  and OpenCode retains its existing feature probe. Shared bounded-runner
+  characterization still covers timeout, output, wrapper, and process-group
+  behavior. `tests/opencode_smoke.rs`
   covers `--open-code`,
   normalized `-oc`, mutually exclusive selection, adapter command generation,
   trusted named-agent configuration, semantic input translation, session
@@ -319,12 +328,16 @@ first move is a failing test that reproduces it, *then* the fix.
   session unclaimed and clears the attempted response identity.
 - **Facade source boundary.** `tests/agent_registry_boundary.rs` rejects public
   concrete frontend modules, adapter traits, or adapter operation exports and
-  guards shared call sites against direct frontend branching. Black-box
+  guards shared call sites against direct frontend branching. Its receiver
+  lifecycle guard rejects terminal snapshots, typed text, submit/new-session
+  input, and fixed sleep from receiver coordinator modules while leaving those
+  generic interactive operations available to human panel callers. Black-box
   integration tests launch all three frontends through `AgentController` and a
   recording transport. The adapter contract table also drives identical
   normalized observation requests through Claude, Codex, and OpenCode, proving
-  ordered missed-boundary recovery and explicit current/prior/placeholder
-  session rotation behavior. Focused parser tests cover the exact ten fields,
+  ordered missed-boundary recovery, pulse-only newer revisions, and explicit
+  current/prior/placeholder session rotation behavior. Focused parser tests
+  cover the exact eleven fields,
   duplicate/missing/unknown fields, identifier and revision bounds,
   phase/timestamp consistency, equal and regressed cursors, identity/session
   mismatches, missing files, exact 4096-byte acceptance, one-byte-over-limit
@@ -332,7 +345,11 @@ first move is a failing test that reproduces it, *then* the fix.
   nonblocking FIFO rejection, symlinked cache ancestors, metadata-to-open
   replacement, stable-length short reads, trailing JSON, and redacted
   diagnostics. Cross-poll tests pin timestamp immutability, phase preservation,
-  lifecycle order, and a nondecreasing emitted stream. Producer tests also
+  lifecycle order, and a nondecreasing emitted stream while allowing a newer
+  progress pulse with no new phase. Producer tests also cover exact
+  accepted-turn correlation for Claude and Codex, revocation by a later
+  non-marker root prompt, and OpenCode callbacks delivered after a newer
+  accepted message even when they belong to an older assistant parent. They
   force accepted-to-progressing and progressing-to-completed wall-clock
   rollback, proving each new snapshot clamps to durable producer time and
   validates before publication. Lock-leaf, parent-directory, post-replace, and
@@ -343,9 +360,11 @@ first move is a failing test that reproduces it, *then* the fix.
   second seam removes the exact live `brain_sessions` tuple after controller
   validation and proves the state transaction still refuses a nonterminal
   observation. A structural
-  receiver scan covers both coordination trees plus ephemeral receiver-tab
+  receiver scan covers both coordination trees, the services conversion path,
+  plus ephemeral receiver-tab
   ownership and rejects provider enum branches and literals, concrete adapter
-  or parser ownership, transcript/rollout/event grammar, direct normalized-reader
+  or parser ownership, transcript/rollout/event grammar, raw revision access,
+  direct normalized-reader
   access, and observation-path access outside launch/controller ownership.
   Composed App tests then drive that neutral facade through Claude, Codex, and
   OpenCode. They prove an unobserved launch remains `launched`, current-session
@@ -375,7 +394,9 @@ first move is a failing test that reproduces it, *then* the fix.
   progress, exact submit, later progress, and terminal evidence for every
   frontend. Claude and Codex finish through `agent_session_stop_hook.py`;
   OpenCode finishes through its real `session.idle` to stop-hook path. Normal,
-  duplicate, and completion-first cases preserve every producer timestamp.
+  duplicate, repeated-progress, and completion-first cases preserve every first
+  boundary while advancing only the latest progress evidence. The OpenCode
+  harness also proves a later unrelated user turn revokes pulse eligibility.
   Replacement tests then send later progress after symlink, permissive,
   malformed, truncated, wrong-token, and ambiguous same-scope entries, proving
   the producer preserves each entry and the App retains the durable row and tab
@@ -412,7 +433,20 @@ first move is a failing test that reproduces it, *then* the fix.
   diagnostic paths. Snapshots, logs, diagnostics, and process output contain
   none of them; token values stay redacted from Debug and diagnostics, while
   trusted artifacts retain only their intentional opaque identity fields and
-  private completion body. A real `agent_session_stop_hook.py` producer creates
+  private completion body. Separate full-model canaries format the nested
+  inbound job, attachment, conversation identity and transcript, native binding
+  and session plan, durable job and claim graph, recovery effect, unavailable
+  notice, observation, and completion request. Adjacent canaries also format the
+  agent session, session scope, Fresh and Resume plans, launch request,
+  observation result, and reply envelope reached by receiver execution. A
+  structural guard forbids those content-bearing types from regaining automatic
+  `Debug`, including multiline derives and manual implementations that delegate
+  to nested fields. The diagnostic guard scans every privacy-test module and the
+  adjacent launch-redaction test; mutation coverage rejects raw whole-value
+  assertions, captured process output, and private-value interpolation. Absence
+  checks therefore run before fixed-shape predicates, and harness failures report
+  only stable labels, status categories, byte lengths, and case indexes.
+  A real `agent_session_stop_hook.py` producer creates
   both the exact artifact and a valid completed observation beyond the renewed
   local lease, then crosses the controller and App transaction. That test proves
   the producer time is persisted as evidence while a separately sampled
@@ -519,11 +553,73 @@ first move is a failing test that reproduces it, *then* the fix.
   prove each ambiguity stays nonclaimable. Schema tests reconcile valid token
   text by parsed UUID identity, canonicalize case variants, regenerate invalid
   or colliding values with the bounded allocator, and prove fresh, partial,
-  damaged, exhausted, and idempotent rows. The v9 downgrade matrix crosses up,
-  every lifecycle state, down, and the old v8 claim query, proving all
+  damaged, exhausted, and idempotent rows. Recovery-policy tables cover every
+  state, equality expiry, separate launch and accepted-recovery budgets,
+  authorization-time deadlines, future-skewed evidence, and saturating
+  arithmetic. Store reconciliation tests cover wait at the millisecond below a
+  boundary; live and expired-owner preacceptance timeout; first accepted stall;
+  exact native binding; ownerless recovery persistence, reopen discovery, and
+  terminalization at minus one/equality/after each recovery and absolute
+  deadline; second-stall and absolute-expiry terminalization that preserves and
+  redrives the exact tuple after reopen; wrong-ack rejection; exact failed-state
+  acknowledgement that releases registration and session lock; recovery
+  exhaustion. App tests begin with the real fresh placeholder registration,
+  rotate its lifecycle row to a distinct native session without prebinding the
+  fixture, and prove accepted-stall plus absolute-expiry cleanup cannot release
+  the native lock before acknowledgement and can release it afterward. A
+  prior-binding Fresh-conflict group constructs the full production lineage
+  from prior native session through launch placeholder to observed native
+  session. It covers accepted stall, absolute expiry, null and prior-valued
+  registration actual IDs, process restart, exact acknowledgement, changed
+  actual/job/token/instance/session rejection, unrelated instance preservation,
+  prior-session preservation, and FIFO advancement. A composed App case repeats
+  the conflict, restart, cleanup, and later-job flow. The missing-attribution
+  case proves terminalization does not persist an unacknowledgeable tuple. A
+  separate restart case proves a dead non-rotating fresh registration remains
+  cleanable while its pre-acceptance conversation is still unbound, preserving
+  Claude parity. Store coverage includes legacy completion ambiguity; single
+  pending notice intent; FIFO
+  release only after terminal cleanup; ordinary launch CAS rejection for a
+  claimed recovery; and unsafe resume terminalization. Two store
+  handles prove only one full-snapshot CAS mutates the row while the later
+  reconciler returns the same read-only cleanup redrive. A deterministic
+  separate-handle immediate-lock interleaving proves a second reconciler cannot
+  read and write through the first transaction. Exact completion winning first
+  defeats reconciliation, while reconciliation winning first fences late
+  progress, completion, renewal, and process-exit writes. Recovery claim tests
+  prove claiming only an already-due attempt preserves identity and first facts,
+  consumes no additional budget, establishes the launch deadline, honors the
+  exact cleanup-acknowledgement fence, and refuses both targeted and discovered
+  recovery behind an older expired-owner lifecycle or due ordinary retry.
+  Cross-tests prove the ordinary retry seam rejects recovery attempts and the
+  exact recovery planning, registration, spawn, and shutdown failures
+  terminalize with notice intent. Completion remains atomic across the
+  lifetime/current-attempt evidence split. The v9-to-v10 matrix makes renewed
+  claims and future-skewed launches immediately due while deriving only safe
+  finite accepted-work deadlines; partial-v10 repair restores immediately
+  reconcilable deadlines. Adjacent 0.84.8 startup tests damage each cleanup
+  identifier separately, then prove exact registration/session reconstruction,
+  notice intent, cleanup redrive after reopen, wrong-ack rejection, exact-ack
+  registration and lock release, and cessation of redrive. Ambiguous and
+  effective-session evidence plus unique frontend, actor, and channel mismatches
+  for both missing halves fail closed without releasing unproved resources.
+  Store tests also prove complete-tuple acknowledgement repeats those three
+  conversation-attribution checks before releasing a registration or lock,
+  while v10
+  down removes both cleanup columns and terminalizes recovery work
+  before the v9 downgrade matrix crosses every lifecycle state, down, and the
+  old v8 claim query, proving all
   post-spawn ambiguity becomes conservatively failed. The state test wrapper
   and store are split along identity, acceptance, claim, conversation,
   completion, and schema seams rather than collected in one oversized file.
+  Schema-v11 tests prove partial notice-lease repair and exact v11-to-v10 removal.
+  Deterministic separate-handle mutations prove the v11-to-v10, cleanup-fence,
+  and v10-to-v9 downgrade boundaries reserve the immediate writer before reading
+  mutable column or version authority, then evaluate the post-lock shape. Separate-handle
+  notice tests prove one finite claimant, wrong-owner acknowledgement refusal,
+  retry after exact lease expiry, and ordinary FIFO eligibility while notice
+  handoff remains leased. Exact stale-registration tests require the complete
+  cleanup tuple and a dead recorded PID; a matching live process fails closed.
 - **Receiver dispatch state.** Composed `tui::app_brain::tests` drive the one
   production durable tick with an injected clock and event barriers. They prove
   that a busy main panel is untouched; equal timestamps use job-ID FIFO order;
@@ -545,6 +641,41 @@ first move is a failing test that reproduces it, *then* the fix.
   focused tab test proves
   that a second simultaneous receiver controller is rejected and shut down
   without changing the user's selected tab, view, visibility, or focus.
+  BR-16 recovery tests additionally pin reconcile-before-restart ordering,
+  shutdown and exact artifact cleanup before durable acknowledgement, recovery
+  priority over later FIFO work, persisted-frontend command selection, exact
+  native resume under a fresh instance, resume-only prompt privacy, typed
+  recovery process exit, completion through the ordinary exact response path,
+  local terminal-notice handoff before FIFO advancement, and reconstruction
+  after an exact stale PID, recovery-only retry after a post-registration store
+  error, independent notice and cleanup acknowledgement, retained local cleanup
+  authority across shutdown/artifact/store failures, and disabled no-spawn with
+  deterministic re-enable continuation. Focused authority matrices cover store
+  failure after all six slow pre-spawn boundaries, retryable pre-spawn cleanup,
+  post-spawn owner loss or store failure, commit false, commit errors before and
+  after a visible write, both tab-allocation failures, final-owner loss or store
+  failure, and shutdown failure at every cleanup cut. They assert one spawn,
+  exact controller and session fencing, no private prompt replay, and later
+  exact cleanup or activation. The spawned-cleanup matrix keeps shutdown failing
+  through launch-deadline equality, attempts a competing native-session claim,
+  checks pre-spawn effect attachment, and covers visible-write restart redrive,
+  claim-expiry cleanup, orderly shutdown proof, exact wrong-identity rejection,
+  live/dead PID restart decisions, and a real two-handle reconciliation race.
+  A separate active-owner-loss matrix places a second SQLite handle exactly
+  between App reconciliation and both claim renewal and observation CAS. It
+  proves deadline-minus-one waiting, equality terminalization, repeated
+  shutdown failure, wrong-effect rejection, live-PID refusal, exact dead-PID
+  restart completion, unrelated-registration preservation, sole exact
+  acknowledgement, and immediate FIFO continuation.
+  An `AgentKind::ALL` end-to-end matrix stalls ordinary accepted work, resumes
+  exact native history in a fresh remote instance through each configured
+  command, observes accepted, progressing, and completed evidence through
+  `AgentController`, and completes recorded response delivery without replaying
+  inbound content.
+  Registration mismatches cover job token, actor, channel, frontend, native
+  session, source, lock PID, and registration actual session, while unrelated
+  registrations remain unchanged. All use injected clocks and recording
+  transports; none use wall-clock sleeps.
   `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the
@@ -1048,16 +1179,16 @@ first move is a failing test that reproduces it, *then* the fix.
 | Location | Scope |
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
-| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
+| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard keeps the model and schema coordinator plus their cohesive identity, conversation, observation, job, claim, effect, notice, and downgrade modules within the production-size prompt. It applies the same bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
 | `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `ReceiverRuntime` retains only intent, freshness gating, the durable run, and a narrowly allowed legacy endpoint lifetime owner for BR-18; the guard rejects activity, input, queue, and socket-consumer behavior. `AppServices` retains the cross-feature sync effect adapter and nonblocking receiver-attachment coordinator behind semantic operations; the guard rejects those effects, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
 | `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: an exact `cfg(test)`-aware Rust module graph defaults undeclared files to production and audits each as an orphan root while preserving declared module identities. A global symbol graph completes imports and aliases across every production source before collecting definitions, then follows exact receiver-owned call edges through neutral helpers, cross-module aliases, qualified-self UFCS, fields, and controller-return chains without same-basename guessing. Ordinary and qualified-self calls, trait implementation nodes, and method return facts canonicalize a generic aliased self type to its underlying identity while retaining the exact trait; direct and inherent methods remain distinct. Ordinary trait visibility follows exact named imports plus finite module and lexical glob exports, honors local shadowing, and refuses to guess across colliding traits. Type roles resolve modules, named imports, direct and nested public glob imports and re-exports, aliases, and generic arguments to exact production symbol identities. Function bodies add lexical frames for block imports, local type declarations and aliases, ordered variable bindings, and function/method/impl generics. Block aliases retain definition-scope targets, substitutions, defaults, and the full lifetime/type/const parameter sequence. Arguments bind by declared kind, including ambiguous bare const paths; explicit types override defaults; omitted defaults may refer to earlier parameters; omitted no-default parameters remain opaque. Generic struct fields align declaration parameters with explicit use-site types and definition-scope defaults before projection. Active alias frames combine the exact declaration with resolved supplied type facts. Finite same-alias arguments resolve before default and target recursion is guarded, while matching non-progress frames terminate self and mutual cycles. Nearest declarations shadow outer aliases, sibling blocks do not inherit one another, and local or generic types resolve before imports and globs. Sequential bindings replace same-scope predecessors only after initializer analysis; `or` patterns alone merge lexical alternatives. Tuple and tuple-struct rest suffixes map from the end, slice rest bindings retain sequence shape, and outer/ref-pattern borrowing propagates through projections. Alias, default, and export graphs terminate cycles, and unknown or ambiguous glob-owned type operations fail closed, so receiver-local same-named `AgentController`, `App`, `BrainPanelState`, and `InboundJob` types remain harmless while canonical aliased, qualified, module-globbed, and block-globbed Brain types stay guarded. Only the exact typed `ServerClient::refresh_enabled_generation` target is a control-capability boundary; every other `ServerClient` method stays receiver-reachable. The call graph rejects reachable main-panel input, activity sampling, Unix socket acceptance or reads before or after job decoding, and broad dead-code masking. Independently, a global semantic pass rejects canonical typed `InboundJob` channel or queue consumption in declared and orphan production modules while allowing unrelated channel/socket code, safe-trait peers, unrelated same-name methods, ordinary interactive APIs, and lifetime-only `JobSocket` ownership. Mutation fixtures cover both same-method implementation orders, aliased ordinary dispatch, aliased qualified-self return propagation, exact-symbol positive and negative controls, module and block glob imports for types and traits, local and ambiguous trait controls, block-local alias targets, generic chains and defaults, partial and explicit overrides, lifetime/const kind alignment, bare/braced/literal const arguments, generic struct fields, aggregate borrowing, exact rest mapping, sequential shadow replacement, finite same-alias nesting, true self/mutual cycles, ambiguous and unknown targets, nested shadowing, local-type and generic controls, declared-neutral direct and indirect typed consumers, dangerous `ServerClient` delegation, and their harmless peers; durable controls compile in the live coordinator, and production source contains exactly one receiver-consumer tick. |
-| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID v8/v9 token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim, exact-owner launch CAS, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative v9-to-v8 downgrade behavior, and receiver-specific pre-migration SQLite lock budgeting. |
+| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, pure recovery decisions at exact deadline boundaries, separate launch/recovery budgets, authorization-time and saturated deadline arithmetic, lifetime versus current-attempt observation evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim shared by ordinary and recovery paths with exact-expiry release and rejected-call preservation, globally oldest recovery gating, exact cleanup-pending acknowledgement including complete-tuple frontend/actor/channel mismatch rejection and dead-PID restart proof, ownerless recovery expiry after reopen, exact recovery-failure terminalization, finite single-writer unavailable-notice handoff with exact acknowledgement and FIFO independence, deterministic separate-handle writer serialization, exact-owner launch CAS, atomic claim of an already-persisted recovery plus failed-CAS preservation, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded ordinary planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative mixed-provenance v9-to-v10 repair, partial schema-v11 notice repair, v11-to-v10 notice downgrade, v10-to-v9 recovery downgrade, v9-to-v8 downgrade behavior, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `tui::app_brain::tests::receiver_durable_attachment_prompt` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode rendering from an already-authorized Fresh/Resume choice: empty transcript, UTF-8-safe newest-context truncation, complete localized path records with honest omission, composed post-staging prompt and shell-command bounds, and both fresh/resume command translations with a non-blank initial prompt. |
 | `tui::receiver::{session_tests,failure_tests}` | Unique remote instances distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for planning, registration, and proved synchronous spawn failure. The retryable failure type excludes post-spawn allocation. |
-| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. The state receiver suite separately proves the v9 every-state down-to-v8 old-claim round trip. |
+| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9/v10/v11 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. Adjacent 0.84.7/0.84.8 tests prove upgrade reconstructs either missing cleanup identifier only from one exact registration/session and conversation/job attribution match, preserves terminal redrive and exact acknowledgement across reopen, refuses wrong acknowledgement, and releases the exact registration and lock only after the right acknowledgement. Ambiguity, effective-session mismatch, and every unique frontend, actor, or channel mismatch for both missing halves fail closed without redrive or resource release. Downgrade makes cleanup-pending recovery non-replayable while retaining its exact tuple and locks. The adjacent 0.84.11/0.84.12 boundary owns only the finite notice lease columns. The state receiver suite separately proves v11 notice down to v10, v10 recovery down to v9, and the v9 every-state down-to-v8 old-claim round trip. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::url::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and `receiver status` reporting the same rows. Pure tests cover channel selection, row rendering, the routing rule the block explains, and the trailing-slash normalization that would otherwise break provider signature verification. |

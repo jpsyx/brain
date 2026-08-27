@@ -38,7 +38,7 @@ impl TestWorkspaceFixture {
         std::fs::write(
             root.join(".config/config.json"),
             serde_json::json!({
-                "claude_cmd": "sh -c 'sleep 30' #",
+                "claude_cmd": "sh -c 'if [ \"$1\" = --version ]; then printf \"2.1.196 (Claude Code)\\n\"; else sleep 30; fi' brain-claude",
                 "codex_cmd": "codex-test",
             })
             .to_string(),

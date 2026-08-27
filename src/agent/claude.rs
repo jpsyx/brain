@@ -1,5 +1,7 @@
 //! Claude Code translation behind the frontend-neutral agent facade.
 
+mod probe;
+
 use std::path::PathBuf;
 
 use crate::agent::{
@@ -13,11 +15,15 @@ mod transcript;
 
 #[cfg(test)]
 pub(crate) use session_registry::SessionClaim;
+use session_registry::read_session_claims;
 pub(crate) use session_registry::session_is_held_by_live_process;
 pub(crate) use transcript::transcript_has_conversation;
-use session_registry::read_session_claims;
 
 pub(crate) const DEFAULT_COMMAND: &str = "claude --dangerously-skip-permissions";
+
+pub(crate) fn compatibility_version(command: &str) -> Result<Option<String>, AgentError> {
+    probe::compatibility(command)
+}
 
 /// Claude Code command, input, completion, and transcript conventions.
 pub(crate) struct ClaudeFrontend {
@@ -171,6 +177,10 @@ impl AgentFrontend for ClaudeFrontend {
         AgentKind::Claude
     }
 
+    fn ensure_available(&self) -> Result<(), AgentError> {
+        probe::ensure_compatible(&self.command)
+    }
+
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         let capability_plan = request.access_policy().capability_plan();
         if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
@@ -246,7 +256,10 @@ impl AgentFrontend for ClaudeFrontend {
     }
 
     fn resume_candidate_exists(&self, session: &AgentSession) -> Result<bool, AgentError> {
-        Ok(self.resumable_transcript(session).is_some() && !self.session_is_held_elsewhere(session))
+        Ok(
+            self.resumable_transcript(session).is_some()
+                && !self.session_is_held_elsewhere(session),
+        )
     }
 
     fn response_id(&self, session: &AgentSession) -> Result<String, AgentError> {

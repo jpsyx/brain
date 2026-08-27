@@ -6,8 +6,8 @@ use serde::Deserialize as _;
 
 use super::{
     ACCEPTED_BIT, AgentObservationBoundary, AgentObservationCursor, AgentObservationError,
-    AgentObservationPhase, AgentObservationRequest, AgentObservationResult, COMPLETED_BIT,
-    LAUNCHED_BIT, PROGRESSING_BIT, is_canonical_uuid, valid_bounded_identifier,
+    AgentObservationPhase, AgentObservationRequest, AgentObservationResult, AgentProgressPulse,
+    COMPLETED_BIT, LAUNCHED_BIT, PROGRESSING_BIT, is_canonical_uuid, valid_bounded_identifier,
 };
 
 const MAX_SNAPSHOT_BYTES: usize = 4096;
@@ -51,6 +51,7 @@ fn normalize_snapshot(
         return Ok(AgentObservationResult {
             session: request.lifecycle_session.clone(),
             boundaries: Vec::new(),
+            progress_pulse: None,
             next_cursor: request.cursor,
         });
     };
@@ -77,6 +78,7 @@ fn normalize_snapshot(
         return Ok(AgentObservationResult {
             session: request.lifecycle_session.clone(),
             boundaries: Vec::new(),
+            progress_pulse: None,
             next_cursor: request.cursor,
         });
     }
@@ -89,20 +91,41 @@ fn normalize_snapshot(
     {
         return Err(AgentObservationError::AmbiguousLifecycle);
     }
-    let boundaries = parsed
+    let boundaries: Vec<_> = parsed
         .boundaries()
         .into_iter()
         .filter(|(bit, _)| request.cursor.represented & bit == 0)
         .map(|(_, boundary)| boundary)
         .collect();
+    let progress_pulse = match (
+        request.cursor.latest_progress_at_unix_ms,
+        parsed.latest_progress_at_unix_ms,
+    ) {
+        (None, Some(observed_at_unix_ms)) => Some(AgentProgressPulse {
+            observed_at_unix_ms,
+        }),
+        (Some(prior), Some(current)) if current > prior => Some(AgentProgressPulse {
+            observed_at_unix_ms: current,
+        }),
+        (Some(prior), Some(current)) if current < prior => {
+            return Err(AgentObservationError::AmbiguousLifecycle);
+        }
+        (Some(_), None) => return Err(AgentObservationError::AmbiguousLifecycle),
+        (None, None) | (Some(_), Some(_)) => None,
+    };
+    if boundaries.is_empty() && progress_pulse.is_none() {
+        return Err(AgentObservationError::AmbiguousLifecycle);
+    }
     Ok(AgentObservationResult {
         session: request.lifecycle_session.clone(),
         boundaries,
+        progress_pulse,
         next_cursor: AgentObservationCursor {
             revision: parsed.revision,
             represented: request.cursor.represented | represented,
             accepted_at_unix_ms: parsed.accepted_at_unix_ms,
             progressing_at_unix_ms: parsed.progressing_at_unix_ms,
+            latest_progress_at_unix_ms: parsed.latest_progress_at_unix_ms,
             completed_at_unix_ms: parsed.completed_at_unix_ms,
         },
     })
@@ -145,6 +168,7 @@ struct RawSnapshot {
     turn_id: Option<String>,
     accepted_at_unix_ms: Option<u64>,
     progressing_at_unix_ms: Option<u64>,
+    latest_progress_at_unix_ms: Option<u64>,
     completed_at_unix_ms: Option<u64>,
 }
 
@@ -159,7 +183,7 @@ impl<'de> serde::Deserialize<'de> for RawSnapshot {
             type Value = RawSnapshot;
 
             fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("the exact ten-field agent observation snapshot")
+                formatter.write_str("the exact eleven-field agent observation snapshot")
             }
 
             fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
@@ -175,6 +199,7 @@ impl<'de> serde::Deserialize<'de> for RawSnapshot {
                 let mut turn_id = None;
                 let mut accepted_at_unix_ms = None;
                 let mut progressing_at_unix_ms = None;
+                let mut latest_progress_at_unix_ms = None;
                 let mut completed_at_unix_ms = None;
                 while let Some(field) = map.next_key::<String>()? {
                     match field.as_str() {
@@ -195,6 +220,9 @@ impl<'de> serde::Deserialize<'de> for RawSnapshot {
                         "progressing_at_unix_ms" if progressing_at_unix_ms.is_none() => {
                             progressing_at_unix_ms = Some(map.next_value()?);
                         }
+                        "latest_progress_at_unix_ms" if latest_progress_at_unix_ms.is_none() => {
+                            latest_progress_at_unix_ms = Some(map.next_value()?);
+                        }
                         "completed_at_unix_ms" if completed_at_unix_ms.is_none() => {
                             completed_at_unix_ms = Some(map.next_value()?);
                         }
@@ -207,6 +235,7 @@ impl<'de> serde::Deserialize<'de> for RawSnapshot {
                         | "turn_id"
                         | "accepted_at_unix_ms"
                         | "progressing_at_unix_ms"
+                        | "latest_progress_at_unix_ms"
                         | "completed_at_unix_ms" => {
                             return Err(serde::de::Error::duplicate_field("observation field"));
                         }
@@ -229,6 +258,9 @@ impl<'de> serde::Deserialize<'de> for RawSnapshot {
                         .ok_or_else(|| serde::de::Error::missing_field("accepted_at_unix_ms"))?,
                     progressing_at_unix_ms: progressing_at_unix_ms
                         .ok_or_else(|| serde::de::Error::missing_field("progressing_at_unix_ms"))?,
+                    latest_progress_at_unix_ms: latest_progress_at_unix_ms.ok_or_else(|| {
+                        serde::de::Error::missing_field("latest_progress_at_unix_ms")
+                    })?,
                     completed_at_unix_ms: completed_at_unix_ms
                         .ok_or_else(|| serde::de::Error::missing_field("completed_at_unix_ms"))?,
                 })
@@ -249,6 +281,7 @@ const SNAPSHOT_FIELDS: &[&str] = &[
     "turn_id",
     "accepted_at_unix_ms",
     "progressing_at_unix_ms",
+    "latest_progress_at_unix_ms",
     "completed_at_unix_ms",
 ];
 
@@ -259,6 +292,7 @@ struct ParsedSnapshot {
     session_id: String,
     accepted_at_unix_ms: Option<u64>,
     progressing_at_unix_ms: Option<u64>,
+    latest_progress_at_unix_ms: Option<u64>,
     completed_at_unix_ms: Option<u64>,
 }
 
@@ -281,14 +315,31 @@ impl TryFrom<RawSnapshot> for ParsedSnapshot {
         }
         let accepted = raw.accepted_at_unix_ms;
         let progressing = raw.progressing_at_unix_ms;
+        let latest_progress = raw.latest_progress_at_unix_ms;
         let completed = raw.completed_at_unix_ms;
         let consistent = match raw.phase.as_str() {
-            "accepted" => accepted.is_some() && progressing.is_none() && completed.is_none(),
-            "progressing" => accepted.is_some() && progressing.is_some() && completed.is_none(),
-            "completed" => completed.is_some() && !(accepted.is_none() && progressing.is_some()),
+            "accepted" => {
+                accepted.is_some()
+                    && progressing.is_none()
+                    && latest_progress.is_none()
+                    && completed.is_none()
+            }
+            "progressing" => {
+                accepted.is_some()
+                    && progressing.is_some()
+                    && latest_progress.is_some()
+                    && completed.is_none()
+            }
+            "completed" => {
+                completed.is_some()
+                    && !(accepted.is_none() && progressing.is_some())
+                    && (progressing.is_none() == latest_progress.is_none())
+            }
             _ => false,
         };
-        if !consistent || !timestamps_are_nondecreasing(accepted, progressing, completed) {
+        if !consistent
+            || !timestamps_are_nondecreasing(accepted, progressing, latest_progress, completed)
+        {
             return Err(AgentObservationError::AmbiguousLifecycle);
         }
         Ok(Self {
@@ -299,6 +350,7 @@ impl TryFrom<RawSnapshot> for ParsedSnapshot {
             session_id: raw.session_id,
             accepted_at_unix_ms: accepted,
             progressing_at_unix_ms: progressing,
+            latest_progress_at_unix_ms: latest_progress,
             completed_at_unix_ms: completed,
         })
     }
@@ -348,9 +400,15 @@ impl ParsedSnapshot {
 fn timestamps_are_nondecreasing(
     accepted: Option<u64>,
     progressing: Option<u64>,
+    latest_progress: Option<u64>,
     completed: Option<u64>,
 ) -> bool {
     !(accepted.zip(progressing).is_some_and(|(a, p)| a > p)
-        || progressing.zip(completed).is_some_and(|(p, c)| p > c)
+        || progressing
+            .zip(latest_progress)
+            .is_some_and(|(p, latest)| p > latest)
+        || latest_progress
+            .zip(completed)
+            .is_some_and(|(latest, c)| latest > c)
         || accepted.zip(completed).is_some_and(|(a, c)| a > c))
 }

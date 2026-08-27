@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::{
     agent::{AgentSession, SessionPlan},
-    state::{ReceiverConversation, ReceiverJob},
+    state::{ReceiverConversation, ReceiverJob, ReceiverJobId, ReceiverJobToken},
 };
 
 pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize =
@@ -19,6 +19,7 @@ const OMITTED_TRANSCRIPT: &str = "[Earlier portable transcript omitted]\n";
 const TRUNCATED_MESSAGE: &str = "\n[Current authenticated message truncated]";
 const LOCAL_ATTACHMENTS_HEADING: &str = "\n\nLocal attachment files:";
 const OMITTED_LOCAL_ATTACHMENTS: &str = "\n[Additional local attachment files omitted]";
+const RECOVERY_ONLY_INSTRUCTION: &str = "Resume the existing native conversation for pending receiver job. Inspect the prior work already present in this session, avoid repeating completed side effects, and finish the pending response. Do not replay the original inbound instruction.";
 
 #[derive(Clone, Copy)]
 enum PromptHistory<'a> {
@@ -73,6 +74,29 @@ pub(crate) fn plan_receiver_launch(
     })
 }
 
+pub(crate) fn plan_receiver_recovery(
+    job_id: ReceiverJobId,
+    token: ReceiverJobToken,
+    session: AgentSession,
+) -> ReceiverLaunchPlan {
+    let marker = receiver_job_token_marker(token);
+    let identity = format!("\n\nOpaque job identifier: {job_id}");
+    let fixed_bytes = RECOVERY_ONLY_INSTRUCTION.len() + identity.len() + marker.len();
+    debug_assert!(fixed_bytes <= RECOVERY_PROMPT_BUDGET_BYTES);
+    let mut prompt = String::with_capacity(fixed_bytes);
+    prompt.push_str(RECOVERY_ONLY_INSTRUCTION);
+    prompt.push_str(&identity);
+    prompt.push_str(&marker);
+    ReceiverLaunchPlan {
+        session_plan: SessionPlan::resume(session),
+        initial_prompt: prompt,
+    }
+}
+
+pub(crate) fn receiver_job_token_marker(token: ReceiverJobToken) -> String {
+    format!("\n<!-- brain:receiver-job-token={token} -->")
+}
+
 fn current_message_parts<'job>(
     job: &'job ReceiverJob,
     local_attachment_paths: &[&Path],
@@ -99,7 +123,7 @@ fn bounded_receiver_prompt(
     attachment_lines: &[String],
     token: crate::state::ReceiverJobToken,
 ) -> String {
-    let marker = format!("\n<!-- brain:receiver-job-token={token} -->");
+    let marker = receiver_job_token_marker(token);
     let history_fixed_bytes = match history {
         PromptHistory::NativeResume => 0,
         PromptHistory::PortableRecovery(_) => {

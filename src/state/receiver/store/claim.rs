@@ -7,7 +7,9 @@ use crate::state::{
     ReceiverLaunchRetryOutcome,
 };
 
+mod live;
 mod next;
+mod recovery;
 mod restart;
 
 impl Db {
@@ -18,6 +20,36 @@ impl Db {
         owner: &str,
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
+        self.prepare_receiver_job_launch_for_attempt(
+            job_id,
+            owner,
+            observed_at_unix_ms,
+            crate::state::ReceiverAttemptKind::Ordinary,
+        )
+    }
+
+    /// Atomically prepare one exact live recovery owner for launch.
+    pub fn prepare_receiver_recovery_job_launch(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.prepare_receiver_job_launch_for_attempt(
+            job_id,
+            owner,
+            observed_at_unix_ms,
+            crate::state::ReceiverAttemptKind::Recovery,
+        )
+    }
+
+    fn prepare_receiver_job_launch_for_attempt(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observed_at_unix_ms: u64,
+        expected_attempt: crate::state::ReceiverAttemptKind,
+    ) -> Result<bool> {
         let owner = validated_owner(owner)?;
         let observed = to_i64(observed_at_unix_ms, "receiver launch preparation time")?;
         Ok(self.conn.execute(
@@ -26,6 +58,7 @@ impl Db {
                  retry_from_state = NULL, updated_at_unix_ms = ?4
              WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                AND claim_expires_at_unix_ms > ?4
+               AND attempt_kind = ?5
                AND (
                  state = 'claimed'
                  OR (
@@ -33,7 +66,16 @@ impl Db {
                    AND retry_from_state IN ('claimed', 'launching')
                  )
                )",
-            rusqlite::params![self.workspace_id, job_id.to_string(), owner, observed],
+            rusqlite::params![
+                self.workspace_id,
+                job_id.to_string(),
+                owner,
+                observed,
+                match expected_attempt {
+                    crate::state::ReceiverAttemptKind::Ordinary => "ordinary",
+                    crate::state::ReceiverAttemptKind::Recovery => "recovery",
+                },
+            ],
         )? == 1)
     }
 
@@ -63,6 +105,7 @@ impl Db {
                 "SELECT retry_count FROM receiver_jobs
                  WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                    AND claim_expires_at_unix_ms > ?4
+                   AND attempt_kind = 'ordinary'
                    AND (
                      state = ?5
                      OR (
@@ -101,6 +144,7 @@ impl Db {
                  updated_at_unix_ms = ?4
              WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
                AND claim_expires_at_unix_ms > ?4
+               AND attempt_kind = 'ordinary'
                AND (
                  state = ?5
                  OR (

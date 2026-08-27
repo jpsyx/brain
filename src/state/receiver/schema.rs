@@ -3,12 +3,17 @@ use rusqlite::{Connection, OptionalExtension as _};
 
 use super::ReceiverJobToken;
 
+mod downgrade;
+mod notice;
+mod recovery;
 mod token;
 use token::populate_job_tokens;
 
-pub(super) const VERSION: i32 = 9;
-const REGISTRATION_VERSION: i32 = 8;
-const LAUNCH_VERSION: i32 = 7;
+pub(super) const VERSION: i32 = 11;
+pub(super) const RECOVERY_VERSION: i32 = 10;
+pub(super) const OBSERVATION_VERSION: i32 = 9;
+pub(super) const REGISTRATION_VERSION: i32 = 8;
+pub(super) const LAUNCH_VERSION: i32 = 7;
 
 pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Result<()> {
     up_with_token_factory(connection, current_version, ReceiverJobToken::new)
@@ -19,7 +24,9 @@ pub(super) fn up_with_token_factory(
     current_version: i32,
     mut next_token: impl FnMut() -> ReceiverJobToken,
 ) -> Result<()> {
-    let transaction = connection.unchecked_transaction()?;
+    let transaction =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
+    let had_any_recovery_column = recovery::had_any_column(&transaction);
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS receiver_conversations (
            conversation_id      TEXT PRIMARY KEY,
@@ -64,8 +71,27 @@ pub(super) fn up_with_token_factory(
            observation_instance      TEXT,
            observation_session_id    TEXT,
            observation_revision      INTEGER NOT NULL DEFAULT 0 CHECK (observation_revision >= 0),
+           attempt_accepted_at_unix_ms INTEGER,
+           attempt_progressing_at_unix_ms INTEGER,
+           latest_progress_at_unix_ms INTEGER,
+           launch_expires_at_unix_ms INTEGER,
+           acceptance_expires_at_unix_ms INTEGER,
+           progress_expires_at_unix_ms INTEGER,
+           recovery_expires_at_unix_ms INTEGER,
+           absolute_work_expires_at_unix_ms INTEGER,
+           recovery_count            INTEGER NOT NULL DEFAULT 0 CHECK (recovery_count >= 0),
+           attempt_kind              TEXT NOT NULL DEFAULT 'ordinary'
+             CHECK (attempt_kind IN ('ordinary', 'recovery')),
+           pending_unavailable_notice INTEGER NOT NULL DEFAULT 0
+             CHECK (pending_unavailable_notice IN (0, 1)),
+           recovery_cleanup_instance  TEXT,
+           recovery_cleanup_session_id TEXT,
+           unavailable_notice_owner TEXT,
+           unavailable_notice_expires_at_unix_ms INTEGER,
            UNIQUE (workspace_id, channel, provider_id),
-           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL))
+           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL)),
+           CHECK ((recovery_cleanup_instance IS NULL) =
+                  (recovery_cleanup_session_id IS NULL))
          );
          CREATE INDEX IF NOT EXISTS receiver_jobs_ready
            ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);
@@ -92,6 +118,12 @@ pub(super) fn up_with_token_factory(
     ensure_token_column(&transaction, &mut next_token)?;
     rebuild_v8_jobs_for_observations(&transaction)?;
     ensure_observation_columns(&transaction, &mut next_token)?;
+    recovery::ensure_columns(&transaction)?;
+    ensure_unavailable_notice_columns(&transaction)?;
+    if current_version < VERSION && !had_any_recovery_column {
+        recovery::migrate_v9_metadata(&transaction)?;
+    }
+    recovery::reconcile_metadata(&transaction)?;
     if current_version < VERSION {
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
@@ -238,7 +270,7 @@ fn has_launch_retry_origin(connection: &Connection) -> Result<bool> {
     has_column(connection, "retry_from_state")
 }
 
-fn has_column(connection: &Connection, name: &str) -> Result<bool> {
+pub(super) fn has_column(connection: &Connection, name: &str) -> Result<bool> {
     Ok(connection.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM pragma_table_info('receiver_jobs')
@@ -249,121 +281,18 @@ fn has_column(connection: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
-pub(crate) fn down_observation_to_registration_path(path: &std::path::Path) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let connection = Connection::open(path)?;
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != VERSION {
-        return Ok(());
-    }
-    let transaction = connection.unchecked_transaction()?;
-    transaction.execute_batch(
-        "DROP INDEX IF EXISTS receiver_jobs_ready;
-         DROP INDEX IF EXISTS receiver_jobs_job_token;
-         ALTER TABLE receiver_jobs RENAME TO receiver_jobs_v9;
-         CREATE TABLE receiver_jobs (
-           job_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
-           conversation_id TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
-           channel TEXT NOT NULL CHECK (channel IN ('sms', 'email')), provider_id TEXT,
-           inbound_json TEXT NOT NULL,
-           state TEXT NOT NULL CHECK (state IN ('queued', 'claimed', 'launching', 'accepted', 'processing', 'answer-ready', 'delivering', 'retrying', 'failed', 'done')),
-           received_at_unix_ms INTEGER NOT NULL, updated_at_unix_ms INTEGER NOT NULL,
-           claim_owner TEXT, claim_expires_at_unix_ms INTEGER,
-           retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0), retry_at_unix_ms INTEGER,
-           retry_from_state TEXT CHECK (retry_from_state IN ('claimed', 'launching', 'accepted', 'processing', 'delivering')),
-           last_error TEXT, UNIQUE (workspace_id, channel, provider_id),
-           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL))
-         );
-         INSERT INTO receiver_jobs
-           (job_id, workspace_id, conversation_id, channel, provider_id, inbound_json, state,
-            received_at_unix_ms, updated_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
-            retry_count, retry_at_unix_ms, retry_from_state, last_error)
-         SELECT job_id, workspace_id, conversation_id, channel, provider_id, inbound_json,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN 'failed' ELSE state END,
-            received_at_unix_ms, updated_at_unix_ms,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN NULL ELSE claim_owner END,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN NULL ELSE claim_expires_at_unix_ms END,
-            retry_count,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN NULL ELSE retry_at_unix_ms END,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN NULL ELSE retry_from_state END,
-            CASE WHEN state IN (
-              'launching', 'launched', 'accepted', 'processing',
-              'answer-ready', 'delivering', 'retrying'
-            ) THEN 'downgrade-no-replay' ELSE last_error END
-         FROM receiver_jobs_v9;
-         DROP TABLE receiver_jobs_v9;
-         CREATE INDEX receiver_jobs_ready ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
-    )?;
-    transaction.pragma_update(None, "user_version", REGISTRATION_VERSION)?;
-    transaction.commit()?;
-    Ok(())
-}
+pub(crate) use downgrade::{
+    down_observation_to_registration_path, down_path, down_registration_to_launch_path,
+    down_to_previous_path,
+};
+pub(crate) use notice::down_unavailable_notice_path;
+#[cfg(test)]
+pub(super) use notice::down_unavailable_notice_path_with_busy_observer;
+pub(crate) use recovery::down_cleanup_fence_path;
+pub(crate) use recovery::down_to_observation_path as down_recovery_to_observation_path;
+#[cfg(test)]
+pub(in crate::state::receiver) use recovery::{
+    down_cleanup_fence_path_with_busy_observer, down_to_observation_path_with_busy_observer,
+};
 
-pub(crate) fn down_to_previous_path(path: &std::path::Path) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let connection = Connection::open(path)?;
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != LAUNCH_VERSION {
-        return Ok(());
-    }
-    let transaction = connection.unchecked_transaction()?;
-    transaction.execute_batch("ALTER TABLE receiver_jobs DROP COLUMN retry_from_state;")?;
-    transaction.pragma_update(None, "user_version", LAUNCH_VERSION - 1)?;
-    transaction.commit()?;
-    Ok(())
-}
-
-pub(crate) fn down_registration_to_launch_path(path: &std::path::Path) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let connection = Connection::open(path)?;
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != REGISTRATION_VERSION {
-        return Ok(());
-    }
-    let transaction = connection.unchecked_transaction()?;
-    transaction.execute_batch("DROP TABLE IF EXISTS receiver_session_registrations;")?;
-    transaction.pragma_update(None, "user_version", LAUNCH_VERSION)?;
-    transaction.commit()?;
-    Ok(())
-}
-
-pub(crate) fn down_path(path: &std::path::Path) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    let connection = Connection::open(path)?;
-    let transaction = connection.unchecked_transaction()?;
-    transaction.execute_batch(
-        "DROP TABLE IF EXISTS receiver_session_registrations;
-         DROP INDEX IF EXISTS receiver_jobs_ready;
-         DROP TABLE IF EXISTS receiver_jobs;
-         DROP TABLE IF EXISTS receiver_conversations;",
-    )?;
-    let version: i32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if matches!(version, VERSION | LAUNCH_VERSION | 6) {
-        transaction.pragma_update(None, "user_version", 5)?;
-    }
-    transaction.commit()?;
-    Ok(())
-}
+use notice::ensure_unavailable_notice_columns;

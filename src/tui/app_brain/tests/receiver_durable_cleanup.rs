@@ -215,6 +215,7 @@ fn write_completed_snapshot(app: &App, session: &AgentSession) {
             "turn_id": null,
             "accepted_at_unix_ms": null,
             "progressing_at_unix_ms": null,
+            "latest_progress_at_unix_ms": null,
             "completed_at_unix_ms": 1_200,
         })
         .to_string(),

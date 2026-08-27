@@ -257,6 +257,16 @@ fn pending_freshness_claim_remains_managed_after_receiver_intent_is_disabled() {
     runtime.advance(std::time::Duration::from_millis(250));
     app.tick_receiver();
 
+    assert!(app.brain.receiver_run_observations().is_empty());
+    assert_eq!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Claimed
+    );
+    assert!(transport.launch_specs().is_empty());
+
+    app.receiver.record_intent(true);
+    app.tick_receiver();
+
     assert_eq!(app.brain.receiver_run_observations().len(), 1);
     assert_eq!(
         app.brain.receiver_run_observations()[0].job_id,

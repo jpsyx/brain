@@ -209,12 +209,14 @@ pub fn format_doctor_plan(
     theme: crate::theme::Theme,
 ) -> String {
     format!(
-        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
         theme.heading("Checking brain task environment"),
         theme.muted("state DB:"),
         theme.value(&db_path.display().to_string()),
         theme.muted("SessionStart hook:"),
         theme.value(&settings_path.display().to_string()),
+        theme.muted("Claude:"),
+        "probing configured command",
         theme.muted("OpenCode:"),
         "probing configured command",
         theme.muted("rclone:"),

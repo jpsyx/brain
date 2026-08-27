@@ -32,7 +32,6 @@ impl App {
         claimed: ClaimedReceiverRun,
         attachments: PreparedReceiverAttachments,
     ) {
-        let staged_attachment_work = !attachments.staged().is_empty();
         let now = self.receiver_now_unix_ms();
         match self.services.renew_receiver_claim(
             claimed.claim.job().id(),
@@ -40,7 +39,7 @@ impl App {
             now,
             now.saturating_add(CLAIM_LIFETIME_MS),
         ) {
-            Ok(true) if self.receiver.is_enabled() || !staged_attachment_work => {
+            Ok(true) if self.receiver.is_enabled() => {
                 self.launch_claimed_receiver_run_with_attachments(claimed, attachments);
             }
             Ok(true) => {

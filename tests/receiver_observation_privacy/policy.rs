@@ -1,9 +1,89 @@
 use std::path::{Path, PathBuf};
 
+#[path = "policy/debug_impl.rs"]
+mod debug_impl;
+#[path = "policy/debug_tests.rs"]
+mod debug_tests;
+#[path = "policy/diagnostics.rs"]
+mod diagnostics;
 #[path = "policy/literals.rs"]
 mod literals;
 
+use diagnostics::privacy_diagnostic_violations;
 use literals::source_privacy_violations;
+
+#[test]
+fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut privacy_tests = Vec::new();
+    collect_sources(
+        &root.join("tests/receiver_observation_privacy"),
+        &mut privacy_tests,
+    );
+    privacy_tests.push(root.join("tests/receiver_observation_privacy.rs"));
+    privacy_tests.push(root.join("tests/workspace_capabilities/frontend_redaction.rs"));
+    for (case_index, path) in privacy_tests.into_iter().enumerate() {
+        let source = std::fs::read_to_string(&path).expect("privacy harness source");
+        assert!(
+            privacy_diagnostic_violations(&source).is_empty(),
+            "privacy test contains unsafe diagnostics at case index {case_index}"
+        );
+    }
+}
+
+#[test]
+fn diagnostic_policy_rejects_private_echo_forms() {
+    let mutations = [
+        mutation(&[
+            "assert_eq!(format!(\"",
+            "{",
+            "request",
+            ":?",
+            "}",
+            "\"), expected);",
+        ]),
+        mutation(&["assert_eq!(child[\"session_id\"], expected);"]),
+        mutation(&[
+            "panic!(\"producer failed: ",
+            "{",
+            "output",
+            ":?",
+            "}",
+            "\");",
+        ]),
+        mutation(&["panic!(\"stdout: {}\", String::from_utf8_lossy(&output.stdout));"]),
+        mutation(&["panic!(\"stderr: {}\", String::from_utf8_lossy(&output.stderr));"]),
+        interpolation_mutation("canary"),
+        interpolation_mutation("token"),
+        interpolation_mutation("secret"),
+        interpolation_mutation("literal"),
+        interpolation_mutation("rendered"),
+        mutation(&["assert_eq!(rendered, expected); assert_private_absent(\"shape\", &rendered);"]),
+    ];
+
+    for (case_index, mutation) in mutations.iter().enumerate() {
+        assert!(
+            !privacy_diagnostic_violations(mutation).is_empty(),
+            "privacy diagnostic mutation was accepted at case index {case_index}"
+        );
+    }
+}
+
+fn interpolation_mutation(identifier: &str) -> String {
+    mutation(&[
+        "assert!(!value.contains(",
+        identifier,
+        "), \"leaked ",
+        "{",
+        identifier,
+        "}",
+        "\");",
+    ])
+}
+
+fn mutation(parts: &[&str]) -> String {
+    parts.concat()
+}
 
 #[test]
 fn every_semantically_relevant_observation_and_completion_source_is_audited() {
@@ -27,7 +107,7 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
         "tests/fixtures/opencode/plugin_harness.js",
         "src/tui/app_brain/tests/receiver_durable_observation_composed.rs",
         "src/tui/app_brain/tests/receiver_durable_observation_replacement.rs",
-        "src/tui/app_brain/tests/receiver_durable_producer_matrix.rs",
+        "src/tui/app_brain/tests/receiver_durable_producer_support.rs",
     ] {
         assert!(
             audited.contains(&PathBuf::from(required)),
@@ -36,14 +116,14 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
     }
     assert!(
         audited.len() >= 50,
-        "semantic discovery unexpectedly narrowed: {audited:?}"
+        "semantic privacy discovery unexpectedly narrowed"
     );
 
     for relative in audited {
         let violations = source_privacy_violations_for_path(root, &relative);
         assert!(
             violations.is_empty(),
-            "{} contains private literals: {violations:?}",
+            "{} contains private literals",
             relative.display()
         );
     }
@@ -141,7 +221,10 @@ fn generic_home_email_and_host_literals_remain_allowed() {
         const IPV6_DOCUMENTATION: &str = "2001:db8::1";
     "#;
 
-    assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
+    assert!(
+        source_privacy_violations(source, true).is_empty(),
+        "generic privacy literals were rejected"
+    );
 }
 
 #[test]
@@ -208,7 +291,7 @@ pub(super) fn discover_relevant_sources(root: &Path) -> Vec<PathBuf> {
 
 fn source_privacy_violations_for_path(root: &Path, relative: &Path) -> Vec<&'static str> {
     let source = std::fs::read_to_string(root.join(relative))
-        .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
+        .unwrap_or_else(|error| panic!("read privacy source: {error}"));
     source_privacy_violations(&source, is_path_based_producer(relative))
 }
 
@@ -220,7 +303,7 @@ fn is_path_based_producer(relative: &Path) -> bool {
 
 fn collect_sources(directory: &Path, output: &mut Vec<PathBuf>) {
     let mut entries = std::fs::read_dir(directory)
-        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
+        .unwrap_or_else(|error| panic!("read privacy source directory: {error}"))
         .collect::<Result<Vec<_>, _>>()
         .expect("source directory entries");
     entries.sort_by_key(std::fs::DirEntry::file_name);

@@ -346,7 +346,8 @@ fn every_frontend_observes_the_same_normalized_lifecycle_contract() {
             AgentObservationBoundary::new(AgentObservationPhase::Progressing, 1_100),
             AgentObservationBoundary::new(AgentObservationPhase::Completed, 1_200),
         ],
-        AgentObservationCursor::at_revision(3, Some(1_000), Some(1_100), Some(1_200)),
+        Some(crate::agent::AgentProgressPulse::new(1_100)),
+        AgentObservationCursor::at_revision(3, Some(1_000), Some(1_100), Some(1_100), Some(1_200)),
     );
 
     for case in frontend_contracts() {
@@ -367,7 +368,7 @@ fn every_frontend_observes_the_same_normalized_lifecycle_contract() {
         std::fs::write(
             &path,
             format!(
-                r#"{{"version":1,"revision":3,"phase":"completed","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":"turn-9","accepted_at_unix_ms":1000,"progressing_at_unix_ms":1100,"completed_at_unix_ms":1200}}"#,
+                r#"{{"version":1,"revision":3,"phase":"completed","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":"turn-9","accepted_at_unix_ms":1000,"progressing_at_unix_ms":1100,"latest_progress_at_unix_ms":1100,"completed_at_unix_ms":1200}}"#,
                 session.as_str()
             ),
         )
@@ -423,6 +424,70 @@ fn every_frontend_observes_the_same_normalized_lifecycle_contract() {
             controller.observe(&placeholder_request),
             Err(crate::agent::AgentObservationError::PlaceholderSession),
             "{} placeholder session",
+            case.label
+        );
+    }
+}
+
+#[test]
+fn every_frontend_observes_a_newer_progress_pulse_without_a_new_phase() {
+    let token = "6c06c55a-a9cf-4d75-b14e-75a5900c9088";
+    let instance = "5cbd43f1-cc3f-4bc4-81ad-acad2bf85d39";
+    let session = AgentSession::new("native-session-7").expect("native session");
+
+    for case in frontend_contracts() {
+        let (_temporary, command) = configured_command_context();
+        let db = Db::open(&command.workspace).expect("state database");
+        let scope = SessionScope::new(case.kind, command.workspace.id(), actor());
+        SessionStore::register(&db, &session, instance, 42, &scope).expect("owned session");
+        let path = command
+            .workspace
+            .paths()
+            .receiver_observations_dir()
+            .join(format!("{instance}.json"));
+        std::fs::create_dir_all(path.parent().expect("observation parent"))
+            .expect("observation directory");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"version":1,"revision":3,"phase":"progressing","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":"turn-10","accepted_at_unix_ms":1000,"progressing_at_unix_ms":1100,"latest_progress_at_unix_ms":1200,"completed_at_unix_ms":null}}"#,
+                session.as_str()
+            ),
+        )
+        .expect("observation snapshot");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("owner-only observation");
+        }
+        let controller = AgentController::new(
+            Arc::clone(&command.workspace),
+            actor(),
+            (case.frontend)(case.configured_value),
+            Box::new(ObservationTransport),
+        );
+        let cursor =
+            AgentObservationCursor::from_durable(2, Some(1_000), Some(1_100), Some(1_100), None)
+                .expect("durable progress cursor");
+        let result = controller
+            .observe(&AgentObservationRequest::new(
+                token,
+                instance,
+                path,
+                session.clone(),
+                cursor,
+            ))
+            .expect("newer progress pulse");
+
+        assert!(result.boundaries().is_empty(), "{} phase", case.label);
+        assert_eq!(
+            result
+                .progress_pulse()
+                .expect("frontend progress pulse")
+                .observed_at_unix_ms(),
+            1_200,
+            "{} pulse",
             case.label
         );
     }
@@ -517,7 +582,7 @@ fn controller_discards_observations_when_ownership_rotates_during_the_poll() {
     std::fs::write(
         &path,
         format!(
-            r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"completed_at_unix_ms":null}}"#,
+            r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{token}","instance_id":"{instance}","session_id":"{}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"latest_progress_at_unix_ms":null,"completed_at_unix_ms":null}}"#,
             session.as_str()
         ),
     )

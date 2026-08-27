@@ -47,3 +47,34 @@ fn is_numbered_fragment(filename: &str) -> bool {
             !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
         })
 }
+
+#[test]
+fn receiver_recovery_model_and_schema_use_cohesive_modules() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for relative in [
+        "src/state/receiver/model.rs",
+        "src/state/receiver/model/claim.rs",
+        "src/state/receiver/model/conversation.rs",
+        "src/state/receiver/model/effect.rs",
+        "src/state/receiver/model/identity.rs",
+        "src/state/receiver/model/job.rs",
+        "src/state/receiver/model/observation.rs",
+        "src/state/receiver/schema.rs",
+        "src/state/receiver/schema/downgrade.rs",
+        "src/state/receiver/schema/notice.rs",
+        "src/tui/app_brain/tests/receiver_durable_producer_matrix.rs",
+        "src/tui/app_brain/tests/receiver_durable_producer_support.rs",
+        "src/tui/app_brain/tests/receiver_recovery_native_cleanup.rs",
+        "src/tui/app_brain/tests/receiver_recovery_native_cleanup_support.rs",
+    ] {
+        let source = std::fs::read_to_string(root.join(relative)).expect("receiver module source");
+        let production_lines = source
+            .lines()
+            .take_while(|line| *line != "#[cfg(test)]")
+            .count();
+        assert!(
+            production_lines <= 400,
+            "{relative} has {production_lines} production lines"
+        );
+    }
+}

@@ -23,6 +23,7 @@ pub struct AgentObservationCursor {
     represented: u8,
     accepted_at_unix_ms: Option<u64>,
     progressing_at_unix_ms: Option<u64>,
+    latest_progress_at_unix_ms: Option<u64>,
     completed_at_unix_ms: Option<u64>,
 }
 
@@ -35,6 +36,7 @@ impl AgentObservationCursor {
             represented: LAUNCHED_BIT,
             accepted_at_unix_ms: None,
             progressing_at_unix_ms: None,
+            latest_progress_at_unix_ms: None,
             completed_at_unix_ms: None,
         }
     }
@@ -49,12 +51,14 @@ impl AgentObservationCursor {
         revision: u64,
         accepted_at_unix_ms: Option<u64>,
         progressing_at_unix_ms: Option<u64>,
+        latest_progress_at_unix_ms: Option<u64>,
         completed_at_unix_ms: Option<u64>,
     ) -> Result<Self, AgentObservationError> {
         let revision =
             i64::try_from(revision).map_err(|_| AgentObservationError::AmbiguousLifecycle)?;
         let has_evidence = accepted_at_unix_ms.is_some()
             || progressing_at_unix_ms.is_some()
+            || latest_progress_at_unix_ms.is_some()
             || completed_at_unix_ms.is_some();
         let ordered = accepted_at_unix_ms
             .zip(progressing_at_unix_ms)
@@ -63,9 +67,13 @@ impl AgentObservationCursor {
                 .zip(completed_at_unix_ms)
                 .is_none_or(|(accepted, completed)| accepted <= completed)
             && progressing_at_unix_ms
+                .zip(latest_progress_at_unix_ms)
+                .is_none_or(|(progressing, latest)| progressing <= latest)
+            && latest_progress_at_unix_ms
                 .zip(completed_at_unix_ms)
-                .is_none_or(|(progressing, completed)| progressing <= completed);
+                .is_none_or(|(latest, completed)| latest <= completed);
         if (revision == 0) == has_evidence
+            || progressing_at_unix_ms.is_some() != latest_progress_at_unix_ms.is_some()
             || progressing_at_unix_ms.is_some() && accepted_at_unix_ms.is_none()
             || !ordered
         {
@@ -80,8 +88,13 @@ impl AgentObservationCursor {
             represented,
             accepted_at_unix_ms,
             progressing_at_unix_ms,
+            latest_progress_at_unix_ms,
             completed_at_unix_ms,
         })
+    }
+
+    pub(crate) fn durable_revision(self) -> u64 {
+        u64::try_from(self.revision).expect("validated observation revisions are nonnegative")
     }
 
     #[cfg(test)]
@@ -89,6 +102,7 @@ impl AgentObservationCursor {
         revision: i64,
         accepted_at_unix_ms: Option<u64>,
         progressing_at_unix_ms: Option<u64>,
+        latest_progress_at_unix_ms: Option<u64>,
         completed_at_unix_ms: Option<u64>,
     ) -> Self {
         Self {
@@ -96,6 +110,7 @@ impl AgentObservationCursor {
             represented: LAUNCHED_BIT | ACCEPTED_BIT | PROGRESSING_BIT | COMPLETED_BIT,
             accepted_at_unix_ms,
             progressing_at_unix_ms,
+            latest_progress_at_unix_ms,
             completed_at_unix_ms,
         }
     }
@@ -119,6 +134,27 @@ pub enum AgentObservationPhase {
 pub struct AgentObservationBoundary {
     phase: AgentObservationPhase,
     observed_at_unix_ms: u64,
+}
+
+/// One newer content-free progress fact within an established phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentProgressPulse {
+    observed_at_unix_ms: u64,
+}
+
+impl AgentProgressPulse {
+    #[cfg(test)]
+    pub(crate) const fn new(observed_at_unix_ms: u64) -> Self {
+        Self {
+            observed_at_unix_ms,
+        }
+    }
+
+    /// Producer timestamp retained only as monotonic evidence.
+    #[must_use]
+    pub const fn observed_at_unix_ms(self) -> u64 {
+        self.observed_at_unix_ms
+    }
 }
 
 impl AgentObservationBoundary {
@@ -180,11 +216,18 @@ impl std::fmt::Debug for AgentObservationRequest {
 }
 
 /// Content-free observations from one bounded poll.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AgentObservationResult {
     session: AgentSession,
     boundaries: Vec<AgentObservationBoundary>,
+    progress_pulse: Option<AgentProgressPulse>,
     next_cursor: AgentObservationCursor,
+}
+
+impl std::fmt::Debug for AgentObservationResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AgentObservationResult(<redacted>)")
+    }
 }
 
 impl AgentObservationResult {
@@ -192,11 +235,13 @@ impl AgentObservationResult {
     pub(crate) fn new(
         session: AgentSession,
         boundaries: Vec<AgentObservationBoundary>,
+        progress_pulse: Option<AgentProgressPulse>,
         next_cursor: AgentObservationCursor,
     ) -> Self {
         Self {
             session,
             boundaries,
+            progress_pulse,
             next_cursor,
         }
     }
@@ -213,17 +258,30 @@ impl AgentObservationResult {
         &self.boundaries
     }
 
+    /// Newer progress evidence, including the first progressing boundary.
+    #[must_use]
+    pub const fn progress_pulse(&self) -> Option<AgentProgressPulse> {
+        self.progress_pulse
+    }
+
+    /// Whether this poll carries any fact that is newer than the supplied cursor.
+    #[must_use]
+    pub fn has_updates(&self) -> bool {
+        !self.boundaries.is_empty() || self.progress_pulse.is_some()
+    }
+
+    /// Whether this poll carries the terminal lifecycle boundary.
+    #[must_use]
+    pub fn is_completed(&self) -> bool {
+        self.boundaries
+            .iter()
+            .any(|boundary| boundary.phase() == AgentObservationPhase::Completed)
+    }
+
     /// Cursor to supply to the next poll.
     #[must_use]
     pub const fn next_cursor(&self) -> AgentObservationCursor {
         self.next_cursor
-    }
-
-    /// Snapshot revision represented by this successful bounded poll.
-    #[must_use]
-    pub fn snapshot_revision(&self) -> u64 {
-        u64::try_from(self.next_cursor.revision)
-            .expect("validated observation revisions are nonnegative")
     }
 }
 
@@ -361,3 +419,6 @@ mod tests;
 
 #[cfg(test)]
 mod file_tests;
+
+#[cfg(test)]
+mod privacy_tests;

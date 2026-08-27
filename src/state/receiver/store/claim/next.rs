@@ -3,8 +3,10 @@
 use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
-use super::restart::has_ready_restart;
-use crate::state::{Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim};
+use super::{live::has_live_receiver_claim, restart::has_ready_restart};
+use crate::state::{
+    Db, ReceiverClaim, ReceiverJobId, ReceiverRunClaim, receiver_launch_expires_at,
+};
 
 use super::super::{
     load::{load_receiver_conversation, load_receiver_job},
@@ -14,6 +16,7 @@ use super::super::{
 struct ClaimCandidate {
     job_id: String,
     state: String,
+    attempt_kind: String,
 }
 
 impl Db {
@@ -43,6 +46,10 @@ impl Db {
         );
         let now = to_i64(now_unix_ms, "receiver claim time")?;
         let expires = to_i64(expires_at_unix_ms, "receiver claim expiry")?;
+        let launch_expires = to_i64(
+            receiver_launch_expires_at(now_unix_ms),
+            "receiver launch expiry",
+        )?;
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
@@ -50,10 +57,16 @@ impl Db {
         if has_ready_restart(&transaction, &self.workspace_id)? {
             return Ok(None);
         }
+        if has_live_receiver_claim(&transaction, &self.workspace_id, now)? {
+            return Ok(None);
+        }
         let candidate = oldest_ready_candidate(&transaction, &self.workspace_id, now)?;
         let Some(candidate) = candidate else {
             return Ok(None);
         };
+        if candidate.attempt_kind == "recovery" {
+            return Ok(None);
+        }
         if matches!(
             candidate.state.as_str(),
             "launching" | "launched" | "accepted" | "processing"
@@ -67,6 +80,7 @@ impl Db {
             owner,
             now,
             expires,
+            launch_expires,
         )? {
             return Ok(None);
         }
@@ -88,7 +102,7 @@ fn oldest_ready_candidate(
 ) -> Result<Option<ClaimCandidate>> {
     Ok(transaction
         .query_row(
-            "SELECT job_id, state
+            "SELECT job_id, state, attempt_kind
              FROM receiver_jobs
              WHERE workspace_id = ?1
                AND (
@@ -101,13 +115,6 @@ fn oldest_ready_candidate(
                  )
                )
                AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)
-               AND NOT EXISTS (
-                 SELECT 1 FROM receiver_jobs AS live
-                 WHERE live.workspace_id = ?1
-                   AND live.claim_owner IS NOT NULL
-                   AND live.claim_expires_at_unix_ms > ?2
-                   AND live.state NOT IN ('failed', 'done')
-               )
              ORDER BY received_at_unix_ms, job_id
              LIMIT 1",
             rusqlite::params![workspace_id, now],
@@ -115,6 +122,7 @@ fn oldest_ready_candidate(
                 Ok(ClaimCandidate {
                     job_id: row.get(0)?,
                     state: row.get(1)?,
+                    attempt_kind: row.get(2)?,
                 })
             },
         )
@@ -128,16 +136,22 @@ fn replace_candidate_lease(
     owner: &str,
     now: i64,
     expires: i64,
+    launch_expires: i64,
 ) -> Result<bool> {
     Ok(transaction.execute(
         "UPDATE receiver_jobs
          SET state = CASE WHEN state = 'queued' THEN 'claimed' ELSE state END,
              claim_owner = ?3, claim_expires_at_unix_ms = ?4,
+             launch_expires_at_unix_ms = CASE
+               WHEN state = 'queued'
+                 OR (state = 'retrying' AND retry_from_state IN ('claimed', 'launching'))
+               THEN ?6 ELSE launch_expires_at_unix_ms END,
              updated_at_unix_ms = ?2
          WHERE workspace_id = ?1 AND job_id = ?5
            AND (
              state = 'queued'
-             OR (state = 'retrying' AND retry_at_unix_ms <= ?2)
+             OR (state = 'retrying' AND retry_at_unix_ms <= ?2
+                 AND attempt_kind = 'ordinary')
              OR (
                state NOT IN ('failed', 'done')
                AND claim_owner IS NOT NULL
@@ -145,18 +159,12 @@ fn replace_candidate_lease(
              )
            )
            AND (claim_owner IS NULL OR claim_expires_at_unix_ms <= ?2)
-           AND NOT EXISTS (
-             SELECT 1 FROM receiver_jobs AS live
-             WHERE live.workspace_id = ?1
-               AND live.claim_owner IS NOT NULL
-               AND live.claim_expires_at_unix_ms > ?2
-               AND live.state NOT IN ('failed', 'done')
-           )",
-        rusqlite::params![workspace_id, now, owner, expires, job_id],
+           AND attempt_kind = 'ordinary'",
+        rusqlite::params![workspace_id, now, owner, expires, job_id, launch_expires],
     )? == 1)
 }
 
-fn commit_loaded_claim(
+pub(super) fn commit_loaded_claim(
     transaction: rusqlite::Transaction<'_>,
     workspace_id: &str,
     candidate: &str,

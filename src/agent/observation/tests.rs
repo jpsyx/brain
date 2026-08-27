@@ -50,6 +50,7 @@ fn snapshot_value() -> serde_json::Value {
         "turn_id": "turn-9",
         "accepted_at_unix_ms": 1000,
         "progressing_at_unix_ms": 1100,
+        "latest_progress_at_unix_ms": 1100,
         "completed_at_unix_ms": 1200,
     })
 }
@@ -62,11 +63,11 @@ fn read_body(body: impl AsRef<[u8]>) -> Result<AgentObservationResult, AgentObse
 }
 
 #[test]
-fn trailing_json_after_the_ten_field_snapshot_is_malformed() {
+fn trailing_json_after_the_eleven_field_snapshot_is_malformed() {
     let temporary = tempfile::tempdir().expect("temporary observation");
     let path = observation_directory(&temporary).join("observation.json");
     let body = format!(
-        r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{TOKEN}","instance_id":"{INSTANCE}","session_id":"{SESSION}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"completed_at_unix_ms":null}} []"#
+        r#"{{"version":1,"revision":1,"phase":"accepted","job_token":"{TOKEN}","instance_id":"{INSTANCE}","session_id":"{SESSION}","turn_id":null,"accepted_at_unix_ms":1000,"progressing_at_unix_ms":null,"latest_progress_at_unix_ms":null,"completed_at_unix_ms":null}} []"#
     );
     write_owner_only(&path, body.as_bytes());
 
@@ -194,6 +195,7 @@ fn phase_timestamp_contract_accepts_only_unambiguous_nondecreasing_lifecycles() 
         value["phase"] = serde_json::json!(phase);
         value["accepted_at_unix_ms"] = serde_json::json!(accepted);
         value["progressing_at_unix_ms"] = serde_json::json!(progressing);
+        value["latest_progress_at_unix_ms"] = serde_json::json!(progressing);
         value["completed_at_unix_ms"] = serde_json::json!(completed);
         assert_eq!(
             read_body(value.to_string()),
@@ -210,6 +212,7 @@ fn phase_timestamp_contract_accepts_only_unambiguous_nondecreasing_lifecycles() 
         let mut value = snapshot_value();
         value["accepted_at_unix_ms"] = serde_json::json!(accepted);
         value["progressing_at_unix_ms"] = serde_json::json!(progressing);
+        value["latest_progress_at_unix_ms"] = serde_json::json!(progressing);
         value["completed_at_unix_ms"] = serde_json::json!(3);
         assert!(read_body(value.to_string()).is_ok(), "{label}");
     }
@@ -229,6 +232,7 @@ fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
     value["revision"] = serde_json::json!(1);
     value["phase"] = serde_json::json!("accepted");
     value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["latest_progress_at_unix_ms"] = serde_json::Value::Null;
     value["completed_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
     let accepted = read_normalized_snapshot(&request(&path)).expect("accepted");
@@ -256,6 +260,7 @@ fn missing_equal_regressed_and_mismatched_snapshots_are_conservative() {
             represented: LAUNCHED_BIT | ACCEPTED_BIT,
             accepted_at_unix_ms: Some(1_000),
             progressing_at_unix_ms: None,
+            latest_progress_at_unix_ms: None,
             completed_at_unix_ms: None,
         },
     );
@@ -289,7 +294,7 @@ fn durable_cursor_rebuild_emits_only_boundaries_not_already_persisted() {
     value["phase"] = serde_json::json!("progressing");
     value["completed_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
-    let cursor = AgentObservationCursor::from_durable(1, Some(1_000), None, None)
+    let cursor = AgentObservationCursor::from_durable(1, Some(1_000), None, None, None)
         .expect("valid accepted durable cursor");
 
     let result = read_normalized_snapshot(&AgentObservationRequest::new(
@@ -311,6 +316,49 @@ fn durable_cursor_rebuild_emits_only_boundaries_not_already_persisted() {
 }
 
 #[test]
+fn newer_revision_can_return_a_progress_pulse_without_a_new_lifecycle_phase() {
+    let temporary = tempfile::tempdir().expect("temporary observation");
+    let path = observation_directory(&temporary).join("snapshot.json");
+    let mut value = snapshot_value();
+    value["revision"] = serde_json::json!(2);
+    value["phase"] = serde_json::json!("progressing");
+    value["latest_progress_at_unix_ms"] = serde_json::json!(1_100);
+    value["completed_at_unix_ms"] = serde_json::Value::Null;
+    write_owner_only(&path, value.to_string().as_bytes());
+    let first = read_normalized_snapshot(&request(&path)).expect("first progress observation");
+    assert_eq!(
+        first
+            .progress_pulse()
+            .expect("first progress pulse")
+            .observed_at_unix_ms(),
+        1_100
+    );
+
+    value["revision"] = serde_json::json!(3);
+    value["turn_id"] = serde_json::json!("turn-10");
+    value["latest_progress_at_unix_ms"] = serde_json::json!(1_200);
+    write_owner_only(&path, value.to_string().as_bytes());
+    let later = read_normalized_snapshot(&AgentObservationRequest::new(
+        TOKEN,
+        INSTANCE,
+        path,
+        AgentSession::new(SESSION).expect("session"),
+        first.next_cursor(),
+    ))
+    .expect("later progress pulse");
+
+    assert!(later.boundaries().is_empty());
+    assert_eq!(
+        later
+            .progress_pulse()
+            .expect("later progress pulse")
+            .observed_at_unix_ms(),
+        1_200
+    );
+    assert_eq!(later.next_cursor().durable_revision(), 3);
+}
+
+#[test]
 fn durable_cursor_rebuild_rejects_impossible_persisted_lifecycles() {
     for (label, revision, accepted, progressing, completed) in [
         ("revision without evidence", 1, None, None, None),
@@ -320,12 +368,18 @@ fn durable_cursor_rebuild_rejects_impossible_persisted_lifecycles() {
         ("descending completion", 3, Some(100), Some(300), Some(200)),
     ] {
         assert_eq!(
-            AgentObservationCursor::from_durable(revision, accepted, progressing, completed),
+            AgentObservationCursor::from_durable(
+                revision,
+                accepted,
+                progressing,
+                progressing,
+                completed,
+            ),
             Err(AgentObservationError::AmbiguousLifecycle),
             "{label}"
         );
     }
-    assert!(AgentObservationCursor::from_durable(1, None, None, Some(300)).is_ok());
+    assert!(AgentObservationCursor::from_durable(1, None, None, None, Some(300)).is_ok());
 }
 
 #[test]
@@ -337,6 +391,7 @@ fn higher_revision_cannot_rewrite_a_prior_timestamp_or_decrease_the_stream() {
     value["phase"] = serde_json::json!("accepted");
     value["accepted_at_unix_ms"] = serde_json::json!(100);
     value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["latest_progress_at_unix_ms"] = serde_json::Value::Null;
     value["completed_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
     let first = read_normalized_snapshot(&request(&path)).expect("first accepted boundary");
@@ -345,6 +400,7 @@ fn higher_revision_cannot_rewrite_a_prior_timestamp_or_decrease_the_stream() {
     value["phase"] = serde_json::json!("progressing");
     value["accepted_at_unix_ms"] = serde_json::json!(50);
     value["progressing_at_unix_ms"] = serde_json::json!(60);
+    value["latest_progress_at_unix_ms"] = serde_json::json!(60);
     write_owner_only(&path, value.to_string().as_bytes());
     let next = AgentObservationRequest::new(
         TOKEN,
@@ -369,6 +425,7 @@ fn higher_revision_cannot_introduce_an_earlier_phase_after_completion() {
     value["phase"] = serde_json::json!("completed");
     value["accepted_at_unix_ms"] = serde_json::Value::Null;
     value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["latest_progress_at_unix_ms"] = serde_json::Value::Null;
     value["completed_at_unix_ms"] = serde_json::json!(100);
     write_owner_only(&path, value.to_string().as_bytes());
     let first = read_normalized_snapshot(&request(&path)).expect("completion-only boundary");
@@ -399,6 +456,7 @@ fn higher_revision_cannot_erase_a_previously_observed_phase() {
     value["phase"] = serde_json::json!("progressing");
     value["accepted_at_unix_ms"] = serde_json::json!(100);
     value["progressing_at_unix_ms"] = serde_json::json!(110);
+    value["latest_progress_at_unix_ms"] = serde_json::json!(110);
     value["completed_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
     let first = read_normalized_snapshot(&request(&path)).expect("progressing boundaries");
@@ -406,6 +464,7 @@ fn higher_revision_cannot_erase_a_previously_observed_phase() {
     value["revision"] = serde_json::json!(2);
     value["phase"] = serde_json::json!("accepted");
     value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["latest_progress_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
     let next = AgentObservationRequest::new(
         TOKEN,
@@ -433,6 +492,7 @@ fn exact_256_byte_session_and_turn_identifiers_are_accepted() {
     value["session_id"] = serde_json::json!(session_id);
     value["turn_id"] = serde_json::json!(turn_id);
     value["progressing_at_unix_ms"] = serde_json::Value::Null;
+    value["latest_progress_at_unix_ms"] = serde_json::Value::Null;
     value["completed_at_unix_ms"] = serde_json::Value::Null;
     write_owner_only(&path, value.to_string().as_bytes());
     let request = AgentObservationRequest::new(

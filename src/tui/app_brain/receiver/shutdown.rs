@@ -3,7 +3,10 @@
 use crate::state::ReceiverJobState;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
-use crate::tui::receiver::{ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun};
+use crate::tui::receiver::{
+    ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
+    ReceiverCleanupAuthority, SpawnedRecoveryRun, SpawnedRecoveryStage,
+};
 
 use super::diagnostic::receiver_observation_diagnostic;
 
@@ -12,8 +15,89 @@ impl App {
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Idle => self.services.shutdown_receiver_attachments(),
             DurableReceiverRun::Claimed(claimed) => self.shutdown_claimed_receiver_run(&claimed),
+            DurableReceiverRun::RecoveryClaimed(claimed) => {
+                self.services
+                    .cancel_receiver_attachment_stage(claimed.claim.job().id());
+                self.services.shutdown_receiver_attachments();
+            }
+            DurableReceiverRun::RecoveryPreSpawnCleanup(mut cleanup) => {
+                self.services.shutdown_receiver_attachments();
+                if !cleanup.shutdown_complete {
+                    let _ = cleanup.controller.shutdown();
+                }
+                if cleanup.shutdown_complete
+                    && matches!(
+                        cleanup.cleanup_authority,
+                        ReceiverCleanupAuthority::Unresolved
+                    )
+                    && let Some(attribution) = cleanup.attribution.as_ref()
+                {
+                    let _ = self.services.release_receiver_session(attribution);
+                }
+                crate::logging::log(
+                    "receiver shutdown preserved pre-spawn recovery cleanup authority",
+                );
+            }
+            DurableReceiverRun::RecoverySpawned(spawned) => {
+                self.shutdown_spawned_recovery_run(spawned);
+            }
             DurableReceiverRun::Active(active) => self.shutdown_active_receiver_run(active),
+            DurableReceiverRun::CleanupPending(pending) => {
+                self.shutdown_cleanup_pending_receiver_run(&pending);
+            }
         }
+    }
+
+    fn shutdown_spawned_recovery_run(&mut self, mut spawned: SpawnedRecoveryRun) {
+        self.services.shutdown_receiver_attachments();
+        let shutdown = if spawned.shutdown_complete {
+            Ok(true)
+        } else {
+            match &mut spawned.stage {
+                SpawnedRecoveryStage::PostSpawnOwner(controller)
+                | SpawnedRecoveryStage::CleanupDetached(controller) => {
+                    controller.shutdown().map(|()| true)
+                }
+                SpawnedRecoveryStage::PostAllocationOwner(tab_id)
+                | SpawnedRecoveryStage::CleanupTabbed(tab_id) => self.brain.shutdown_receiver_run(
+                    *tab_id,
+                    spawned.claimed.claim.job().id(),
+                    spawned.attribution.instance(),
+                ),
+            }
+        };
+        if shutdown != Ok(true) {
+            crate::logging::log(format!(
+                "receiver shutdown preserved spawned recovery capability for restart cleanup pid={}",
+                spawned.pid
+            ));
+            return;
+        }
+        if let SpawnedRecoveryStage::PostAllocationOwner(tab_id)
+        | SpawnedRecoveryStage::CleanupTabbed(tab_id) = spawned.stage
+        {
+            let _ = self.brain.remove_shutdown_receiver_run(
+                tab_id,
+                spawned.claimed.claim.job().id(),
+                spawned.attribution.instance(),
+            );
+        }
+        self.cleanup_receiver_instance_files(spawned.attribution.instance());
+        if matches!(
+            spawned.cleanup_authority,
+            ReceiverCleanupAuthority::Unresolved
+        ) {
+            let now = self.receiver_now_unix_ms();
+            let _ = self.services.establish_receiver_spawned_recovery_cleanup(
+                spawned.claimed.claim.job().id(),
+                spawned.claimed.claim.job().token(),
+                spawned.claimed.claim.claim().owner(),
+                &spawned.attribution,
+                spawned.pid,
+                now,
+            );
+        }
+        crate::logging::log("receiver shutdown preserved spawned recovery durable evidence");
     }
 
     fn shutdown_claimed_receiver_run(&mut self, claimed: &ClaimedReceiverRun) {
@@ -61,5 +145,25 @@ impl App {
         self.cleanup_receiver_instance_files(attribution.instance());
         drop(attachments);
         crate::logging::log("receiver shutdown preserved launched durable evidence");
+    }
+
+    fn shutdown_cleanup_pending_receiver_run(&mut self, pending: &CleanupPendingReceiverRun) {
+        self.services.shutdown_receiver_attachments();
+        if !pending.shutdown_complete {
+            let _ = self.brain.shutdown_receiver_run(
+                pending.active.tab_id,
+                pending.active.claim.job().id(),
+                pending.active.attribution.instance(),
+            );
+        }
+        let _ = self.brain.remove_shutdown_receiver_run(
+            pending.active.tab_id,
+            pending.active.claim.job().id(),
+            pending.active.attribution.instance(),
+        );
+        if !pending.artifacts_removed {
+            self.cleanup_receiver_instance_files(pending.active.attribution.instance());
+        }
+        crate::logging::log("receiver shutdown preserved cleanup-fenced durable evidence");
     }
 }

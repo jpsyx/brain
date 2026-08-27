@@ -59,7 +59,7 @@ pub(in crate::server) fn destinations(channel: Channel, body: &[u8]) -> Vec<Stri
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(in crate::server) struct ProviderConfig {
     pub workspace_id: crate::workspace::WorkspaceId,
     pub twilio_auth_token: String,
@@ -68,6 +68,12 @@ pub(in crate::server) struct ProviderConfig {
     pub resend_signing_secret: String,
     pub resend_full_access_api_key: String,
     pub resend_from_email: String,
+}
+
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ProviderConfig(<redacted>)")
+    }
 }
 
 impl ProviderConfig {
@@ -180,7 +186,7 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(super) struct AuthenticatedInbound {
     pub channel: Channel,
     pub sender: String,
@@ -190,6 +196,12 @@ pub(super) struct AuthenticatedInbound {
     pub receiving_address: String,
     pub provider_id: Option<String>,
     pub email_reply: Option<super::EmailReplyContext>,
+}
+
+impl std::fmt::Debug for AuthenticatedInbound {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AuthenticatedInbound(<redacted>)")
+    }
 }
 
 /// Authenticate one already-read provider body against the routed workspace.

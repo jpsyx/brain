@@ -40,18 +40,27 @@ fn debug_output_redacts_capability_credentials_prompts_and_launch_environment_va
     .with_capability_plan(plan.clone());
     let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
 
-    for debug in [
+    for (debug_index, debug) in [
         format!("{machine:?}"),
         format!("{plan:?}"),
         format!("{request:?}"),
         format!("{spec:?}"),
-    ] {
-        for secret in [
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (secret_index, secret) in [
             "debug-capability-secret",
             "debug-prompt-secret",
             "https://private-endpoint.example.test/mcp",
-        ] {
-            assert!(!debug.contains(secret), "leaked {secret}: {debug}");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                !debug.contains(secret),
+                "private Debug value present at surface {debug_index}, category {secret_index}"
+            );
         }
     }
 }

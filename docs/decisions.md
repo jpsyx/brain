@@ -875,6 +875,26 @@ Successful evidence is cached only for the configured command and current
 Brain process. This gives users an actionable compatibility error when a future
 release changes a required surface while keeping doctor and launch honest.
 
+## Why Claude has a minimum compatibility version
+
+Receiver progress must prove that an event belongs to the exact accepted root
+turn. Claude Code did not expose the required `prompt_id` hook field before
+2.1.196, so artifact-only health could call an older executable healthy while
+every receiver prompt failed closed before acceptance. Session identity is not
+an acceptable fallback because a later unrelated turn can reuse that session.
+
+The registry therefore owns a Claude `--version` compatibility probe and the
+Claude adapter invokes it through `AgentController` before any frontend
+operation. Brain accepts one official version record shaped exactly as
+`major.minor.patch (Claude Code)` when its version is 2.1.196 or newer. It
+rejects older releases, identity-free numeric output, wrapper noise, multiple
+version records, and malformed output, and reports an unavailable configured
+command with exact upgrade and `claude_cmd` remediation. Claude and OpenCode
+share one bounded, process-group-aware runner with disposable HOME/XDG state,
+while keeping their compatibility policies and successful-command caches
+separate. Codex remains unchanged because its exact `turn_id` hook contract
+does not require this Claude capability floor.
+
 Inherited `OPENCODE_CONFIG_CONTENT` is merged rather than replaced because it
 may contain unrelated user choices. Brain owns only its named agent, default
 agent selection, generated `brain_ws_*` MCP namespace, and selected skill-path
@@ -2548,6 +2568,220 @@ down migration therefore maps `launching`, `launched`, `accepted`, `processing`,
 clears lease and retry authority. Preserving automatic downgrade compatibility
 is useful, but preserving the no-replay guarantee is mandatory.
 
+## Why receiver lifecycle deadlines are separate from writer claims
+
+The renewable 30-second receiver claim answers only who may write. Using it as
+the liveness policy would let a healthy coordinator renew ambiguous work forever
+and would make a coordinator crash accidentally decide whether a native run is
+safe to replay. Schema v10 therefore stores independent launch, acceptance,
+progress, recovery, and absolute-work deadlines. The initial policy is two
+minutes for pre-spawn launch work, 90 seconds after exact launch for acceptance,
+five minutes without exact progress, and an immutable 30-minute limit after
+exact acceptance. Equality is expired. Deadlines are derived from trusted local
+authorization time with saturating arithmetic; producer timestamps remain
+evidence and cannot grant more runtime.
+
+The policy itself is a pure `ReceiverRecoverySnapshot` to
+`ReceiverRecoveryDecision` function. It distinguishes waiting, safe
+pre-acceptance requeue, one accepted same-session recovery, terminal failure,
+and an incomplete legacy completion state. The existing three launch attempts
+and the one accepted recovery are separate counters, so failure before exact
+acceptance never spends recovery authority.
+
+Recovery also needs a new observation stream without erasing history. The
+original accepted and progressing columns keep the first lifetime facts, while
+current-attempt accepted/progressing fields plus revision form the polling
+cursor. A recovery process can therefore begin at revision zero under the same
+job token, conversation, and immutable inbound identity. Terminal completion
+merges against the current attempt and preserves the lifetime facts atomically.
+Recovery materialization and claiming are deliberately separate durable
+boundaries. The reconciler first reloads the oldest blocking row and evaluates
+the current snapshot under one immediate write lock. Its compare-and-swap guard
+covers the token, owner, retry facts, remote/native identity, attempt kind,
+deadlines, recovery count, and observation cursor. A first accepted stall spends
+the one recovery count while persisting an ownerless due recovery, resets the
+current-attempt cursor, preserves lifetime facts and the exact native binding,
+caps recovery expiry by the original absolute limit, and persists the exact
+superseded instance/session as cleanup-pending. The App stops that native run
+and removes its exact local artifacts before acknowledging the same token,
+tuple, registration, and full recovery
+snapshot. The acknowledgement transaction also rechecks that the registration
+and session still match the durable conversation's frontend, user, channel,
+and native binding plus the exact job. It then releases the retained
+registration and clears the fence atomically. Only afterward may the claim seam attach a
+writer and establish the launch deadline. The claim cannot rediscover accepted
+work or increment the budget, so a crash between these boundaries remains
+restart-safe. The ownerless recovery remains eligible for reconciliation and
+terminalizes at equality with either its recovery or absolute deadline.
+Ordinary and recovery claims call the same workspace-wide live-claim predicate
+after acquiring their immediate transaction. Recovery selection additionally
+requires its target to be the globally oldest claimable or blocking row, so it
+cannot pass an older expired-owner lifecycle or due ordinary retry. The
+transaction's writer lock keeps those checks and the later claim update
+indivisible.
+
+Terminal reconciliation persists a stable content-free reason and one pending
+unavailable-notice bit in the same transaction that releases ownership. Any
+live ordinary or recovery attempt with an exact instance/session pair retains
+that tuple, registration, and native-session lock until local cleanup succeeds.
+Otherwise terminalization at a deadline would expose a native session while its
+controller can still run. Recurring reconciliation
+therefore redrives the same terminal cleanup identifiers across restart. The
+exact acknowledgement accepts either the due recovery or a cleanup-fenced
+terminal failed state and releases both lock surfaces atomically. It is
+independent from terminal notice acknowledgement. The App keeps a distinct
+cleanup-pending state and records successful shutdown and artifact removal so a
+later tick runs only the remaining step. The ordinary launch-retry
+seam requires an ordinary attempt. Planning, registration, spawn, or shutdown
+failure for an exact live recovery owner instead uses a dedicated terminal
+transition, preserving the single-launch recovery budget and setting notice
+intent. Semantic effects carry only opaque job, token, cleanup instance, and
+cleanup session identifiers. Frontend validation, process cleanup, recovery
+launch, and provider notice delivery remain outside the state layer.
+
+## Why a prior-binding Fresh conflict keeps continuity separate from cleanup
+
+An ordinary Fresh fallback can start while the durable conversation still
+binds a real prior native session. Its three identifiers have different roles:
+the prior session is conversation continuity, the Brain-supplied placeholder is
+launch registration identity, and the lifecycle-reported session is the running
+controller that must be cleaned up. Treating the observed session as ordinary
+binding authority would overwrite valid continuity. Persisting it as cleanup
+authority without a releasable registration proof would instead leave FIFO
+behind a fence that no acknowledgement can satisfy.
+
+Reconciliation therefore uses a distinct Fresh-conflict attribution. It
+requires the exact ordinary job and token, observed instance and lifecycle
+session, locked Fresh session row, differing launch placeholder, matching
+frontend/actor/channel/conversation, a prior binding distinct from both Fresh
+IDs, and a registration actual ID that is either null or exactly that prior
+binding. The unsafe same-session recovery terminalizes, but the prior binding
+and registration actual value remain unchanged. The terminal cleanup tuple
+names the observed run. Acknowledgement and restart recovery repeat the proof,
+release only the observed session lock and exact placeholder registration, and
+compare the stored actual ID while deleting. The prior session and unrelated
+registrations remain untouched.
+
+Any absent, ambiguous, or changed attribution releases nothing. It also cannot
+create a cleanup tuple from the observation alone. This keeps recovery
+fail-closed while allowing the terminal job to stop blocking later FIFO work;
+only a previously durable complete cleanup tuple remains eligible for redrive.
+
+## Why accepted recovery is exact native resume, never transcript replay
+
+Exact acceptance proves a native conversation already crossed the point where
+replaying the inbound instruction could repeat side effects. Recovery therefore
+does not reuse the ordinary launch planner. The App constructs
+`AgentController` for the frontend stored in the durable conversation and
+resolves that frontend's current configured command, regardless of the current
+TUI default. The adapter must validate the exact native history and the session
+store must claim that same native ID for a fresh receiver instance. Missing,
+corrupt, unavailable, locked, or mismatched evidence terminalizes the recovery;
+none of it selects Fresh or the Brain-owned transcript.
+
+The recovery planner accepts only opaque job identity, token, and the validated
+native session. Its bounded resume-only instruction asks the existing
+conversation to inspect prior work, avoid duplicate effects, and finish the
+pending response. The immutable inbound body, attachments, transcript, routing,
+provider data, and prior answer are absent by construction. Observation and
+completion still use the ordinary exact transactions, so recovery adds no
+second lifecycle or response authority.
+
+Claimed recovery also remains a distinct local state before launch. A transient
+owner-store failure after exact native registration returns only to the
+persisted frontend/native-session recovery path. Ordinary prepare and launch
+commit compare-and-swap operations require `attempt_kind = 'ordinary'`, while
+recovery operations require `attempt_kind = 'recovery'`. This prevents control
+parsing, attachment staging, Fresh planning, and original prompt construction
+from becoming a fallback for accepted work.
+
+## Why spawned recovery cleanup has one typed exact protocol
+
+A successful recovery spawn can outlive its 30-second writer lease, and a
+durable launch write can succeed even when its caller receives an error. Local
+launch-commit memory therefore cannot authorize registration release. Elapsed
+time and a missing launch observation cannot authorize it either, because the
+controller may still be running.
+
+After shutdown succeeds, Brain uses one immediate transaction for every
+spawned cleanup path. Exact job, token, recovery attempt, original owner,
+conversation, actor, channel, frontend, instance, registered/native session,
+present lifecycle source, registration actual value, and locked PID produce or
+redrive one terminal cleanup effect. A changed durable world produces a typed
+`Changed` result, while store failure remains an error; neither releases or
+drops local authority. The sole exact acknowledgement clears the tuple,
+registration, and native lock atomically. Child exit uses the same transition.
+Orderly App shutdown creates the tuple but waits for restart to prove the
+recorded PID dead before acknowledgement.
+
+Deadline reconciliation uses the same narrow Resume evidence before launch
+observation exists. Exact evidence creates the tuple without unlocking it.
+Incomplete evidence fails closed and retains the registration. If that effect
+meets a local pre-spawn or spawned capability, the capability attaches it and
+acknowledges only after shutdown. This makes reconciliation-first and
+local-cleanup-first races converge on the same tuple and removes the previous
+`Some`/`None`, boolean, and store-error ambiguity.
+
+The protocol also covers a recovery that already reached the generic active
+run state. Reconciliation and renewal or observation persistence are separate
+transactions, so another process can terminalize between them. The loser must
+not use generic tab removal because a shutdown failure would discard the only
+retryable controller while the live PID still fences restart cleanup. Brain
+therefore establishes or redrives the exact typed outcome first, converts the
+active run to cleanup-pending authority, and retains it through every fallible
+cleanup boundary. Exact acknowledgement remains the sole release. This makes
+renewal-loss and observation-CAS-loss races equivalent to every other spawned
+recovery cleanup cut.
+
+## Why terminal notice handoff has its own finite lease
+
+The terminal notice is independent from cleanup and FIFO eligibility. Reusing
+the job claim would make a failed notification block later work; reusing the
+cleanup tuple would let delivery acknowledgement accidentally release a native
+session. Schema v11 therefore stores a content-free notice writer owner and
+expiry. One claimant loads the immutable accepted routing frame in memory and
+clears the intent only after Brain's bounded local delivery worker accepts the
+fixed unavailable message. Queue failure or a claimant crash leaves the intent
+retryable after expiry, while the terminal row remains nonblocking.
+
+This is deliberately a local handoff guarantee, not exactly-once provider
+delivery. A crash can occur after queue acceptance but before the exact durable
+acknowledgement, and the provider can fail after the intent is cleared. Removing
+those ambiguities requires BR-17's durable delivery ledger and provider
+acknowledgement; BR-16 does not pretend the local CAS proves more than it does.
+
+Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
+available evidence and update time. Claimed and launching update times can come
+from writer-fence renewal, and launched evidence is producer time, so those
+mixed-provenance pre-acceptance rows always get an immediate deadline. Repair of
+a partial v10 table also fails missing active deadlines closed. A v10 downgrade
+keeps representable ordinary v9 work but terminalizes a nonterminal recovery
+attempt before removing the new columns, because v9 cannot distinguish that
+attempt from replayable ordinary work.
+
+The cleanup fence was introduced after the original schema-v10 migration, so it
+has a separate automatic boundary at 0.84.8 even though the SQLite schema
+number remains 10. Upgrade and later reconciliation rebuild a one-sided fence
+only when exactly one receiver registration and native-session row match the
+durable conversation's frontend, user, channel, and native binding plus the
+job's workspace, conversation, channel, and known cleanup half. Exact
+acknowledgement repeats the job/token and conversation attribution predicates
+before it releases a complete tuple. This defense in depth prevents later
+registration corruption from authorizing release. Ambiguous or mismatched evidence terminalizes and clears the
+invalid fence but retains every unproved registration and lock, because
+releasing an unrelated native session would be worse than requiring later
+manual repair. Downgrade to 0.84.7 terminalizes cleanup-pending recovery before
+old code runs, but retains a complete cleanup tuple and its locks. This favors
+no replay and eventual exact cleanup over pretending an older binary can safely
+resume the fenced work.
+
+Recovery-schema downgrades reserve an immediate SQLite writer before reading
+mutable column shape or schema-version authority. Ordinary startup
+reconciliation and installer-driven downgrade can overlap on one workspace DB,
+so a pre-transaction eligibility read would be stale by the time DDL begins.
+Each boundary now evaluates eligibility and transforms data inside the same
+writer transaction; a post-lock ineligible shape returns without mutation.
+
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
 admission protocol, and their execution policy. The remaining `jobs.sock`
@@ -2638,6 +2872,36 @@ owns the sole live-TUI durable consumer and its isolated agent execution. BR-15
 added phase proof. BR-16 through BR-18 retain recovery, delivery, and final
 representation or schema work.
 
+## Why receiver Debug formatting is a privacy boundary
+
+Receiver values routinely cross assertion, error, and diagnostic boundaries
+where Rust may format an entire value after an unrelated failure. Automatic
+`Debug` on a durable job or claim recursively included the inbound prompt,
+sender and recipient routing, attachments, provider lineage, transcript,
+native session, owner, observation identity, and stored error. Keeping logs
+clean was therefore insufficient because a failing test could reproduce the
+same private data.
+
+Every content-bearing receiver type, plus the agent session, session scope,
+session plan, launch request, observation result, and reply envelope directly
+reached from receiver execution, now owns a manual, content-free `Debug`
+implementation. Stable enum categories remain visible when they help diagnose
+control flow, such as Fresh versus Resume and native resume versus
+fresh-from-transcript planning, but their payloads render as `<redacted>`.
+Opaque IDs appear only where their existing contract already classifies them as
+content-free. Runtime canaries format the complete nested model graph and its
+adjacent agent and reply wrappers. Structural mutation tests reject multiline
+automatic derives and manual implementations that delegate to nested fields.
+
+Privacy tests are part of this boundary because a regression assertion can leak
+the exact value it is trying to protect. The diagnostic policy scans every
+privacy-test module plus the adjacent launch-redaction test. It rejects raw
+whole-value equality, captured output formatting, and private-value
+interpolation. Content-free absence checks run before fixed-shape predicates,
+and failures report only stable categories, code or signal presence, byte
+lengths, and indexed cases without echoing captured bytes or expected private
+values.
+
 ## Why receiver observation polling rebuilds from durable facts
 
 The lifecycle snapshot is evidence, not the coordinator's source of truth. An
@@ -2681,6 +2945,38 @@ lifecycle validation, the coordinator samples a fresh App clock for the lease
 comparison and passes both values to the transaction. A valid future producer
 timestamp therefore remains evidence without delaying or authorizing the
 commit.
+
+## Why receiver activity is a progress pulse, not another phase
+
+Accepted, progressing, and completed are one-time lifecycle boundaries, but a
+healthy long-running turn may produce several exact tool events. Rewriting the
+progressing boundary would destroy the first proof; inventing more phases would
+leak frontend event grammar into the coordinator. Schema-v1 snapshots therefore
+retain the first progressing timestamp and advance a separate monotonic
+`latest_progress_at_unix_ms` on each distinct later tool event. The opaque
+controller result exposes that value as an optional neutral pulse, so a bounded
+read can report activity even when its boundary list is empty.
+
+The producer rejects the same event identity and any timestamp that does not
+advance the prior pulse. The store then applies a pulse through the same live
+owner, token, instance, native-session, registration, and monotonic-revision
+transaction as boundary evidence. Producer time is stored only as evidence.
+Fresh authorization time renews the five-minute progress lease through the pure
+deadline policy, and the original absolute accepted-work deadline remains an
+immutable clamp. Claim renewal stays independent writer fencing. At revision
+saturation no pulse can advance, but an exact Stop can still settle through the
+existing terminal no-mutation path.
+
+Session identity alone is insufficient progress authority because native
+sessions can contain unrelated user turns and tool callbacks can arrive late.
+The owner-only producer lock therefore retains the accepted content-free turn
+identity. Claude and Codex require every tool event to name that same turn, and
+a non-marker prompt clears it. OpenCode additionally correlates the tool
+callback's assistant message to the accepted root user message through the
+assistant's exact parent ID. This rejects both forward-order unrelated work and
+delayed callbacks from older turns without reading transcripts or storing
+content.
+
 Artifact delivery precedence is only a body decision. The terminal store still
 merges all accepted, progressing, and completed boundaries, the revision and
 session cursor, and exact completed-session binding in one immediate owner

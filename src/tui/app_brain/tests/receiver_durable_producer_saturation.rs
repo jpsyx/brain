@@ -95,6 +95,7 @@ fn assert_saturated_stop_finishes_once(phase: &str, progressing_at: Option<u64>)
                 maximum,
                 Some(1_000),
                 progressing_at,
+                progressing_at,
                 Some(completed_at),
             )
             .is_ok(),
@@ -142,6 +143,7 @@ fn write_saturated_snapshot(
             "turn_id": progressing_at.map(|_| "saturated-turn"),
             "accepted_at_unix_ms": 1_000,
             "progressing_at_unix_ms": progressing_at,
+            "latest_progress_at_unix_ms": progressing_at,
             "completed_at_unix_ms": null,
         })
         .to_string(),

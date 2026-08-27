@@ -120,7 +120,7 @@ fn claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands() {
     .expect("machine capability environment");
 
     for command in [
-        "claude; printf bypass",
+        "claude; :",
         "claude # appended flags are ignored",
         "sh -c 'exec claude'",
         "claude -- --strict-mcp-config",

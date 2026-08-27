@@ -341,6 +341,17 @@ ordered migrations were last applied. It is machine state, not portable
 workspace data and not part of a workspace's UUID cache. A later ordinary
 invocation still reconciles current managed artifacts even when this stamp
 already matches, which is how a missing hook is recreated without user action.
+The 0.84.8 receiver-cleanup boundary also reconciles one-sided cleanup-fence
+metadata. It reconstructs the missing identifier only when one fully
+attributed receiver registration and native-session row match the durable
+conversation's frontend, user, channel, and native binding plus the job's
+workspace, conversation, channel, and known cleanup half. Exact acknowledgement
+repeats those predicates against the job and complete tuple before release.
+Ambiguous or mismatched evidence becomes terminal with notice intent;
+the invalid partial fence is cleared, but unproved registrations and locks are
+retained. Its 0.84.7 down mapping makes cleanup-pending recovery terminal and
+non-replayable while retaining the complete instance/session tuple,
+registration, and native-session lock for exact cleanup after a later upgrade.
 
 ### Receiver address routing (`server/receiver/routing.rs`)
 
@@ -1070,6 +1081,21 @@ receiver_jobs(
   observation_instance      TEXT,
   observation_session_id    TEXT,
   observation_revision      INTEGER NOT NULL,
+  attempt_accepted_at_unix_ms   INTEGER,
+  attempt_progressing_at_unix_ms INTEGER,
+  latest_progress_at_unix_ms    INTEGER,
+  launch_expires_at_unix_ms     INTEGER,
+  acceptance_expires_at_unix_ms INTEGER,
+  progress_expires_at_unix_ms   INTEGER,
+  recovery_expires_at_unix_ms   INTEGER,
+  absolute_work_expires_at_unix_ms INTEGER,
+  recovery_count            INTEGER NOT NULL,
+  attempt_kind              TEXT NOT NULL,  -- ordinary | recovery
+  pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
+  recovery_cleanup_instance TEXT,
+  recovery_cleanup_session_id TEXT,
+  unavailable_notice_owner TEXT,
+  unavailable_notice_expires_at_unix_ms INTEGER,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1086,18 +1112,42 @@ receiver_session_registrations(
 )
 ```
 
+`actual_session_id` records the lifecycle-native session authorized for that
+exact registration. Accepted-work reconciliation writes it together with the
+conversation's frontend/native binding under the same exact job, token, actor,
+channel, instance, registered-placeholder, current-lock, and observed-session
+proof. It may confirm the same native ID but cannot replace a different existing
+registration or conversation binding. When an ordinary Fresh fallback started
+from a real prior conversation binding, the launch placeholder and observed
+lifecycle-native session remain cleanup identity rather than new continuity.
+The reconciler preserves the prior binding and any null-or-prior
+`actual_session_id`, terminalizes the unsafe recovery, and records the observed
+instance/session cleanup tuple only under the separate exact Fresh-conflict
+proof. Missing or mismatched attribution records no new cleanup tuple.
+
 **Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
 frontend-neutral controller and is never persisted as provider grammar. It
-retains the highest parsed revision, represented lifecycle phases, and the
-exact accepted/progressing/completed timestamps already observed. A later poll
+retains the highest parsed revision, represented lifecycle phases, the exact
+accepted/progressing/completed timestamps already observed, and the latest
+monotonic progress timestamp. A later poll
 may add only phases that follow the cursor's lifecycle order while preserving
 every prior timestamp; rewrites, erasure, late earlier phases, and decreasing
 emission order fail conservatively before any durable receiver mutation.
-The TUI rebuilds this opaque cursor from `observation_revision` plus the three
-durable evidence timestamps before every poll. Revision zero means no
-post-launch evidence, while a positive revision must correspond to a possible
-lifecycle. Completion-only evidence is valid; progress without acceptance,
+The TUI rebuilds this opaque cursor from `observation_revision`, the current
+attempt's accepted/progressing timestamps, its latest progress evidence when
+that attempt has progressed, and the terminal completion timestamp before every
+poll. The normalized result does not expose the raw producer revision; only the
+state model's cursor conversion can transfer it into `observation_revision`.
+The lifetime `accepted_at_unix_ms` and
+`progressing_at_unix_ms` fields retain the first facts across a recovery attempt
+and are not cursor input. Revision zero therefore means no evidence for the
+current process even when the job has lifetime accepted or progress proof. A
+positive revision must correspond to a possible lifecycle. Completion-only
+evidence is valid; progress without acceptance,
 timestamp reversal, and revision/evidence disagreement are rejected.
+Once progressing exists, a higher revision may carry only a strictly newer
+progress pulse. Equal or lower pulse timestamps are not new evidence; the first
+progressing timestamp remains immutable.
 The exact signed SQLite maximum is a valid nonnegative revision across JSON
 parsing, controller normalization, App conversion, SQLite storage, and cursor
 reconstruction. At that value, an equal snapshot is no-change and producers
@@ -1138,19 +1188,107 @@ cannot admit a sixty-fifth queued job.
 The stored lifecycle is `queued`, `claimed`, `launching`, `launched`, `accepted`,
 `processing`, `answer-ready`, `delivering`, `retrying`, `failed`, or `done`.
 A claim stores a non-blank owner and millisecond expiry without deleting its
-job. Only the live exact owner may renew or transition it. After expiry,
+job. That short lease is only a writer fence; renewing it never extends a
+lifecycle deadline. Claiming ordinary or recovery work establishes a separate
+two-minute launch deadline. Exact post-spawn launch commit establishes a
+90-second acceptance deadline. Exact acceptance establishes a five-minute
+progress deadline and an immutable 30-minute accepted-work limit; later exact
+progress can renew only the progress deadline and must remain capped by that
+absolute limit. All expiries become due at `now >= expires_at`. Only the live
+exact owner may mutate the row. After claim expiry,
 queued work becomes claimed by the new owner. A due retry keeps `retrying`,
 retains its retry schedule and origin until a phase-specific compare-and-swap
 consumes them, and lets the live owner transition to the phase being retried.
-The FIFO claim transaction refuses another job while any workspace job has a
-live lease and returns the immutable job plus logical conversation without
-deleting either row. Launch preparation accepts only the exact unexpired owner
-of `claimed`, or a due retry whose recorded origin is `claimed`/`launching`,
-then atomically moves it to `launching`. Only a proved synchronous spawn failure
-may turn that attempt into a bounded Spawn retry. Once spawn succeeds, an
-uncommitted `launching` row is ambiguous and cannot be reclaimed. Expired
-`launching`, `launched`, `accepted`, and `processing` jobs preserve their owner,
-lease, registration, lifecycle, retry metadata, and FIFO position until BR-16.
+Every ordinary or recovery claim transaction refuses another job while any
+workspace job has a live lease. FIFO claim returns the immutable job plus
+logical conversation without deleting either row. Launch preparation accepts
+only the exact unexpired owner of `claimed`, or a due retry whose recorded
+origin is `claimed`/`launching`, and requires the caller's expected ordinary or
+recovery attempt kind before atomically moving it to `launching`. Launch commit
+repeats that attempt-kind fence. Only a
+proved synchronous spawn failure may turn that attempt into a bounded Spawn
+retry. Once spawn succeeds, an
+uncommitted `launching` row is ambiguous and cannot be reclaimed by ordinary
+claim selection. The recovery transaction scans the oldest blocking
+nonterminal row under an immediate writer lock and compares a complete snapshot
+of its token, owner, instance/session, attempt, deadlines, recovery count,
+cursor, and retry facts. A failed comparison commits nothing and publishes no
+effect.
+
+The process-local recovery state has two additional authority shapes around
+that boundary. `RecoveryPreSpawnCleanup` owns the exact claim, controller, and
+optional committed registration until shutdown and exact release complete; a
+store-unavailable decision then restores the same `RecoveryClaimed` value,
+while proven loss does not. `RecoverySpawned` owns the successfully launched
+controller, exact attribution, PID, durable-commit knowledge, and optional tab
+until it becomes `Active` or finishes shutdown-first cleanup. An ambiguous
+launch-commit error retains this shape and compares the exact job token,
+attempt, instance, and registered session on a later tick instead of guessing
+whether the durable write occurred.
+
+Both cleanup shapes carry an explicit cleanup authority: unresolved or one
+exact reconciliation effect. For a spawned recovery, shutdown completion is
+followed by one immediate transaction that returns `Exact(effect)` or
+`Changed`; database failure remains a separate error. The transition accepts a
+matching recovery even after its writer lease expires, validates the original
+job, token, conversation, claim owner, frontend, actor, channel, instance,
+registered/native session, present lifecycle source, registration actual value, and
+locked PID, and terminalizes it with the exact cleanup tuple. An already
+terminal matching tuple returns the same effect. Changed identity retains local
+authority. Only exact acknowledgement clears the tuple, registration, and lock.
+If launch-deadline reconciliation arrives first, the same narrow durable Resume
+proof derives the tuple before any launch observation; incomplete proof retains
+the registration without inventing a cleanup session.
+
+An expired unaccepted attempt releases its owner and registration, clears the
+superseded cursor, increments only the bounded launch retry counter, and becomes
+an ordinary due retry. A first accepted stall instead preserves the job token,
+conversation, immutable inbound identity, absolute limit, first
+accepted/progress facts, frontend, and exact native binding. It clears the
+superseded attempt cursor, increments `recovery_count`, sets `attempt_kind` to
+`recovery`, and persists an ownerless due retry with `recovery_expires_at` capped
+by the absolute limit. It also persists the superseded instance and native
+session as an all-or-none cleanup fence while retaining their exact
+registration. The acknowledgement seam requires the same job, token, recovery
+snapshot, instance, session, registration, and matching durable conversation
+frontend, user, channel, and native binding in one immediate transaction;
+only then does it release the registration and native-session lock and clear
+the fence. An ordinary Fresh fallback can instead retain a real prior
+conversation binding while its launch placeholder rotates to another observed
+native session. That exact prior-binding conflict is unsafe for same-session
+recovery, so it terminalizes without replacing the prior binding or
+registration actual ID. Its cleanup fence names only the observed Fresh run.
+Acknowledgement releases that run's lock and exact placeholder registration
+under the same job/token/instance/session/prior-binding proof, while preserving
+the prior session and unrelated registrations. If neither ordinary binding nor
+the exact Fresh-conflict proof succeeds, terminalization derives no cleanup
+tuple from the observation. The failed row therefore releases FIFO without an
+unacknowledgeable fence while all unproved session state remains untouched. The
+same exact acknowledgement is valid for every cleanup-fenced
+terminal attempt, regardless of whether its pending notice was already handed
+off. Until then, the failed row retains
+the tuple and recurring reconciliation returns the same terminal cleanup
+identifiers after restart. That read-only redrive does not create another notice
+intent and the terminal row does not block later FIFO work. The separate
+recovery-claim seam accepts only that cleanup-acknowledged due row when it is
+also the workspace's globally oldest claimable or blocking row. It establishes
+the launch deadline and never rediscovers accepted work or increments recovery
+count. An unclaimed recovery remains a reconciliation candidate and becomes
+`failed` at exact recovery or absolute expiry. Exhaustion, missing resume
+evidence, incomplete legacy completion, and exact recovery planning,
+registration, spawn, or shutdown failure also become `failed` with a
+content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
+do not block FIFO. The existing launch-retry mutation accepts only ordinary
+attempts.
+The cleanup fence and terminal notice have independent authority. A pending
+notice can be claimed by one non-blank writer only while its dedicated expiry
+is in the future. Claim returns the immutable accepted inbound frame in memory;
+it persists no notice body, derived recipient list, provider payload, or
+credential. Exact acknowledgement requires the same job, token, terminal state,
+and live notice owner, then clears the intent and both lease columns together.
+A failed local queue operation leaves the intent pending and the finite lease
+expires for another claimant. Terminal rows and notice leases never participate
+in ordinary FIFO blocking or the workspace live-job-claim predicate.
 Answer-ready and delivery phases retain
 their existing phase-specific replacement behavior for BR-17.
 Pre-spawn planning, registration, and synchronous spawn failures
@@ -1162,10 +1300,14 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
-The TUI keeps at most one durable receiver run locally. Disabling receiver
-intent prevents only a new claim while the local run is idle. It still renews
-and manages an exact pending or active claim through completion, child exit, or
-cleanup, including across a later re-enable. Later arrivals remain `queued` and
+The TUI keeps at most one durable receiver run locally. Its local state
+distinguishes ordinary claimed, recovery claimed, active, and cleanup pending.
+Cleanup pending remembers whether controller shutdown and artifact removal
+already succeeded, so retries do not re-enter active renewal or repeat completed
+steps. Disabling receiver intent prevents a new claim while idle and prevents
+every pending ordinary or recovery claim from starting a process. It still
+renews pending claims and manages active completion, child exit, or cleanup,
+including across a later re-enable. Later arrivals remain `queued` and
 unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A post-spawn launch first commits
 `launching` to `launched`. Newer exact lifecycle evidence can then move it to
@@ -1184,8 +1326,9 @@ registration-aware batch transaction below.
 
 A valid completion can move `launched`, `accepted`, or `processing` directly to
 `done` without fabricating missing accepted or progressing timestamps. Artifact
-and lifecycle-only completion use one immediate transaction. It validates both
-the stored and incoming timelines, merges every normalized boundary plus the
+and lifecycle-only completion use one immediate transaction. It validates the
+stored and incoming current-attempt timelines, preserves the first lifetime
+accepted/progress facts, merges every normalized boundary plus the
 revision/session cursor, requires the exact lifecycle-native session to remain
 locked and `completed`, persists that binding, and only then marks the job done
 and clears its claim. Artifact body delivery precedence does not discard
@@ -1211,8 +1354,9 @@ transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
 lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
-or `processing` row remains wholly unchanged for BR-16 rather than being
-reclaimed or launched again.
+or `processing` row remains unchanged until the recurring reconciler records
+its exact recovery or terminal action; it is never reclaimed or launched again
+as ordinary work.
 The background tab collection independently rejects a second simultaneous
 receiver insertion and shuts down its controller, so even a bookkeeping bug
 cannot create two live remote agents in one workspace process.
@@ -1243,7 +1387,7 @@ equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
 remain rejected. The transaction writes only the native ID to the conversation
 binding, leaves the portable transcript bytes untouched, and makes `done`
 visible only after both writes can commit.
-The BR-14 launch planner treats a same-frontend pair as a candidate rather than
+The ordinary launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
 session supplied by the caller. That fresh plan carries a 47 KiB maximum recovery
@@ -1252,12 +1396,32 @@ section, and the accepted attachment references. A resumed plan carries only
 the current message and attachment references. The planner owns no tab,
 durable claim, binding update, or coordinator state.
 
+Accepted-work recovery uses a separate planner with different inputs and no
+fallback. It receives only the opaque job ID, opaque token, and already
+validated exact native session. Its session plan is always Resume. Its bounded
+instruction tells the existing conversation to inspect prior work, avoid
+repeating completed effects, and finish the pending response, then ends with the
+same token marker. Immutable inbound content, attachments, transcript, routing,
+provider data, and prior response text cannot enter that planner.
+
+An active recovery keeps its local controller as durable cleanup capability
+when another writer wins renewal or observation persistence. The typed outcome
+is either the exact persisted cleanup effect or `Changed`; an unavailable or
+changed outcome never authorizes dropping that capability. Once exact, the
+local run records shutdown and artifact progress separately and releases the
+registration and native-session lock only in the cleanup acknowledgement
+transaction. Restart cleanup requires the same tuple plus a dead recorded PID.
+Wrong tuples, live PIDs, missing tabs, and unrelated registrations change
+nothing.
+
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
 nonterminal phases. Schema v8 adds the exact receiver-session registration
 table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
 lifecycle evidence timestamps, exact observation instance/session identity,
-and monotonic revision. Every DB open reconciles the tables and managed
+and monotonic revision. Schema v10 adds recovery deadlines, attempt identity,
+notice intent, and the exact cleanup fence. Schema v11 adds the all-or-none
+finite unavailable-notice owner and expiry. Every DB open reconciles the tables and managed
 columns for new, partially repaired, damaged, and already-current workspaces.
 Token reconciliation parses UUID identity, chooses one canonical spelling per
 identity, regenerates invalid or semantically colliding rows through the bounded
@@ -1268,8 +1432,8 @@ a v8-compatible jobs table before the older downgrade chain continues. Every
 `launching`, `launched`, `accepted`, `processing`, `answer-ready`, `delivering`,
 or `retrying` row becomes a conservative `failed` row with claim and retry
 authority cleared, so the old coordinator cannot replay post-spawn ambiguity.
-A newly
-attached workspace receives v9 on its first ordinary DB open. The older v6
+A newly attached workspace receives the current schema on its first ordinary
+DB open. The older v6
 down operation still transactionally removes the receiver schema and returns a
 v6 DB to v5. BR-18 still owns the remaining representation cleanup and any
 later schema migration or reconciliation it requires.
@@ -1341,10 +1505,10 @@ without a manual `brain skills sync`.
   for the selected workspace and its machine-local user; existing locks,
   source, and timestamps are preserved. Schema v5 adds
   `completion_status`, defaulting every existing row to `active`.
-- Receiver runtime state holds one `DurableReceiverRun`: idle, claimed while
-  freshness completes, or active with the exact claim, tab, remote instance,
-  registered session, frontend, actor, channel, response, and provider reply
-  context. It never aliases the interactive main-panel session.
+- Receiver runtime state holds one `DurableReceiverRun`: idle, ordinary
+  claimed while freshness completes, recovery claimed for exact native resume,
+  active with the exact claim and tab attribution, or cleanup pending with
+  successful-step proof. It never aliases the interactive main-panel session.
 - `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a

@@ -64,14 +64,14 @@ helpers and shell-outs live in the tasks modules:
   which excludes habits entirely) never pass that flag.
 - **`brain tasks doctor`**: prints a progress plan before checking the selected
   UUID-scoped state DB schema, every registry-declared lifecycle artifact,
-  OpenCode executable compatibility, `rclone version`, and the centralized
+  Claude and OpenCode executable compatibility, `rclone version`, and the centralized
   selected-workspace requirements. Hook commands are checked by event and
   current script suffix; Brain-owned bridge and plugin files require exact
   bundled contents, so stale files fail independently. It
   opens SQLite through an immutable read-only URI so a WAL database cannot be
   checkpointed by observation, passes an explicit no-config path to the rclone
   probe, and does not create cache, config, lock, journal, or rendered-skill state.
-  OpenCode probes use disposable HOME/XDG roots and remove them afterward.
+  Agent compatibility probes use disposable HOME/XDG roots and remove them afterward.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits`**: when no TUI is open, elects the shared process in
   background mode, attaches a temporary browser-only workspace lease, and
@@ -205,6 +205,18 @@ compatibility helpers consume that registry instead of growing parallel
 frontend branches. All frontend operations are fallible so the controller can
 reject availability and setup before a transport side effect.
 
+Claude receiver observation requires the content-free `prompt_id` field added
+in Claude Code 2.1.196. Before controller operations, and during doctor, Brain
+runs the configured `claude_cmd` with `--version` through the registry-owned
+bounded compatibility runner. Only one official output record shaped exactly
+as `major.minor.patch (Claude Code)` is recognized. Versions below 2.1.196,
+identity-free numeric output, wrapper noise, multiple version records,
+malformed output, and commands that cannot run fail closed with an actionable
+upgrade or `claude_cmd` remediation. The check uses a disposable HOME/XDG root,
+accepts an exact configured wrapper plus its existing flags, caches only
+successful evidence for that exact command, and never exposes the configured
+command in a diagnostic.
+
 OpenCode compatibility is a supported-feature policy, not a promise about
 every future release. Before launch, and during doctor, Brain checks the
 configured command for a runnable version, `--agent`, `--prompt`, and
@@ -298,8 +310,9 @@ receiver tab identity, resolves the lifecycle-owned current native session, and
 constructs a frontend-neutral observation request. `BrainPanelState` invokes
 only that tab's `AgentController`; the coordinator never calls a concrete
 adapter or snapshot reader. It rebuilds the opaque cursor from the durable
-revision and accepted, progressing, and completed timestamps, so restart and
-session rotation resume from durable facts. One newer normalized result is
+revision, current-attempt boundary timestamps, and current-attempt latest
+progress evidence, so restart and session rotation resume from durable facts.
+One newer normalized result is
 applied through one fresh-time exact-owner transaction. Multiple missed
 boundaries commit atomically, and the revision advances once. For a nonterminal
 result, that same transaction requires the exact current `brain_sessions`
@@ -917,13 +930,26 @@ Which session to run is decided by the **lock + recency** model in
    ordinary prompts cannot produce receiver evidence. The generic
    `receiver_observation_bridge.py` handles Claude and Codex
    `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
-   token's exact marker as the prompt's final line. Progress requires an
-   accepted snapshot with the same token, remote instance, and native session.
+   token's exact marker as the prompt's final line and binds the content-free
+   accepted turn using Claude's `prompt_id` (Claude Code 2.1.196 or later) or
+   Codex's `turn_id`. Progress
+   requires that same accepted turn, token, remote instance, and native session;
+   `tool_use_id` identifies each distinct pulse. A later non-marker root prompt
+   in that session clears the turn authority before any later tool event can
+   publish.
    Native Claude/Codex child events carrying `agent_id`, other recognized child
-   payloads, mismatches, duplicates, and regressions are no-ops.
+   payloads, mismatches, exact duplicate tool events, and reordered producer
+   timestamps are no-ops. Each distinct later tool event may publish another
+   progress pulse without rewriting the first progressing boundary. OpenCode
+   binds the accepted root user message to assistant messages through their
+   exact parent ID. Tool callbacks qualify only when their assistant message
+   belongs to that accepted user message, so delayed callbacks from a prior or
+   later unrelated turn remain ineligible regardless of delivery order.
 
    The normalized observation is an owner-only JSON snapshot and owner-only
-   advisory lock below the workspace UUID's receiver-observation cache. On
+   lock below the workspace UUID's receiver-observation cache. The lock retains
+   only the fixed, content-free accepted-turn authorization and serializes each
+   producer decision. On
    Unix the producer descriptor-walks the absolute path with no-follow opens,
    enforces owner-only workspace-cache and observation directories on their
    opened descriptors, rejects symlink ancestors and lock leaves, and performs
@@ -931,14 +957,16 @@ Which session to run is decided by the **lock + recency** model in
    confined observation-directory descriptor. Unsupported platforms fail
    closed. Schema
    version 1 is limited to 4096 bytes and has only `version`, `revision`,
-   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, and the three
-   boundary timestamps. Writers serialize, flush an owner-only same-directory
+   `phase`, `job_token`, `instance_id`, `session_id`, `turn_id`, the three
+   boundary timestamps, and `latest_progress_at_unix_ms`. Writers serialize,
+   flush an owner-only same-directory
    temporary file, and atomically replace the snapshot. Revisions increase
-   only on `accepted`, `progressing`, or `completed` transitions, and each
-   later snapshot retains earlier timestamps. A new producer timestamp is
-   clamped to the latest retained boundary across wall-clock rollback, and the
-   constructed snapshot must pass the full schema and timeline validator before
-   publication. Revision is capped at SQLite's
+   on `accepted`, first `progressing`, later progress pulses, or `completed`, and
+   each later snapshot retains the first boundary timestamps. The latest pulse
+   must move producer time forward; an equal or older pulse is rejected. A new
+   boundary timestamp is clamped to the latest retained evidence across
+   wall-clock rollback, and the constructed snapshot must pass the full schema
+   and timeline validator before publication. Revision is capped at SQLite's
    maximum signed integer; a saturated producer preserves the last valid
    snapshot instead of writing an unrepresentable revision. A trusted exact
    Stop over a saturated accepted or progressing snapshot returns an explicit
@@ -952,7 +980,7 @@ Which session to run is decided by the **lock + recency** model in
    a prior snapshot exists, the writer opens it no-follow and nonblocking where
    supported, verifies the opened regular owner-only descriptor and exact byte
    length before and after one bounded read, and accepts only the strict
-   ten-field schema, canonical token and instance, bounded session and turn,
+   eleven-field schema, canonical token and instance, bounded session and turn,
    valid revision/timestamps, and exact token/instance/session lineage. A bad
    symlink, mode, body, identity, or lifecycle is left untouched; a later event
    cannot launder it into a valid atomic replacement. If
@@ -974,18 +1002,28 @@ Which session to run is decided by the **lock + recency** model in
    true not-found result as pending, reject symlink and nonregular entries as
    invalid file types, and otherwise fail closed without reading the snapshot.
    One poll reads at most 4097 bytes, accepts only the
-   exact ten-field schema, and returns content-free accepted, progressing, and
-   completed boundaries in lifecycle order with an opaque next cursor.
+   exact eleven-field schema, and returns content-free accepted, progressing,
+   and completed boundaries plus an optional newer progress pulse with an opaque
+   next cursor. A pulse can therefore be the only new fact in a bounded read.
    Missing files and equal revisions are pending/no-change. Oversize,
    non-owner-only, symlink, malformed, mismatched, regressed, or ambiguous
    evidence fails in a stable category whose display contains no request or
    snapshot data. The opaque cursor retains the timestamps already emitted, so
    a higher revision cannot rewrite or erase prior facts, introduce an earlier
-   phase after a later one, or make the emitted timestamp stream decrease. A
+   phase after a later one, regress the latest progress timestamp, or make the
+   emitted timestamp stream decrease. A
    higher revision can still recover genuinely missed intermediate boundaries;
    a prior rotated or placeholder session cannot advance the lifecycle. This
    operation only reads evidence. The active receiver coordinator owns polling
-   and converts only these normalized results into durable transitions.
+   and converts only these normalized results into durable transitions. Raw
+   producer revision remains inside the opaque cursor and crosses into durable
+   state only through the agent-to-state conversion seam; the coordinator has
+   no revision or snapshot-grammar accessor. Its
+   exact-owner transaction advances a newer pulse only for the same instance,
+   native session, live registration, and monotonic revision. Fresh local
+   authorization time renews the five-minute progress deadline through
+   `ReceiverLifecycleDeadlines::after_progress`; the immutable 30-minute limit
+   clamps that renewal, while producer time is retained only as evidence.
 
    The repository privacy guard recursively discovers observation and receiver
    completion surfaces by semantic markers and observation/completion path
@@ -1074,9 +1112,12 @@ Which session to run is decided by the **lock + recency** model in
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
    outcomes use a stable content-free diagnostic containing opaque job and
-   instance IDs, frontend, prior phase, boundary or `none`, and category. BR-16
-   owns stalled-run recovery, while BR-17 owns answer persistence and
-   delivery-only retry.
+   instance IDs, frontend, prior phase, boundary or `none`, and category. The
+   state layer returns similarly content-free reconciliation effects for exact
+   cleanup, one persisted recovery, or terminal notice intent. The App executes
+   those controller actions through `AgentController` and leases notice handoff
+   through its narrow delivery service; BR-17 owns answer persistence,
+   provider acknowledgement, and delivery-only retry.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1097,10 +1138,12 @@ Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress
 ack can depend on it. Polling claims the oldest ready row without deleting it,
 and every renewal, transition, or retry mutation requires the exact live owner.
-Expired `launched`, `accepted`, and `processing` leases do not change ownership.
-They retain their complete lifecycle and retry evidence and block FIFO replay
-until BR-16 supplies recovery policy. Eligible pre-acceptance and delivery
-leases may still be replaced under their existing phase-specific rules.
+Expired `launched`, `accepted`, and `processing` leases are evaluated by the
+recurring reconciler before restart controls or new claims. They retain their
+complete lifecycle and retry evidence until the exact cleanup and recovery
+effects are durably fenced. Eligible
+pre-acceptance and delivery leases may still be replaced under their existing
+phase-specific rules.
 
 BR-13 connects provider ingress to these APIs. The authenticated pipeline
 constructs SMS's stable workspace/user/channel identity or an uncertain fresh
@@ -1222,6 +1265,37 @@ workspaces receive the current schema on their first `Db::open`. The automatic
 0.75.0 migration adds schema-v7 launch retry origins to existing receiver jobs;
 its down operation removes only that column and returns the state DB to v6. No
 manual migration command is part of receiver setup.
+The automatic 0.84.0 migration advances existing receiver state to schema v10.
+It derives finite accepted-work deadlines conservatively from v9 evidence and
+the earliest available stored time. Claimed and launching update times may be
+claim renewals, while launched evidence may be producer-skewed, so those
+mixed-provenance pre-acceptance rows always receive an immediate deadline rather
+than new lifecycle authority. Reconciliation restores missing v10 columns and
+fails active missing-deadline state closed without extending valid deadlines.
+Its down operation returns ordinary rows to v9 unchanged where representable and
+terminalizes any nonterminal recovery attempt so an older coordinator cannot
+replay it.
+The automatic 0.84.8 receiver-cleanup boundary handles the cleanup fence added
+after schema v10. Upgrade and same-version reconciliation reconstruct a missing
+fence half only when one registration and session row match the durable
+conversation's frontend, user, channel, and native session as well as the job's
+workspace, conversation, channel, and known cleanup identifier. That complete
+tuple keeps recurring cleanup redrive and exact acknowledgement available.
+Acknowledgement repeats the same job and conversation attribution proof before
+release. Ambiguous or mismatched evidence terminalizes and
+clears the invalid fence without releasing an unproved registration or session
+lock. Downgrade to 0.84.7 converts cleanup-pending recovery into a terminal
+pending-notice row while retaining the exact cleanup tuple, receiver
+registration, and native-session lock. Old code therefore cannot claim the
+work, and a later upgrade can redrive and acknowledge the original cleanup
+safely.
+The automatic 0.84.12 boundary advances receiver state to schema v11 by adding
+a dedicated unavailable-notice writer owner and expiry. Upgrade and same-version
+reconciliation add either missing column and clear a one-sided lease. Downgrade
+opens with the shared state-store timeout and pragmas, reserves an immediate
+writer before inspecting version or columns, removes only those two columns,
+restores schema version 10 in that transaction, and then permits the existing
+recovery downgrade chain to continue.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1296,11 +1370,17 @@ the commit or an existing durable match. The mode-`0600`
 only by a narrowly named legacy lifetime field until BR-18; it has no receiver
 read, poll, dispatch, or in-memory queue behavior.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
-and a `DurableReceiverRun` handle. The one `App::tick_receiver` call is the sole
-production consumer. Disabled intent blocks only a new idle claim; the tick
-continues to renew and manage an existing pending or active run. It renews an
-already claimed job before a pending freshness pull and otherwise does no new
-claim work while a receiver tab is active. When ready, it claims the oldest durable job by
+and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
+claims, active controllers, and cleanup-pending authority. The one
+`App::tick_receiver` call is the sole
+production consumer. While enabled, it reconciles one oldest blocker and
+executes exact cleanup, attempts one finite terminal-notice handoff, applies
+restart controls, advances any held local run, then claims a due recovery before
+ordinary FIFO work. Disabled intent skips those new effects but the tick still
+renews an existing pending claim and manages active completion or cleanup. A
+pending ordinary or recovery claim cannot spawn while disabled; a claimed
+`/new` may still finish its non-spawning durable control boundary. When ready
+and enabled, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, and reauthorizes that exact claim
 after each potentially slow capability, validation, registration, spawn, and
@@ -1324,19 +1404,118 @@ new active session. Neither process spawn nor screen activity is completion
 evidence. Terminal cleanup releases that session owner, shuts down the
 controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Only a synchronous spawn failure performs explicit
-registration cleanup and a durable pre-spawn retry. Once process spawn
-succeeds, Brain crosses a no-auto-replay boundary before any later fallible
-step: it reauthorizes and commits `launched` before allocating the tab. Owner
-loss or a launch-commit error preserves the exact registration and fenced
-`launching` row; allocation failure or later owner loss preserves `launched`.
-Child exit, orderly shutdown, and lease expiry then permit local cleanup only;
-the durable job and exact session correlation remain unchanged for BR-16.
+the active view or focus. Pre-spawn store ambiguity is not ownership loss.
+Brain retains an explicit cleanup capability until controller shutdown and
+exact registration release complete, then restores the same recovery claim.
+Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
+later fallible step. The local spawned capability owns the controller plus
+exact job, token, claim owner, instance, registered/native session, scope,
+frontend, PID, and launch-commit status while it reauthorizes, resolves the
+exact launch commit, reserves a tab, and performs the final owner proof. A
+commit error is retried against the exact durable observation, so both absent
+and already-visible writes are safe. Proven loss or allocation failure
+transfers that same capability into shutdown-first cleanup; controller shutdown
+failure keeps the registration and native lock fenced for a later tick.
+After shutdown, a typed immediate transaction either establishes or redrives
+one exact terminal cleanup effect, or reports a changed durable world. It
+validates the original job/token/owner plus the complete Resume registration,
+scope, frontend, native session, present lifecycle source, and exact locked PID, so
+claim expiry is not confused with success. An attached reconciliation effect
+always wins over stale local launch-commit memory. Exact acknowledgement is the
+only spawned path that releases the registration and native lock. Child exit
+uses the same transition, while orderly shutdown persists the exact tuple for
+dead-PID restart cleanup without acknowledging it. Store errors and mismatches
+retain local authority.
+An already active recovery follows this protocol too. A competing reconciler
+can win after this App's scan but before renewal or observation persistence.
+The losing App asks the state layer to establish or redrive the typed exact
+tuple and transfers its still-reachable `AgentController` into
+`CleanupPendingReceiverRun`. Repeated shutdown, artifact, acknowledgement, or
+store failure keeps the controller and lock together. Neither local tab
+absence nor a live PID is restart proof, and no direct session release is
+allowed. After exact shutdown and acknowledgement, the next FIFO job is
+immediately independent of notice-provider outcome.
+The state reconciler now atomically converts the complete stale snapshot into a
+bounded retry, one ownerless due same-session recovery, or a terminal notice
+intent. An accepted-stall effect carries only the opaque job/token plus exact
+superseded instance/session identifiers. The store retains that exact cleanup
+fence and registration until the App shuts down the native run and acknowledges
+the same tuple through the full-snapshot CAS. Before persisting that fence,
+accepted-work reconciliation classifies the exact session attribution. The
+ordinary bound path writes the authorized lifecycle-native session to the exact
+registration in the same transaction that binds the conversation. It requires
+the unchanged job/token, conversation, frontend, actor, channel, instance,
+registered placeholder, current lock, and observed native session, and cannot
+overwrite a different established native binding. If a Fresh fallback instead
+retains a real prior conversation binding, the exact ordinary job/token,
+placeholder registration, observed locked Fresh session, prior binding, and
+null-or-prior registration actual ID authorize only a terminal cleanup fence
+for the observed run. They do not authorize replacing the prior binding. Exact
+acknowledgement and dead-PID restart proof repeat that same attribution, remove
+only the placeholder registration and observed-session lock, and preserve the
+prior session. Missing or changed attribution releases nothing and terminalizes
+without an observation-derived cleanup tuple. Recovery claiming cannot cross
+that fence or an older expired-owner lifecycle row or due ordinary retry. An
+ownerless recovery remains reconcilable at its recovery or absolute deadline.
+For claimed or launching recovery, deadline reconciliation also recognizes one
+narrow pre-observation Resume proof. The job, token, conversation, actor,
+channel, frontend, claim instance, registered/native session, present source,
+registration actual value, and non-null lifecycle lock must all agree. Only
+then is the exact tuple persisted; otherwise the registration and lock remain
+untouched. A matching local pre-spawn or spawned capability attaches that
+effect and exact-acknowledges it after shutdown.
+Every terminalized live run with an exact instance/session pair retains that
+tuple, registration, and session lock and keeps returning the terminal cleanup
+effect across restart. Exact acknowledgement accepts the matching due or failed
+work only when the registration/session pair still matches the exact job,
+token, and durable conversation attribution; it then clears the tuple and
+releases both lock surfaces atomically. Wrong or misattributed identifiers
+change nothing. Read-only redrive does not duplicate the notice bit
+or depend on whether the notice bit was already acknowledged.
+The App keeps distinct cleanup-pending authority, shuts down a matching local
+controller once, and removes only its exact
+response and observation artifacts before that acknowledgement. After a restart
+with no matching tab, it may perform the same acknowledgement only when the
+persisted registration and session lock still match the effect and their exact
+recorded PID is dead. The sole unbound-conversation exception is an exact failed
+ordinary pre-acceptance lineage whose original registration and session are
+still fresh and whose PID is dead; recovery and already-bound lineages retain
+the native-conversation proof. A live matching PID prevents cleanup across TUIs.
+Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
+planning, registration, spawn, or shutdown failure uses an exact terminal
+transition with pending-notice intent. The state layer never invokes an adapter,
+inspects native history, launches a controller, or contacts a provider.
+Accepted recovery therefore has a separate launch continuation. It constructs
+`AgentController` from the conversation's persisted frontend and that
+frontend's current configured command, even when the live TUI defaults to a
+different frontend. It validates `resume_candidate_exists`, claims the exact
+persisted native session for a fresh receiver instance, and launches a bounded
+resume-only prompt ending in the original job-token marker. No Fresh or
+transcript fallback exists for accepted work; the original prompt, attachments,
+sender, recipient, prior answer, and `/new` parsing never enter this planner.
+Recovery observation and completion use the ordinary exact lifecycle and
+response transactions with the preserved job identity. A child exit without
+completion becomes the typed recovery Shutdown terminal transition.
+The recovery and unavailable-notice database operations remain App-facing
+methods, but their implementations are isolated in
+`tui/state/services/receiver_recovery.rs` and `receiver_notice.rs`; generic
+session, sync, attachment, and shell services stay outside those modules.
+
+Terminal notice handoff uses the schema-v11 owner/expiry fields, not the job's
+claim or cleanup fence. One claimant receives only the immutable accepted
+routing frame in memory. SMS queues to the authenticated sender; Email queues
+to the acceptance-time trusted recipients and reply context. Exact job, token,
+terminal state, and writer-owner acknowledgement clears the intent only after
+the bounded local delivery worker accepts it. Queue failure leaves the finite
+lease and intent for retry while later FIFO work remains eligible. This does
+not prove provider delivery. The crash window between local queue acceptance
+and the acknowledgement CAS, provider acknowledgement, and general delivery
+retry remain BR-17 work.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
-exact-owner CAS. Progressed stale states are not rerun before
-BR-16 defines their recovery policy.
-BR-15 still owns exact accepted/progress observations, and BR-17 still owns
+exact-owner CAS. Progressed stale states are never rerun as ordinary work; the
+enabled tick executes the schema-v10 recovery policy first.
+BR-15 owns exact accepted/progress observations, and BR-17 owns
 atomic answer persistence plus delivery-only retry. BR-18 retains final
 schema/migration reconciliation, durable status and diagnostics, and deletion
 of the legacy endpoint representation; receiver injection, warm-panel reuse,

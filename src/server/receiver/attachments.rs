@@ -6,11 +6,17 @@ pub const MAX_ATTACHMENT_COUNT: usize = 10;
 pub const MAX_ATTACHMENT_BYTES: u64 = 40 * 1024 * 1024;
 const MAX_ATTACHMENT_FILENAME_BYTES: usize = 128;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct StagedAttachment {
     pub source: String,
     pub path: Option<PathBuf>,
     pub error: Option<String>,
+}
+
+impl std::fmt::Debug for StagedAttachment {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("StagedAttachment(<redacted>)")
+    }
 }
 
 pub struct StagedAttachmentBatch {

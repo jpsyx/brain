@@ -23,6 +23,7 @@ bridge.main()
         .env("BRAIN_RECEIVER_JOB_TOKEN", JOB_TOKEN)
         .env("BRAIN_RECEIVER_OBSERVATION_PATH", snapshot)
         .env("BRAIN_INSTANCE_ID", INSTANCE_ID)
+        .env("BRAIN_AGENT_KIND", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -34,6 +35,51 @@ bridge.main()
         .write_all(payload.to_string().as_bytes())
         .expect("write bridge payload");
     child.wait_with_output().expect("wait observation bridge")
+}
+
+#[test]
+fn later_progress_pulses_advance_revision_and_latest_time_without_rewriting_boundaries() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = observation_path(&temporary, "observation.json");
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    assert!(
+        run_bridge_at(&path, &accepted_payload(&marker), 1_000)
+            .status
+            .success()
+    );
+    assert!(
+        run_bridge_at(&path, &progress_payload(SESSION_ID, "turn-1"), 1_100)
+            .status
+            .success()
+    );
+    let first = snapshot(&path);
+    assert_eq!(first["revision"], 2);
+    assert_eq!(first["progressing_at_unix_ms"], 1_100);
+    assert_eq!(first["latest_progress_at_unix_ms"], 1_100);
+
+    assert!(
+        run_bridge_at(&path, &progress_payload(SESSION_ID, "turn-2"), 1_200)
+            .status
+            .success()
+    );
+    let second = snapshot(&path);
+    assert_eq!(second["revision"], 3);
+    assert_eq!(second["progressing_at_unix_ms"], 1_100);
+    assert_eq!(second["latest_progress_at_unix_ms"], 1_200);
+    assert_eq!(second["turn_id"], "turn-2");
+
+    for (turn_id, observed_at) in [("turn-2", 1_300), ("turn-reordered", 1_150)] {
+        assert!(
+            run_bridge_at(&path, &progress_payload(SESSION_ID, turn_id), observed_at)
+                .status
+                .success()
+        );
+        assert_eq!(
+            snapshot(&path),
+            second,
+            "duplicate or reordered pulse mutated evidence"
+        );
+    }
 }
 
 #[test]
@@ -57,6 +103,7 @@ fn wall_clock_rollback_clamps_progress_and_completion_to_the_latest_boundary() {
     );
     let progressing = snapshot(&path);
     assert_eq!(progressing["progressing_at_unix_ms"], 2_000);
+    assert_eq!(progressing["latest_progress_at_unix_ms"], 2_000);
 
     let completed = serde_json::json!({
         "hook_event_name": "Stop",
@@ -208,6 +255,7 @@ fn completion_first_writes_revision_one_with_null_intermediate_boundaries() {
     assert_eq!(value["turn_id"], "turn-final");
     assert!(value["accepted_at_unix_ms"].is_null());
     assert!(value["progressing_at_unix_ms"].is_null());
+    assert!(value["latest_progress_at_unix_ms"].is_null());
     assert!(value["completed_at_unix_ms"].as_u64().is_some());
 }
 
@@ -225,6 +273,7 @@ fn revision_saturation_preserves_the_last_valid_snapshot_for_later_events() {
                 "turn_id": null,
                 "accepted_at_unix_ms": 1_000,
                 "progressing_at_unix_ms": null,
+                "latest_progress_at_unix_ms": null,
                 "completed_at_unix_ms": null,
             }),
             progress_payload(SESSION_ID, "turn-after-saturation"),
@@ -240,6 +289,7 @@ fn revision_saturation_preserves_the_last_valid_snapshot_for_later_events() {
                 "turn_id": "turn-before-saturation",
                 "accepted_at_unix_ms": 1_000,
                 "progressing_at_unix_ms": 1_100,
+                "latest_progress_at_unix_ms": 1_100,
                 "completed_at_unix_ms": null,
             }),
             serde_json::json!({
@@ -285,6 +335,7 @@ fn required_saturated_stop_accepts_only_an_exact_valid_terminal_event() {
             "turn_id": progressing_at.map(|_| "turn-before-saturation"),
             "accepted_at_unix_ms": 1_000,
             "progressing_at_unix_ms": progressing_at,
+            "latest_progress_at_unix_ms": progressing_at,
             "completed_at_unix_ms": null,
         });
         std::fs::write(&path, before.to_string()).expect("saturated snapshot");

@@ -157,7 +157,7 @@ static REGISTRATIONS: [FrontendRegistration; 3] = [
         lifecycle: &CLAUDE_LIFECYCLE,
         health_checks: &CLAUDE_HEALTH,
         capability_evidence: ClaudeFrontend::mcp_enforcement_evidence,
-        compatibility_probe: None,
+        compatibility_probe: Some(super::claude_compatibility_version),
     },
     FrontendRegistration {
         kind: AgentKind::Codex,
@@ -218,7 +218,7 @@ pub(crate) fn primary_session_health_check() -> Option<HealthCheckDescriptor> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, os::unix::fs::PermissionsExt as _};
 
     use super::*;
 
@@ -257,5 +257,127 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(ids.len(), installations.len());
+    }
+
+    #[test]
+    fn registry_probes_claude_and_opencode_compatibility_but_leaves_codex_unchanged() {
+        assert!(
+            registration(AgentKind::Claude).requires_compatibility_probe(),
+            "Claude receiver hooks require the prompt_id compatibility floor"
+        );
+        assert!(
+            !registration(AgentKind::Codex).requires_compatibility_probe(),
+            "Codex compatibility remains artifact-declared"
+        );
+        assert!(
+            registration(AgentKind::OpenCode).requires_compatibility_probe(),
+            "OpenCode retains its existing capability probe"
+        );
+    }
+
+    fn fake_claude_command(version_output: &str) -> (tempfile::TempDir, String) {
+        let temporary = tempfile::tempdir().expect("temporary Claude command");
+        let script = temporary.path().join("fake claude");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = --profile ] || exit 64\n[ \"$2\" = brain ] || exit 65\n[ \"$3\" = --version ] || exit 66\nprintf '%s\\n' '{}'\n",
+                version_output.replace('\'', "'\\''")
+            ),
+        )
+        .expect("write fake Claude command");
+        let mut permissions = std::fs::metadata(&script)
+            .expect("fake Claude metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).expect("make fake Claude executable");
+        let command = format!(
+            "{} --profile brain",
+            crate::agent::frontend::shell_quote(&script.display().to_string())
+        );
+        (temporary, command)
+    }
+
+    fn claude_compatibility(command: &str) -> Result<Option<String>, crate::agent::AgentError> {
+        registration(AgentKind::Claude)
+            .compatibility(command)
+            .expect("Claude registry compatibility probe")
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_the_version_before_prompt_id_support() {
+        let (_temporary, command) = fake_claude_command("2.1.195 (Claude Code)");
+
+        let error = claude_compatibility(&command).expect_err("Claude below version floor");
+        let message = error.to_string();
+
+        assert_eq!(
+            message,
+            "frontend error: Claude is incompatible: version 2.1.195 does not provide the required `prompt_id` hook field. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+        assert!(!message.contains("fake claude"));
+    }
+
+    #[test]
+    fn claude_compatibility_accepts_the_exact_prompt_id_minimum() {
+        let (_temporary, command) = fake_claude_command("2.1.196 (Claude Code)");
+
+        assert_eq!(
+            claude_compatibility(&command),
+            Ok(Some("2.1.196".to_owned()))
+        );
+    }
+
+    #[test]
+    fn claude_compatibility_accepts_a_newer_version() {
+        let (_temporary, command) = fake_claude_command("3.4.5 (Claude Code)");
+
+        assert_eq!(claude_compatibility(&command), Ok(Some("3.4.5".to_owned())));
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_malformed_version_output() {
+        let (_temporary, command) = fake_claude_command("Claude Code current");
+
+        assert_eq!(
+            claude_compatibility(&command)
+                .expect_err("malformed Claude version")
+                .to_string(),
+            "frontend error: Claude is incompatible: the configured command returned an unrecognized version. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_numeric_output_without_claude_identity() {
+        let (_temporary, command) = fake_claude_command("Python 3.9.6");
+
+        assert_eq!(
+            claude_compatibility(&command)
+                .expect_err("numeric output from a non-Claude command")
+                .to_string(),
+            "frontend error: Claude is incompatible: the configured command returned an unrecognized version. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_noisy_or_ambiguous_wrapper_output() {
+        let (_temporary, command) = fake_claude_command("wrapper 9.9.9\n2.1.195 (Claude Code)");
+
+        assert_eq!(
+            claude_compatibility(&command)
+                .expect_err("wrapper output with multiple numeric versions")
+                .to_string(),
+            "frontend error: Claude is incompatible: the configured command returned an unrecognized version. Update Claude Code to 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
+    }
+
+    #[test]
+    fn claude_compatibility_rejects_an_unavailable_command() {
+        assert_eq!(
+            claude_compatibility("brain-missing-claude-command-9bde08bd")
+                .expect_err("unavailable Claude command")
+                .to_string(),
+            "frontend error: Claude is unavailable: the configured command could not run. Install Claude Code 2.1.196 or later, or set `brain env set claude_cmd <command>` to a compatible command."
+        );
     }
 }

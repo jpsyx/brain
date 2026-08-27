@@ -24,7 +24,7 @@ impl App {
         ) {
             Ok(true) => {}
             Ok(false) => {
-                self.stop_locally_after_lost_receiver_ownership(&active, None, "ownership-changed");
+                self.stop_locally_after_lost_receiver_ownership(active, None, "ownership-changed");
                 return;
             }
             Err(_) => {
@@ -45,7 +45,7 @@ impl App {
                     && observation.instance == active.attribution.instance()
             });
         let Some(tab) = tab else {
-            self.stop_locally_after_lost_receiver_ownership(&active, None, "tab-identity-mismatch");
+            self.stop_locally_after_lost_receiver_ownership(active, None, "tab-identity-mismatch");
             return;
         };
         let poll = self.poll_active_receiver_run(&active);
@@ -69,7 +69,7 @@ impl App {
                 .as_ref()
                 .ok()
                 .map(|(poll, _)| &poll.observation)
-                .filter(|observation| !observation.boundaries().is_empty())
+                .filter(|observation| observation.has_updates())
                 .map(|observation| {
                     AppServices::receiver_observation_set(
                         active.claim.job().token(),
@@ -79,10 +79,14 @@ impl App {
                     )
                 });
             let boundary = poll.as_ref().ok().and_then(|(poll, _)| {
-                poll.observation
-                    .boundaries()
-                    .last()
-                    .map(|boundary| boundary.phase())
+                poll.observation.boundaries().last().map_or_else(
+                    || {
+                        poll.observation
+                            .progress_pulse()
+                            .map(|_| AgentObservationPhase::Progressing)
+                    },
+                    |boundary| Some(boundary.phase()),
+                )
             });
             self.log_receiver_observation(&active, boundary, "artifact-precedence");
             self.finish_completed_receiver_run(
@@ -97,7 +101,7 @@ impl App {
         }
 
         match poll {
-            Ok((poll, _)) if poll.observation.boundaries().is_empty() => {
+            Ok((poll, _)) if !poll.observation.has_updates() => {
                 if poll.exited {
                     self.log_receiver_observation(&active, None, "child-exit");
                     self.clean_exited_receiver_run_locally(&active);
@@ -112,11 +116,11 @@ impl App {
                 self.apply_active_receiver_observation(active, &poll, prior_state);
             }
             Err(ReceiverRunPollError::MissingTab) => {
-                self.stop_locally_after_lost_receiver_ownership(&active, None, "tab-missing");
+                self.stop_locally_after_lost_receiver_ownership(active, None, "tab-missing");
             }
             Err(ReceiverRunPollError::IdentityMismatch) => {
                 self.stop_locally_after_lost_receiver_ownership(
-                    &active,
+                    active,
                     None,
                     "tab-identity-mismatch",
                 );
@@ -172,11 +176,16 @@ impl App {
         poll: &crate::tui::state::ReceiverRunPoll,
         prior_state: ReceiverJobState,
     ) {
-        let boundary = poll
-            .observation
-            .boundaries()
-            .last()
-            .map_or(AgentObservationPhase::Launched, |boundary| boundary.phase());
+        let boundary = poll.observation.boundaries().last().map_or_else(
+            || {
+                if poll.observation.progress_pulse().is_some() {
+                    AgentObservationPhase::Progressing
+                } else {
+                    AgentObservationPhase::Launched
+                }
+            },
+            |boundary| boundary.phase(),
+        );
         #[cfg(test)]
         self.receiver
             .run_before_observation_persistence_hook(poll.observation.boundaries());
@@ -231,7 +240,7 @@ impl App {
                     now.saturating_add(CLAIM_LIFETIME_MS),
                 ) {
                     Ok(false) => self.stop_locally_after_lost_receiver_ownership(
-                        &active,
+                        active,
                         Some(boundary),
                         "ownership-changed",
                     ),

@@ -4,12 +4,21 @@ use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
 /// Verified provider lineage, or an explicit request for a fresh email conversation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum EmailLineage {
     /// A provider-authenticated thread identifier.
     Verified(String),
     /// No unambiguous provider lineage was available.
     Uncertain,
+}
+
+impl std::fmt::Debug for EmailLineage {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Verified(_) => "EmailLineage::Verified(<redacted>)",
+            Self::Uncertain => "EmailLineage::Uncertain",
+        })
+    }
 }
 
 impl EmailLineage {
@@ -41,12 +50,18 @@ impl Display for EmailLineageError {
 impl Error for EmailLineageError {}
 
 /// Immutable logical identity for one receiver conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ReceiverConversationIdentity {
     workspace_id: crate::workspace::WorkspaceId,
     user_id: crate::users::UserId,
     channel: crate::server::receiver::Channel,
     conversation_key: String,
+}
+
+impl std::fmt::Debug for ReceiverConversationIdentity {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReceiverConversationIdentity(<redacted>)")
+    }
 }
 
 impl ReceiverConversationIdentity {

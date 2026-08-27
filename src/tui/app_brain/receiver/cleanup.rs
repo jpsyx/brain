@@ -4,6 +4,13 @@ use crate::tui::App;
 
 impl App {
     pub(super) fn cleanup_receiver_instance_files(&self, instance: &str) {
+        let _ = self.cleanup_receiver_instance_files_checked(instance);
+    }
+
+    pub(super) fn cleanup_receiver_instance_files_checked(
+        &self,
+        instance: &str,
+    ) -> std::io::Result<()> {
         let response = self
             .context
             .workspace()
@@ -16,7 +23,12 @@ impl App {
             &observation,
             &observation.with_extension("json.lock"),
         ] {
-            let _ = std::fs::remove_file(path);
+            match std::fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
         }
+        Ok(())
     }
 }

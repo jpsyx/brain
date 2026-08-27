@@ -259,6 +259,7 @@ fn write_completed_snapshot(app: &App, session_id: &str, completed_at_unix_ms: u
             "turn_id": null,
             "accepted_at_unix_ms": null,
             "progressing_at_unix_ms": null,
+            "latest_progress_at_unix_ms": null,
             "completed_at_unix_ms": completed_at_unix_ms,
         })
         .to_string(),

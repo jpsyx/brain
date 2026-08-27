@@ -33,6 +33,7 @@ fn exact_terminal_receiver_marker_writes_one_private_fixed_schema_snapshot() {
             "completed_at_unix_ms",
             "instance_id",
             "job_token",
+            "latest_progress_at_unix_ms",
             "phase",
             "progressing_at_unix_ms",
             "revision",
@@ -50,6 +51,7 @@ fn exact_terminal_receiver_marker_writes_one_private_fixed_schema_snapshot() {
     assert!(value["turn_id"].is_null());
     assert!(value["accepted_at_unix_ms"].as_u64().is_some());
     assert!(value["progressing_at_unix_ms"].is_null());
+    assert!(value["latest_progress_at_unix_ms"].is_null());
     assert!(value["completed_at_unix_ms"].is_null());
     assert!(std::fs::metadata(&path).unwrap().len() <= 4096);
     assert_eq!(
@@ -148,7 +150,7 @@ fn native_agent_id_child_post_tool_cannot_advance_root_progress() {
 }
 
 #[test]
-fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_noops() {
+fn progress_requires_matching_acceptance_and_later_events_pulse_without_regression() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = observation_path(&temporary, "observation.json");
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
@@ -190,11 +192,27 @@ fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_n
         "progress must retain the accepted boundary"
     );
     assert!(progressing["progressing_at_unix_ms"].as_u64().is_some());
+    assert_eq!(
+        progressing["latest_progress_at_unix_ms"],
+        progressing["progressing_at_unix_ms"]
+    );
 
+    std::thread::sleep(std::time::Duration::from_millis(2));
     assert!(
-        run_bridge(&path, &progress_payload(SESSION_ID, "turn-duplicate"))
+        run_bridge(&path, &progress_payload(SESSION_ID, "turn-2"))
             .status
             .success()
+    );
+    let pulsed = snapshot(&path);
+    assert_eq!(pulsed["revision"], 3);
+    assert_eq!(pulsed["turn_id"], "turn-2");
+    assert_eq!(
+        pulsed["progressing_at_unix_ms"],
+        progressing["progressing_at_unix_ms"]
+    );
+    assert!(
+        pulsed["latest_progress_at_unix_ms"].as_u64().unwrap()
+            > progressing["latest_progress_at_unix_ms"].as_u64().unwrap()
     );
     assert!(
         run_bridge(&path, &accepted_payload(&marker))
@@ -203,9 +221,148 @@ fn progress_requires_matching_acceptance_and_duplicate_or_regressed_events_are_n
     );
     assert_eq!(
         snapshot(&path),
-        progressing,
-        "duplicate progress and regressed acceptance must not increment revision"
+        pulsed,
+        "regressed acceptance must not increment revision"
     );
+}
+
+fn frontend_submit(kind: &str, prompt: &str, turn_id: &str) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": SESSION_ID,
+        "prompt": prompt,
+    });
+    let field = if kind == "claude" {
+        "prompt_id"
+    } else {
+        "turn_id"
+    };
+    payload[field] = serde_json::json!(turn_id);
+    payload
+}
+
+fn frontend_tool(kind: &str, accepted_turn_id: &str, tool_use_id: &str) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "session_id": SESSION_ID,
+        "tool_use_id": tool_use_id,
+        "turn_id": tool_use_id,
+    });
+    let field = if kind == "claude" {
+        "prompt_id"
+    } else {
+        "turn_id"
+    };
+    payload[field] = serde_json::json!(accepted_turn_id);
+    payload
+}
+
+#[test]
+fn claude_and_codex_reject_delayed_tool_events_from_a_prior_turn_after_acceptance() {
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    for kind in ["claude", "codex"] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = observation_path(&temporary, format!("{kind}.json"));
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, &marker, "receiver-turn"),
+            )
+            .status
+            .success()
+        );
+        let accepted = snapshot(&path);
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "prior-unrelated-turn", "delayed-tool"),
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            snapshot(&path),
+            accepted,
+            "{kind} accepted a delayed tool event from a prior turn"
+        );
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "receiver-tool"),
+            )
+            .status
+            .success()
+        );
+        let progressing = snapshot(&path);
+        assert_eq!(progressing["revision"], 2, "{kind}");
+        assert_eq!(progressing["turn_id"], "receiver-tool", "{kind}");
+    }
+}
+
+#[test]
+fn claude_and_codex_revoke_progress_after_a_later_nonmarker_root_prompt() {
+    let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
+    for kind in ["claude", "codex"] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = observation_path(&temporary, format!("{kind}.json"));
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, &marker, "receiver-turn"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "receiver-tool-1"),
+            )
+            .status
+            .success()
+        );
+        let progressing = snapshot(&path);
+
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_submit(kind, "ordinary follow-up", "unrelated-turn"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "receiver-turn", "delayed-receiver-tool"),
+            )
+            .status
+            .success()
+        );
+        assert!(
+            run_bridge_for_kind(
+                &path,
+                kind,
+                &frontend_tool(kind, "unrelated-turn", "unrelated-tool"),
+            )
+            .status
+            .success()
+        );
+        assert_eq!(
+            snapshot(&path),
+            progressing,
+            "{kind} retained progress authority after an unrelated prompt"
+        );
+    }
 }
 
 #[test]
@@ -236,10 +393,12 @@ fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
         );
     }
     let progressing = snapshot(&path);
-    assert_eq!(progressing["revision"], 2);
+    let progress_revision = progressing["revision"].as_u64().unwrap();
+    assert!((2..=9).contains(&progress_revision));
     assert_eq!(progressing["phase"], "progressing");
     assert_eq!(progressing["accepted_at_unix_ms"], accepted_at);
     let progressing_at = progressing["progressing_at_unix_ms"].clone();
+    let latest_progress_at = progressing["latest_progress_at_unix_ms"].clone();
 
     let completed = serde_json::json!({
         "hook_event_name": "Stop",
@@ -248,10 +407,11 @@ fn concurrent_delivery_is_monotonic_and_completion_retains_every_boundary() {
     });
     assert!(run_bridge(&path, &completed).status.success());
     let value = snapshot(&path);
-    assert_eq!(value["revision"], 3);
+    assert_eq!(value["revision"], progress_revision + 1);
     assert_eq!(value["phase"], "completed");
     assert_eq!(value["accepted_at_unix_ms"], accepted_at);
     assert_eq!(value["progressing_at_unix_ms"], progressing_at);
+    assert_eq!(value["latest_progress_at_unix_ms"], latest_progress_at);
     assert!(value["completed_at_unix_ms"].as_u64().is_some());
     assert_eq!(value["turn_id"], "turn-final");
 

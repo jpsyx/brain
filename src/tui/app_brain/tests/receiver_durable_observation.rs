@@ -35,7 +35,7 @@ fn every_frontend_persists_only_exact_new_lifecycle_evidence() {
         assert_eq!(accepted_job.accepted_at_unix_ms(), Some(1_000), "{kind:?}");
         assert_eq!(accepted_job.progressing_at_unix_ms(), None, "{kind:?}");
 
-        write_active_snapshot(
+        let path = write_active_snapshot(
             &app,
             &session,
             2,
@@ -59,6 +59,26 @@ fn every_frontend_persists_only_exact_new_lifecycle_evidence() {
             Some(1_100),
             "{kind:?}"
         );
+        assert_eq!(
+            progressing.latest_progress_at_unix_ms(),
+            Some(1_100),
+            "{kind:?}"
+        );
+
+        let mut pulse: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&path).expect("progressing observation snapshot"),
+        )
+        .expect("progressing observation JSON");
+        pulse["revision"] = serde_json::json!(3);
+        pulse["turn_id"] = serde_json::json!("later-progress");
+        pulse["latest_progress_at_unix_ms"] = serde_json::json!(1_200);
+        write_owner_only(&path, pulse.to_string());
+        app.tick_receiver();
+
+        let pulsed = db.receiver_job(accepted.job_id()).unwrap().unwrap();
+        assert_eq!(pulsed.observation_revision(), 3, "{kind:?}");
+        assert_eq!(pulsed.progressing_at_unix_ms(), Some(1_100), "{kind:?}");
+        assert_eq!(pulsed.latest_progress_at_unix_ms(), Some(1_200), "{kind:?}");
         assert_eq!(app.brain.receiver_run_observations().len(), 1, "{kind:?}");
     }
 }
@@ -334,6 +354,7 @@ fn write_active_snapshot(
             "turn_id": null,
             "accepted_at_unix_ms": accepted_at_unix_ms,
             "progressing_at_unix_ms": progressing_at_unix_ms,
+            "latest_progress_at_unix_ms": progressing_at_unix_ms,
             "completed_at_unix_ms": completed_at_unix_ms,
         })
         .to_string(),
