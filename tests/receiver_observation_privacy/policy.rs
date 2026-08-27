@@ -27,7 +27,7 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
         "tests/fixtures/opencode/plugin_harness.js",
         "src/tui/app_brain/tests/receiver_durable_observation_composed.rs",
         "src/tui/app_brain/tests/receiver_durable_observation_replacement.rs",
-        "src/tui/app_brain/tests/receiver_durable_producer_matrix.rs",
+        "src/tui/app_brain/tests/receiver_durable_producer_support.rs",
     ] {
         assert!(
             audited.contains(&PathBuf::from(required)),

@@ -1638,6 +1638,15 @@ through exact acknowledgement. This remains true after the 30-second writer
 claim expires, when a launch write was visible despite a caller error, and when
 deadline reconciliation wins first. Incomplete or changed registration,
 lifecycle, scope, source, or PID evidence fails closed and keeps the lock.
+The same rule applies after launch. If another Brain process terminalizes an
+active recovery between this App's reconciliation and its claim renewal or
+observation commit, the active controller becomes cleanup-pending authority for
+the exact durable tuple. Shutdown, artifact, acknowledgement, and store
+failures retain that controller for retry. A live recorded PID, a missing tab,
+or a wrong cleanup effect cannot release the session; only the matching exact
+acknowledgement can do so. After the owning App exits, a reopened App may finish
+the tuple only after proving that exact PID dead, and unrelated registrations
+remain unchanged.
 Deadline reconciliation can also derive the exact Resume tuple before a launch
 observation exists, so repeated shutdown failure never opens the session to a
 competing TUI. An orderly shell exit leaves that tuple for dead-PID restart

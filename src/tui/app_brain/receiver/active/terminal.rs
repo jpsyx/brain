@@ -193,12 +193,40 @@ impl App {
 
     pub(super) fn stop_locally_after_lost_receiver_ownership(
         &mut self,
-        active: &ActiveReceiverRun,
+        active: ActiveReceiverRun,
         boundary: Option<AgentObservationPhase>,
         category: &'static str,
     ) {
-        self.log_receiver_observation(active, boundary, category);
-        self.remove_exact_receiver_tab(active);
+        self.log_receiver_observation(&active, boundary, category);
+        if active.claim.job().attempt_kind() == crate::state::ReceiverAttemptKind::Recovery {
+            let now = self.receiver_now_unix_ms();
+            let pid = i32::try_from(std::process::id()).unwrap_or(0);
+            match self.services.establish_receiver_spawned_recovery_cleanup(
+                active.claim.job().id(),
+                active.claim.job().token(),
+                active.claim.claim().owner(),
+                &active.attribution,
+                pid,
+                now,
+            ) {
+                Ok(crate::state::ReceiverRecoveryCleanupOutcome::Exact(effect)) => {
+                    self.continue_receiver_cleanup(CleanupPendingReceiverRun {
+                        active,
+                        effect,
+                        shutdown_complete: false,
+                        artifacts_removed: false,
+                        defer_once: false,
+                    });
+                }
+                Ok(crate::state::ReceiverRecoveryCleanupOutcome::Changed) | Err(_) => {
+                    self.receiver.store_durable_run(
+                        crate::tui::receiver::DurableReceiverRun::Active(active),
+                    );
+                }
+            }
+            return;
+        }
+        self.remove_exact_receiver_tab(&active);
         self.cleanup_receiver_instance_files(active.attribution.instance());
     }
 

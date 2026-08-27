@@ -1407,6 +1407,15 @@ only spawned path that releases the registration and native lock. Child exit
 uses the same transition, while orderly shutdown persists the exact tuple for
 dead-PID restart cleanup without acknowledging it. Store errors and mismatches
 retain local authority.
+An already active recovery follows this protocol too. A competing reconciler
+can win after this App's scan but before renewal or observation persistence.
+The losing App asks the state layer to establish or redrive the typed exact
+tuple and transfers its still-reachable `AgentController` into
+`CleanupPendingReceiverRun`. Repeated shutdown, artifact, acknowledgement, or
+store failure keeps the controller and lock together. Neither local tab
+absence nor a live PID is restart proof, and no direct session release is
+allowed. After exact shutdown and acknowledgement, the next FIFO job is
+immediately independent of notice-provider outcome.
 The state reconciler now atomically converts the complete stale snapshot into a
 bounded retry, one ownerless due same-session recovery, or a terminal notice
 intent. An accepted-stall effect carries only the opaque job/token plus exact

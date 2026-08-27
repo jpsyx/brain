@@ -230,3 +230,62 @@ fn receiver_observation_coordination_cannot_name_provider_or_snapshot_grammar() 
         );
     }
 }
+
+fn receiver_lifecycle_authority_violation(source: &str) -> Option<&'static str> {
+    [
+        ".snapshot(",
+        "AgentAction::TypeText",
+        "AgentAction::SubmitNow",
+        "AgentAction::FollowUpAfterActiveTurn",
+        "AgentAction::StartNewSession",
+        "type_text(",
+        "submit_now(",
+        "start_new_session(",
+        "std::thread::sleep(",
+        "tokio::time::sleep(",
+    ]
+    .into_iter()
+    .find(|forbidden| source.contains(*forbidden))
+}
+
+#[test]
+fn receiver_lifecycle_authority_guard_detects_screen_injection_and_sleep_mutations() {
+    for mutation in [
+        "let screen = controller.snapshot()?;",
+        "controller.input(AgentAction::TypeText(prompt))?;",
+        "controller.input(AgentAction::SubmitNow)?;",
+        "controller.input(AgentAction::StartNewSession)?;",
+        "std::thread::sleep(std::time::Duration::from_secs(30));",
+    ] {
+        assert!(
+            receiver_lifecycle_authority_violation(mutation).is_some(),
+            "guard accepted obsolete receiver lifecycle authority: {mutation}"
+        );
+    }
+}
+
+#[test]
+fn receiver_coordinators_use_only_controller_launch_observation_and_shutdown_authority() {
+    let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for root in [
+        source_root.join("tui/receiver"),
+        source_root.join("tui/app_brain/receiver"),
+    ] {
+        for entry in walkdir::WalkDir::new(root) {
+            let entry = entry.expect("walk receiver coordinator source");
+            let path = entry.path();
+            if !entry.file_type().is_file()
+                || path.extension().and_then(|extension| extension.to_str()) != Some("rs")
+            {
+                continue;
+            }
+            let source = std::fs::read_to_string(path).expect("read receiver coordinator source");
+            assert_eq!(
+                receiver_lifecycle_authority_violation(production_prefix(&source)),
+                None,
+                "{} reintroduced screen, typed-injection, or sleep authority",
+                path.display()
+            );
+        }
+    }
+}

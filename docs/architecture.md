@@ -183,6 +183,16 @@ rule applies across the large runtime families:
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` distinguishes ordinary claimed, recovery claimed, active, and cleanup-pending local authority; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
+The durable receiver model is split beneath the thin `model.rs` coordinator:
+`model/{identity,conversation,observation,job,claim,effect}.rs` separately own
+opaque identity, continuity, lifecycle evidence, persisted rows, claims, and
+typed effects. The schema coordinator delegates schema-v11 notice repair and
+downgrade to `schema/notice.rs`, the older adjacent downgrade steps to
+`schema/downgrade.rs`, and recovery-specific repair to `schema/recovery.rs`.
+Observation persistence computes its progress and immutable absolute deadlines
+through the pure lifecycle-deadline helper, so SQLite does not carry a second
+clamp decision.
+
 BR-16 Task 4 adds focused live-receiver seams:
 `app_brain/receiver/recovery.rs` executes neutral reconciliation effects;
 `recovery_launch/{claim,pre_spawn_cleanup,effects}.rs` separates persisted
@@ -201,6 +211,11 @@ frontend, instance, native session, present lifecycle source, registration
 actual value, and non-null lock. `spawned_cleanup.rs` uses the same proof in
 one immediate transaction to return either exact cleanup authority or a
 changed durable world after local shutdown.
+`active/terminal.rs` applies that same typed transition when a competing
+coordinator wins between an active recovery's scan and its renewal or
+observation CAS. The reachable controller becomes cleanup-pending authority and
+is retained through shutdown, artifact, acknowledgement, and store failures;
+only the exact acknowledgement releases its registration and native lock.
 Before an accepted observation can become a cleanup fence, reconciliation
 classifies its exact session attribution as bound, prior-binding Fresh conflict,
 or absent. The bound path writes the lifecycle-native session to the exact fresh

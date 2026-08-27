@@ -328,7 +328,10 @@ first move is a failing test that reproduces it, *then* the fix.
   session unclaimed and clears the attempted response identity.
 - **Facade source boundary.** `tests/agent_registry_boundary.rs` rejects public
   concrete frontend modules, adapter traits, or adapter operation exports and
-  guards shared call sites against direct frontend branching. Black-box
+  guards shared call sites against direct frontend branching. Its receiver
+  lifecycle guard rejects terminal snapshots, typed text, submit/new-session
+  input, and fixed sleep from receiver coordinator modules while leaving those
+  generic interactive operations available to human panel callers. Black-box
   integration tests launch all three frontends through `AgentController` and a
   recording transport. The adapter contract table also drives identical
   normalized observation requests through Claude, Codex, and OpenCode, proving
@@ -644,6 +647,17 @@ first move is a failing test that reproduces it, *then* the fix.
   checks pre-spawn effect attachment, and covers visible-write restart redrive,
   claim-expiry cleanup, orderly shutdown proof, exact wrong-identity rejection,
   live/dead PID restart decisions, and a real two-handle reconciliation race.
+  A separate active-owner-loss matrix places a second SQLite handle exactly
+  between App reconciliation and both claim renewal and observation CAS. It
+  proves deadline-minus-one waiting, equality terminalization, repeated
+  shutdown failure, wrong-effect rejection, live-PID refusal, exact dead-PID
+  restart completion, unrelated-registration preservation, sole exact
+  acknowledgement, and immediate FIFO continuation.
+  An `AgentKind::ALL` end-to-end matrix stalls ordinary accepted work, resumes
+  exact native history in a fresh remote instance through each configured
+  command, observes accepted, progressing, and completed evidence through
+  `AgentController`, and completes recorded response delivery without replaying
+  inbound content.
   Registration mismatches cover job token, actor, channel, frontend, native
   session, source, lock PID, and registration actual session, while unrelated
   registrations remain unchanged. All use injected clocks and recording
@@ -1151,7 +1165,7 @@ first move is a failing test that reproduces it, *then* the fix.
 | Location | Scope |
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
-| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. |
+| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard keeps the model and schema coordinator plus their cohesive identity, conversation, observation, job, claim, effect, notice, and downgrade modules within the production-size prompt. It applies the same bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |

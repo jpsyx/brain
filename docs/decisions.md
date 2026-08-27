@@ -2642,6 +2642,17 @@ acknowledges only after shutdown. This makes reconciliation-first and
 local-cleanup-first races converge on the same tuple and removes the previous
 `Some`/`None`, boolean, and store-error ambiguity.
 
+The protocol also covers a recovery that already reached the generic active
+run state. Reconciliation and renewal or observation persistence are separate
+transactions, so another process can terminalize between them. The loser must
+not use generic tab removal because a shutdown failure would discard the only
+retryable controller while the live PID still fences restart cleanup. Brain
+therefore establishes or redrives the exact typed outcome first, converts the
+active run to cleanup-pending authority, and retains it through every fallible
+cleanup boundary. Exact acknowledgement remains the sole release. This makes
+renewal-loss and observation-CAS-loss races equivalent to every other spawned
+recovery cleanup cut.
+
 ## Why terminal notice handoff has its own finite lease
 
 The terminal notice is independent from cleanup and FIFO eligibility. Reusing

@@ -1404,6 +1404,16 @@ repeating completed effects, and finish the pending response, then ends with the
 same token marker. Immutable inbound content, attachments, transcript, routing,
 provider data, and prior response text cannot enter that planner.
 
+An active recovery keeps its local controller as durable cleanup capability
+when another writer wins renewal or observation persistence. The typed outcome
+is either the exact persisted cleanup effect or `Changed`; an unavailable or
+changed outcome never authorizes dropping that capability. Once exact, the
+local run records shutdown and artifact progress separately and releases the
+registration and native-session lock only in the cleanup acknowledgement
+transaction. Restart cleanup requires the same tuple plus a dead recorded PID.
+Wrong tuples, live PIDs, missing tabs, and unrelated registrations change
+nothing.
+
 State schema v6 created both receiver tables and their ready-work index in one
 transaction. Schema v7 adds `retry_from_state`, constrained to the resumable
 nonterminal phases. Schema v8 adds the exact receiver-session registration
