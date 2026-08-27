@@ -7,6 +7,7 @@ enum SchemaRaceEvent {
 static SCHEMA_RACE_EVENTS: std::sync::Mutex<
     Option<std::sync::mpsc::SyncSender<SchemaRaceEvent>>,
 > = std::sync::Mutex::new(None);
+static SCHEMA_RACE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn report_schema_busy(_attempt: i32) -> bool {
     if let Some(sender) = SCHEMA_RACE_EVENTS
@@ -45,6 +46,7 @@ fn receiver_schema_enforces_conversation_foreign_keys() {
 
 #[test]
 fn v10_reconciliation_reserves_the_writer_before_reading_schema() {
+    let _test_lock = SCHEMA_RACE_TEST_LOCK.lock().expect("schema race test lock");
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
@@ -105,6 +107,7 @@ fn v10_reconciliation_reserves_the_writer_before_reading_schema() {
 
 #[test]
 fn v11_downgrade_reserves_the_writer_before_reading_schema() {
+    let _test_lock = SCHEMA_RACE_TEST_LOCK.lock().expect("schema race test lock");
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
@@ -179,7 +182,7 @@ fn v11_downgrade_reserves_the_writer_before_reading_schema() {
 }
 
 #[test]
-fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v11() {
+fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v12() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn
         .execute_batch("DROP TABLE receiver_jobs; PRAGMA user_version = 6;")
@@ -209,7 +212,7 @@ fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v11() {
             |row| row.get(0),
         )
         .expect("receiver registration table count");
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     assert_eq!(retry_origin_columns, 1);
     assert_eq!(registration_tables, 1);
 }
@@ -267,7 +270,7 @@ fn v10_upgrade_repairs_a_partial_unavailable_notice_lease() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("repaired notice lease");
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     assert_eq!(notice_columns, 2);
     assert_eq!(lease, (None, None));
 }
@@ -439,7 +442,7 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
         .conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("receiver schema version");
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     for (provider_id, job_id) in rows {
         let job = db
             .receiver_job(job_id)

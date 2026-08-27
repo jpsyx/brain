@@ -94,6 +94,19 @@ mod privacy {
     include!("tests/privacy.rs");
 }
 
+mod delivery_model {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/delivery_model.rs");
+}
+
+mod delivery_policy {
+    use super::*;
+
+    include!("tests/delivery_policy.rs");
+}
+
 mod schema {
     use super::support::*;
     use super::*;
@@ -101,5 +114,7 @@ mod schema {
     include!("tests/schema.rs");
     include!("tests/schema_sections/collisions.rs");
     include!("tests/schema_sections/downgrade.rs");
+    include!("tests/schema_sections/delivery.rs");
+    include!("tests/schema_sections/delivery_writer.rs");
     include!("tests/schema_sections/writer_ordering.rs");
 }

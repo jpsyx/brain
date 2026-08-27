@@ -1,5 +1,6 @@
 //! Durable receiver job and logical-conversation state.
 
+mod delivery_policy;
 mod identity;
 mod job_state;
 mod model;
@@ -10,17 +11,25 @@ mod store;
 #[cfg(test)]
 mod tests;
 
+pub use delivery_policy::{
+    ReceiverDeliveryDecision, ReceiverDeliveryPolicySnapshot, ReceiverProviderCapability,
+    ReceiverProviderResultClass, decide_receiver_delivery, receiver_delivery_retry_is_due,
+};
 pub use identity::{EmailLineage, EmailLineageError, ReceiverConversationIdentity};
 pub use job_state::ReceiverJobState;
 pub use model::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance, ReceiverClaim, ReceiverCompletionRequest,
-    ReceiverConversation, ReceiverConversationId, ReceiverJob, ReceiverJobId, ReceiverJobToken,
-    ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
-    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
-    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure, ReceiverRunClaim,
-    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
-    ReceiverSessionPlan, ReceiverUnavailableNoticeClaim,
+    ReceiverConversation, ReceiverConversationId, ReceiverDeliveryAmbiguity,
+    ReceiverDeliveryAttemptId, ReceiverDeliveryEnvelope, ReceiverDeliveryErrorCategory,
+    ReceiverDeliveryId, ReceiverDeliveryRenderError, ReceiverDeliveryRetryMetadata,
+    ReceiverDeliveryState, ReceiverDeliveryStatus, ReceiverEmailEnvelope, ReceiverJob,
+    ReceiverJobId, ReceiverJobToken, ReceiverLaunchFailure, ReceiverLaunchObservation,
+    ReceiverLaunchRetryOutcome, ReceiverNonterminalObservationPhase, ReceiverObservation,
+    ReceiverObservationSet, ReceiverProviderReference, ReceiverReconciliationAction,
+    ReceiverReconciliationEffect, ReceiverReconciliationReason, ReceiverRecoveryCleanupOutcome,
+    ReceiverRecoveryFailure, ReceiverResponseKind, ReceiverRunClaim, ReceiverSessionAttribution,
+    ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverSmsEnvelope,
+    ReceiverUnavailableNoticeClaim, render_receiver_delivery,
 };
 use model::{
     ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,

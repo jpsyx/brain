@@ -3,13 +3,15 @@ use rusqlite::{Connection, OptionalExtension as _};
 
 use super::ReceiverJobToken;
 
+mod delivery;
 mod downgrade;
 mod notice;
 mod recovery;
 mod token;
 use token::populate_job_tokens;
 
-pub(super) const VERSION: i32 = 11;
+pub(super) const VERSION: i32 = 12;
+pub(super) const DELIVERY_PREVIOUS_VERSION: i32 = 11;
 pub(super) const RECOVERY_VERSION: i32 = 10;
 pub(super) const OBSERVATION_VERSION: i32 = 9;
 pub(super) const REGISTRATION_VERSION: i32 = 8;
@@ -120,6 +122,7 @@ pub(super) fn up_with_token_factory(
     ensure_observation_columns(&transaction, &mut next_token)?;
     recovery::ensure_columns(&transaction)?;
     ensure_unavailable_notice_columns(&transaction)?;
+    delivery::ensure_schema(&transaction)?;
     if current_version < VERSION && !had_any_recovery_column {
         recovery::migrate_v9_metadata(&transaction)?;
     }
@@ -281,6 +284,9 @@ pub(super) fn has_column(connection: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
+pub(crate) use delivery::down_path as down_delivery_path;
+#[cfg(test)]
+pub(in crate::state::receiver) use delivery::down_path_with_busy_observer as down_delivery_path_with_busy_observer;
 pub(crate) use downgrade::{
     down_observation_to_registration_path, down_path, down_registration_to_launch_path,
     down_to_previous_path,

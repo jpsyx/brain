@@ -1,6 +1,7 @@
 //! Automatic, version-directed machine migrations.
 
 mod lifecycle;
+mod receiver_delivery;
 mod receiver_launch;
 mod receiver_lifecycle_observation;
 mod receiver_model;
@@ -27,6 +28,7 @@ const RECEIVER_LIFECYCLE_OBSERVATION_VERSION: Version = Version::new(0, 81, 0);
 const RECEIVER_RECOVERY_VERSION: Version = Version::new(0, 84, 0);
 const RECEIVER_RECOVERY_CLEANUP_VERSION: Version = Version::new(0, 84, 8);
 const RECEIVER_UNAVAILABLE_NOTICE_VERSION: Version = Version::new(0, 84, 12);
+const RECEIVER_DELIVERY_VERSION: Version = Version::new(0, 85, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -35,7 +37,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 9] = [
+const MIGRATIONS: [Migration; 10] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -80,6 +82,11 @@ const MIGRATIONS: [Migration; 9] = [
         introduced: RECEIVER_UNAVAILABLE_NOTICE_VERSION,
         up: receiver_unavailable_notice::up,
         down: receiver_unavailable_notice::down,
+    },
+    Migration {
+        introduced: RECEIVER_DELIVERY_VERSION,
+        up: receiver_delivery::up,
+        down: receiver_delivery::down,
     },
 ];
 
@@ -245,5 +252,24 @@ mod tests {
 
         assert_eq!(down, vec![RECEIVER_UNAVAILABLE_NOTICE_VERSION]);
         assert_eq!(up, vec![RECEIVER_UNAVAILABLE_NOTICE_VERSION]);
+    }
+
+    #[test]
+    fn durable_delivery_boundary_is_exactly_adjacent_to_08422() {
+        let before = Version::new(0, 84, 22);
+        let delivery = Version::new(0, 85, 0);
+        let down = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_downgrade(migration.introduced, delivery, before))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+        let up = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_upgrade(migration.introduced, before, delivery))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+
+        assert_eq!(down, vec![RECEIVER_DELIVERY_VERSION]);
+        assert_eq!(up, vec![RECEIVER_DELIVERY_VERSION]);
     }
 }

@@ -1116,8 +1116,10 @@ Which session to run is decided by the **lock + recency** model in
    state layer returns similarly content-free reconciliation effects for exact
    cleanup, one persisted recovery, or terminal notice intent. The App executes
    those controller actions through `AgentController` and leases notice handoff
-   through its narrow delivery service; BR-17 owns answer persistence,
-   provider acknowledgement, and delivery-only retry.
+   through its narrow delivery service. Schema v12 now supplies a
+   frontend-neutral frozen envelope and provider-specific retry policy, but
+   later BR-17 tasks still own App answer persistence, outbox claiming,
+   provider acknowledgement, and delivery-only retry wiring.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1296,6 +1298,14 @@ opens with the shared state-store timeout and pragmas, reserves an immediate
 writer before inspecting version or columns, removes only those two columns,
 restores schema version 10 in that transaction, and then permits the existing
 recovery downgrade chain to continue.
+The automatic 0.85.0 boundary advances receiver state to schema v12 by adding
+the `receiver_deliveries` outbox. It freezes only acceptance-time destinations,
+rendered bodies, email lineage, and content-free provider-attempt metadata.
+Credentials remain in the machine-local provider adapter. Reconciliation
+terminalizes interrupted or malformed delivery leases without replay. Its down
+path reserves an immediate writer before schema inspection, verifies the v11
+shape, maps acknowledged rows to done and every other row to a non-replayable
+failed job, retains conversation transcripts, and drops the outbox last.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1508,9 +1518,10 @@ to the acceptance-time trusted recipients and reply context. Exact job, token,
 terminal state, and writer-owner acknowledgement clears the intent only after
 the bounded local delivery worker accepts it. Queue failure leaves the finite
 lease and intent for retry while later FIFO work remains eligible. This does
-not prove provider delivery. The crash window between local queue acceptance
-and the acknowledgement CAS, provider acknowledgement, and general delivery
-retry remain BR-17 work.
+not prove provider delivery. The schema-v12 outbox and pure policy now define
+the durable states for that boundary. The crash window between local queue
+acceptance and the acknowledgement CAS, provider acknowledgement, and general
+delivery retry remains until later BR-17 tasks route the worker through them.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are never rerun as ordinary work; the

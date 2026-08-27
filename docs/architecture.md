@@ -444,6 +444,12 @@ later upgrade can finish exact cleanup. The 0.84.12 receiver-notice migration
 adds the dedicated finite writer owner and expiry columns as schema v11,
 repairs a one-sided lease by clearing it, and has an exact down path that
 removes only those two columns before the recovery downgrade chain continues.
+The 0.85.0 receiver-delivery migration adds schema v12 and its dedicated
+`receiver_deliveries` outbox. Upgrade and same-version reconciliation repair
+partial delivery leases conservatively. Downgrade first validates the complete
+v11 receiver shape under an immediate writer, maps acknowledged deliveries to
+done and every other delivery to a non-replayable terminal job, preserves
+conversation transcripts, and only then removes the outbox.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
@@ -1751,15 +1757,19 @@ model is scoped lock + recency behind `agent::session::SessionStore`
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. `receiver/` separately owns durable logical
 conversations, immutable inbound jobs, explicit lifecycle and retry state,
-expiring owner fences, transcript/native-session bindings, and schema v11
-recovery and notice metadata. Schema v7 added the retry origin required to distinguish
+expiring owner fences, transcript/native-session bindings, and schema v12
+recovery, notice, and response-delivery metadata. Schema v7 added the retry origin required to distinguish
 pre-acceptance launch retries from progressed recovery work; schema v8 added
 exact receiver-session registrations; schema v9 added opaque job tokens,
 post-spawn lifecycle timestamps, and the bounded observation cursor; schema v10
 added independent lifecycle deadlines, attempt identity, the lifetime/current
 observation split, the pending unavailable-notice intent, and the exact
 superseded instance/session cleanup fence; schema v11 added the independent
-finite unavailable-notice writer lease.
+finite unavailable-notice writer lease; schema v12 added immutable response
+envelopes, exact delivery attempts, finite delivery claims, provider result
+classification, and retry or ambiguity state. The model and policy are active
+state-layer contracts, while provider IO and App completion continue through
+the existing path until later BR-17 wiring.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -2066,6 +2076,10 @@ latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
 shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.
+The schema-v12 outbox, frozen renderer, and provider-specific retry policy now
+exist behind `state::receiver`, but this change does not route the current
+background worker through them. Later BR-17 tasks own that transaction and IO
+wiring.
 Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful

@@ -1021,7 +1021,7 @@ bypass it.
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-The state schema has five tables:
+The state schema has six tables:
 
 ```sql
 brain_sessions(
@@ -1099,6 +1099,27 @@ receiver_jobs(
   UNIQUE(workspace_id, channel, provider_id)
 )
 
+receiver_deliveries(
+  delivery_id                 TEXT PRIMARY KEY,
+  job_id                      TEXT NOT NULL REFERENCES receiver_jobs,
+  job_token                   TEXT NOT NULL,
+  response_kind               TEXT NOT NULL,
+  envelope_json               TEXT NOT NULL,
+  state                       TEXT NOT NULL,
+  attempt_id                  TEXT,
+  attempt_count               INTEGER NOT NULL,
+  retry_at_unix_ms            INTEGER,
+  claim_owner                 TEXT,
+  claim_expires_at_unix_ms    INTEGER,
+  first_attempt_at_unix_ms    INTEGER,
+  provider_reference          TEXT,
+  error_category              TEXT,
+  ambiguity_reason            TEXT,
+  created_at_unix_ms          INTEGER NOT NULL,
+  updated_at_unix_ms          INTEGER NOT NULL,
+  UNIQUE(job_id, response_kind)
+)
+
 receiver_session_registrations(
   workspace_id           TEXT NOT NULL,
   conversation_id        TEXT NOT NULL REFERENCES receiver_conversations,
@@ -1111,6 +1132,26 @@ receiver_session_registrations(
   PRIMARY KEY(workspace_id, brain_instance_id)
 )
 ```
+
+**Durable response delivery.** Schema v12 adds `receiver_deliveries` as a
+dedicated content-bearing outbox. One job may have one row for each semantic
+response kind, which keeps a final answer distinct from a later safe fallback
+or notice. `envelope_json` freezes the acceptance-authorized SMS destination
+and shaped body, or the email recipient set, subject, text, HTML, provider
+lineage, `In-Reply-To`, and `References`. Credentials are never stored. Stable
+delivery and attempt IDs, finite claim columns, attempt count, retry deadline,
+provider reference, error category, and ambiguity reason remain content-free.
+The public status and every Debug implementation redact envelope, recipient,
+sender, provider reference, and answer content.
+
+The pure delivery policy permits one initial provider attempt followed by
+delays of one, five, and 30 minutes for results proved not accepted. A retry is
+due at exact deadline equality, and deadline arithmetic saturates. Resend may
+repeat the byte-identical envelope and delivery ID after an ambiguous result
+only through the exact 24-hour idempotency boundary. Twilio ambiguity is
+terminal because create has no equivalent key. Runtime answer persistence,
+outbox claiming, and provider result commits are intentionally not wired in
+this model-first change.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the
@@ -1289,8 +1330,10 @@ and live notice owner, then clears the intent and both lease columns together.
 A failed local queue operation leaves the intent pending and the finite lease
 expires for another claimant. Terminal rows and notice leases never participate
 in ordinary FIFO blocking or the workspace live-job-claim predicate.
-Answer-ready and delivery phases retain
-their existing phase-specific replacement behavior for BR-17.
+The schema-v12 outbox and pure delivery policy now define answer-ready and
+delivery recovery. The current App still retains its earlier phase-specific
+completion and replacement behavior until later BR-17 tasks wire those types
+into the runtime.
 Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.

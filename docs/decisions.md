@@ -3040,6 +3040,25 @@ accepted and processing proof, BR-16 owns progressed-run recovery, BR-17 owns
 answer-ready and delivery-only recovery, and BR-18 owns the final retained
 representation and schema cleanup.
 
+## Freeze provider payloads before IO and classify ambiguity by provider
+
+Schema v12 establishes one durable delivery row per job and semantic response
+kind before provider IO. Its serialized envelope is derived only from the
+immutable accepted job, so later config, user, formatter, or thread changes
+cannot alter recipients, reply lineage, or body bytes during a retry. The row
+stores provider attempt and acknowledgement metadata but never credentials.
+This content-bearing outbox is deliberately separate from content-free public
+status and diagnostics.
+
+Retry safety depends on provider capability, not a generic transport error.
+Resend can repeat the same delivery ID as its idempotency key through the exact
+24-hour boundary. Twilio create exposes no equivalent key, so uncertainty after
+a Twilio attempt becomes terminal ambiguity instead of risking a duplicate SMS.
+Failures proved not accepted use only the bounded one, five, and 30 minute
+delays. Permanent rejection is terminal. This commit lands the pure renderer,
+policy, schema repair, and downgrade contract first; later BR-17 tasks wire
+answer recording, claims, provider results, and restart reconciliation.
+
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a
 five-minute tolerance, and provider delivery IDs remain durable keys scoped by

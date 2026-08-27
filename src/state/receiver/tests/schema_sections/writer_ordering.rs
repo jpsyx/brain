@@ -1,5 +1,6 @@
 #[test]
 fn cleanup_fence_downgrade_reserves_the_writer_before_reading_schema() {
+    let _test_lock = SCHEMA_RACE_TEST_LOCK.lock().expect("schema race test lock");
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
@@ -78,6 +79,7 @@ fn cleanup_fence_downgrade_reserves_the_writer_before_reading_schema() {
 
 #[test]
 fn v10_downgrade_reserves_the_writer_before_reading_schema() {
+    let _test_lock = SCHEMA_RACE_TEST_LOCK.lock().expect("schema race test lock");
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
