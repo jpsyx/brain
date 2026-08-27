@@ -1215,6 +1215,17 @@ of its token, owner, instance/session, attempt, deadlines, recovery count,
 cursor, and retry facts. A failed comparison commits nothing and publishes no
 effect.
 
+The process-local recovery state has two additional authority shapes around
+that boundary. `RecoveryPreSpawnCleanup` owns the exact claim, controller, and
+optional committed registration until shutdown and exact release complete; a
+store-unavailable decision then restores the same `RecoveryClaimed` value,
+while proven loss does not. `RecoverySpawned` owns the successfully launched
+controller, exact attribution, PID, durable-commit knowledge, and optional tab
+until it becomes `Active` or finishes shutdown-first cleanup. An ambiguous
+launch-commit error retains this shape and compares the exact job token,
+attempt, instance, and registered session on a later tick instead of guessing
+whether the durable write occurred.
+
 An expired unaccepted attempt releases its owner and registration, clears the
 superseded cursor, increments only the bounded launch retry counter, and becomes
 an ordinary due retry. A first accepted stall instead preserves the job token,

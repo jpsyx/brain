@@ -142,6 +142,7 @@ pub(crate) const SERVICE_FIELDS: &[&str] = &[
     "receiver_sync_runtime",
     "receiver_attachment_coordinator",
     "receiver_notice_delivery",
+    "receiver_recovery_commit_visible_error",
 ];
 
 pub(crate) const STATUS_FIELDS: &[&str] = &[

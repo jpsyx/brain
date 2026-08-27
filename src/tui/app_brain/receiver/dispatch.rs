@@ -26,6 +26,16 @@ impl App {
             DurableReceiverRun::RecoveryClaimed(claimed) => {
                 self.hold_claimed_receiver_recovery(claimed);
             }
+            DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup) => {
+                super::recovery_launch::pre_spawn_cleanup::continue_recovery_pre_spawn_cleanup(
+                    &mut self.receiver,
+                    &self.services,
+                    cleanup,
+                );
+            }
+            DurableReceiverRun::RecoverySpawned(spawned) => {
+                self.continue_spawned_receiver_recovery(spawned);
+            }
             DurableReceiverRun::CleanupPending(mut pending) => {
                 if pending.defer_once {
                     pending.defer_once = false;

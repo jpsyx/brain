@@ -11,6 +11,12 @@ use crate::tui::receiver::attachments::{ReceiverAttachmentCoordinator, ReceiverA
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
+mod receiver_notice;
+mod receiver_recovery;
+
+pub(crate) use receiver_notice::ReceiverNoticeDelivery;
+use receiver_notice::SystemReceiverNoticeDelivery;
+
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
     pub(crate) open_runner: Box<dyn ShellRunner>,
@@ -27,59 +33,8 @@ pub(crate) struct AppServices {
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
     receiver_notice_delivery: Box<dyn ReceiverNoticeDelivery>,
-}
-
-pub(crate) trait ReceiverNoticeDelivery: Send {
-    fn queue(
-        &self,
-        command: &CommandContext,
-        inbound: &crate::server::receiver::InboundJob,
-        message: &str,
-    ) -> Result<bool>;
-}
-
-struct SystemReceiverNoticeDelivery;
-
-impl ReceiverNoticeDelivery for SystemReceiverNoticeDelivery {
-    fn queue(
-        &self,
-        command: &CommandContext,
-        inbound: &crate::server::receiver::InboundJob,
-        message: &str,
-    ) -> Result<bool> {
-        const ACTION: &str = "receiver unavailable notice";
-        match inbound.channel {
-            crate::server::receiver::Channel::Sms => {
-                crate::server::delivery::queue_sms_background(
-                    command.clone(),
-                    ACTION,
-                    inbound.authenticated_sender.clone(),
-                    crate::server::reply::sms(message).text,
-                )?;
-            }
-            crate::server::receiver::Channel::Email => {
-                let recipients = crate::server::delivery::trusted_response_recipients(
-                    inbound.response_email.as_deref(),
-                    &inbound.allowed_response_recipients,
-                );
-                if recipients.is_empty() {
-                    return Ok(false);
-                }
-                let reply = crate::server::reply::email(message);
-                let html = crate::server::reply::email_html(&reply.text);
-                crate::server::delivery::queue_email_background(
-                    command.clone(),
-                    ACTION,
-                    recipients,
-                    crate::server::delivery::reply_subject(inbound.email_reply.as_ref()),
-                    reply.text,
-                    html,
-                    inbound.email_reply.clone(),
-                )?;
-            }
-        }
-        Ok(true)
-    }
+    #[cfg(test)]
+    receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
 }
 
 pub(crate) struct ReceiverObservationApplyOutcome {
@@ -97,50 +52,9 @@ impl AppServices {
             receiver_sync_runtime: init.receiver_sync_runtime,
             receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
             receiver_notice_delivery: Box::new(SystemReceiverNoticeDelivery),
+            #[cfg(test)]
+            receiver_recovery_commit_visible_error: std::cell::Cell::new(false),
         }
-    }
-
-    pub(crate) fn claim_receiver_unavailable_notice(
-        &self,
-        owner: &str,
-        now_unix_ms: u64,
-        expires_at_unix_ms: u64,
-    ) -> Result<Option<crate::state::ReceiverUnavailableNoticeClaim>> {
-        self.db
-            .claim_next_receiver_unavailable_notice(owner, now_unix_ms, expires_at_unix_ms)
-    }
-
-    pub(crate) fn queue_receiver_unavailable_notice(
-        &self,
-        command: &CommandContext,
-        claim: &crate::state::ReceiverUnavailableNoticeClaim,
-    ) -> Result<bool> {
-        self.receiver_notice_delivery.queue(
-            command,
-            claim.inbound(),
-            crate::server::receiver::unavailable_message(),
-        )
-    }
-
-    pub(crate) fn acknowledge_receiver_unavailable_notice(
-        &self,
-        claim: &crate::state::ReceiverUnavailableNoticeClaim,
-        now_unix_ms: u64,
-    ) -> Result<bool> {
-        self.db.acknowledge_receiver_unavailable_notice(
-            claim.job_id(),
-            claim.token(),
-            claim.owner(),
-            now_unix_ms,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn replace_receiver_notice_delivery(
-        &mut self,
-        delivery: Box<dyn ReceiverNoticeDelivery>,
-    ) {
-        self.receiver_notice_delivery = delivery;
     }
 
     pub(crate) fn run_agenda(&self) -> Result<()> {
@@ -221,70 +135,6 @@ impl AppServices {
             .claim_next_receiver_run(owner, now_unix_ms, expires_at_unix_ms)
     }
 
-    pub(crate) fn claim_receiver_recovery_run(
-        &self,
-        owner: &str,
-        now_unix_ms: u64,
-        expires_at_unix_ms: u64,
-    ) -> Result<Option<crate::state::ReceiverRunClaim>> {
-        self.db
-            .claim_next_receiver_recovery_run(owner, now_unix_ms, expires_at_unix_ms)
-    }
-
-    pub(crate) fn reconcile_next_receiver_job(
-        &self,
-        now_unix_ms: u64,
-    ) -> Result<Option<crate::state::ReceiverReconciliationEffect>> {
-        self.db.reconcile_next_receiver_job(now_unix_ms)
-    }
-
-    pub(crate) fn acknowledge_receiver_recovery_cleanup(
-        &self,
-        effect: &crate::state::ReceiverReconciliationEffect,
-        now_unix_ms: u64,
-    ) -> Result<bool> {
-        let (Some(instance), Some(session_id)) =
-            (effect.cleanup_instance(), effect.cleanup_session_id())
-        else {
-            return Ok(false);
-        };
-        self.db.acknowledge_receiver_recovery_cleanup(
-            effect.job_id(),
-            effect.token(),
-            instance,
-            session_id,
-            now_unix_ms,
-        )
-    }
-
-    pub(crate) fn receiver_cleanup_registration_is_stale(
-        &self,
-        effect: &crate::state::ReceiverReconciliationEffect,
-    ) -> Result<bool> {
-        self.db.receiver_cleanup_registration_is_stale(effect)
-    }
-
-    pub(crate) fn fail_receiver_recovery_resume(
-        &self,
-        job_id: crate::state::ReceiverJobId,
-        owner: &str,
-        now_unix_ms: u64,
-    ) -> Result<Option<crate::state::ReceiverReconciliationEffect>> {
-        self.db
-            .fail_receiver_recovery_resume(job_id, owner, now_unix_ms)
-    }
-
-    pub(crate) fn fail_receiver_recovery_attempt(
-        &self,
-        job_id: crate::state::ReceiverJobId,
-        owner: &str,
-        now_unix_ms: u64,
-        failure: crate::state::ReceiverRecoveryFailure,
-    ) -> Result<Option<crate::state::ReceiverReconciliationEffect>> {
-        self.db
-            .fail_receiver_recovery_attempt(job_id, owner, now_unix_ms, failure)
-    }
-
     pub(crate) fn complete_receiver_new_session(
         &self,
         job_id: crate::state::ReceiverJobId,
@@ -313,16 +163,6 @@ impl AppServices {
             .prepare_receiver_job_launch(job_id, owner, observed_at_unix_ms)
     }
 
-    pub(crate) fn prepare_receiver_recovery_launch(
-        &self,
-        job_id: crate::state::ReceiverJobId,
-        owner: &str,
-        observed_at_unix_ms: u64,
-    ) -> Result<bool> {
-        self.db
-            .prepare_receiver_recovery_job_launch(job_id, owner, observed_at_unix_ms)
-    }
-
     pub(crate) fn commit_receiver_job_launch(
         &self,
         job_id: crate::state::ReceiverJobId,
@@ -331,16 +171,6 @@ impl AppServices {
     ) -> Result<bool> {
         self.db
             .commit_receiver_job_launch(job_id, owner, observation)
-    }
-
-    pub(crate) fn commit_receiver_recovery_job_launch(
-        &self,
-        job_id: crate::state::ReceiverJobId,
-        owner: &str,
-        observation: &crate::state::ReceiverLaunchObservation,
-    ) -> Result<bool> {
-        self.db
-            .commit_receiver_recovery_job_launch(job_id, owner, observation)
     }
 
     pub(crate) fn poll_receiver_attachment_stage(

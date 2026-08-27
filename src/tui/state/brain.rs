@@ -12,8 +12,9 @@ pub(super) mod exhausted_tab_ids;
 
 use ephemeral::EphemeralTabs;
 pub(crate) use ephemeral::{
-    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunTabError,
-    RemovedReceiverRun, RemovedSkillSession, SkillSessionObservation, SkillSessionTabIdExhausted,
+    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunReservation,
+    ReceiverRunTabError, RemovedReceiverRun, RemovedSkillSession, SkillSessionObservation,
+    SkillSessionTabIdExhausted,
 };
 
 pub(crate) struct BrainPanelStateInit {
@@ -363,6 +364,24 @@ impl BrainPanelState {
     ) -> Result<SessionTabId, ReceiverRunTabError> {
         self.ephemeral_tabs
             .add_receiver_run(job_id, title, instance, controller)
+    }
+
+    pub(crate) fn reserve_receiver_run(
+        &self,
+    ) -> Result<ReceiverRunReservation, ReceiverRunTabError> {
+        self.ephemeral_tabs.reserve_receiver_run()
+    }
+
+    pub(crate) fn insert_reserved_receiver_run(
+        &mut self,
+        reservation: &ReceiverRunReservation,
+        job_id: ReceiverJobId,
+        title: String,
+        instance: String,
+        controller: AgentController,
+    ) -> SessionTabId {
+        self.ephemeral_tabs
+            .insert_receiver_run(reservation, job_id, title, instance, controller)
     }
 
     pub(crate) fn remove_receiver_run(&mut self, id: SessionTabId) -> Option<RemovedReceiverRun> {

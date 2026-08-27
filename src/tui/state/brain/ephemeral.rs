@@ -83,6 +83,11 @@ pub(crate) enum ReceiverRunTabError {
     IdExhausted,
 }
 
+pub(crate) struct ReceiverRunReservation {
+    id: SessionTabId,
+    next_id: u32,
+}
+
 impl std::fmt::Display for ReceiverRunTabError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -252,21 +257,59 @@ impl EphemeralTabs {
         instance: String,
         controller: AgentController,
     ) -> Result<SessionTabId, ReceiverRunTabError> {
+        let reservation = match self.reserve_receiver_run() {
+            Ok(reservation) => reservation,
+            Err(error) => {
+                let mut controller = controller;
+                let _ = controller.shutdown();
+                return Err(error);
+            }
+        };
+        Ok(self.insert_receiver_run(&reservation, job_id, title, instance, controller))
+    }
+
+    pub(super) fn reserve_receiver_run(
+        &self,
+    ) -> Result<ReceiverRunReservation, ReceiverRunTabError> {
         if self
             .tabs
             .iter()
             .any(|tab| matches!(&tab.metadata, EphemeralTabMetadata::ReceiverRun(_)))
         {
-            let mut controller = controller;
-            let _ = controller.shutdown();
             return Err(ReceiverRunTabError::AlreadyRunning);
         }
-        self.add(
+        let Some(next_id) = self.next_id.checked_add(1) else {
+            return Err(ReceiverRunTabError::IdExhausted);
+        };
+        Ok(ReceiverRunReservation {
+            id: SessionTabId(self.next_id),
+            next_id,
+        })
+    }
+
+    pub(super) fn insert_receiver_run(
+        &mut self,
+        reservation: &ReceiverRunReservation,
+        job_id: ReceiverJobId,
+        title: String,
+        instance: String,
+        controller: AgentController,
+    ) -> SessionTabId {
+        assert_eq!(reservation.id, SessionTabId(self.next_id));
+        assert!(
+            !self
+                .tabs
+                .iter()
+                .any(|tab| matches!(&tab.metadata, EphemeralTabMetadata::ReceiverRun(_)))
+        );
+        self.tabs.push(EphemeralTab {
+            id: reservation.id,
             title,
-            EphemeralTabMetadata::ReceiverRun(ReceiverRunMetadata { job_id, instance }),
+            metadata: EphemeralTabMetadata::ReceiverRun(ReceiverRunMetadata { job_id, instance }),
             controller,
-        )
-        .map_err(|SessionTabIdExhausted| ReceiverRunTabError::IdExhausted)
+        });
+        self.next_id = reservation.next_id;
+        reservation.id
     }
 
     pub(super) fn remove_skill_session(&mut self, id: SessionTabId) -> Option<RemovedSkillSession> {

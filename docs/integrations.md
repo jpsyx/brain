@@ -1385,12 +1385,18 @@ new active session. Neither process spawn nor screen activity is completion
 evidence. Terminal cleanup releases that session owner, shuts down the
 controller once, closes only the matching receiver tab, preserves the immutable
 provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Only a synchronous spawn failure performs explicit
-registration cleanup and a durable pre-spawn retry. Once process spawn
-succeeds, Brain crosses a no-auto-replay boundary before any later fallible
-step: it reauthorizes and commits `launched` before allocating the tab. Owner
-loss or a launch-commit error preserves the exact registration and fenced
-`launching` row; allocation failure or later owner loss preserves `launched`.
+the active view or focus. Pre-spawn store ambiguity is not ownership loss.
+Brain retains an explicit cleanup capability until controller shutdown and
+exact registration release complete, then restores the same recovery claim.
+Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
+later fallible step. The local spawned capability owns the controller plus
+exact job, token, claim owner, instance, registered/native session, scope,
+frontend, PID, and launch-commit status while it reauthorizes, resolves the
+exact launch commit, reserves a tab, and performs the final owner proof. A
+commit error is retried against the exact durable observation, so both absent
+and already-visible writes are safe. Proven loss or allocation failure
+transfers that same capability into shutdown-first cleanup; controller shutdown
+failure keeps the registration and native lock fenced for a later tick.
 Child exit, orderly shutdown, and lease expiry then permit local cleanup only.
 The state reconciler now atomically converts the complete stale snapshot into a
 bounded retry, one ownerless due same-session recovery, or a terminal notice
@@ -1446,6 +1452,10 @@ sender, recipient, prior answer, and `/new` parsing never enter this planner.
 Recovery observation and completion use the ordinary exact lifecycle and
 response transactions with the preserved job identity. A child exit without
 completion becomes the typed recovery Shutdown terminal transition.
+The recovery and unavailable-notice database operations remain App-facing
+methods, but their implementations are isolated in
+`tui/state/services/receiver_recovery.rs` and `receiver_notice.rs`; generic
+session, sync, attachment, and shell services stay outside those modules.
 
 Terminal notice handoff uses the schema-v11 owner/expiry fields, not the job's
 claim or cleanup fence. One claimant receives only the immutable accepted

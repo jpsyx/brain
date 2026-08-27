@@ -183,13 +183,18 @@ rule applies across the large runtime families:
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` distinguishes ordinary claimed, recovery claimed, active, and cleanup-pending local authority; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
-BR-16 Task 4 adds three focused live-receiver seams:
-`app_brain/receiver/recovery.rs` executes neutral reconciliation effects,
-`recovery_launch.rs` constructs the persisted frontend's `AgentController` and
-performs exact native resume, and `notice.rs` owns the finite local notice
-handoff. In the state layer, `store/unavailable_notice.rs` owns the schema-v11
-notice lease claim and exact acknowledgement; the reconciliation cleanup helper
-owns the exact stale-registration PID proof used only after App reconstruction.
+BR-16 Task 4 adds focused live-receiver seams:
+`app_brain/receiver/recovery.rs` executes neutral reconciliation effects;
+`recovery_launch/{claim,pre_spawn_cleanup,effects}.rs` separates persisted
+recovery selection, retryable pre-spawn cleanup, and post-spawn capability
+transfer; `recovery_launch/effects/{activation,cleanup}.rs` separates exact
+commit and tab activation from shutdown-first cleanup; and `notice.rs` owns the
+finite local notice handoff. The `AppServices` facade similarly isolates
+recovery and unavailable-notice persistence in
+`tui/state/services/{receiver_recovery,receiver_notice}.rs`. In the state layer,
+`store/unavailable_notice.rs` owns the schema-v11 notice lease claim and exact
+acknowledgement; the reconciliation cleanup helper owns the exact
+stale-registration PID proof used only after App reconstruction.
 Before an accepted observation can become a cleanup fence, reconciliation
 classifies its exact session attribution as bound, prior-binding Fresh conflict,
 or absent. The bound path writes the lifecycle-native session to the exact fresh
@@ -205,8 +210,13 @@ proof and one narrower pre-acceptance case: an exact failed ordinary fresh
 registration whose conversation is still unbound and whose recorded PID is
 dead.
 The local durable-run handle keeps recovery claims separate from ordinary
-continuation and retains cleanup progress after shutdown, artifact, or store
-failure without returning to active renewal.
+continuation. Before spawn, store ambiguity restores the exact recovery claim
+only after controller and registration cleanup completes. After successful
+spawn, the handle retains the exact controller, job, token, claim owner,
+instance, registered and native session attribution, scope, frontend, PID, and
+durable-commit status until activation succeeds or shutdown-first exact cleanup
+finishes. Commit errors remain ambiguous and are rechecked against the exact
+visible launch identity before activation or cleanup is chosen.
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
 identity's external command adapter lives under

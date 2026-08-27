@@ -1624,9 +1624,14 @@ provider delivery IDs, explicit queued through terminal lifecycle states,
 bounded retry metadata, and expiring claim ownership across Brain or machine
 restarts. Claims never pop a job from storage. If a consumer crashes, another
 owner can replace an eligible proved-pre-spawn or delivery lease. Successful
-process spawn is the no-auto-replay boundary. Brain commits `launched` before
-tab allocation; any owner, allocation, or store failure after spawn preserves
-exact correlation rather than scheduling a retry. Schema v10 separately
+process spawn is the no-auto-replay boundary. Brain retains the spawned
+controller and exact registration as one local capability while it
+reauthorizes, resolves the exact `launched` commit, reserves a tab, and performs
+the final owner proof. A store error keeps that same capability for a later
+tick; an exact visible commit distinguishes the case where the write succeeded.
+Proven owner or allocation loss enters shutdown-first cleanup, and neither the
+registration nor native-session lock is released until shutdown succeeds.
+Schema v10 separately
 persists the two-minute launch, 90-second acceptance, five-minute progress,
 recovery, and immutable 30-minute accepted-work deadlines. The renewable
 30-second claim remains only a writer fence. Exact claims, launch commits,
@@ -1657,7 +1662,11 @@ registration/session attribution still matches the exact job and durable
 conversation. The pending notice remains one durable intent, and its
 acknowledgement is independent from cleanup progress. Local cleanup remembers
 successful shutdown and artifact removal so a later tick can finish the
-remaining step before later FIFO work launches. Ordinary retry recording rejects recovery
+remaining step before later FIFO work launches. Pre-spawn owner-store failures
+also remain distinct from proven owner loss. They clean only the exact
+ephemeral controller and registration, retain cleanup authority if either
+operation fails, and then retry the same persisted recovery claim without
+replaying inbound content or selecting a different frontend. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
 cleanup, native-history inspection, recovery launch, and notice delivery are

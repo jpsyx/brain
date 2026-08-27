@@ -19,7 +19,9 @@ pub(crate) enum ReceiverLaunchBoundary {
     ResumeValidation,
     Registration,
     RecoveryPreLaunchAuthorization,
+    RecoveryLaunchPreparation,
     Spawn,
+    RecoveryLaunchCommit,
     Allocation,
 }
 
@@ -57,6 +59,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     cleanup_failure_boundaries: Vec<ReceiverCleanupBoundary>,
     #[cfg(test)]
+    recovery_tab_error: Option<crate::tui::state::ReceiverRunTabError>,
+    #[cfg(test)]
     observation_diagnostics: std::cell::RefCell<Vec<String>>,
 }
 
@@ -80,6 +84,8 @@ impl ReceiverRuntime {
             launch_boundary_hooks: Vec::new(),
             #[cfg(test)]
             cleanup_failure_boundaries: Vec::new(),
+            #[cfg(test)]
+            recovery_tab_error: None,
             #[cfg(test)]
             observation_diagnostics: std::cell::RefCell::new(Vec::new()),
         }
@@ -180,6 +186,21 @@ impl ReceiverRuntime {
     }
 
     #[cfg(test)]
+    pub(crate) fn inject_recovery_tab_error(
+        &mut self,
+        error: crate::tui::state::ReceiverRunTabError,
+    ) {
+        self.recovery_tab_error = Some(error);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_recovery_tab_error(
+        &mut self,
+    ) -> Option<crate::tui::state::ReceiverRunTabError> {
+        self.recovery_tab_error.take()
+    }
+
+    #[cfg(test)]
     pub(crate) fn record_observation_diagnostic(&self, diagnostic: String) {
         self.observation_diagnostics.borrow_mut().push(diagnostic);
     }
@@ -204,6 +225,34 @@ impl ReceiverRuntime {
             DurableReceiverRun::Idle
             | DurableReceiverRun::Claimed(_)
             | DurableReceiverRun::RecoveryClaimed(_)
+            | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
+            | DurableReceiverRun::RecoverySpawned(_)
+            | DurableReceiverRun::CleanupPending(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn recovery_claimed_durable_run(&self) -> Option<&super::ClaimedReceiverRun> {
+        match &self.durable_run {
+            DurableReceiverRun::RecoveryClaimed(claimed) => Some(claimed),
+            DurableReceiverRun::Idle
+            | DurableReceiverRun::Claimed(_)
+            | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
+            | DurableReceiverRun::RecoverySpawned(_)
+            | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::CleanupPending(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawned_recovery_durable_run(&self) -> Option<&super::SpawnedRecoveryRun> {
+        match &self.durable_run {
+            DurableReceiverRun::RecoverySpawned(spawned) => Some(spawned),
+            DurableReceiverRun::Idle
+            | DurableReceiverRun::Claimed(_)
+            | DurableReceiverRun::RecoveryClaimed(_)
+            | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
+            | DurableReceiverRun::Active(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }

@@ -55,6 +55,21 @@ impl App {
                         .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed));
                 }
             }
+            DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup) => {
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::RecoveryPreSpawnCleanup(cleanup));
+            }
+            DurableReceiverRun::RecoverySpawned(mut spawned)
+                if effect_matches_spawned(effect, &spawned) =>
+            {
+                let first_effect = spawned.cleanup_effect.is_none();
+                spawned.cleanup_effect = Some(effect.clone());
+                if first_effect {
+                    spawned.defer_once = true;
+                }
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::RecoverySpawned(spawned));
+            }
             other => {
                 self.cleanup_reconciled_absent(effect);
                 self.receiver.store_durable_run(other);
@@ -240,4 +255,14 @@ fn effect_matches_claimed(
         && claimed.claim.job().token() == effect.token()
         && effect.cleanup_instance() == Some(claimed.remote.instance())
         && effect.cleanup_session_id().is_none()
+}
+
+fn effect_matches_spawned(
+    effect: &ReceiverReconciliationEffect,
+    spawned: &crate::tui::receiver::SpawnedRecoveryRun,
+) -> bool {
+    spawned.claimed.claim.job().id() == effect.job_id()
+        && spawned.claimed.claim.job().token() == effect.token()
+        && effect.cleanup_instance() == Some(spawned.attribution.instance())
+        && effect.cleanup_session_id() == Some(spawned.attribution.registered_session().as_str())
 }

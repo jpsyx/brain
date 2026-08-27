@@ -10,8 +10,8 @@ pub(crate) use brain::exhausted_tab_ids::{exhaust_session_tab_ids, exhaust_skill
 pub(crate) use brain::{BrainPanelState, BrainPanelStateInit};
 #[allow(unused_imports)]
 pub(crate) use brain::{
-    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunTabError,
-    RemovedReceiverRun,
+    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunReservation,
+    ReceiverRunTabError, RemovedReceiverRun,
 };
 pub(crate) use context::{AppContext, AppContextInit};
 #[cfg(test)]
