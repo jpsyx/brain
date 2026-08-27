@@ -101,6 +101,54 @@ fn v12_repair_adds_retry_time_before_creating_the_due_index() {
 }
 
 #[test]
+fn v12_repair_adds_nullable_completion_evidence_without_losing_existing_deliveries() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let accepted = db
+        .accept_receiver_job(
+            &receiver_job(Some("completion-evidence-repair"), 100),
+            &ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id()),
+        )
+        .expect("accept receiver job");
+    let job_id = accepted.job_id().to_string();
+    let job_token = persisted_job_token(&db, accepted.job_id()).to_string();
+    replace_delivery_table(&db.conn, LOOSE_DELIVERY_TABLE_SQL);
+    db.conn
+        .execute(
+            "INSERT INTO receiver_deliveries
+               (delivery_id, job_id, job_token, response_kind, envelope_json, state,
+                attempt_count, created_at_unix_ms, updated_at_unix_ms)
+             VALUES ('10000000-0000-4000-8000-000000000001', ?1, ?2,
+                     'final-answer', '{}', 'ready', 0, 100, 100)",
+            rusqlite::params![job_id, job_token],
+        )
+        .expect("stage pre-evidence delivery");
+
+    super::super::schema::up(&db.conn, 12).expect("repair completion evidence column");
+
+    let repaired: (i64, i64, Option<String>) = (
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('receiver_deliveries')
+                 WHERE name = 'completion_evidence_json'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("completion evidence column count"),
+        db.conn
+            .query_row("SELECT COUNT(*) FROM receiver_deliveries", [], |row| row.get(0))
+            .expect("retained delivery count"),
+        db.conn
+            .query_row(
+                "SELECT completion_evidence_json FROM receiver_deliveries",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy completion evidence"),
+    );
+    assert_eq!(repaired, (1, 1, None));
+}
+
+#[test]
 fn v12_repair_rebuilds_stale_managed_indexes_with_exact_signatures() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn

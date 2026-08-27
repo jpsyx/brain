@@ -63,6 +63,7 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
         "job_token",
         "response_kind",
         "envelope_json",
+        "completion_evidence_json",
         "state",
         "attempt_id",
         "attempt_count",

@@ -103,10 +103,15 @@ impl App {
                 return;
             }
         }
+        #[cfg(test)]
+        self.receiver.run_after_completion_commit_hook();
         if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
-            let _ = self
+            let started = self
                 .services
                 .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
+            if started.is_none() {
+                self.log_receiver_observation(&active, None, "completion-sync-start");
+            }
         }
         if self
             .services
@@ -120,7 +125,22 @@ impl App {
             );
         }
         self.remove_exact_receiver_tab(&active);
-        self.cleanup_receiver_instance_files(active.attribution.instance());
+        #[cfg(test)]
+        let cleanup = if self
+            .receiver
+            .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts)
+        {
+            Err(std::io::Error::other(
+                "injected receiver artifact cleanup failure",
+            ))
+        } else {
+            self.cleanup_receiver_instance_files_checked(active.attribution.instance())
+        };
+        #[cfg(not(test))]
+        let cleanup = self.cleanup_receiver_instance_files_checked(active.attribution.instance());
+        if cleanup.is_err() {
+            self.log_receiver_observation(&active, None, "artifact-cleanup");
+        }
         crate::logging::log(format!(
             "receiver run completed channel={:?}",
             active.claim.job().inbound().channel

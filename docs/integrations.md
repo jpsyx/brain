@@ -1411,7 +1411,9 @@ unclaimed until the active run closes, then the next tick applies the same FIFO
 order. Completion requires the exact owner-only, regular, 256 KiB-bounded
 artifact and exact locked remote session. The descriptor-bound reader rejects
 symlinks, permissive or non-regular files, truncation or growth, malformed JSON,
-blank or oversized answers, and any identity mismatch.
+blank or oversized answers, any identity mismatch, and in-place rewrites whose
+length is unchanged but whose modification or change timestamps differ across
+the read.
 After validating both, the coordinator reads the injected clock again
 immediately before the terminal transaction. Thus validation cannot authorize
 completion after the exact lease expires or changes owners;
@@ -1421,7 +1423,11 @@ portable transcript, inserts the immutable final-answer outbox row, replaces
 the binding, moves the job to `answer-ready`, and clears the agent claim. No
 provider adapter or local delivery queue runs before commit. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
-new active session. Lifecycle completion alone may advance nonterminal facts,
+new active session. The final-answer row also retains immutable private
+completion evidence for exact duplicate validation, including the registered,
+actual, and completed sessions plus the original answer, envelope, and rendered
+turn. Replay never depends on the conversation's later transcript tail or
+binding. Lifecycle completion alone may advance nonterminal facts,
 but it cannot close the run. Neither process spawn nor screen activity is
 completion evidence. Post-commit cleanup releases that session owner, shuts
 down the controller once, closes only the matching receiver tab, removes only
@@ -1605,7 +1611,9 @@ a Spawn retry. Lost ownership permits the same local removals only. The stage
 is idempotent. After an unclean exit, expired `launching`, `launched`,
 `accepted`, and `processing` rows remain unchanged until recovery proves the
 next action. Answer-ready rows no longer participate in agent reconciliation or
-block the next ordinary claim; only delivery recovery owns them.
+block the next ordinary claim; only delivery recovery owns them. Reconciliation
+requires a `final-answer` delivery row as that proof. Notice, control, and
+fallback-only rows cannot protect an incomplete answer-ready or delivering job.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

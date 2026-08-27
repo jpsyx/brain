@@ -1105,6 +1105,7 @@ receiver_deliveries(
   job_token                   TEXT NOT NULL,
   response_kind               TEXT NOT NULL,
   envelope_json               TEXT NOT NULL,
+  completion_evidence_json    TEXT,
   state                       TEXT NOT NULL,
   attempt_id                  TEXT,
   attempt_count               INTEGER NOT NULL,
@@ -1139,7 +1140,15 @@ response kind, which keeps a final answer distinct from a later safe fallback
 or notice. `envelope_json` freezes the acceptance-authorized SMS destination
 and shaped body, or the email recipient set, subject, text, HTML, provider
 lineage, `In-Reply-To`, and `References`. Credentials are never stored. Stable
-delivery and attempt IDs, finite claim columns, attempt count, retry deadline,
+final-answer completion also freezes a private `completion_evidence_json`
+record containing the exact job and token, conversation and remote instance,
+frontend, actor and channel, registered, actual, and completed sessions,
+original inbound prompt and answer, envelope, rendered transcript turn, and
+lifecycle cursor. Same-version repair leaves this nullable for delivery rows
+written before the field existed; an exact replay of such a row fails closed.
+Later conversation turns and binding changes therefore cannot redefine an
+earlier completion. Stable delivery and attempt IDs, finite claim columns,
+attempt count, retry deadline,
 nonblank provider reference, error category, and ambiguity reason remain
 content-free. Rendering rejects the entire email response when any frozen
 accepted recipient is invalid, so normalization can never silently narrow the
@@ -1386,9 +1395,12 @@ appends one Markdown-fenced authenticated user and assistant turn, freezes one
 unique final-answer envelope, replaces the binding, clears the agent claim, and
 marks the job answer-ready. Lifecycle evidence without an artifact may advance
 only accepted or progressing state and cannot complete the job. An identical
-answer duplicate proves the stored envelope, transcript suffix, binding,
-identity, and evidence before returning its existing delivery ID. A differing
-answer or any immutable identity conflict fails closed. Any statement failure
+answer duplicate proves the delivery row and its immutable completion evidence
+before returning its existing delivery ID. The proof includes the original
+registered, actual, and completed sessions, answer, envelope, transcript turn,
+and lifecycle cursor, independently of the conversation's current transcript
+tail or binding. A differing answer or any immutable identity conflict fails
+closed. Any statement failure
 preserves the prior transcript, job, claim, registration, binding, and outbox
 for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and

@@ -17,6 +17,7 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
              'final-answer', 'unavailable-notice', 'control-acknowledgement', 'fallback-notice'
            )),
            envelope_json               TEXT NOT NULL,
+           completion_evidence_json    TEXT,
            state                       TEXT NOT NULL CHECK (state IN (
              'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'
            )),
@@ -79,6 +80,7 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
     }
     for (column, definition) in [
         ("attempt_id", "TEXT"),
+        ("completion_evidence_json", "TEXT"),
         ("retry_at_unix_ms", "INTEGER"),
         ("claim_owner", "TEXT"),
         ("claim_expires_at_unix_ms", "INTEGER"),
@@ -145,11 +147,13 @@ fn ensure_table_contract(connection: &Connection) -> Result<()> {
     connection.execute_batch(CREATE_DELIVERY_TABLE)?;
     connection.execute_batch(
         "INSERT INTO receiver_deliveries
-           (delivery_id, job_id, job_token, response_kind, envelope_json, state,
+           (delivery_id, job_id, job_token, response_kind, envelope_json,
+            completion_evidence_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
             claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
             error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms)
-         SELECT delivery_id, job_id, job_token, response_kind, envelope_json, state,
+         SELECT delivery_id, job_id, job_token, response_kind, envelope_json,
+            completion_evidence_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
             claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
             error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms

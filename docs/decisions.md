@@ -3048,7 +3048,11 @@ both the exact completed session and its bounded owner-only answer artifact.
 One immediate transaction appends the portable transcript, freezes the final
 delivery envelope, replaces the native binding, moves the job to
 `answer-ready`, and releases agent ownership. This boundary is idempotent for
-an exact duplicate and fails closed for any identity or content conflict.
+an exact duplicate and fails closed for any identity or content conflict. The
+delivery stores immutable private completion evidence for the original job,
+sessions, answer, envelope, rendered turn, and lifecycle cursor. Duplicate
+validation uses that evidence rather than the mutable conversation transcript
+tail or current binding, because later jobs may legitimately advance both.
 Provider IO begins only from the committed outbox, so a process crash, cleanup
 failure, or sync failure cannot lose the answer or relaunch agent work.
 

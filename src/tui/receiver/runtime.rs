@@ -51,6 +51,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     after_completion_validation_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
+    after_completion_commit_hook: Option<Box<dyn FnOnce()>>,
+    #[cfg(test)]
     after_observation_validation_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     before_observation_persistence_hook: Option<BeforeObservationPersistenceHook>,
@@ -76,6 +78,8 @@ impl ReceiverRuntime {
             after_restart_scan_hook: None,
             #[cfg(test)]
             after_completion_validation_hook: None,
+            #[cfg(test)]
+            after_completion_commit_hook: None,
             #[cfg(test)]
             after_observation_validation_hook: None,
             #[cfg(test)]
@@ -111,6 +115,18 @@ impl ReceiverRuntime {
     #[cfg(test)]
     pub(crate) fn run_after_completion_validation_hook(&mut self) {
         if let Some(hook) = self.after_completion_validation_hook.take() {
+            hook();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_after_completion_commit_hook(&mut self, hook: Box<dyn FnOnce()>) {
+        self.after_completion_commit_hook = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_after_completion_commit_hook(&mut self) {
+        if let Some(hook) = self.after_completion_commit_hook.take() {
             hook();
         }
     }

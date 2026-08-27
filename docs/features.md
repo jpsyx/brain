@@ -1603,7 +1603,11 @@ actor/channel scope, and lifecycle evidence. It appends one authenticated user
 turn and the exact assistant answer to the portable transcript, freezes one
 final-answer delivery envelope, replaces the native binding, moves the job to
 `answer-ready`, and releases the agent claim. An identical duplicate returns
-the existing delivery without another transcript turn or outbox row; any
+the existing delivery without another transcript turn or outbox row only when
+the persisted completion proof exactly matches the original job, token,
+conversation, instance, frontend, actor/channel, registered, actual, and
+completed sessions, answer, envelope, rendered turn, and lifecycle cursor.
+Later conversation turns or binding changes do not affect that proof; any
 conflict fails closed. No provider IO begins in this transaction. After commit,
 Brain releases the exact registration, closes the exact tab, removes the exact
 instance files, starts the completion push, reloads tasks, and permits the next

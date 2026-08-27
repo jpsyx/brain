@@ -378,12 +378,19 @@ first move is a failing test that reproduces it, *then* the fix.
   exact completed-session binding, stored and incoming timeline validation,
   portable transcript append, immutable final-answer outbox insert,
   answer-ready transition, and agent-claim release. They prove exact duplicates
-  append once, conflicts fail closed, statement failure rolls back, artifact
+  append once after later transcript turns and binding changes, crossed
+  registered sessions fail closed, conflicts fail closed, statement failure
+  rolls back, artifact
   body precedence retains lifecycle evidence, lifecycle-only completion stays
   nonterminal, and a future-skewed stored boundary remains monotonic. The
   descriptor-bound artifact matrix covers symlinked ancestors and leaves,
   FIFOs, permissive files, short reads, growth, inode replacement, malformed or
-  unknown JSON, blank and oversized answers, and every identity mismatch. That matrix
+  unknown JSON, blank and oversized answers, same-length in-place rewrites, and
+  every identity mismatch. The reconciliation matrix separately proves that
+  notice, control, and fallback-only rows cannot protect incomplete
+  `answer-ready` or `delivering` jobs as final-answer proof. App boundary tests
+  cover crashes before and after commit, cleanup and sync-start failures, exact
+  once-only post-commit effects, durable answers, and next-job release. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a

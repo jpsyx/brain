@@ -41,6 +41,10 @@ struct ArtifactFileFacts {
     inode: nix::libc::ino_t,
     mode: nix::libc::mode_t,
     length: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
     regular: bool,
 }
 
@@ -53,6 +57,10 @@ impl ArtifactFileFacts {
             inode: stat.st_ino,
             mode: stat.st_mode,
             length: u64::try_from(stat.st_size).map_err(|_| CompletionArtifactError::Truncated)?,
+            modified_seconds: stat.st_mtime,
+            modified_nanoseconds: stat.st_mtime_nsec,
+            changed_seconds: stat.st_ctime,
+            changed_nanoseconds: stat.st_ctime_nsec,
             regular: SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFREG),
         })
     }
@@ -94,6 +102,10 @@ mod tests {
             inode: 2,
             mode: SFlag::S_IFREG.bits() | 0o600,
             length,
+            modified_seconds: 3,
+            modified_nanoseconds: 4,
+            changed_seconds: 5,
+            changed_nanoseconds: 6,
             regular: true,
         }
     }
@@ -117,6 +129,19 @@ mod tests {
             },
         );
         assert_eq!(replacement, Err(CompletionArtifactError::Truncated));
+    }
+
+    #[test]
+    fn one_read_rejects_same_length_in_place_rewrites() {
+        let before = facts(4);
+        let after = ArtifactFileFacts {
+            modified_nanoseconds: before.modified_nanoseconds + 1,
+            ..before
+        };
+
+        let rewritten = read_validated_artifact(before, |_| Ok(4), || Ok(after));
+
+        assert_eq!(rewritten, Err(CompletionArtifactError::Truncated));
     }
 
     #[test]

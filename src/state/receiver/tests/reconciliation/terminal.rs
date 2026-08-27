@@ -148,3 +148,51 @@ fn incomplete_legacy_completion_states_terminalize_deterministically() {
         assert!(terminal.pending_unavailable_notice());
     }
 }
+
+#[test]
+fn notice_only_delivery_rows_do_not_protect_incomplete_final_answer_states() {
+    for state in ["answer-ready", "delivering"] {
+        let fixture = accepted_run(&format!("notice-only-{state}"));
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE receiver_jobs SET state = ?2 WHERE job_id = ?1",
+                rusqlite::params![fixture.job_id.to_string(), state],
+            )
+            .expect("stage incomplete final-answer state");
+        let token = fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load staged job")
+            .expect("durable job")
+            .token();
+        fixture
+            .db
+            .conn
+            .execute(
+                "INSERT INTO receiver_deliveries
+                   (delivery_id, job_id, job_token, response_kind, envelope_json,
+                    state, attempt_count, created_at_unix_ms, updated_at_unix_ms)
+                 VALUES (?1, ?2, ?3, 'unavailable-notice', '{}', 'ready', 0, 1, 1)",
+                rusqlite::params![
+                    uuid::Uuid::new_v4().to_string(),
+                    fixture.job_id.to_string(),
+                    token.to_string(),
+                ],
+            )
+            .expect("stage notice-only delivery");
+
+        let effect = fixture
+            .db
+            .reconcile_next_receiver_job(1_500)
+            .expect("reconcile notice-only legacy state")
+            .expect("incomplete final answer must terminalize");
+
+        assert_eq!(effect.action(), ReceiverReconciliationAction::TerminalFailure);
+        assert_eq!(
+            effect.reason(),
+            ReceiverReconciliationReason::IncompleteLegacyCompletion
+        );
+    }
+}

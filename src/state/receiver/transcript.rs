@@ -8,7 +8,7 @@ pub const MAX_RECEIVER_ANSWER_BYTES: usize = 256 * 1024;
 /// Append one authenticated inbound turn and its exact assistant answer.
 #[must_use]
 pub fn render_receiver_transcript(prior: &str, inbound: &str, answer: &str) -> String {
-    let turn = render_turn(inbound, answer);
+    let turn = render_receiver_transcript_turn(inbound, answer);
     let mut transcript = String::with_capacity(prior.len() + separator_len(prior) + turn.len());
     transcript.push_str(prior);
     append_separator(&mut transcript);
@@ -19,10 +19,12 @@ pub fn render_receiver_transcript(prior: &str, inbound: &str, answer: &str) -> S
 /// Whether one transcript already ends with this byte-exact rendered turn.
 #[must_use]
 pub fn receiver_transcript_has_exact_turn(transcript: &str, inbound: &str, answer: &str) -> bool {
-    transcript.ends_with(&render_turn(inbound, answer))
+    transcript.ends_with(&render_receiver_transcript_turn(inbound, answer))
 }
 
-fn render_turn(inbound: &str, answer: &str) -> String {
+/// Render one immutable portable receiver transcript turn.
+#[must_use]
+pub(crate) fn render_receiver_transcript_turn(inbound: &str, answer: &str) -> String {
     let mut turn = String::with_capacity(inbound.len() + answer.len() + 96);
     turn.push_str("## Authenticated user\n\n");
     append_fenced_text(&mut turn, inbound);
