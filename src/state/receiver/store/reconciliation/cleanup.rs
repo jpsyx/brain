@@ -9,6 +9,8 @@ use crate::state::{
 
 use super::super::{load::load_receiver_job, to_i64};
 
+mod fresh_conflict;
+
 impl Db {
     /// Return whether an exact cleanup registration is owned by a dead process.
     ///
@@ -30,7 +32,7 @@ impl Db {
         if instance.trim().is_empty() || session_id.trim().is_empty() {
             return Ok(false);
         }
-        let locked_pid = self
+        let bound_locked_pid = self
             .conn
             .query_row(
                 "SELECT session.locked_pid
@@ -84,6 +86,19 @@ impl Db {
             )
             .optional()?
             .flatten();
+        let locked_pid = if bound_locked_pid.is_some() {
+            bound_locked_pid
+        } else {
+            fresh_conflict::registration(
+                &self.conn,
+                &self.workspace_id,
+                effect.job_id(),
+                effect.token(),
+                instance,
+                session_id,
+            )?
+            .map(|registration| registration.locked_pid)
+        };
         let Some(pid) = locked_pid.and_then(|pid| i32::try_from(pid).ok()) else {
             return Ok(false);
         };
@@ -274,7 +289,7 @@ fn release_exact_cleanup_registration(
         |row| row.get::<_, bool>(0),
     )?;
     if !exact_registration {
-        return Ok(false);
+        return fresh_conflict::release(transaction, workspace_id, job, instance, session_id, now);
     }
     super::support::release_registration(
         transaction,

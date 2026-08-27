@@ -12,6 +12,13 @@ pub(super) struct ReconciliationCandidate {
     pub(super) exact_snapshot: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RecoverySessionAttribution {
+    Bound,
+    FreshConflict,
+    Absent,
+}
+
 pub(super) const EXACT_SNAPSHOT_SQL: &str = "json_array(
     conversation_id, job_token, state, claim_owner, claim_expires_at_unix_ms,
     retry_count, retry_at_unix_ms, retry_from_state, last_error,
@@ -26,16 +33,16 @@ pub(super) const EXACT_SNAPSHOT_SQL: &str = "json_array(
     recovery_cleanup_session_id, updated_at_unix_ms
 )";
 
-pub(super) fn bind_exact_recovery_session(
+pub(super) fn attribute_exact_recovery_session(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     job: &ReceiverJob,
     now: i64,
-) -> Result<bool> {
+) -> Result<RecoverySessionAttribution> {
     let (Some(instance), Some(session_id)) =
         (job.observation_instance(), job.observation_session_id())
     else {
-        return Ok(false);
+        return Ok(RecoverySessionAttribution::Absent);
     };
     let actor_id = job.inbound().actor.user_id().as_str();
     let channel = super::super::channel_str(job.inbound().channel);
@@ -88,7 +95,7 @@ pub(super) fn bind_exact_recovery_session(
         )
         .optional()?;
     let Some((agent_kind, registered_session_id)) = registration else {
-        return Ok(false);
+        return exact_fresh_conflict(transaction, workspace_id, job);
     };
     if transaction.execute(
         "UPDATE receiver_session_registrations AS registration
@@ -144,9 +151,9 @@ pub(super) fn bind_exact_recovery_session(
         ],
     )? != 1
     {
-        return Ok(false);
+        return Ok(RecoverySessionAttribution::Absent);
     }
-    Ok(transaction.execute(
+    let bound = transaction.execute(
         "UPDATE receiver_conversations
          SET agent_kind = ?3, agent_session_id = ?4, updated_at_unix_ms = ?5
          WHERE workspace_id = ?1 AND conversation_id = ?2
@@ -192,7 +199,79 @@ pub(super) fn bind_exact_recovery_session(
             job.id().to_string(),
             job.token().to_string(),
         ],
-    )? == 1)
+    )? == 1;
+    anyhow::ensure!(
+        bound,
+        "exact receiver recovery binding changed within its immediate transaction"
+    );
+    Ok(RecoverySessionAttribution::Bound)
+}
+
+fn exact_fresh_conflict(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    job: &ReceiverJob,
+) -> Result<RecoverySessionAttribution> {
+    let (Some(instance), Some(session_id)) =
+        (job.observation_instance(), job.observation_session_id())
+    else {
+        return Ok(RecoverySessionAttribution::Absent);
+    };
+    let exact = transaction.query_row(
+        "SELECT EXISTS (
+           SELECT 1 FROM receiver_session_registrations AS registration
+           JOIN brain_sessions AS session
+             ON session.workspace_id = registration.workspace_id
+            AND session.brain_instance_id = registration.brain_instance_id
+            AND session.agent_kind = registration.agent_kind
+            AND session.actor_id = registration.actor_id
+            AND session.channel = registration.channel
+            AND session.agent_session_id = ?4
+            AND session.locked_pid IS NOT NULL
+            AND session.source = 'fresh'
+           JOIN receiver_conversations AS conversation
+             ON conversation.workspace_id = registration.workspace_id
+            AND conversation.conversation_id = registration.conversation_id
+            AND conversation.user_id = registration.actor_id
+            AND conversation.channel = registration.channel
+           JOIN receiver_jobs AS exact_job
+             ON exact_job.workspace_id = conversation.workspace_id
+            AND exact_job.conversation_id = conversation.conversation_id
+            AND exact_job.channel = conversation.channel
+           WHERE registration.workspace_id = ?1
+             AND registration.conversation_id = ?2
+             AND registration.brain_instance_id = ?3
+             AND registration.actor_id = ?5
+             AND registration.channel = ?6
+             AND registration.registered_session_id != ?4
+             AND conversation.agent_kind = registration.agent_kind
+             AND conversation.agent_session_id IS NOT NULL
+             AND conversation.agent_session_id != ?4
+             AND conversation.agent_session_id != registration.registered_session_id
+             AND (registration.actual_session_id IS NULL
+                  OR registration.actual_session_id = conversation.agent_session_id)
+             AND exact_job.job_id = ?7 AND exact_job.job_token = ?8
+             AND exact_job.attempt_kind = 'ordinary'
+             AND exact_job.observation_instance = ?3
+             AND exact_job.observation_session_id = ?4
+         )",
+        rusqlite::params![
+            workspace_id,
+            job.conversation_id().to_string(),
+            instance,
+            session_id,
+            job.inbound().actor.user_id().as_str(),
+            super::super::channel_str(job.inbound().channel),
+            job.id().to_string(),
+            job.token().to_string(),
+        ],
+        |row| row.get::<_, bool>(0),
+    )?;
+    Ok(if exact {
+        RecoverySessionAttribution::FreshConflict
+    } else {
+        RecoverySessionAttribution::Absent
+    })
 }
 
 pub(super) fn oldest_blocking_candidate(

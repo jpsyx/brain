@@ -1117,7 +1117,13 @@ exact registration. Accepted-work reconciliation writes it together with the
 conversation's frontend/native binding under the same exact job, token, actor,
 channel, instance, registered-placeholder, current-lock, and observed-session
 proof. It may confirm the same native ID but cannot replace a different existing
-registration or conversation binding.
+registration or conversation binding. When an ordinary Fresh fallback started
+from a real prior conversation binding, the launch placeholder and observed
+lifecycle-native session remain cleanup identity rather than new continuity.
+The reconciler preserves the prior binding and any null-or-prior
+`actual_session_id`, terminalizes the unsafe recovery, and records the observed
+instance/session cleanup tuple only under the separate exact Fresh-conflict
+proof. Missing or mismatched attribution records no new cleanup tuple.
 
 **Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
 frontend-neutral controller and is never persisted as provider grammar. It
@@ -1222,7 +1228,18 @@ registration. The acknowledgement seam requires the same job, token, recovery
 snapshot, instance, session, registration, and matching durable conversation
 frontend, user, channel, and native binding in one immediate transaction;
 only then does it release the registration and native-session lock and clear
-the fence. The same exact acknowledgement is valid for every cleanup-fenced
+the fence. An ordinary Fresh fallback can instead retain a real prior
+conversation binding while its launch placeholder rotates to another observed
+native session. That exact prior-binding conflict is unsafe for same-session
+recovery, so it terminalizes without replacing the prior binding or
+registration actual ID. Its cleanup fence names only the observed Fresh run.
+Acknowledgement releases that run's lock and exact placeholder registration
+under the same job/token/instance/session/prior-binding proof, while preserving
+the prior session and unrelated registrations. If neither ordinary binding nor
+the exact Fresh-conflict proof succeeds, terminalization derives no cleanup
+tuple from the observation. The failed row therefore releases FIFO without an
+unacknowledgeable fence while all unproved session state remains untouched. The
+same exact acknowledgement is valid for every cleanup-fenced
 terminal attempt, regardless of whether its pending notice was already handed
 off. Until then, the failed row retains
 the tuple and recurring reconciliation returns the same terminal cleanup

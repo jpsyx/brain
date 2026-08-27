@@ -1673,6 +1673,19 @@ one cleanup identifier is missing only if one fully attributed durable
 registration and session row match the job plus the conversation's frontend,
 user, channel, and native binding.
 
+An accepted ordinary Fresh fallback can retain a real prior conversation
+binding while its launch placeholder rotates to a different lifecycle-native
+session. Reconciliation treats that exact three-ID lineage as unsafe for
+same-session recovery, preserves the prior binding, and terminalizes with the
+fixed unavailable notice. Its cleanup fence names only the observed Fresh run;
+exact acknowledgement removes that run's lock and placeholder registration,
+including a null or prior-valued registration actual ID, while leaving the prior
+session untouched. Restart cleanup repeats the same attribution proof and still
+requires the recorded process to be dead. If the exact proof is absent or has
+changed, Brain releases nothing and stores no newly derived cleanup tuple, so
+the terminal job remains fail-closed without holding FIFO behind an impossible
+acknowledgement.
+
 An ordinary claimed run may complete freshness and a durable `/new` control
 while receiver intent is disabled, but neither an ordinary nor recovery claim
 may start a new process until intent is enabled again. The claim remains

@@ -191,10 +191,19 @@ handoff. In the state layer, `store/unavailable_notice.rs` owns the schema-v11
 notice lease claim and exact acknowledgement; the reconciliation cleanup helper
 owns the exact stale-registration PID proof used only after App reconstruction.
 Before an accepted observation can become a cleanup fence, reconciliation
-attributes its lifecycle-native session to the exact fresh registration in the
-same transaction that binds the conversation. Restart cleanup also recognizes
-one narrower pre-acceptance case: an exact failed ordinary fresh registration
-whose conversation is still unbound and whose recorded PID is dead.
+classifies its exact session attribution as bound, prior-binding Fresh conflict,
+or absent. The bound path writes the lifecycle-native session to the exact fresh
+registration in the same transaction that binds the conversation. A Fresh
+conflict proves the ordinary job and token, observed instance and native
+session, locked Fresh lifecycle row, launch placeholder, prior conversation
+binding, and optional registration actual ID without replacing that prior
+binding. It terminalizes with an exact cleanup fence for the conflicting run.
+Absent or mismatched evidence terminalizes without deriving a cleanup fence
+from the observation, so recovery fails closed without persisting a tuple that
+cannot be acknowledged. Restart cleanup also recognizes the Fresh-conflict
+proof and one narrower pre-acceptance case: an exact failed ordinary fresh
+registration whose conversation is still unbound and whose recorded PID is
+dead.
 The local durable-run handle keeps recovery claims separate from ordinary
 continuation and retains cleanup progress after shutdown, artifact, or store
 failure without returning to active renewal.

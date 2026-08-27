@@ -14,10 +14,13 @@ mod support;
 mod terminal;
 
 use support::{
-    EXACT_SNAPSHOT_SQL, bind_exact_recovery_session, candidate_for_job, oldest_blocking_candidate,
-    release_registration,
+    EXACT_SNAPSHOT_SQL, RecoverySessionAttribution, attribute_exact_recovery_session,
+    candidate_for_job, oldest_blocking_candidate, release_registration,
 };
-use terminal::{terminal_reason, terminalize, terminalize_launched_recovery};
+use terminal::{
+    terminal_reason, terminalize, terminalize_launched_recovery,
+    terminalize_without_observed_cleanup,
+};
 
 const PRE_ACCEPTANCE_RETRY_DELAY_MS: u64 = 5_000;
 
@@ -124,16 +127,31 @@ impl Db {
             ReceiverRecoveryDecision::RecoverSameSession => {
                 let cleanup_instance = job.observation_instance().map(str::to_owned);
                 let cleanup_session_id = job.observation_session_id().map(str::to_owned);
-                if !bind_exact_recovery_session(&transaction, &self.workspace_id, &job, now)? {
-                    return terminalize(
-                        transaction,
-                        &self.workspace_id,
-                        &candidate,
-                        &job,
-                        ReceiverReconciliationReason::NativeSessionUnavailable,
-                        now,
-                        false,
-                    );
+                match attribute_exact_recovery_session(&transaction, &self.workspace_id, &job, now)?
+                {
+                    RecoverySessionAttribution::Bound => {}
+                    RecoverySessionAttribution::FreshConflict => {
+                        return terminalize(
+                            transaction,
+                            &self.workspace_id,
+                            &candidate,
+                            &job,
+                            ReceiverReconciliationReason::NativeSessionUnavailable,
+                            now,
+                            false,
+                        );
+                    }
+                    RecoverySessionAttribution::Absent => {
+                        return terminalize_without_observed_cleanup(
+                            transaction,
+                            &self.workspace_id,
+                            &candidate,
+                            &job,
+                            ReceiverReconciliationReason::NativeSessionUnavailable,
+                            now,
+                            false,
+                        );
+                    }
                 }
                 let absolute_work_expires_at_unix_ms =
                     job.absolute_work_expires_at_unix_ms().ok_or_else(|| {
@@ -204,17 +222,37 @@ impl Db {
                 if matches!(
                     candidate.state,
                     ReceiverJobState::Accepted | ReceiverJobState::Processing
-                ) && !bind_exact_recovery_session(&transaction, &self.workspace_id, &job, now)?
-                {
-                    return terminalize(
-                        transaction,
+                ) {
+                    match attribute_exact_recovery_session(
+                        &transaction,
                         &self.workspace_id,
-                        &candidate,
                         &job,
-                        ReceiverReconciliationReason::NativeSessionUnavailable,
                         now,
-                        false,
-                    );
+                    )? {
+                        RecoverySessionAttribution::Bound => {}
+                        RecoverySessionAttribution::FreshConflict => {
+                            return terminalize(
+                                transaction,
+                                &self.workspace_id,
+                                &candidate,
+                                &job,
+                                ReceiverReconciliationReason::NativeSessionUnavailable,
+                                now,
+                                false,
+                            );
+                        }
+                        RecoverySessionAttribution::Absent => {
+                            return terminalize_without_observed_cleanup(
+                                transaction,
+                                &self.workspace_id,
+                                &candidate,
+                                &job,
+                                ReceiverReconciliationReason::NativeSessionUnavailable,
+                                now,
+                                false,
+                            );
+                        }
+                    }
                 }
                 let reason = terminal_reason(&job, now_unix_ms, decision);
                 let consume_launch_attempt = decision == ReceiverRecoveryDecision::TerminalFailure

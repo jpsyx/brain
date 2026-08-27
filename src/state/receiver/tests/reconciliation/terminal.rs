@@ -1,5 +1,5 @@
 #[test]
-fn missing_exact_native_session_terminalizes_the_first_accepted_stall() {
+fn missing_exact_native_session_terminalizes_without_an_unacknowledgeable_cleanup() {
     let fixture = accepted_run("missing-native-recovery");
     fixture
         .db
@@ -16,7 +16,8 @@ fn missing_exact_native_session_terminalizes_the_first_accepted_stall() {
         effect.reason(),
         ReceiverReconciliationReason::NativeSessionUnavailable
     );
-    assert_eq!(effect.cleanup_instance(), Some("ordinary-instance"));
+    assert_eq!(effect.cleanup_instance(), None);
+    assert_eq!(effect.cleanup_session_id(), None);
     let terminal = fixture
         .db
         .receiver_job(fixture.job_id)
@@ -25,6 +26,8 @@ fn missing_exact_native_session_terminalizes_the_first_accepted_stall() {
     assert_eq!(terminal.state(), ReceiverJobState::Failed);
     assert_eq!(terminal.recovery_count(), 0);
     assert!(terminal.pending_unavailable_notice());
+    assert_eq!(terminal.recovery_cleanup_instance(), None);
+    assert_eq!(terminal.recovery_cleanup_session_id(), None);
     assert_eq!(
         terminal.last_error(),
         Some(ReceiverReconciliationReason::NativeSessionUnavailable.as_str())

@@ -2,6 +2,8 @@ include!("reconciliation/support.rs");
 include!("reconciliation/preacceptance.rs");
 include!("reconciliation/recovery.rs");
 include!("reconciliation/cleanup.rs");
+include!("reconciliation/fresh_conflict_assertions.rs");
+include!("reconciliation/fresh_conflict.rs");
 include!("reconciliation/expiry.rs");
 include!("reconciliation/terminal_cleanup.rs");
 include!("reconciliation/recovery_failures.rs");

@@ -46,16 +46,72 @@ pub(super) fn terminalize(
     now: i64,
     consume_launch_attempt: bool,
 ) -> Result<Option<ReceiverReconciliationEffect>> {
+    terminalize_with_cleanup(
+        transaction,
+        workspace_id,
+        candidate,
+        job,
+        reason,
+        now,
+        consume_launch_attempt,
+        true,
+    )
+}
+
+pub(super) fn terminalize_without_observed_cleanup(
+    transaction: rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    candidate: &ReconciliationCandidate,
+    job: &ReceiverJob,
+    reason: ReceiverReconciliationReason,
+    now: i64,
+    consume_launch_attempt: bool,
+) -> Result<Option<ReceiverReconciliationEffect>> {
+    terminalize_with_cleanup(
+        transaction,
+        workspace_id,
+        candidate,
+        job,
+        reason,
+        now,
+        consume_launch_attempt,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn terminalize_with_cleanup(
+    transaction: rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    candidate: &ReconciliationCandidate,
+    job: &ReceiverJob,
+    reason: ReceiverReconciliationReason,
+    now: i64,
+    consume_launch_attempt: bool,
+    include_observed_cleanup: bool,
+) -> Result<Option<ReceiverReconciliationEffect>> {
     let pending_cleanup = job
         .recovery_cleanup_instance()
         .zip(job.recovery_cleanup_session_id());
     let cleanup_instance = pending_cleanup
         .map(|(instance, _)| instance.to_owned())
-        .or_else(|| job.observation_instance().map(str::to_owned))
-        .or_else(|| candidate.owner.clone());
+        .or_else(|| {
+            include_observed_cleanup
+                .then(|| job.observation_instance().map(str::to_owned))
+                .flatten()
+        })
+        .or_else(|| {
+            include_observed_cleanup
+                .then(|| candidate.owner.clone())
+                .flatten()
+        });
     let cleanup_session_id = pending_cleanup
         .map(|(_, session_id)| session_id.to_owned())
-        .or_else(|| job.observation_session_id().map(str::to_owned));
+        .or_else(|| {
+            include_observed_cleanup
+                .then(|| job.observation_session_id().map(str::to_owned))
+                .flatten()
+        });
     let cleanup_is_fenced = cleanup_instance.is_some() && cleanup_session_id.is_some();
     let persisted_cleanup_instance = cleanup_is_fenced
         .then_some(cleanup_instance.as_deref())

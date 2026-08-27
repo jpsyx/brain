@@ -2559,6 +2559,34 @@ intent. Semantic effects carry only opaque job, token, cleanup instance, and
 cleanup session identifiers. Frontend validation, process cleanup, recovery
 launch, and provider notice delivery remain outside the state layer.
 
+## Why a prior-binding Fresh conflict keeps continuity separate from cleanup
+
+An ordinary Fresh fallback can start while the durable conversation still
+binds a real prior native session. Its three identifiers have different roles:
+the prior session is conversation continuity, the Brain-supplied placeholder is
+launch registration identity, and the lifecycle-reported session is the running
+controller that must be cleaned up. Treating the observed session as ordinary
+binding authority would overwrite valid continuity. Persisting it as cleanup
+authority without a releasable registration proof would instead leave FIFO
+behind a fence that no acknowledgement can satisfy.
+
+Reconciliation therefore uses a distinct Fresh-conflict attribution. It
+requires the exact ordinary job and token, observed instance and lifecycle
+session, locked Fresh session row, differing launch placeholder, matching
+frontend/actor/channel/conversation, a prior binding distinct from both Fresh
+IDs, and a registration actual ID that is either null or exactly that prior
+binding. The unsafe same-session recovery terminalizes, but the prior binding
+and registration actual value remain unchanged. The terminal cleanup tuple
+names the observed run. Acknowledgement and restart recovery repeat the proof,
+release only the observed session lock and exact placeholder registration, and
+compare the stored actual ID while deleting. The prior session and unrelated
+registrations remain untouched.
+
+Any absent, ambiguous, or changed attribution releases nothing. It also cannot
+create a cleanup tuple from the observation alone. This keeps recovery
+fail-closed while allowing the terminal job to stop blocking later FIFO work;
+only a previously durable complete cleanup tuple remains eligible for redrive.
+
 ## Why accepted recovery is exact native resume, never transcript replay
 
 Exact acceptance proves a native conversation already crossed the point where

@@ -551,6 +551,14 @@ first move is a failing test that reproduces it, *then* the fix.
   rotate its lifecycle row to a distinct native session without prebinding the
   fixture, and prove accepted-stall plus absolute-expiry cleanup cannot release
   the native lock before acknowledgement and can release it afterward. A
+  prior-binding Fresh-conflict group constructs the full production lineage
+  from prior native session through launch placeholder to observed native
+  session. It covers accepted stall, absolute expiry, null and prior-valued
+  registration actual IDs, process restart, exact acknowledgement, changed
+  actual/job/token/instance/session rejection, unrelated instance preservation,
+  prior-session preservation, and FIFO advancement. A composed App case repeats
+  the conflict, restart, cleanup, and later-job flow. The missing-attribution
+  case proves terminalization does not persist an unacknowledgeable tuple. A
   separate restart case proves a dead non-rotating fresh registration remains
   cleanable while its pre-acceptance conversation is still unbound, preserving
   Claude parity. Store coverage includes legacy completion ambiguity; single

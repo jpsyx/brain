@@ -1398,11 +1398,20 @@ intent. An accepted-stall effect carries only the opaque job/token plus exact
 superseded instance/session identifiers. The store retains that exact cleanup
 fence and registration until the App shuts down the native run and acknowledges
 the same tuple through the full-snapshot CAS. Before persisting that fence,
-accepted-work reconciliation writes the authorized lifecycle-native session to
-the exact registration in the same transaction that binds the conversation. It
-requires the unchanged job/token, conversation, frontend, actor, channel,
-instance, registered placeholder, current lock, and observed native session, and
-cannot overwrite a different established native binding. Recovery claiming cannot cross
+accepted-work reconciliation classifies the exact session attribution. The
+ordinary bound path writes the authorized lifecycle-native session to the exact
+registration in the same transaction that binds the conversation. It requires
+the unchanged job/token, conversation, frontend, actor, channel, instance,
+registered placeholder, current lock, and observed native session, and cannot
+overwrite a different established native binding. If a Fresh fallback instead
+retains a real prior conversation binding, the exact ordinary job/token,
+placeholder registration, observed locked Fresh session, prior binding, and
+null-or-prior registration actual ID authorize only a terminal cleanup fence
+for the observed run. They do not authorize replacing the prior binding. Exact
+acknowledgement and dead-PID restart proof repeat that same attribution, remove
+only the placeholder registration and observed-session lock, and preserve the
+prior session. Missing or changed attribution releases nothing and terminalizes
+without an observation-derived cleanup tuple. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
 Every terminalized live run with an exact instance/session pair retains that
