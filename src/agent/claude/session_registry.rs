@@ -40,7 +40,10 @@ pub(crate) fn read_session_claims(directory: &Path) -> Vec<SessionClaim> {
     entries
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .filter_map(|path| parse_claim(&std::fs::read_to_string(path).ok()?))
         .collect()
 }

@@ -76,9 +76,11 @@ pub(crate) enum ExitedPanel {
 #[must_use]
 pub(crate) fn decide_exited_panel(resumed: Option<(&str, Duration)>) -> ExitedPanel {
     match resumed {
-        Some((session_id, since_launch)) if since_launch < ARRIVAL_GRACE => ExitedPanel::RetryFresh {
-            refused: session_id.to_owned(),
-        },
+        Some((session_id, since_launch)) if since_launch < ARRIVAL_GRACE => {
+            ExitedPanel::RetryFresh {
+                refused: session_id.to_owned(),
+            }
+        }
         _ => ExitedPanel::Close,
     }
 }

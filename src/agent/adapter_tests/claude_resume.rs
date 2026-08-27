@@ -46,7 +46,10 @@ fn claim(pid: i32, session_id: &str) -> SessionClaim {
 /// registry entries that claim sessions for a running process.
 fn claude_home(session: &str, claims: &[(i32, &str)]) -> tempfile::TempDir {
     let home = tempfile::tempdir().expect("claude home");
-    let project = home.path().join("projects").join("-workspaces-family brain");
+    let project = home
+        .path()
+        .join("projects")
+        .join("-workspaces-family brain");
     std::fs::create_dir_all(&project).expect("project dir");
     std::fs::write(project.join(format!("{session}.jsonl")), CONVERSATION).expect("transcript");
     let sessions = home.path().join("sessions");
@@ -87,7 +90,10 @@ fn only_a_real_exchange_counts_as_a_resumable_conversation() {
 #[test]
 fn claude_refuses_to_resume_a_transcript_that_holds_no_conversation() {
     let home = claude_home("stub", &[]);
-    let project = home.path().join("projects").join("-workspaces-family brain");
+    let project = home
+        .path()
+        .join("projects")
+        .join("-workspaces-family brain");
     std::fs::write(project.join("stub.jsonl"), METADATA_ONLY).expect("stub transcript");
 
     assert_eq!(
