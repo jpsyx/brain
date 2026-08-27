@@ -50,7 +50,7 @@ pub(super) fn spawn_claimed_receiver_recovery(
         observed_at_unix_ms: owner.observed_at_unix_ms(),
         authorized_at_unix_ms: owner.observed_at_unix_ms(),
     };
-    match services.commit_receiver_job_launch(
+    match services.commit_receiver_recovery_job_launch(
         claimed.claim.job().id(),
         claimed.claim.claim().owner(),
         &observation,

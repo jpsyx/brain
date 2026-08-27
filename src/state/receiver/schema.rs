@@ -2,6 +2,7 @@ use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension as _};
 
 use super::ReceiverJobToken;
+use crate::state::Db;
 
 mod recovery;
 mod token;
@@ -151,16 +152,35 @@ fn ensure_unavailable_notice_columns(connection: &Connection) -> Result<()> {
 }
 
 pub(crate) fn down_unavailable_notice_path(path: &std::path::Path) -> Result<()> {
+    down_unavailable_notice_path_inner(path, None)
+}
+
+#[cfg(test)]
+pub(super) fn down_unavailable_notice_path_with_busy_observer(
+    path: &std::path::Path,
+    observer: fn(i32) -> bool,
+) -> Result<()> {
+    down_unavailable_notice_path_inner(path, Some(observer))
+}
+
+fn down_unavailable_notice_path_inner(
+    path: &std::path::Path,
+    busy_observer: Option<fn(i32) -> bool>,
+) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     let connection = Connection::open(path)?;
-    let has_owner = has_column(&connection, "unavailable_notice_owner")?;
-    let has_expiry = has_column(&connection, "unavailable_notice_expires_at_unix_ms")?;
-    if !has_owner && !has_expiry {
-        return Ok(());
+    Db::configure(&connection)?;
+    if let Some(observer) = busy_observer {
+        connection.busy_handler(Some(observer))?;
     }
-    let transaction = connection.unchecked_transaction()?;
+    let transaction = rusqlite::Transaction::new_unchecked(
+        &connection,
+        rusqlite::TransactionBehavior::Immediate,
+    )?;
+    let has_owner = has_column(&transaction, "unavailable_notice_owner")?;
+    let has_expiry = has_column(&transaction, "unavailable_notice_expires_at_unix_ms")?;
     if has_owner {
         transaction
             .execute_batch("ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;")?;

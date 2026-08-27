@@ -45,7 +45,6 @@ impl App {
         claimed: ClaimedReceiverRun,
         staged_attachments: PreparedReceiverAttachments,
     ) {
-        let staged_attachment_work = !staged_attachments.staged().is_empty();
         let local_attachment_paths = staged_attachments
             .staged()
             .iter()
@@ -229,7 +228,7 @@ impl App {
         };
 
         let owner = match self.authorize_receiver_owner_now(&claimed.claim) {
-            Ok(Some(owner)) if self.receiver.is_enabled() || !staged_attachment_work => owner,
+            Ok(Some(owner)) if self.receiver.is_enabled() => owner,
             Ok(Some(_)) => {
                 let _ = registration.cleanup();
                 let _ = controller.shutdown();

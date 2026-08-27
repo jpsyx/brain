@@ -4,6 +4,7 @@ use super::*;
 use crate::state::{
     ReceiverAttemptKind, ReceiverJobState, ReceiverNonterminalObservationPhase, ReceiverObservation,
 };
+use crate::tui::receiver::ReceiverCleanupBoundary;
 
 #[derive(Clone, Default)]
 struct NoticeHandoffRecording(Arc<Mutex<Vec<(InboundJob, String)>>>);
@@ -262,6 +263,113 @@ fn pending_unavailable_notice_is_handed_off_and_acked_before_fifo_advances() {
         ReceiverJobState::Launched,
         "terminal notice intent must not block later FIFO work"
     );
+}
+
+#[test]
+fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
+    for failure in [
+        ReceiverCleanupBoundary::Shutdown,
+        ReceiverCleanupBoundary::Artifacts,
+        ReceiverCleanupBoundary::Acknowledgement,
+    ] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+        app.receiver.record_intent(true);
+        let clock = ReceiverClock::new();
+        app.services
+            .replace_receiver_sync_runtime(Box::new(clock.clone()));
+        let db = Db::open(app.context.workspace()).expect("state DB");
+        let terminal = accept_email_job(&app, &db, "terminal work", 100);
+        let active_transport = TransportRecording::default();
+        app.brain
+            .replace_receiver_transport(active_transport.transport());
+        app.tick_receiver();
+
+        let active = app
+            .receiver
+            .active_durable_run()
+            .expect("launched terminal fixture");
+        let instance = active.attribution.instance().to_owned();
+        let session_id = active.attribution.registered_session().as_str().to_owned();
+        let token = active.claim.job().token();
+        let owner = active.claim.claim().owner().to_owned();
+        assert!(
+            db.apply_receiver_observation(
+                terminal.job_id(),
+                &owner,
+                &ReceiverObservation {
+                    token,
+                    instance: instance.clone(),
+                    session_id,
+                    phase: ReceiverNonterminalObservationPhase::Accepted,
+                    revision: 1,
+                    observed_at_unix_ms: clock.unix_ms(),
+                    authorized_at_unix_ms: clock.unix_ms(),
+                },
+            )
+            .expect("persist accepted terminal fixture")
+        );
+        for path in receiver_instance_paths(&app, &instance) {
+            std::fs::create_dir_all(path.parent().expect("artifact parent"))
+                .expect("artifact directory");
+            std::fs::write(path, "private local artifact").expect("seed artifact");
+        }
+        rusqlite::Connection::open(app.context.state_db_path())
+            .expect("absolute-expiry fixture connection")
+            .execute(
+                "UPDATE receiver_jobs SET absolute_work_expires_at_unix_ms = 0
+                 WHERE job_id = ?1",
+                [terminal.job_id().to_string()],
+            )
+            .expect("expire active job");
+        let later = accept_email_job(&app, &db, "later ordinary work", 200);
+        let notices = NoticeHandoffRecording::default();
+        app.services
+            .replace_receiver_notice_delivery(Box::new(notices.clone()));
+        app.receiver.inject_cleanup_failure(failure);
+
+        app.tick_receiver();
+
+        let fenced = db.receiver_job(terminal.job_id()).unwrap().unwrap();
+        assert_eq!(fenced.state(), ReceiverJobState::Failed, "{failure:?}");
+        assert!(!fenced.pending_unavailable_notice(), "{failure:?}");
+        assert_eq!(notices.0.lock().unwrap().len(), 1, "{failure:?}");
+        assert_eq!(
+            app.brain.receiver_run_observations().len(),
+            1,
+            "{failure:?}"
+        );
+        assert_eq!(
+            db.receiver_job(later.job_id()).unwrap().unwrap().state(),
+            ReceiverJobState::Queued,
+            "{failure:?}"
+        );
+        let expected_shutdowns = usize::from(failure != ReceiverCleanupBoundary::Shutdown);
+        assert_eq!(
+            active_transport.shutdowns(),
+            expected_shutdowns,
+            "{failure:?}"
+        );
+
+        let later_transport = TransportRecording::default();
+        app.brain
+            .replace_receiver_transport(later_transport.transport());
+        app.tick_receiver();
+
+        assert_eq!(active_transport.shutdowns(), 1, "{failure:?}");
+        assert_eq!(
+            app.brain.receiver_run_observations().len(),
+            1,
+            "{failure:?}"
+        );
+        assert_eq!(
+            db.receiver_job(later.job_id()).unwrap().unwrap().state(),
+            ReceiverJobState::Launched,
+            "{failure:?}"
+        );
+        assert_eq!(later_transport.launch_specs().len(), 1, "{failure:?}");
+    }
 }
 
 fn receiver_instance_paths(app: &App, instance: &str) -> [PathBuf; 3] {

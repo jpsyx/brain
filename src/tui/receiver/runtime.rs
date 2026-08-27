@@ -18,8 +18,17 @@ pub(crate) enum ReceiverLaunchBoundary {
     AvailabilityProbe,
     ResumeValidation,
     Registration,
+    RecoveryPreLaunchAuthorization,
     Spawn,
     Allocation,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverCleanupBoundary {
+    Shutdown,
+    Artifacts,
+    Acknowledgement,
 }
 
 struct ReceiverSyncGate {
@@ -46,6 +55,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     launch_boundary_hooks: Vec<(ReceiverLaunchBoundary, Box<dyn FnOnce()>)>,
     #[cfg(test)]
+    cleanup_failure_boundaries: Vec<ReceiverCleanupBoundary>,
+    #[cfg(test)]
     observation_diagnostics: std::cell::RefCell<Vec<String>>,
 }
 
@@ -67,6 +78,8 @@ impl ReceiverRuntime {
             before_observation_persistence_hook: None,
             #[cfg(test)]
             launch_boundary_hooks: Vec::new(),
+            #[cfg(test)]
+            cleanup_failure_boundaries: Vec::new(),
             #[cfg(test)]
             observation_diagnostics: std::cell::RefCell::new(Vec::new()),
         }
@@ -149,6 +162,24 @@ impl ReceiverRuntime {
     }
 
     #[cfg(test)]
+    pub(crate) fn inject_cleanup_failure(&mut self, boundary: ReceiverCleanupBoundary) {
+        self.cleanup_failure_boundaries.push(boundary);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_cleanup_failure(&mut self, boundary: ReceiverCleanupBoundary) -> bool {
+        let Some(index) = self
+            .cleanup_failure_boundaries
+            .iter()
+            .position(|candidate| *candidate == boundary)
+        else {
+            return false;
+        };
+        self.cleanup_failure_boundaries.remove(index);
+        true
+    }
+
+    #[cfg(test)]
     pub(crate) fn record_observation_diagnostic(&self, diagnostic: String) {
         self.observation_diagnostics.borrow_mut().push(diagnostic);
     }
@@ -170,7 +201,10 @@ impl ReceiverRuntime {
     pub(crate) fn active_durable_run(&self) -> Option<&super::ActiveReceiverRun> {
         match &self.durable_run {
             DurableReceiverRun::Active(active) => Some(active),
-            DurableReceiverRun::Idle | DurableReceiverRun::Claimed(_) => None,
+            DurableReceiverRun::Idle
+            | DurableReceiverRun::Claimed(_)
+            | DurableReceiverRun::RecoveryClaimed(_)
+            | DurableReceiverRun::CleanupPending(_) => None,
         }
     }
 

@@ -1273,8 +1273,10 @@ safely.
 The automatic 0.84.12 boundary advances receiver state to schema v11 by adding
 a dedicated unavailable-notice writer owner and expiry. Upgrade and same-version
 reconciliation add either missing column and clear a one-sided lease. Downgrade
-removes only those two columns, restores schema version 10, and then permits the
-existing recovery downgrade chain to continue.
+opens with the shared state-store timeout and pragmas, reserves an immediate
+writer before inspecting version or columns, removes only those two columns,
+restores schema version 10 in that transaction, and then permits the existing
+recovery downgrade chain to continue.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1349,14 +1351,17 @@ the commit or an existing durable match. The mode-`0600`
 only by a narrowly named legacy lifetime field until BR-18; it has no receiver
 read, poll, dispatch, or in-memory queue behavior.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
-and a `DurableReceiverRun` handle. The one `App::tick_receiver` call is the sole
+and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
+claims, active controllers, and cleanup-pending authority. The one
+`App::tick_receiver` call is the sole
 production consumer. While enabled, it reconciles one oldest blocker and
 executes exact cleanup, attempts one finite terminal-notice handoff, applies
 restart controls, advances any held local run, then claims a due recovery before
 ordinary FIFO work. Disabled intent skips those new effects but the tick still
-renews and manages an existing pending or active run. It renews an already
-claimed ordinary job before a pending freshness pull and otherwise does no new
-claim work while a receiver tab is active. When ready, it claims the oldest durable job by
+renews an existing pending claim and manages active completion or cleanup. A
+pending ordinary or recovery claim cannot spawn while disabled; a claimed
+`/new` may still finish its non-spawning durable control boundary. When ready
+and enabled, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, and reauthorizes that exact claim
 after each potentially slow capability, validation, registration, spawn, and
@@ -1395,15 +1400,16 @@ fence and registration until the App shuts down the native run and acknowledges
 the same tuple through the full-snapshot CAS. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
-If it terminalizes before cleanup acknowledgement, the store retains the exact
-tuple, registration, and session lock and keeps returning that terminal cleanup
+Every terminalized live run with an exact instance/session pair retains that
+tuple, registration, and session lock and keeps returning the terminal cleanup
 effect across restart. Exact acknowledgement accepts the matching due or failed
-recovery only when the registration/session pair still matches the exact job,
+work only when the registration/session pair still matches the exact job,
 token, and durable conversation attribution; it then clears the tuple and
 releases both lock surfaces atomically. Wrong or misattributed identifiers
 change nothing. Read-only redrive does not duplicate the notice bit
-or prevent later FIFO work from being claimed.
-The App shuts down a matching local controller and removes only its exact
+or depend on whether the notice bit was already acknowledged.
+The App keeps distinct cleanup-pending authority, shuts down a matching local
+controller once, and removes only its exact
 response and observation artifacts before that acknowledgement. After a restart
 with no matching tab, it may perform the same acknowledgement only when the
 persisted registration and session lock still match the effect and their exact

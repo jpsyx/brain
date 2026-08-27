@@ -2,7 +2,9 @@
 
 use crate::state::{ReceiverReconciliationAction, ReceiverReconciliationEffect};
 use crate::tui::App;
-use crate::tui::receiver::{ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun};
+use crate::tui::receiver::{
+    ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
+};
 
 impl App {
     pub(super) fn reconcile_receiver_job(&mut self) {
@@ -18,10 +20,16 @@ impl App {
         let run = self.receiver.take_durable_run();
         match run {
             DurableReceiverRun::Active(active) if self.effect_matches_active(effect, &active) => {
-                if !self.cleanup_reconciled_active(effect, &active) {
-                    self.receiver
-                        .store_durable_run(DurableReceiverRun::Active(active));
-                }
+                self.continue_receiver_cleanup(CleanupPendingReceiverRun {
+                    active,
+                    effect: effect.clone(),
+                    shutdown_complete: false,
+                    artifacts_removed: false,
+                    defer_once: false,
+                });
+            }
+            DurableReceiverRun::CleanupPending(pending) if pending.effect == *effect => {
+                self.continue_receiver_cleanup(pending);
             }
             DurableReceiverRun::Claimed(claimed) if effect_matches_claimed(effect, &claimed) => {
                 self.services
@@ -32,6 +40,19 @@ impl App {
                 {
                     self.receiver
                         .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                }
+            }
+            DurableReceiverRun::RecoveryClaimed(claimed)
+                if effect_matches_claimed(effect, &claimed) =>
+            {
+                self.services
+                    .cancel_receiver_attachment_stage(claimed.claim.job().id());
+                if self
+                    .cleanup_receiver_instance_files_checked(claimed.remote.instance())
+                    .is_err()
+                {
+                    self.receiver
+                        .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed));
                 }
             }
             other => {
@@ -111,60 +132,103 @@ impl App {
                 == Some(expected_session)
     }
 
-    pub(super) fn cleanup_reconciled_active(
-        &mut self,
-        effect: &ReceiverReconciliationEffect,
-        active: &ActiveReceiverRun,
-    ) -> bool {
-        match self.brain.shutdown_receiver_run(
-            active.tab_id,
-            effect.job_id(),
-            active.attribution.instance(),
-        ) {
-            Ok(true) => {}
-            Ok(false) => return false,
-            Err(_) => {
-                crate::logging::log(format!(
-                    "receiver recovery cleanup incomplete job={} boundary=shutdown reason=controller-error",
-                    effect.job_id()
-                ));
-                return false;
-            }
-        }
-        if self
-            .cleanup_receiver_instance_files_checked(active.attribution.instance())
-            .is_err()
-        {
-            crate::logging::log(format!(
-                "receiver recovery cleanup incomplete job={} boundary=artifacts reason=filesystem-error",
-                effect.job_id()
-            ));
-            return false;
-        }
-        if effect.action() != ReceiverReconciliationAction::RequeuePreAcceptance {
-            let now = self.receiver_now_unix_ms();
-            match self
-                .services
-                .acknowledge_receiver_recovery_cleanup(effect, now)
+    pub(super) fn continue_receiver_cleanup(&mut self, mut pending: CleanupPendingReceiverRun) {
+        if !pending.shutdown_complete {
+            #[cfg(test)]
+            if self
+                .receiver
+                .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Shutdown)
             {
-                Ok(true) => {}
-                Ok(false) => return false,
+                self.defer_receiver_cleanup(pending);
+                return;
+            }
+            match self.brain.shutdown_receiver_run(
+                pending.active.tab_id,
+                pending.effect.job_id(),
+                pending.active.attribution.instance(),
+            ) {
+                Ok(true) => pending.shutdown_complete = true,
+                Ok(false) => {
+                    self.defer_receiver_cleanup(pending);
+                    return;
+                }
                 Err(_) => {
                     crate::logging::log(format!(
-                        "receiver recovery cleanup incomplete job={} boundary=acknowledgement reason=store-error",
-                        effect.job_id()
+                        "receiver recovery cleanup incomplete job={} boundary=shutdown reason=controller-error",
+                        pending.effect.job_id()
                     ));
-                    return false;
+                    self.defer_receiver_cleanup(pending);
+                    return;
                 }
             }
         }
-        self.brain
+        if !pending.artifacts_removed {
+            #[cfg(test)]
+            if self
+                .receiver
+                .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts)
+            {
+                self.defer_receiver_cleanup(pending);
+                return;
+            }
+            if self
+                .cleanup_receiver_instance_files_checked(pending.active.attribution.instance())
+                .is_err()
+            {
+                crate::logging::log(format!(
+                    "receiver recovery cleanup incomplete job={} boundary=artifacts reason=filesystem-error",
+                    pending.effect.job_id()
+                ));
+                self.defer_receiver_cleanup(pending);
+                return;
+            }
+            pending.artifacts_removed = true;
+        }
+        if pending.effect.action() != ReceiverReconciliationAction::RequeuePreAcceptance {
+            #[cfg(test)]
+            if self.receiver.take_cleanup_failure(
+                crate::tui::receiver::ReceiverCleanupBoundary::Acknowledgement,
+            ) {
+                self.defer_receiver_cleanup(pending);
+                return;
+            }
+            let now = self.receiver_now_unix_ms();
+            match self
+                .services
+                .acknowledge_receiver_recovery_cleanup(&pending.effect, now)
+            {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.defer_receiver_cleanup(pending);
+                    return;
+                }
+                Err(_) => {
+                    crate::logging::log(format!(
+                        "receiver recovery cleanup incomplete job={} boundary=acknowledgement reason=store-error",
+                        pending.effect.job_id()
+                    ));
+                    self.defer_receiver_cleanup(pending);
+                    return;
+                }
+            }
+        }
+        if self
+            .brain
             .remove_shutdown_receiver_run(
-                active.tab_id,
-                effect.job_id(),
-                active.attribution.instance(),
+                pending.active.tab_id,
+                pending.effect.job_id(),
+                pending.active.attribution.instance(),
             )
-            .is_some()
+            .is_none()
+        {
+            self.defer_receiver_cleanup(pending);
+        }
+    }
+
+    fn defer_receiver_cleanup(&mut self, mut pending: CleanupPendingReceiverRun) {
+        pending.defer_once = true;
+        self.receiver
+            .store_durable_run(DurableReceiverRun::CleanupPending(pending));
     }
 }
 

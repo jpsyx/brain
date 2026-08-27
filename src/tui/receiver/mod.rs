@@ -22,10 +22,11 @@ pub(crate) use failure::cleanup_receiver_launch;
 #[cfg(test)]
 pub(crate) use failure::rollback_receiver_launch;
 pub(crate) use run::{
-    ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun, ReceiverEffectOutcome,
+    ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
+    ReceiverEffectOutcome,
 };
 #[cfg(test)]
-pub(crate) use runtime::ReceiverLaunchBoundary;
+pub(crate) use runtime::{ReceiverCleanupBoundary, ReceiverLaunchBoundary};
 pub(crate) use runtime::{ReceiverRuntime, SyncGateObservation, SyncGatePoll};
 pub(crate) use session::{
     ReceiverRemoteSession, ReceiverSessionRegistration, ReceiverSessionStore,

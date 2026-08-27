@@ -3,7 +3,9 @@
 use crate::state::ReceiverJobState;
 use crate::state::ReceiverLaunchFailure;
 use crate::tui::App;
-use crate::tui::receiver::{ActiveReceiverRun, ClaimedReceiverRun, DurableReceiverRun};
+use crate::tui::receiver::{
+    ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
+};
 
 use super::diagnostic::receiver_observation_diagnostic;
 
@@ -12,7 +14,15 @@ impl App {
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Idle => self.services.shutdown_receiver_attachments(),
             DurableReceiverRun::Claimed(claimed) => self.shutdown_claimed_receiver_run(&claimed),
+            DurableReceiverRun::RecoveryClaimed(claimed) => {
+                self.services
+                    .cancel_receiver_attachment_stage(claimed.claim.job().id());
+                self.services.shutdown_receiver_attachments();
+            }
             DurableReceiverRun::Active(active) => self.shutdown_active_receiver_run(active),
+            DurableReceiverRun::CleanupPending(pending) => {
+                self.shutdown_cleanup_pending_receiver_run(&pending);
+            }
         }
     }
 
@@ -61,5 +71,25 @@ impl App {
         self.cleanup_receiver_instance_files(attribution.instance());
         drop(attachments);
         crate::logging::log("receiver shutdown preserved launched durable evidence");
+    }
+
+    fn shutdown_cleanup_pending_receiver_run(&mut self, pending: &CleanupPendingReceiverRun) {
+        self.services.shutdown_receiver_attachments();
+        if !pending.shutdown_complete {
+            let _ = self.brain.shutdown_receiver_run(
+                pending.active.tab_id,
+                pending.active.claim.job().id(),
+                pending.active.attribution.instance(),
+            );
+        }
+        let _ = self.brain.remove_shutdown_receiver_run(
+            pending.active.tab_id,
+            pending.active.claim.job().id(),
+            pending.active.attribution.instance(),
+        );
+        if !pending.artifacts_removed {
+            self.cleanup_receiver_instance_files(pending.active.attribution.instance());
+        }
+        crate::logging::log("receiver shutdown preserved cleanup-fenced durable evidence");
     }
 }

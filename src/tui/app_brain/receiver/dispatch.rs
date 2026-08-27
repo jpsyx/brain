@@ -20,6 +20,21 @@ impl App {
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
+            DurableReceiverRun::RecoveryClaimed(claimed) if receiver_enabled => {
+                self.launch_claimed_receiver_recovery(claimed);
+            }
+            DurableReceiverRun::RecoveryClaimed(claimed) => {
+                self.hold_claimed_receiver_recovery(claimed);
+            }
+            DurableReceiverRun::CleanupPending(mut pending) => {
+                if pending.defer_once {
+                    pending.defer_once = false;
+                    self.receiver
+                        .store_durable_run(DurableReceiverRun::CleanupPending(pending));
+                } else {
+                    self.continue_receiver_cleanup(pending);
+                }
+            }
             DurableReceiverRun::Idle if receiver_enabled => {
                 if !self.claim_receiver_recovery_run() {
                     self.claim_receiver_run();
@@ -89,7 +104,7 @@ impl App {
             self.complete_receiver_new_session(claimed);
             return;
         }
-        if !self.receiver.is_enabled() && !claimed.claim.job().inbound().attachments.is_empty() {
+        if !self.receiver.is_enabled() {
             self.services
                 .cancel_receiver_attachment_stage(claimed.claim.job().id());
             self.receiver
@@ -97,6 +112,21 @@ impl App {
             return;
         }
         self.stage_claimed_receiver_run(claimed);
+    }
+
+    fn hold_claimed_receiver_recovery(&mut self, claimed: ClaimedReceiverRun) {
+        let now = self.receiver_now_unix_ms();
+        match self.services.renew_receiver_claim(
+            claimed.claim.job().id(),
+            claimed.claim.claim().owner(),
+            now,
+            now.saturating_add(CLAIM_LIFETIME_MS),
+        ) {
+            Ok(true) | Err(_) => self
+                .receiver
+                .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed)),
+            Ok(false) => {}
+        }
     }
 
     pub(super) fn receiver_now_unix_ms(&self) -> u64 {

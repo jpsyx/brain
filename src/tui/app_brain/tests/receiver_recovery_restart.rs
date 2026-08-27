@@ -63,6 +63,23 @@ fn restarted_tui_proves_stale_cleanup_then_resumes_the_exact_persisted_frontend(
             .expect("persist ordinary receiver progress")
         );
     }
+    let mut replay_trap = db
+        .receiver_job(stalled.job_id())
+        .expect("load accepted replay trap")
+        .expect("accepted replay trap")
+        .inbound()
+        .clone();
+    replay_trap.prompt = "/new".to_owned();
+    rusqlite::Connection::open(&state_path)
+        .expect("replay-trap fixture connection")
+        .execute(
+            "UPDATE receiver_jobs SET inbound_json = ?1 WHERE job_id = ?2",
+            rusqlite::params![
+                serde_json::to_string(&replay_trap).expect("serialize replay trap"),
+                stalled.job_id().to_string(),
+            ],
+        )
+        .expect("persist accepted replay trap");
     let later = accept_email_job(&first, &db, "later ordinary work", 200);
     let sessions_dir = temporary.path().join("codex-restart-sessions");
     let rollout_dir = sessions_dir.join("9999/12/31");
@@ -103,7 +120,36 @@ fn restarted_tui_proves_stale_cleanup_then_resumes_the_exact_persisted_frontend(
     restarted
         .brain
         .replace_receiver_transport(recovery_transport.transport());
+    let failing_state_path = state_path.clone();
+    restarted.receiver.install_launch_boundary_hook(
+        crate::tui::receiver::ReceiverLaunchBoundary::RecoveryPreLaunchAuthorization,
+        Box::new(move || {
+            rusqlite::Connection::open(failing_state_path)
+                .expect("owner-store failure fixture connection")
+                .execute_batch(
+                    "ALTER TABLE receiver_jobs
+                     RENAME TO receiver_jobs_owner_store_failure;",
+                )
+                .expect("inject exact pre-launch owner-store failure");
+        }),
+    );
 
+    restarted.tick_receiver();
+
+    assert!(
+        recovery_transport.launch_specs().is_empty(),
+        "the failed owner check must not spawn"
+    );
+    rusqlite::Connection::open(&state_path)
+        .expect("owner-store recovery fixture connection")
+        .execute_batch(
+            "ALTER TABLE receiver_jobs_owner_store_failure
+             RENAME TO receiver_jobs;",
+        )
+        .expect("restore receiver store after injected failure");
+    restarted
+        .brain
+        .replace_receiver_transport(recovery_transport.transport());
     restarted.tick_receiver();
 
     let recovered = db.receiver_job(stalled.job_id()).unwrap().unwrap();
@@ -132,6 +178,12 @@ fn restarted_tui_proves_stale_cleanup_then_resumes_the_exact_persisted_frontend(
         recovery_transport.launch_specs()[0]
             .command
             .contains("resume")
+    );
+    assert!(
+        !recovery_transport.launch_specs()[0]
+            .command
+            .contains("/new"),
+        "accepted recovery must not replay the original control prompt"
     );
     for path in exact_artifacts {
         assert!(!path.exists(), "stale exact artifact remains: {path:?}");

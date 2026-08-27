@@ -40,7 +40,7 @@ impl App {
         }
     }
 
-    fn launch_claimed_receiver_recovery(&mut self, claimed: ClaimedReceiverRun) {
+    pub(super) fn launch_claimed_receiver_recovery(&mut self, claimed: ClaimedReceiverRun) {
         let Some(binding) = claimed.claim.conversation().binding() else {
             self.fail_receiver_recovery_resume(&claimed.claim);
             return;
@@ -190,8 +190,18 @@ impl App {
             claimed.claim.job().token(),
             session,
         );
+        #[cfg(test)]
+        self.receiver.run_launch_boundary_hook(
+            crate::tui::receiver::ReceiverLaunchBoundary::RecoveryPreLaunchAuthorization,
+        );
         let owner = match self.authorize_receiver_owner_now(&claimed.claim) {
-            Ok(Some(owner)) => owner,
+            Ok(Some(owner)) if self.receiver.is_enabled() => owner,
+            Ok(Some(_)) => {
+                let _ = cleanup_receiver_launch(Some(registration), &mut controller);
+                self.receiver
+                    .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed));
+                return;
+            }
             Ok(None) => {
                 let _ = cleanup_receiver_launch(Some(registration), &mut controller);
                 return;
@@ -200,11 +210,11 @@ impl App {
                 crate::logging::log("receiver recovery deferred boundary=pre-launch-owner-store");
                 let _ = cleanup_receiver_launch(Some(registration), &mut controller);
                 self.receiver
-                    .store_durable_run(DurableReceiverRun::Claimed(claimed));
+                    .store_durable_run(DurableReceiverRun::RecoveryClaimed(claimed));
                 return;
             }
         };
-        match self.services.prepare_receiver_launch(
+        match self.services.prepare_receiver_recovery_launch(
             claimed.claim.job().id(),
             claimed.claim.claim().owner(),
             owner.observed_at_unix_ms(),

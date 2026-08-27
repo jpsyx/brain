@@ -17,6 +17,36 @@ impl Db {
         owner: &str,
         observation: &ReceiverLaunchObservation,
     ) -> Result<bool> {
+        self.commit_receiver_job_launch_for_attempt(
+            job_id,
+            owner,
+            observation,
+            crate::state::ReceiverAttemptKind::Ordinary,
+        )
+    }
+
+    /// Commit post-spawn evidence only for an exact live recovery owner.
+    pub fn commit_receiver_recovery_job_launch(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observation: &ReceiverLaunchObservation,
+    ) -> Result<bool> {
+        self.commit_receiver_job_launch_for_attempt(
+            job_id,
+            owner,
+            observation,
+            crate::state::ReceiverAttemptKind::Recovery,
+        )
+    }
+
+    fn commit_receiver_job_launch_for_attempt(
+        &self,
+        job_id: ReceiverJobId,
+        owner: &str,
+        observation: &ReceiverLaunchObservation,
+        expected_attempt: crate::state::ReceiverAttemptKind,
+    ) -> Result<bool> {
         let owner = validated_owner(owner)?;
         let instance = validated_owner(&observation.instance)?;
         let session_id = validated_owner(&observation.session_id)?;
@@ -40,7 +70,7 @@ impl Db {
                  updated_at_unix_ms = ?6
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
                AND claim_owner = ?7 AND claim_expires_at_unix_ms > ?8
-               AND state = 'launching'",
+               AND state = 'launching' AND attempt_kind = ?10",
             rusqlite::params![
                 self.workspace_id,
                 job_id.to_string(),
@@ -51,6 +81,10 @@ impl Db {
                 owner,
                 authorized,
                 acceptance_expires,
+                match expected_attempt {
+                    crate::state::ReceiverAttemptKind::Ordinary => "ordinary",
+                    crate::state::ReceiverAttemptKind::Recovery => "recovery",
+                },
             ],
         )? == 1)
     }

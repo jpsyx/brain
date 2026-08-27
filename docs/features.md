@@ -1648,13 +1648,16 @@ fence, and spends the recovery budget before any claim. Recovery discovery
 after restart can claim only that persisted attempt, only after exact cleanup
 acknowledgement, and only when it is the workspace's globally oldest claimable
 or blocking row. An ownerless recovery still terminalizes at its recovery or
-absolute deadline after reopen. If cleanup is still pending at that boundary,
-the terminal effect preserves and redrives the same opaque instance/session
-identifiers across later ticks and restarts. Exact acknowledgement then releases
+absolute deadline after reopen. Every terminalized live run with an exact
+instance/session pair preserves and redrives those opaque cleanup identifiers
+across later ticks and restarts. Exact acknowledgement then releases
 the retained registration and native-session lock from either the due recovery
-or terminal failed state, but only while its registration/session attribution
-still matches the exact job and durable conversation. The pending notice remains one durable intent, and the
-terminal cleanup does not block later FIFO claims. Ordinary retry recording rejects recovery
+or any cleanup-fenced terminal failed state, but only while its
+registration/session attribution still matches the exact job and durable
+conversation. The pending notice remains one durable intent, and its
+acknowledgement is independent from cleanup progress. Local cleanup remembers
+successful shutdown and artifact removal so a later tick can finish the
+remaining step before later FIFO work launches. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
 cleanup, native-history inspection, recovery launch, and notice delivery are
@@ -1669,6 +1672,11 @@ startup repair preserves this authority when
 one cleanup identifier is missing only if one fully attributed durable
 registration and session row match the job plus the conversation's frontend,
 user, channel, and native binding.
+
+An ordinary claimed run may complete freshness and a durable `/new` control
+while receiver intent is disabled, but neither an ordinary nor recovery claim
+may start a new process until intent is enabled again. The claim remains
+renewed so re-enable continues the same FIFO work.
 
 Terminal notice intent uses a dedicated 30-second content-free writer lease.
 One App claimant loads the immutable accepted routing context, queues the fixed

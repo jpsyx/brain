@@ -104,6 +104,81 @@ fn v10_reconciliation_reserves_the_writer_before_reading_schema() {
 }
 
 #[test]
+fn v11_downgrade_reserves_the_writer_before_reading_schema() {
+    let temp = tempfile::TempDir::new().expect("temporary state directory");
+    let path = temp.path().join("state.db");
+    drop(Db::open_path(&path).expect("current receiver state"));
+
+    let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
+    let blocker_transaction = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .expect("reserve blocking writer");
+    blocker_transaction
+        .execute_batch(
+            "ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;
+             INSERT OR REPLACE INTO meta (key, value) VALUES ('v11-down-race', 'held');",
+        )
+        .expect("hold concurrent v11 schema change");
+
+    let (event_sender, event_receiver) = std::sync::mpsc::sync_channel(1);
+    *SCHEMA_RACE_EVENTS
+        .lock()
+        .expect("install schema race sender") = Some(event_sender.clone());
+    let worker_path = path.clone();
+    let worker = std::thread::spawn(move || {
+        let result = super::super::schema::down_unavailable_notice_path_with_busy_observer(
+            &worker_path,
+            report_schema_busy,
+        )
+        .map_err(|error| error.to_string());
+        event_sender
+            .send(SchemaRaceEvent::Finished(result))
+            .expect("report v11 downgrade result");
+    });
+
+    assert!(matches!(
+        event_receiver.recv().expect("first v11 downgrade event"),
+        SchemaRaceEvent::Busy
+    ));
+    *SCHEMA_RACE_EVENTS
+        .lock()
+        .expect("clear schema race sender") = None;
+    blocker_transaction
+        .commit()
+        .expect("release blocking writer");
+    let result = loop {
+        if let SchemaRaceEvent::Finished(result) = event_receiver
+            .recv()
+            .expect("v11 downgrade result after wait")
+        {
+            break result;
+        }
+    };
+    worker.join().expect("v11 downgrade worker");
+
+    assert!(
+        result.is_ok(),
+        "v11 downgrade must inspect the schema after reserving its writer: {result:?}"
+    );
+    let connection = rusqlite::Connection::open(path).expect("downgraded state");
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("schema version");
+    let notice_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs')
+             WHERE name IN (
+               'unavailable_notice_owner', 'unavailable_notice_expires_at_unix_ms'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count v11 notice columns");
+    assert_eq!(version, 10);
+    assert_eq!(notice_columns, 0);
+}
+
+#[test]
 fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v11() {
     let db = Db::open_in_memory().expect("receiver state");
     db.conn

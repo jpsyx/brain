@@ -22,7 +22,11 @@ fn ordinary_launch_retry_seam_rejects_every_recovery_failure_category() {
             assert!(
                 fixture
                     .db
-                    .prepare_receiver_job_launch(fixture.job_id, "recovery-owner", 301_403)
+                    .prepare_receiver_recovery_job_launch(
+                        fixture.job_id,
+                        "recovery-owner",
+                        301_403,
+                    )
                     .expect("prepare recovery spawn")
             );
             301_404
@@ -84,7 +88,11 @@ fn every_claimed_recovery_launch_failure_terminalizes_with_notice_intent() {
             assert!(
                 fixture
                     .db
-                    .prepare_receiver_job_launch(fixture.job_id, "recovery-owner", 301_403)
+                    .prepare_receiver_recovery_job_launch(
+                        fixture.job_id,
+                        "recovery-owner",
+                        301_403,
+                    )
                     .expect("prepare recovery before spawn failure")
             );
         }

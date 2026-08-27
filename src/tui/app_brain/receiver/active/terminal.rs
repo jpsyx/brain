@@ -2,7 +2,7 @@
 
 use crate::agent::{AgentObservationPhase, AgentSession, CompletionStatus, SessionStore};
 use crate::tui::App;
-use crate::tui::receiver::ActiveReceiverRun;
+use crate::tui::receiver::{ActiveReceiverRun, CleanupPendingReceiverRun};
 
 use super::super::artifact::{CompletionExpectation, ReceiverCompletion, read_exact_completion};
 
@@ -142,9 +142,18 @@ impl App {
                 crate::state::ReceiverRecoveryFailure::Shutdown,
             ) {
                 Ok(Some(effect)) => {
-                    if !self.cleanup_reconciled_active(&effect, active) {
-                        self.preserve_recovery_active(active);
-                    }
+                    self.continue_receiver_cleanup(CleanupPendingReceiverRun {
+                        active: ActiveReceiverRun {
+                            claim: active.claim.clone(),
+                            attribution: active.attribution.clone(),
+                            tab_id: active.tab_id,
+                            _attachments: crate::tui::receiver::attachments::PreparedReceiverAttachments::empty(),
+                        },
+                        effect,
+                        shutdown_complete: false,
+                        artifacts_removed: false,
+                        defer_once: false,
+                    });
                     return;
                 }
                 Ok(None) => {}

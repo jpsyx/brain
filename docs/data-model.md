@@ -1190,7 +1190,9 @@ Every ordinary or recovery claim transaction refuses another job while any
 workspace job has a live lease. FIFO claim returns the immutable job plus
 logical conversation without deleting either row. Launch preparation accepts
 only the exact unexpired owner of `claimed`, or a due retry whose recorded
-origin is `claimed`/`launching`, then atomically moves it to `launching`. Only a
+origin is `claimed`/`launching`, and requires the caller's expected ordinary or
+recovery attempt kind before atomically moving it to `launching`. Launch commit
+repeats that attempt-kind fence. Only a
 proved synchronous spawn failure may turn that attempt into a bounded Spawn
 retry. Once spawn succeeds, an
 uncommitted `launching` row is ambiguous and cannot be reclaimed by ordinary
@@ -1213,8 +1215,9 @@ registration. The acknowledgement seam requires the same job, token, recovery
 snapshot, instance, session, registration, and matching durable conversation
 frontend, user, channel, and native binding in one immediate transaction;
 only then does it release the registration and native-session lock and clear
-the fence. The same exact acknowledgement is valid after the ownerless recovery
-has terminalized with pending notice intent. Until then, the failed row retains
+the fence. The same exact acknowledgement is valid for every cleanup-fenced
+terminal attempt, regardless of whether its pending notice was already handed
+off. Until then, the failed row retains
 the tuple and recurring reconciliation returns the same terminal cleanup
 identifiers after restart. That read-only redrive does not create another notice
 intent and the terminal row does not block later FIFO work. The separate
@@ -1248,10 +1251,14 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
-The TUI keeps at most one durable receiver run locally. Disabling receiver
-intent prevents only a new claim while the local run is idle. It still renews
-and manages an exact pending or active claim through completion, child exit, or
-cleanup, including across a later re-enable. Later arrivals remain `queued` and
+The TUI keeps at most one durable receiver run locally. Its local state
+distinguishes ordinary claimed, recovery claimed, active, and cleanup pending.
+Cleanup pending remembers whether controller shutdown and artifact removal
+already succeeded, so retries do not re-enter active renewal or repeat completed
+steps. Disabling receiver intent prevents a new claim while idle and prevents
+every pending ordinary or recovery claim from starting a process. It still
+renews pending claims and manages active completion, child exit, or cleanup,
+including across a later re-enable. Later arrivals remain `queued` and
 unclaimed until that run closes; the next tick
 again selects by `received_at_unix_ms, job_id`. A post-spawn launch first commits
 `launching` to `launched`. Newer exact lifecycle evidence can then move it to
@@ -1430,10 +1437,10 @@ without a manual `brain skills sync`.
   for the selected workspace and its machine-local user; existing locks,
   source, and timestamps are preserved. Schema v5 adds
   `completion_status`, defaulting every existing row to `active`.
-- Receiver runtime state holds one `DurableReceiverRun`: idle, claimed while
-  freshness completes, or active with the exact claim, tab, remote instance,
-  registered session, frontend, actor, channel, response, and provider reply
-  context. It never aliases the interactive main-panel session.
+- Receiver runtime state holds one `DurableReceiverRun`: idle, ordinary
+  claimed while freshness completes, recovery claimed for exact native resume,
+  active with the exact claim and tab attribution, or cleanup pending with
+  successful-step proof. It never aliases the interactive main-panel session.
 - `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
   this instance's locks and stamp `last_active` (floats it to the top of the
   next resume — so re-opening with "Message brain" picks it back up, and a

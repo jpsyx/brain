@@ -2541,15 +2541,17 @@ transaction's writer lock keeps those checks and the later claim update
 indivisible.
 
 Terminal reconciliation persists a stable content-free reason and one pending
-unavailable-notice bit in the same transaction that releases ownership. It
-releases an ordinary superseded registration immediately, but a cleanup-pending
-recovery must retain its exact tuple, registration, and native-session lock.
-Otherwise terminalization at a deadline would discard the only durable cleanup
-authority and strand an unacknowledgeable lock. Recurring reconciliation
+unavailable-notice bit in the same transaction that releases ownership. Any
+live ordinary or recovery attempt with an exact instance/session pair retains
+that tuple, registration, and native-session lock until local cleanup succeeds.
+Otherwise terminalization at a deadline would expose a native session while its
+controller can still run. Recurring reconciliation
 therefore redrives the same terminal cleanup identifiers across restart. The
-exact acknowledgement accepts either the due recovery or its terminal failed
-state and releases both lock surfaces atomically; read-only redrive neither
-blocks later FIFO work nor duplicates notice state. The ordinary launch-retry
+exact acknowledgement accepts either the due recovery or a cleanup-fenced
+terminal failed state and releases both lock surfaces atomically. It is
+independent from terminal notice acknowledgement. The App keeps a distinct
+cleanup-pending state and records successful shutdown and artifact removal so a
+later tick runs only the remaining step. The ordinary launch-retry
 seam requires an ordinary attempt. Planning, registration, spawn, or shutdown
 failure for an exact live recovery owner instead uses a dedicated terminal
 transition, preserving the single-launch recovery budget and setting notice
@@ -2576,6 +2578,14 @@ pending response. The immutable inbound body, attachments, transcript, routing,
 provider data, and prior answer are absent by construction. Observation and
 completion still use the ordinary exact transactions, so recovery adds no
 second lifecycle or response authority.
+
+Claimed recovery also remains a distinct local state before launch. A transient
+owner-store failure after exact native registration returns only to the
+persisted frontend/native-session recovery path. Ordinary prepare and launch
+commit compare-and-swap operations require `attempt_kind = 'ordinary'`, while
+recovery operations require `attempt_kind = 'recovery'`. This prevents control
+parsing, attachment staging, Fresh planning, and original prompt construction
+from becoming a fallback for accepted work.
 
 ## Why terminal notice handoff has its own finite lease
 

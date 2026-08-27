@@ -180,7 +180,7 @@ rule applies across the large runtime families:
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs` owns the clock-injected pure lease decision; `schema.rs` owns the receiver schema coordinator, `schema/recovery.rs` owns schema-v10 columns, repair, and v10-to-v9 downgrade mapping, `schema/recovery/cleanup.rs` reconstructs cleanup authority only from one exact registration/session match, and `schema/token.rs` owns semantic UUID token reconciliation; `store.rs` owns acceptance and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, live-session, revision, and lifecycle-deadline commits; `store/completion.rs` atomically keeps first lifecycle facts separate from the current-attempt cursor while binding the exact completed session and terminal job state; `store/reconciliation.rs` owns the immediate oldest-blocker transaction and neutral semantic effects, with focused candidate, cleanup-acknowledgement, and terminal helpers beneath it; `store/claim/live.rs` owns the workspace-wide live-claim exclusion shared by every claim transaction; `store/claim/next.rs` owns ordinary FIFO selection and refuses due recovery attempts; `store/claim/recovery.rs` gates recovery on the globally oldest claimable or blocking row, then claims only an ownerless, cleanup-acknowledged recovery already persisted by reconciliation; `store/claim.rs` owns launch CAS, transitions, and bounded ordinary failures that remain provably pre-spawn; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` owns durable local-run state; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` distinguishes ordinary claimed, recovery claimed, active, and cleanup-pending local authority; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, and durable controls; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization, effects, and local cleanup; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 BR-16 Task 4 adds three focused live-receiver seams:
@@ -190,6 +190,9 @@ performs exact native resume, and `notice.rs` owns the finite local notice
 handoff. In the state layer, `store/unavailable_notice.rs` owns the schema-v11
 notice lease claim and exact acknowledgement; the reconciliation cleanup helper
 owns the exact stale-registration PID proof used only after App reconstruction.
+The local durable-run handle keeps recovery claims separate from ordinary
+continuation and retains cleanup progress after shutdown, artifact, or store
+failure without returning to active renewal.
 
 Session-store persistence is colocated under `state/session_store.rs`, and sync
 identity's external command adapter lives under
@@ -243,11 +246,15 @@ targeted and discovery claims also require the recovery to be the workspace's
 globally oldest claimable or blocking row. Exhaustion, ownerless recovery or
 absolute expiry, missing resume evidence, incomplete legacy completion, and
 any claimed-recovery planning, registration, spawn, or shutdown failure become
-terminal with a pending unavailable-notice intent. A terminal cleanup-pending
-row retains its exact tuple, registration, and session lock; recurring
+terminal with a pending unavailable-notice intent. Every terminalized live run
+with an exact instance/session pair retains that tuple, registration, and
+session lock; recurring
 reconciliation redrives the same content-free cleanup identifiers across
-restart until an exact failed-state acknowledgement clears them. That terminal
-redrive neither duplicates notice state nor blocks later FIFO work. Controller
+restart until an exact failed-state acknowledgement clears them. Store-level
+redrive does not itself make the terminal row a FIFO blocker. Local cleanup
+tracks successful shutdown and artifact removal independently, so a later tick
+resumes only the remaining step before FIFO advances. Notice acknowledgement
+is independent and cannot invalidate the cleanup acknowledgement. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
 The state layer separately leases a pending terminal notice to one finite writer
 without reusing claim or cleanup ownership.
@@ -1162,7 +1169,10 @@ lock still match and the recorded PID is proved dead. A live matching PID from
 another TUI blocks acknowledgement. A claimed ordinary job passes the
 sync-freshness gate, and `/new` completes before any ordinary agent launch.
 Disabling receiver intent skips reconciliation, notice handoff, restart scans,
-and new claims while still allowing an already-held run to finish. A terminal
+and new claims. An already-claimed run continues renewal, freshness, and
+durable control handling, but no ordinary or recovery process may launch until
+intent is enabled again. A genuinely active controller continues completion,
+child-exit, and cleanup management. A terminal
 artifact becomes durable only
 when one immediate state transaction proves that the exact session validated
 from the artifact is still the locked `completed` lifecycle-native
@@ -1907,9 +1917,10 @@ while the control mutex is held.
 Queued inbound work never interrupts the interactive main panel or another
 receiver run. The one recurring receiver tick claims new work only while
 persisted intent is enabled and its local run is idle. Disabling intent does not
-abandon a pending or active claim: the same tick continues renewal, freshness,
-completion, child-exit, and cleanup management until that run is terminal. An
-already-claimed no-attachment run may finish after its freshness boundary;
+abandon a pending or active claim: the same tick continues renewal and
+freshness for a pending claim and completion, child-exit, and cleanup management
+for an active run. A pending claim cannot start a new ordinary or recovery
+process until re-enable;
 pending attachment IO is cancelled without blocking, while the exact claim is
 retained and renewed until staging can restart after re-enable. The tick
 renews an already claimed job before honoring the sync-freshness gate, then

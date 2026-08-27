@@ -544,11 +544,12 @@ first move is a failing test that reproduces it, *then* the fix.
   boundary; live and expired-owner preacceptance timeout; first accepted stall;
   exact native binding; ownerless recovery persistence, reopen discovery, and
   terminalization at minus one/equality/after each recovery and absolute
-  deadline; cleanup-pending terminalization that preserves and redrives the
-  exact tuple after reopen; wrong-ack rejection; exact failed-state
+  deadline; second-stall and absolute-expiry terminalization that preserves and
+  redrives the exact tuple after reopen; wrong-ack rejection; exact failed-state
   acknowledgement that releases registration and session lock; recovery
   exhaustion; legacy completion ambiguity; single pending notice intent; FIFO
-  release despite terminal cleanup; and unsafe resume terminalization. Two store
+  release only after terminal cleanup; ordinary launch CAS rejection for a
+  claimed recovery; and unsafe resume terminalization. Two store
   handles prove only one full-snapshot CAS mutates the row while the later
   reconciler returns the same read-only cleanup redrive. A deterministic
   separate-handle immediate-lock interleaving proves a second reconciler cannot
@@ -581,7 +582,8 @@ first move is a failing test that reproduces it, *then* the fix.
   and store are split along identity, acceptance, claim, conversation,
   completion, and schema seams rather than collected in one oversized file.
   Schema-v11 tests prove partial notice-lease repair, exact v11-to-v10 removal,
-  and continuation through the v10-to-v9 recovery downgrade. Separate-handle
+  immediate-writer reservation before schema inspection under a concurrent
+  writer, and continuation through the v10-to-v9 recovery downgrade. Separate-handle
   notice tests prove one finite claimant, wrong-owner acknowledgement refusal,
   retry after exact lease expiry, and ordinary FIFO eligibility while notice
   handoff remains leased. Exact stale-registration tests require the complete
@@ -613,8 +615,11 @@ first move is a failing test that reproduces it, *then* the fix.
   native resume under a fresh instance, resume-only prompt privacy, typed
   recovery process exit, completion through the ordinary exact response path,
   local terminal-notice handoff before FIFO advancement, and reconstruction
-  after an exact stale PID. All use injected clocks and recording transports;
-  none use wall-clock sleeps.
+  after an exact stale PID, recovery-only retry after a post-registration store
+  error, independent notice and cleanup acknowledgement, retained local cleanup
+  authority across shutdown/artifact/store failures, and disabled no-spawn with
+  deterministic re-enable continuation. All use injected clocks and recording
+  transports; none use wall-clock sleeps.
   `tests/tui_receiver_runtime_architecture.rs` rejects
   the former receiver field bag on `App`, direct representation access outside
   `tui/receiver/`, and cross-feature refresher/sync adapters or IO inside the

@@ -54,7 +54,8 @@ impl Db {
                   AND session.agent_session_id = conversation.agent_session_id
                  WHERE job.workspace_id = ?1 AND job.job_id = ?2
                    AND job.job_token = ?3 AND job.state IN ('retrying', 'failed')
-                   AND job.attempt_kind = 'recovery' AND job.claim_owner IS NULL
+                   AND (job.state = 'failed' OR job.attempt_kind = 'recovery')
+                   AND job.claim_owner IS NULL
                    AND job.claim_expires_at_unix_ms IS NULL
                    AND job.recovery_cleanup_instance = ?4
                    AND job.recovery_cleanup_session_id = ?5
@@ -117,8 +118,8 @@ impl Db {
                 ReceiverJobState::Retrying | ReceiverJobState::Failed
             )
             || candidate.owner.is_some()
-            || job.attempt_kind() != ReceiverAttemptKind::Recovery
-            || (candidate.state == ReceiverJobState::Failed && !job.pending_unavailable_notice())
+            || (candidate.state == ReceiverJobState::Retrying
+                && job.attempt_kind() != ReceiverAttemptKind::Recovery)
             || job.recovery_cleanup_instance() != Some(instance)
             || job.recovery_cleanup_session_id() != Some(session_id)
         {
@@ -140,7 +141,8 @@ impl Db {
                  recovery_cleanup_session_id = NULL,
                  updated_at_unix_ms = ?5
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
-               AND state = ?8 AND attempt_kind = 'recovery'
+               AND state = ?8
+               AND (state = 'failed' OR attempt_kind = 'recovery')
                AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL
                AND recovery_cleanup_instance = ?4
                AND recovery_cleanup_session_id = ?6
@@ -176,7 +178,7 @@ pub(super) fn pending_cleanup_effect(
             "SELECT job_id FROM receiver_jobs
              WHERE workspace_id = ?1
                AND state IN ('retrying', 'failed')
-               AND attempt_kind = 'recovery'
+               AND (state = 'failed' OR attempt_kind = 'recovery')
                AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL
                AND recovery_cleanup_instance IS NOT NULL
                AND recovery_cleanup_session_id IS NOT NULL
@@ -234,8 +236,6 @@ fn release_exact_cleanup_registration(
             AND conversation.conversation_id = registration.conversation_id
             AND conversation.user_id = registration.actor_id
             AND conversation.channel = registration.channel
-            AND conversation.agent_kind = registration.agent_kind
-            AND conversation.agent_session_id = session.agent_session_id
            JOIN receiver_jobs AS job
              ON job.workspace_id = conversation.workspace_id
             AND job.conversation_id = conversation.conversation_id
@@ -246,6 +246,10 @@ fn release_exact_cleanup_registration(
              AND session.agent_session_id = ?4
              AND COALESCE(registration.actual_session_id,
                           registration.registered_session_id) = ?4
+             AND (conversation.agent_kind IS NULL
+                  OR conversation.agent_kind = registration.agent_kind)
+             AND (conversation.agent_session_id IS NULL
+                  OR conversation.agent_session_id = session.agent_session_id)
              AND job.job_id = ?5 AND job.job_token = ?6
          )",
         rusqlite::params![

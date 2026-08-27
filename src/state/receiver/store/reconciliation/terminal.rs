@@ -56,6 +56,13 @@ pub(super) fn terminalize(
     let cleanup_session_id = pending_cleanup
         .map(|(_, session_id)| session_id.to_owned())
         .or_else(|| job.observation_session_id().map(str::to_owned));
+    let cleanup_is_fenced = cleanup_instance.is_some() && cleanup_session_id.is_some();
+    let persisted_cleanup_instance = cleanup_is_fenced
+        .then_some(cleanup_instance.as_deref())
+        .flatten();
+    let persisted_cleanup_session_id = cleanup_is_fenced
+        .then_some(cleanup_session_id.as_deref())
+        .flatten();
     let sql = format!(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -68,7 +75,10 @@ pub(super) fn terminalize(
              launch_expires_at_unix_ms = NULL,
              acceptance_expires_at_unix_ms = NULL,
              progress_expires_at_unix_ms = NULL,
-             pending_unavailable_notice = 1, updated_at_unix_ms = ?7
+             pending_unavailable_notice = 1,
+             recovery_cleanup_instance = ?9,
+             recovery_cleanup_session_id = ?10,
+             updated_at_unix_ms = ?7
          WHERE workspace_id = ?1 AND job_id = ?2 AND state = ?3
            AND claim_owner IS ?4 AND {EXACT_SNAPSHOT_SQL} = ?8"
     );
@@ -83,12 +93,14 @@ pub(super) fn terminalize(
             reason.as_str(),
             now,
             candidate.exact_snapshot,
+            persisted_cleanup_instance,
+            persisted_cleanup_session_id,
         ],
     )?;
     if changed != 1 {
         return Ok(None);
     }
-    if pending_cleanup.is_none() {
+    if !cleanup_is_fenced {
         release_registration(
             &transaction,
             workspace_id,

@@ -98,6 +98,104 @@ fn acknowledge_stalled_cleanup(fixture: &StalledRunFixture, now_unix_ms: u64) {
 }
 
 #[test]
+fn ordinary_launch_preparation_rejects_a_claimed_recovery_attempt() {
+    let fixture = stalled_run("ordinary-prepare-rejects-recovery");
+    fixture
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("persist due recovery")
+        .expect("recovery effect");
+    acknowledge_stalled_cleanup(&fixture, 301_401);
+    fixture
+        .db
+        .claim_receiver_recovery_run(fixture.job_id, "recovery-owner", 301_401, 331_401)
+        .expect("claim recovery")
+        .expect("recovery claim");
+
+    assert!(
+        !fixture
+            .db
+            .prepare_receiver_job_launch(fixture.job_id, "recovery-owner", 301_402)
+            .expect("ordinary preparation rejects recovery")
+    );
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load recovery after rejected ordinary preparation")
+            .expect("recovery after rejected ordinary preparation")
+            .state(),
+        ReceiverJobState::Claimed
+    );
+    assert!(
+        fixture
+            .db
+            .prepare_receiver_recovery_job_launch(
+                fixture.job_id,
+                "recovery-owner",
+                301_403,
+            )
+            .expect("recovery preparation accepts recovery")
+    );
+    let scope = crate::agent::SessionScope::new(
+        crate::agent::AgentKind::Codex,
+        fixture.inbound.workspace_id,
+        fixture.inbound.actor.clone(),
+    );
+    let session = crate::agent::AgentSession::new("native-session").expect("native session");
+    fixture
+        .db
+        .claim_receiver_session(
+            fixture.ordinary.conversation_id(),
+            &session,
+            "recovery-instance",
+            43,
+            &scope,
+        )
+        .expect("claim recovery native session")
+        .expect("recovery registration");
+    assert!(
+        !fixture
+            .db
+            .commit_receiver_job_launch(
+                fixture.job_id,
+                "recovery-owner",
+                &launch_observation(
+                    fixture.ordinary.token(),
+                    "recovery-instance",
+                    "native-session",
+                    301_404,
+                ),
+            )
+            .expect("ordinary launch commit rejects recovery")
+    );
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load recovery after rejected ordinary commit")
+            .expect("recovery after rejected ordinary commit")
+            .state(),
+        ReceiverJobState::Launching
+    );
+    assert!(
+        fixture
+            .db
+            .commit_receiver_recovery_job_launch(
+                fixture.job_id,
+                "recovery-owner",
+                &launch_observation(
+                    fixture.ordinary.token(),
+                    "recovery-instance",
+                    "native-session",
+                    301_405,
+                ),
+            )
+            .expect("recovery launch commit accepts recovery")
+    );
+}
+
+#[test]
 fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recovery_budget() {
     let fixture = stalled_run("durable-recovery-claim");
     let effect = fixture
