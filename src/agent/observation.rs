@@ -216,12 +216,18 @@ impl std::fmt::Debug for AgentObservationRequest {
 }
 
 /// Content-free observations from one bounded poll.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AgentObservationResult {
     session: AgentSession,
     boundaries: Vec<AgentObservationBoundary>,
     progress_pulse: Option<AgentProgressPulse>,
     next_cursor: AgentObservationCursor,
+}
+
+impl std::fmt::Debug for AgentObservationResult {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AgentObservationResult(<redacted>)")
+    }
 }
 
 impl AgentObservationResult {
@@ -413,3 +419,6 @@ mod tests;
 
 #[cfg(test)]
 mod file_tests;
+
+#[cfg(test)]
+mod privacy_tests;

@@ -2795,16 +2795,25 @@ native session, owner, observation identity, and stored error. Keeping logs
 clean was therefore insufficient because a failing test could reproduce the
 same private data.
 
-Every content-bearing receiver type now owns a manual, content-free `Debug`
+Every content-bearing receiver type, plus the agent session, session scope,
+session plan, launch request, observation result, and reply envelope directly
+reached from receiver execution, now owns a manual, content-free `Debug`
 implementation. Stable enum categories remain visible when they help diagnose
-control flow, such as native resume versus fresh-from-transcript planning, but
-their payloads render as `<redacted>`. Opaque IDs appear only where their
-existing contract already classifies them as content-free. Runtime canaries
-format the complete nested model graph, while a structural test prevents an
-automatic `Debug` derive from silently reopening the boundary. Privacy harness
-failures likewise report exit category, code or signal presence, byte lengths,
-and indexed canary categories without echoing captured bytes or expected
-private values.
+control flow, such as Fresh versus Resume and native resume versus
+fresh-from-transcript planning, but their payloads render as `<redacted>`.
+Opaque IDs appear only where their existing contract already classifies them as
+content-free. Runtime canaries format the complete nested model graph and its
+adjacent agent and reply wrappers. Structural mutation tests reject multiline
+automatic derives and manual implementations that delegate to nested fields.
+
+Privacy tests are part of this boundary because a regression assertion can leak
+the exact value it is trying to protect. The diagnostic policy scans every
+privacy-test module plus the adjacent launch-redaction test. It rejects raw
+whole-value equality, captured output formatting, and private-value
+interpolation. Content-free absence checks run before fixed-shape predicates,
+and failures report only stable categories, code or signal presence, byte
+lengths, and indexed cases without echoing captured bytes or expected private
+values.
 
 ## Why receiver observation polling rebuilds from durable facts
 

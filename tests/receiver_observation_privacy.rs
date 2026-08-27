@@ -36,7 +36,12 @@ const PRIVATE_CANARIES: &[&str] = &[
 #[test]
 fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
     let job_token = ReceiverJobToken::parse(TOKEN).expect("job token");
-    assert_eq!(format!("{job_token:?}"), "ReceiverJobToken(<redacted>)");
+    let rendered_job_token = format!("{job_token:?}");
+    assert_private_absent("job token Debug", &rendered_job_token, true);
+    assert!(
+        rendered_job_token == "ReceiverJobToken(<redacted>)",
+        "job token Debug shape mismatch"
+    );
     let session = AgentSession::new(PRIVATE_CANARIES[0]).expect("native session");
     let request = AgentObservationRequest::new(
         TOKEN,
@@ -45,9 +50,11 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
         session,
         AgentObservationCursor::launched(),
     );
-    assert_eq!(
-        format!("{request:?}"),
-        "AgentObservationRequest(<redacted>)"
+    let rendered_request = format!("{request:?}");
+    assert_private_absent("observation request Debug", &rendered_request, true);
+    assert!(
+        rendered_request == "AgentObservationRequest(<redacted>)",
+        "observation request Debug shape mismatch"
     );
     let set = ReceiverObservationSet {
         token: job_token,
@@ -60,7 +67,12 @@ fn debug_errors_and_diagnostic_contracts_redact_tokens_and_private_content() {
         completed_at_unix_ms: Some(1_200),
         authorized_at_unix_ms: 1_300,
     };
-    assert_eq!(format!("{set:?}"), "ReceiverObservationSet(<redacted>)");
+    let rendered_set = format!("{set:?}");
+    assert_private_absent("observation set Debug", &rendered_set, true);
+    assert!(
+        rendered_set == "ReceiverObservationSet(<redacted>)",
+        "observation set Debug shape mismatch"
+    );
     for error in all_observation_errors() {
         assert_private_absent("observation error", &format!("{error:?}: {error}"), true);
     }
@@ -160,8 +172,14 @@ fn submit_tool_and_stop_producers_keep_private_content_out_of_observations_and_o
     assert_safe_snapshot(&observation);
     let pulsed: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&observation).unwrap()).unwrap();
-    assert_eq!(pulsed["revision"], 3);
-    assert_eq!(pulsed["turn_id"], "privacy-turn-later");
+    assert!(
+        pulsed["revision"].as_u64() == Some(3),
+        "progress snapshot revision mismatch"
+    );
+    assert!(
+        pulsed["turn_id"].as_str() == Some("privacy-turn-later"),
+        "progress snapshot turn category mismatch"
+    );
     assert!(pulsed["latest_progress_at_unix_ms"].as_u64().is_some());
 
     let stop = serde_json::json!({

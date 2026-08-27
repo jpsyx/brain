@@ -436,9 +436,16 @@ first move is a failing test that reproduces it, *then* the fix.
   private completion body. Separate full-model canaries format the nested
   inbound job, attachment, conversation identity and transcript, native binding
   and session plan, durable job and claim graph, recovery effect, unavailable
-  notice, observation, and completion request. A structural guard forbids those
-  content-bearing types from regaining automatic `Debug`, and harness failure
-  messages report only stable labels, status categories, and byte lengths.
+  notice, observation, and completion request. Adjacent canaries also format the
+  agent session, session scope, Fresh and Resume plans, launch request,
+  observation result, and reply envelope reached by receiver execution. A
+  structural guard forbids those content-bearing types from regaining automatic
+  `Debug`, including multiline derives and manual implementations that delegate
+  to nested fields. The diagnostic guard scans every privacy-test module and the
+  adjacent launch-redaction test; mutation coverage rejects raw whole-value
+  assertions, captured process output, and private-value interpolation. Absence
+  checks therefore run before fixed-shape predicates, and harness failures report
+  only stable labels, status categories, byte lengths, and case indexes.
   A real `agent_session_stop_hook.py` producer creates
   both the exact artifact and a valid completed observation beyond the renewed
   local lease, then crosses the controller and App transaction. That test proves

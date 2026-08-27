@@ -53,19 +53,7 @@ pub struct LaunchRequest {
 
 impl std::fmt::Debug for LaunchRequest {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("LaunchRequest")
-            .field("workspace_id", &self.workspace.id())
-            .field("actor_id", &self.actor.user_id())
-            .field("session_plan", &self.session_plan)
-            .field(
-                "initial_prompt",
-                &self.initial_prompt.as_ref().map(|_| "<redacted>"),
-            )
-            .field("access_policy", &self.access_policy)
-            .field("channel", &self.channel)
-            .field("hook_metadata", &self.hook_metadata)
-            .finish()
+        formatter.write_str("LaunchRequest(<redacted>)")
     }
 }
 

@@ -104,15 +104,24 @@ pub(super) fn assert_safe_snapshot(path: &Path) {
         );
     }
     let value: serde_json::Value = serde_json::from_str(&snapshot).expect("snapshot JSON");
-    assert_eq!(value.as_object().expect("snapshot object").len(), 11);
+    assert!(
+        value.as_object().is_some_and(|object| object.len() == 11),
+        "snapshot field count mismatch"
+    );
     assert!(
         value["job_token"]
             .as_str()
             .is_some_and(|value| value == TOKEN),
         "snapshot token mismatch"
     );
-    assert_eq!(value["instance_id"], INSTANCE);
-    assert_eq!(value["session_id"], SESSION);
+    assert!(
+        value["instance_id"].as_str() == Some(INSTANCE),
+        "snapshot instance category mismatch"
+    );
+    assert!(
+        value["session_id"].as_str() == Some(SESSION),
+        "snapshot session category mismatch"
+    );
 }
 
 pub(super) fn assert_trusted_completion_artifact(artifact: &serde_json::Value) {
@@ -143,14 +152,14 @@ pub(super) fn assert_trusted_completion_artifact(artifact: &serde_json::Value) {
 }
 
 pub(super) fn assert_safe_process(output: &Output) {
+    let success = output.status.success();
+    let code_present = output.status.code().is_some();
+    let signal_present = output.status.signal().is_some();
+    let stdout_bytes = output.stdout.len();
+    let stderr_bytes = output.stderr.len();
     assert!(
-        output.status.success(),
-        "privacy producer failed: success={}, code={:?}, signal_present={}, stdout_bytes={}, stderr_bytes={}",
-        output.status.success(),
-        output.status.code(),
-        output.status.signal().is_some(),
-        output.stdout.len(),
-        output.stderr.len(),
+        success,
+        "privacy producer failed: success={success}, code_present={code_present}, signal_present={signal_present}, stdout_bytes={stdout_bytes}, stderr_bytes={stderr_bytes}",
     );
     assert_private_absent(
         "privacy producer stdout",

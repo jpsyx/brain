@@ -1,98 +1,88 @@
 use std::path::{Path, PathBuf};
 
+#[path = "policy/debug_impl.rs"]
+mod debug_impl;
+#[path = "policy/debug_tests.rs"]
+mod debug_tests;
+#[path = "policy/diagnostics.rs"]
+mod diagnostics;
 #[path = "policy/literals.rs"]
 mod literals;
 
+use diagnostics::privacy_diagnostic_violations;
 use literals::source_privacy_violations;
-
-#[test]
-fn content_bearing_receiver_types_cannot_derive_debug() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (relative, types) in [
-        (
-            "src/server/receiver/job.rs",
-            &["AttachmentRef", "EmailReplyContext", "InboundJob"] as &[&str],
-        ),
-        ("src/server/receiver/attachments.rs", &["StagedAttachment"]),
-        ("src/server/receiver/admission.rs", &["ReceiverAdmission"]),
-        ("src/server/receiver/control.rs", &["RestartPlan"]),
-        (
-            "src/server/receiver/http/mod.rs",
-            &["ProviderConfig", "AuthenticatedInbound"],
-        ),
-        ("src/server/receiver/dispatch.rs", &["DispatchHttpError"]),
-        ("src/server/receiver/routing.rs", &["ReceiverRoute"]),
-        (
-            "src/state/receiver/identity.rs",
-            &["EmailLineage", "ReceiverConversationIdentity"],
-        ),
-        (
-            "src/state/receiver/model/claim.rs",
-            &["ReceiverRunClaim", "ReceiverClaim"],
-        ),
-        (
-            "src/state/receiver/model/conversation.rs",
-            &[
-                "ReceiverSessionBinding",
-                "ReceiverSessionPlan",
-                "ReceiverConversation",
-            ],
-        ),
-        (
-            "src/state/receiver/model/effect.rs",
-            &[
-                "ReceiverReconciliationEffect",
-                "ReceiverUnavailableNoticeClaim",
-            ],
-        ),
-        (
-            "src/state/receiver/model/identity.rs",
-            &["ReceiverSessionAttribution"],
-        ),
-        ("src/state/receiver/model/job.rs", &["ReceiverJob"]),
-        (
-            "src/state/receiver/model/observation.rs",
-            &[
-                "ReceiverLaunchObservation",
-                "ReceiverObservation",
-                "ReceiverCompletionRequest",
-            ],
-        ),
-    ] {
-        let source = std::fs::read_to_string(root.join(relative)).expect("receiver source");
-        for type_name in types {
-            assert!(
-                !item_automatically_derives_debug(&source, type_name),
-                "{type_name} must use a content-free manual Debug implementation"
-            );
-        }
-    }
-}
 
 #[test]
 fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for relative in [
-        "tests/receiver_observation_privacy.rs",
-        "tests/receiver_observation_privacy/debug.rs",
-        "tests/receiver_observation_privacy/harness.rs",
-    ] {
-        let source = std::fs::read_to_string(root.join(relative)).expect("privacy harness source");
-        for forbidden in [
-            "{output:?}",
-            "{rendered}",
-            "{canary}",
-            "leaked token:",
-            "assert_eq!(artifact[\"message\"]",
-            "assert_eq!(artifact[\"job_token\"]",
-            "assert_eq!(value[\"job_token\"]",
-        ] {
-            assert!(
-                !source.contains(forbidden),
-                "privacy harness contains an unsafe failure-message pattern"
-            );
-        }
+    let mut privacy_tests = Vec::new();
+    collect_sources(
+        &root.join("tests/receiver_observation_privacy"),
+        &mut privacy_tests,
+    );
+    privacy_tests.push(root.join("tests/receiver_observation_privacy.rs"));
+    privacy_tests.push(root.join("tests/workspace_capabilities/frontend_redaction.rs"));
+    for (case_index, path) in privacy_tests.into_iter().enumerate() {
+        let source = std::fs::read_to_string(&path).expect("privacy harness source");
+        assert!(
+            privacy_diagnostic_violations(&source).is_empty(),
+            "privacy test contains unsafe diagnostics at case index {case_index}"
+        );
     }
+}
+
+#[test]
+fn diagnostic_policy_rejects_private_echo_forms() {
+    let mutations = [
+        mutation(&[
+            "assert_eq!(format!(\"",
+            "{",
+            "request",
+            ":?",
+            "}",
+            "\"), expected);",
+        ]),
+        mutation(&["assert_eq!(child[\"session_id\"], expected);"]),
+        mutation(&[
+            "panic!(\"producer failed: ",
+            "{",
+            "output",
+            ":?",
+            "}",
+            "\");",
+        ]),
+        mutation(&["panic!(\"stdout: {}\", String::from_utf8_lossy(&output.stdout));"]),
+        mutation(&["panic!(\"stderr: {}\", String::from_utf8_lossy(&output.stderr));"]),
+        interpolation_mutation("canary"),
+        interpolation_mutation("token"),
+        interpolation_mutation("secret"),
+        interpolation_mutation("literal"),
+        interpolation_mutation("rendered"),
+        mutation(&["assert_eq!(rendered, expected); assert_private_absent(\"shape\", &rendered);"]),
+    ];
+
+    for (case_index, mutation) in mutations.iter().enumerate() {
+        assert!(
+            !privacy_diagnostic_violations(mutation).is_empty(),
+            "privacy diagnostic mutation was accepted at case index {case_index}"
+        );
+    }
+}
+
+fn interpolation_mutation(identifier: &str) -> String {
+    mutation(&[
+        "assert!(!value.contains(",
+        identifier,
+        "), \"leaked ",
+        "{",
+        identifier,
+        "}",
+        "\");",
+    ])
+}
+
+fn mutation(parts: &[&str]) -> String {
+    parts.concat()
 }
 
 #[test]
@@ -126,14 +116,14 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
     }
     assert!(
         audited.len() >= 50,
-        "semantic discovery unexpectedly narrowed: {audited:?}"
+        "semantic privacy discovery unexpectedly narrowed"
     );
 
     for relative in audited {
         let violations = source_privacy_violations_for_path(root, &relative);
         assert!(
             violations.is_empty(),
-            "{} contains private literals: {violations:?}",
+            "{} contains private literals",
             relative.display()
         );
     }
@@ -231,37 +221,10 @@ fn generic_home_email_and_host_literals_remain_allowed() {
         const IPV6_DOCUMENTATION: &str = "2001:db8::1";
     "#;
 
-    assert_eq!(source_privacy_violations(source, true), Vec::<&str>::new());
-}
-
-fn item_automatically_derives_debug(source: &str, type_name: &str) -> bool {
-    let struct_marker = format!("struct {type_name}");
-    let enum_marker = format!("enum {type_name}");
-    let item_index = [struct_marker, enum_marker]
-        .iter()
-        .flat_map(|marker| source.match_indices(marker))
-        .filter(|(index, marker)| {
-            source[index + marker.len()..]
-                .chars()
-                .next()
-                .is_some_and(|character| {
-                    character.is_whitespace() || matches!(character, '<' | '{')
-                })
-        })
-        .map(|(index, _)| index)
-        .min()
-        .expect("receiver content-bearing type");
-    let item_line_start = source[..item_index]
-        .rfind('\n')
-        .map_or(0, |index| index + 1);
-    source[..item_line_start]
-        .lines()
-        .rev()
-        .take_while(|line| {
-            let line = line.trim();
-            line.is_empty() || line.starts_with("#[") || line.starts_with("///")
-        })
-        .any(|line| line.contains("derive") && line.contains("Debug"))
+    assert!(
+        source_privacy_violations(source, true).is_empty(),
+        "generic privacy literals were rejected"
+    );
 }
 
 #[test]
@@ -328,7 +291,7 @@ pub(super) fn discover_relevant_sources(root: &Path) -> Vec<PathBuf> {
 
 fn source_privacy_violations_for_path(root: &Path, relative: &Path) -> Vec<&'static str> {
     let source = std::fs::read_to_string(root.join(relative))
-        .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
+        .unwrap_or_else(|error| panic!("read privacy source: {error}"));
     source_privacy_violations(&source, is_path_based_producer(relative))
 }
 
@@ -340,7 +303,7 @@ fn is_path_based_producer(relative: &Path) -> bool {
 
 fn collect_sources(directory: &Path, output: &mut Vec<PathBuf>) {
     let mut entries = std::fs::read_dir(directory)
-        .unwrap_or_else(|error| panic!("read {}: {error}", directory.display()))
+        .unwrap_or_else(|error| panic!("read privacy source directory: {error}"))
         .collect::<Result<Vec<_>, _>>()
         .expect("source directory entries");
     entries.sort_by_key(std::fs::DirEntry::file_name);

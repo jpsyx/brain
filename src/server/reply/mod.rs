@@ -9,11 +9,17 @@ use serde::Serialize;
 
 pub const SMS_LIMIT: usize = 480;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReplyEnvelope {
     pub channel: &'static str,
     pub text: String,
     pub long_form_available: bool,
+}
+
+impl std::fmt::Debug for ReplyEnvelope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ReplyEnvelope(<redacted>)")
+    }
 }
 
 /// Shape the final SMS body. Markup is removed *before* the length decision:

@@ -1,9 +1,15 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
+use brain::access::AccessMode;
+use brain::agent::{
+    AgentKind, AgentSession, HookMetadata, LaunchRequest, SessionPlan, SessionScope,
+};
 use brain::server::receiver::{
     AttachmentRef, Channel, EmailReplyContext, InboundJob, RestartPlan, StagedAttachment,
 };
+use brain::server::reply::ReplyEnvelope;
 use brain::state::{EmailLineage, ReceiverConversationIdentity, ReceiverSessionBinding};
+use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::{
     LOCAL_PATH_CANARY, PRIVATE_CANARIES, PRIVATE_HOST_CANARY, SENDER_CANARY, SESSION, TOKEN,
@@ -19,6 +25,7 @@ const EMAIL_ID_CANARY: &str = "provider-email-canary-a0a6";
 const MESSAGE_ID_CANARY: &str = "message-lineage-canary-b1b7";
 const TRANSCRIPT_CANARY: &str = "transcript-canary-c2c8";
 const USER_CANARY: &str = "private-user-canary";
+const HOOK_CANARY: &str = "hook-metadata-canary-d3d9";
 const MODEL_CANARIES: &[&str] = &[
     PRIVATE_CANARIES[0],
     PRIVATE_CANARIES[1],
@@ -37,7 +44,58 @@ const MODEL_CANARIES: &[&str] = &[
     MESSAGE_ID_CANARY,
     TRANSCRIPT_CANARY,
     USER_CANARY,
+    HOOK_CANARY,
+    SESSION,
+    WORKSPACE,
 ];
+
+#[test]
+fn adjacent_agent_and_reply_debug_omits_receiver_private_content() {
+    let (temporary, workspace) = private_workspace();
+    let actor = private_inbound_job().actor;
+    let session = AgentSession::new(SESSION).expect("private native session");
+    let scope = SessionScope::new(AgentKind::Claude, workspace.id(), actor.clone());
+    let fresh = SessionPlan::fresh(session.clone());
+    let resume = SessionPlan::resume(session.clone());
+    let launch = LaunchRequest::from_trusted_context(
+        Arc::clone(&workspace),
+        actor,
+        fresh.clone(),
+        Some(PRIVATE_CANARIES[0].to_owned()),
+        AccessMode::WorkspaceOnly,
+    )
+    .with_hook_metadata(HookMetadata::new(vec![(
+        "receiver-hook".to_owned(),
+        HOOK_CANARY.to_owned(),
+    )]));
+    let reply = ReplyEnvelope {
+        channel: SENDER_CANARY,
+        text: PRIVATE_CANARIES[2].to_owned(),
+        long_form_available: true,
+    };
+
+    let rendered = [
+        ("agent session", format!("{session:?}")),
+        ("session scope", format!("{scope:?}")),
+        ("fresh session plan", format!("{fresh:?}")),
+        ("resume session plan", format!("{resume:?}")),
+        ("launch request", format!("{launch:?}")),
+        ("reply envelope", format!("{reply:?}")),
+    ];
+    for (label, value) in &rendered {
+        assert_private_absent(label, value);
+    }
+    assert!(
+        rendered[2].1 == "SessionPlan::Fresh(<redacted>)",
+        "fresh session plan category mismatch"
+    );
+    assert!(
+        rendered[3].1 == "SessionPlan::Resume(<redacted>)",
+        "resume session plan category mismatch"
+    );
+
+    drop(temporary);
+}
 
 #[test]
 fn public_receiver_model_debug_omits_private_content_and_keeps_plan_categories() {
@@ -78,20 +136,28 @@ fn public_receiver_model_debug_omits_private_content_and_keeps_plan_categories()
     ] {
         assert_private_absent(label, &rendered);
     }
-    assert_eq!(
-        format!("{resume:?}"),
-        "ReceiverSessionPlan::ResumeNative(<redacted>)"
+    let uncertain_lineage = format!("{:?}", EmailLineage::Uncertain);
+    assert_private_absent("uncertain email lineage", &uncertain_lineage);
+    assert!(
+        format!("{resume:?}") == "ReceiverSessionPlan::ResumeNative(<redacted>)",
+        "resume plan Debug shape mismatch"
     );
-    assert_eq!(
-        format!("{fresh:?}"),
-        "ReceiverSessionPlan::FreshFromTranscript(<redacted>)"
+    assert!(
+        format!("{fresh:?}") == "ReceiverSessionPlan::FreshFromTranscript(<redacted>)",
+        "fresh plan Debug shape mismatch"
     );
-    assert_eq!(format!("{lineage:?}"), "EmailLineage::Verified(<redacted>)");
-    assert_eq!(
-        format!("{:?}", EmailLineage::Uncertain),
-        "EmailLineage::Uncertain"
+    assert!(
+        format!("{lineage:?}") == "EmailLineage::Verified(<redacted>)",
+        "verified lineage Debug shape mismatch"
     );
-    assert_eq!(format!("{restart:?}"), "RestartPlan(<redacted>)");
+    assert!(
+        uncertain_lineage == "EmailLineage::Uncertain",
+        "uncertain lineage Debug shape mismatch"
+    );
+    assert!(
+        format!("{restart:?}") == "RestartPlan(<redacted>)",
+        "restart plan Debug shape mismatch"
+    );
 }
 
 #[test]
@@ -106,8 +172,11 @@ fn whole_value_assertion_helper_never_formats_private_values() {
     .expect_err("different inbound jobs must fail");
     let message = panic_message(&failure);
 
-    assert_eq!(message, "inbound job values differ");
     assert_private_absent("whole-value assertion", message);
+    assert!(
+        message == "inbound job values differ",
+        "whole-value assertion shape mismatch"
+    );
     assert!(
         !message.contains("left"),
         "whole-value diagnostic named a value side"
@@ -176,4 +245,20 @@ fn private_inbound_job() -> InboundJob {
             message_id: Some(MESSAGE_ID_CANARY.to_owned()),
         }),
     }
+}
+
+fn private_workspace() -> (tempfile::TempDir, Arc<WorkspaceContext>) {
+    let temporary = tempfile::tempdir().expect("temporary private workspace");
+    let root = temporary.path().join(PRIVATE_CANARIES[1]);
+    std::fs::create_dir_all(root.join(".config")).expect("private workspace config");
+    let workspace = WorkspaceContext::new(
+        temporary.path(),
+        WorkspaceId::parse(WORKSPACE).expect("private workspace ID"),
+        WorkspaceName::parse("privacy-workspace").expect("private workspace name"),
+        &root,
+        USER_CANARY,
+        temporary.path(),
+    )
+    .expect("private workspace context");
+    (temporary, Arc::new(workspace))
 }

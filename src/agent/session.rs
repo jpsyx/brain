@@ -37,8 +37,14 @@ impl AgentKind {
 }
 
 /// A non-blank session identifier assigned by an agent frontend.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AgentSession(String);
+
+impl std::fmt::Debug for AgentSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("AgentSession(<redacted>)")
+    }
+}
 
 impl AgentSession {
     /// Validate and retain a frontend session identifier.
@@ -64,11 +70,17 @@ impl AgentSession {
 }
 
 /// Immutable lookup scope for one actor's sessions in one workspace.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct SessionScope {
     agent_kind: AgentKind,
     workspace_id: crate::workspace::WorkspaceId,
     actor: crate::actor::ActorContext,
+}
+
+impl std::fmt::Debug for SessionScope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SessionScope(<redacted>)")
+    }
 }
 
 impl SessionScope {
@@ -195,12 +207,21 @@ mod tests {
 }
 
 /// Whether to begin a new agent session or resume a specific existing one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum SessionPlan {
     /// Start a new frontend session with this Brain-selected identifier.
     Fresh(AgentSession),
     /// Resume this known frontend session.
     Resume(AgentSession),
+}
+
+impl std::fmt::Debug for SessionPlan {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Fresh(_) => "SessionPlan::Fresh(<redacted>)",
+            Self::Resume(_) => "SessionPlan::Resume(<redacted>)",
+        })
+    }
 }
 
 impl SessionPlan {
