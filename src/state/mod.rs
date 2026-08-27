@@ -6,7 +6,7 @@
 //! clobbering or busy-waiting. Mirrors the `tasks` sibling project's state
 //! layer, scoped to what brain needs.
 //!
-//! Six tables:
+//! Seven tables:
 //! - `brain_sessions` stores frontend sessions with immutable workspace,
 //!   actor, and channel attribution. `locked_pid` is the PID of the live brain shell currently
 //!   driving that session (NULL when free). The session-resume model is
@@ -24,6 +24,8 @@
 //!   for isolated receiver runs.
 //! - `receiver_deliveries` stores one frozen response envelope and its
 //!   provider-attempt state per job and semantic response kind.
+//! - `receiver_answer_cleanups` stores content-free, exact cleanup authority
+//!   after an answer releases agent ownership.
 //!
 //! The SessionStart hook requires the selected workspace/actor variables
 //! plus `BRAIN_INSTANCE_ID` and the selected UUID-scoped `BRAIN_STATE_DB`.
@@ -127,8 +129,8 @@ pub(crate) use receiver::schema::down_to_previous_path as receiver_launch_schema
 pub(crate) use receiver::schema::down_unavailable_notice_path as receiver_unavailable_notice_schema_down;
 pub use receiver::{
     EmailLineage, EmailLineageError, MAX_RECEIVER_ANSWER_BYTES, MAX_RECEIVER_LAUNCH_ATTEMPTS,
-    MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverAcceptance, ReceiverAttemptKind, ReceiverClaim,
-    ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverConversation,
+    MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverAcceptance, ReceiverAnswerCleanup, ReceiverAttemptKind,
+    ReceiverClaim, ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverConversation,
     ReceiverConversationId, ReceiverConversationIdentity, ReceiverDeliveryAmbiguity,
     ReceiverDeliveryAttemptId, ReceiverDeliveryDecision, ReceiverDeliveryEnvelope,
     ReceiverDeliveryErrorCategory, ReceiverDeliveryId, ReceiverDeliveryPolicySnapshot,

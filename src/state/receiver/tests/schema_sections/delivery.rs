@@ -55,6 +55,15 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
             |row| row.get(0),
         )
         .expect("delivery outbox schema");
+    let cleanup_sql: String = db
+        .conn
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND name = 'receiver_answer_cleanups'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("answer cleanup schema");
 
     assert_eq!(version, 12);
     for column in [
@@ -81,7 +90,47 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
     }
     for forbidden in ["api_key", "auth_token", "password", "secret"] {
         assert!(!sql.to_ascii_lowercase().contains(forbidden));
+        assert!(!cleanup_sql.to_ascii_lowercase().contains(forbidden));
     }
+    for column in [
+        "job_id",
+        "job_token",
+        "workspace_id",
+        "conversation_id",
+        "brain_instance_id",
+        "agent_kind",
+        "actor_id",
+        "channel",
+        "registered_session_id",
+        "actual_session_id",
+        "session_released",
+        "artifacts_removed",
+        "created_at_unix_ms",
+        "updated_at_unix_ms",
+    ] {
+        assert!(cleanup_sql.contains(column), "missing cleanup column {column}");
+    }
+}
+
+#[test]
+fn v12_repair_recreates_a_missing_answer_cleanup_table() {
+    let db = Db::open_in_memory().expect("receiver state");
+    db.conn
+        .execute_batch("DROP TABLE receiver_answer_cleanups;")
+        .expect("stage missing answer cleanup table");
+
+    super::super::schema::up(&db.conn, 12).expect("repair answer cleanup table");
+
+    let tables: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'receiver_answer_cleanups'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("answer cleanup table count");
+    assert_eq!(tables, 1);
 }
 
 #[test]
@@ -262,6 +311,14 @@ fn v12_down_preserves_transcripts_and_maps_acknowledged_and_unacknowledged_jobs(
             |row| row.get(0),
         )
         .expect("delivery table count");
+    let cleanup_tables: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'table' AND name = 'receiver_answer_cleanups'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("answer cleanup table count");
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("downgraded version");
@@ -272,6 +329,7 @@ fn v12_down_preserves_transcripts_and_maps_acknowledged_and_unacknowledged_jobs(
     assert!(!states.2.unwrap_or_default().contains("private"));
     assert_eq!(transcript, "private portable transcript");
     assert_eq!(delivery_tables, 0);
+    assert_eq!(cleanup_tables, 0);
     assert_eq!(version, 11);
 }
 

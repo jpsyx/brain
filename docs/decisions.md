@@ -681,16 +681,17 @@ the transaction boundary, then re-read current ownership; authorization
 no-ops and exceptions explicitly roll back, while the target upsert and prior
 session release commit together.
 
-Receiver lifecycle-only completion follows the same continuity rule as
-artifact completion. The immediate terminal transaction proves the exact job
-token, owner, live lease, remote instance, registered current session, and
-observed native session; it then replaces the conversation binding before it
-commits `done` and claim clearing. This prevents completion from deleting the
-only durable reference to a fresh or rotated Codex, OpenCode, or Claude session.
-A failed binding write rolls back the whole transaction. After any terminal or
-local-only exit route, a separate exact-instance cleanup removes the response,
-observation snapshot, and sibling lock without touching durable facts or files
-owned by another instance.
+Receiver answer completion follows the same continuity rule as accepted-work
+observation. The immediate answer transaction proves the exact job token,
+owner, live lease, remote instance, registered current session, and completed
+native session; it then replaces the conversation binding before it commits
+the transcript, final-answer outbox, cleanup authority, `answer-ready` state,
+and claim clearing. Lifecycle completion without an answer artifact is not
+terminal. This prevents completion from deleting the only durable reference to
+a fresh or rotated Codex, OpenCode, or Claude session. A failed binding or
+cleanup write rolls back the whole transaction. Post-commit exact-instance
+cleanup removes the response, observation snapshot, and sibling lock without
+touching durable facts or files owned by another instance.
 
 ## Historical: why the completion bridge learned to read a Claude transcript
 
@@ -2985,10 +2986,10 @@ artifact-only completion at least to the latest durable boundary. Artifact-only
 evidence also raises a revision-zero cursor to one and records the exact
 completed session, keeping the terminal row representable without fabricating
 intermediate boundaries.
-Lifecycle-only completion closes the job
-without inventing a body. Missing, malformed, unrelated, or ambiguous evidence
-does not replay work. BR-16 owns policy for a proved stalled run, and BR-17 owns
-durable answer and delivery-only recovery.
+Lifecycle-only completion may persist accepted or progressing facts but cannot
+close the job without inventing a body. Missing, malformed, unrelated, or
+ambiguous evidence does not replay work. BR-16 owns policy for a proved stalled
+run, and BR-17 owns durable answer and delivery-only recovery.
 
 The producer treats an existing snapshot as untrusted input even though Brain
 created its path. Before deriving a later phase it performs a descriptor-bound,
@@ -3056,6 +3057,17 @@ tail or current binding, because later jobs may legitimately advance both.
 Provider IO begins only from the committed outbox, so a process crash, cleanup
 failure, or sync failure cannot lose the answer or relaunch agent work.
 
+The answer transaction also inserts a content-free, machine-local cleanup row.
+Agent ownership ends at `answer-ready`, so post-commit cleanup must not retain or
+recreate a claim that would block the next job. Instead, the row preserves the
+exact session registration and private artifact identity with independent
+success flags. The App shuts down the exact controller, releases that session,
+removes those artifacts, reloads tasks, and starts configured sync in that
+order. It removes the row only after the sequence succeeds. A later tick or a
+fresh App can finish the remaining effects without re-entering agent execution.
+Sync launch is intentionally at-least-once across a crash after launch but
+before row deletion; duplicate sync is safer than discarding cleanup authority.
+
 ## Freeze provider payloads before IO and classify ambiguity by provider
 
 Schema v12 establishes one durable delivery row per job and semantic response
@@ -3076,9 +3088,9 @@ definitely-not-accepted branch. Resend ambiguity schedules a retry only when
 that retry deadline, not merely the current clock, remains inside the 24-hour
 window. Any malformed frozen recipient rejects the whole response intent, and
 persisted envelopes validate normalized destinations and static lineage without
-echoing their content. This commit lands the pure renderer, policy, schema
-repair, and downgrade contract first; later BR-17 tasks wire answer recording,
-claims, provider results, and restart reconciliation.
+echoing their content. The first BR-17 slice landed the renderer, policy,
+schema repair, and downgrade contract; atomic answer recording is now wired.
+Later tasks add delivery claims, provider results, and restart reconciliation.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a
@@ -4292,13 +4304,13 @@ text with block boundaries as line breaks, and caps the result at 16 KiB with
 an explicit truncation notice. A plain-text part, when present, is still
 preferred and passed through verbatim.
 
-## Why every outbound receiver email reply goes through one seam
+## Why final answers and legacy controls use distinct delivery boundaries
 
-Isolated completion and durable control replies enter `App::reply_to_job` with
-the exact immutable accepted job. That seam derives recipients only from the
-acceptance-time trusted response context, logs an empty recipient set with the
-configuration remedies, and otherwise queues the bounded background provider
-send. An empty list cannot disappear silently, and no later registry or user
+Isolated answer completion derives recipients from the exact immutable accepted
+job and freezes them inside the atomic final-answer outbox transaction. It does
+not enter `App::reply_to_job` or start provider IO. Durable control replies still
+use `App::reply_to_job` until their later outbox migration. Both paths preserve
+the acceptance-time trusted response context, so no later registry or user
 change can substitute a different response identity.
 
 ## The receiver's own address is not a secret it should hide from its owner

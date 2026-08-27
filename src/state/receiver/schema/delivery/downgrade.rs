@@ -135,7 +135,8 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
         )?;
     }
     transaction.execute_batch(
-        "DROP INDEX IF EXISTS receiver_deliveries_due;
+        "DROP TABLE IF EXISTS receiver_answer_cleanups;
+         DROP INDEX IF EXISTS receiver_deliveries_due;
          DROP INDEX IF EXISTS receiver_deliveries_job_kind;
          DROP TABLE IF EXISTS receiver_deliveries;",
     )?;

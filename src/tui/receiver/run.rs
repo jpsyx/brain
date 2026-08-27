@@ -17,6 +17,7 @@ pub(crate) enum DurableReceiverRun {
     RecoveryPreSpawnCleanup(PreSpawnRecoveryCleanup),
     RecoverySpawned(SpawnedRecoveryRun),
     Active(ActiveReceiverRun),
+    AnswerCleanupPending(ActiveReceiverRun),
     CleanupPending(CleanupPendingReceiverRun),
 }
 

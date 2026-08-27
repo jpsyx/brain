@@ -105,47 +105,11 @@ impl App {
         }
         #[cfg(test)]
         self.receiver.run_after_completion_commit_hook();
-        if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
-            let started = self
-                .services
-                .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
-            if started.is_none() {
-                self.log_receiver_observation(&active, None, "completion-sync-start");
-            }
-        }
-        if self
-            .services
-            .release_receiver_session(&active.attribution)
-            .is_err()
-        {
-            self.log_receiver_observation(
-                &active,
-                Some(AgentObservationPhase::Completed),
-                "session-release-store",
-            );
-        }
-        self.remove_exact_receiver_tab(&active);
-        #[cfg(test)]
-        let cleanup = if self
-            .receiver
-            .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts)
-        {
-            Err(std::io::Error::other(
-                "injected receiver artifact cleanup failure",
-            ))
-        } else {
-            self.cleanup_receiver_instance_files_checked(active.attribution.instance())
-        };
-        #[cfg(not(test))]
-        let cleanup = self.cleanup_receiver_instance_files_checked(active.attribution.instance());
-        if cleanup.is_err() {
-            self.log_receiver_observation(&active, None, "artifact-cleanup");
-        }
         crate::logging::log(format!(
             "receiver run completed channel={:?}",
             active.claim.job().inbound().channel
         ));
-        self.reload_after_brain();
+        self.begin_receiver_answer_cleanup(active);
     }
 
     pub(super) fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {

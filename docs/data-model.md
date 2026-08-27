@@ -1021,7 +1021,7 @@ bypass it.
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-The state schema has six tables:
+The state schema has seven tables:
 
 ```sql
 brain_sessions(
@@ -1121,6 +1121,24 @@ receiver_deliveries(
   UNIQUE(job_id, response_kind)
 )
 
+receiver_answer_cleanups(
+  job_id                  TEXT PRIMARY KEY REFERENCES receiver_jobs,
+  job_token               TEXT NOT NULL,
+  workspace_id            TEXT NOT NULL,
+  conversation_id         TEXT NOT NULL,
+  brain_instance_id       TEXT NOT NULL,
+  agent_kind              TEXT NOT NULL,
+  actor_id                TEXT NOT NULL,
+  channel                 TEXT NOT NULL,
+  registered_session_id   TEXT NOT NULL,
+  actual_session_id       TEXT NOT NULL,
+  session_released        INTEGER NOT NULL,  -- 0 | 1
+  artifacts_removed       INTEGER NOT NULL,  -- 0 | 1
+  created_at_unix_ms      INTEGER NOT NULL,
+  updated_at_unix_ms      INTEGER NOT NULL,
+  UNIQUE(workspace_id, brain_instance_id)
+)
+
 receiver_session_registrations(
   workspace_id           TEXT NOT NULL,
   conversation_id        TEXT NOT NULL REFERENCES receiver_conversations,
@@ -1167,9 +1185,20 @@ and deadline arithmetic saturates. Resend may
 repeat the byte-identical envelope and delivery ID after an ambiguous result
 only when the scheduled retry itself remains inside the exact 24-hour
 idempotency boundary. Twilio ambiguity is terminal because create has no
-equivalent key. Runtime answer persistence,
-outbox claiming, and provider result commits are intentionally not wired in
-this model-first change.
+equivalent key. Atomic App answer persistence now writes this outbox before
+provider IO. Outbox claiming and provider result commits remain later delivery
+work.
+
+**Post-answer cleanup authority.** The same answer transaction inserts one
+machine-local `receiver_answer_cleanups` row with the exact job, token,
+conversation, instance, frontend, actor/channel, and registered plus actual
+session identity. It contains no message, recipient, provider payload, or
+credential. Independent flags acknowledge exact session release and private
+artifact removal. The row is not an agent claim and does not participate in
+FIFO blocking; a later job may launch while cleanup retries. Brain deletes it
+only after both flags, task reload, and any configured sync launch succeed, so
+startup and recurring ticks can finish cleanup without re-entering agent work.
+The schema-v12 down path removes this machine-local table before the outbox.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the
@@ -1362,10 +1391,12 @@ against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
 The TUI keeps at most one durable receiver run locally. Its local state
-distinguishes ordinary claimed, recovery claimed, active, and cleanup pending.
-Cleanup pending remembers whether controller shutdown and artifact removal
-already succeeded, so retries do not re-enter active renewal or repeat completed
-steps. Disabling receiver intent prevents a new claim while idle and prevents
+distinguishes ordinary claimed, recovery claimed, active, answer cleanup, and
+recovery cleanup. Recovery cleanup remembers whether controller shutdown and
+artifact removal already succeeded, so retries do not re-enter active renewal
+or repeat completed steps. Answer cleanup uses its separate state row after the
+answer transaction releases agent ownership; only controller shutdown remains
+process-local. Disabling receiver intent prevents a new claim while idle and prevents
 every pending ordinary or recovery claim from starting a process. It still
 renews pending claims and manages active completion, child exit, or cleanup,
 including across a later re-enable. Later arrivals remain `queued` and

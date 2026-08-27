@@ -162,6 +162,26 @@ pub(super) fn complete(
             merged.completed,
         ],
     )?;
+    transaction.execute(
+        "INSERT INTO receiver_answer_cleanups
+           (job_id, job_token, workspace_id, conversation_id, brain_instance_id,
+            agent_kind, actor_id, channel, registered_session_id, actual_session_id,
+            session_released, artifacts_removed, created_at_unix_ms, updated_at_unix_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?11)",
+        rusqlite::params![
+            request.job_id.to_string(),
+            request.token.to_string(),
+            db.workspace_id,
+            request.registration.conversation_id().to_string(),
+            request.registration.instance(),
+            scope.agent_kind().as_str(),
+            scope.actor().user_id().as_str(),
+            scope.actor().channel().as_str(),
+            request.registration.registered_session().as_str(),
+            request.completed_session.as_str(),
+            merged.completed,
+        ],
+    )?;
     let changed = transaction.execute(
         "UPDATE receiver_jobs
          SET state = 'answer-ready', accepted_at_unix_ms = ?4,

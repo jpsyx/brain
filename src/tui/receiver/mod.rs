@@ -27,7 +27,9 @@ pub(crate) use run::{
     ReceiverEffectOutcome, SpawnedRecoveryRun, SpawnedRecoveryStage,
 };
 #[cfg(test)]
-pub(crate) use runtime::{ReceiverCleanupBoundary, ReceiverLaunchBoundary};
+pub(crate) use runtime::{
+    ReceiverAnswerCleanupEvent, ReceiverCleanupBoundary, ReceiverLaunchBoundary,
+};
 pub(crate) use runtime::{ReceiverRuntime, SyncGateObservation, SyncGatePoll};
 pub(crate) use session::{
     ReceiverRemoteSession, ReceiverSessionRegistration, ReceiverSessionStore,

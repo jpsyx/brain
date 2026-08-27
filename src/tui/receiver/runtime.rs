@@ -29,8 +29,19 @@ pub(crate) enum ReceiverLaunchBoundary {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReceiverCleanupBoundary {
     Shutdown,
+    Session,
     Artifacts,
     Acknowledgement,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverAnswerCleanupEvent {
+    ControllerShutdown,
+    SessionRelease,
+    ArtifactCleanup,
+    TaskReload,
+    SyncLaunch,
 }
 
 struct ReceiverSyncGate {
@@ -61,6 +72,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     cleanup_failure_boundaries: Vec<ReceiverCleanupBoundary>,
     #[cfg(test)]
+    answer_cleanup_events: Vec<ReceiverAnswerCleanupEvent>,
+    #[cfg(test)]
     recovery_tab_error: Option<crate::tui::state::ReceiverRunTabError>,
     #[cfg(test)]
     observation_diagnostics: std::cell::RefCell<Vec<String>>,
@@ -88,6 +101,8 @@ impl ReceiverRuntime {
             launch_boundary_hooks: Vec::new(),
             #[cfg(test)]
             cleanup_failure_boundaries: Vec::new(),
+            #[cfg(test)]
+            answer_cleanup_events: Vec::new(),
             #[cfg(test)]
             recovery_tab_error: None,
             #[cfg(test)]
@@ -202,6 +217,16 @@ impl ReceiverRuntime {
     }
 
     #[cfg(test)]
+    pub(crate) fn record_answer_cleanup_event(&mut self, event: ReceiverAnswerCleanupEvent) {
+        self.answer_cleanup_events.push(event);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn answer_cleanup_events(&self) -> &[ReceiverAnswerCleanupEvent] {
+        &self.answer_cleanup_events
+    }
+
+    #[cfg(test)]
     pub(crate) fn inject_recovery_tab_error(
         &mut self,
         error: crate::tui::state::ReceiverRunTabError,
@@ -243,6 +268,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }
@@ -256,6 +282,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }
@@ -269,6 +296,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }

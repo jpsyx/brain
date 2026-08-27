@@ -389,8 +389,12 @@ first move is a failing test that reproduces it, *then* the fix.
   every identity mismatch. The reconciliation matrix separately proves that
   notice, control, and fallback-only rows cannot protect incomplete
   `answer-ready` or `delivering` jobs as final-answer proof. App boundary tests
-  cover crashes before and after commit, cleanup and sync-start failures, exact
-  once-only post-commit effects, durable answers, and next-job release. That matrix
+  cover crashes before and after commit, durable session-release and artifact-
+  cleanup retries, sync-start failures, durable answers, and next-job release.
+  They assert the exact controller-shutdown, session-release, artifact-cleanup,
+  task-reload, then sync-launch order, and prove a fresh App resumes cleanup
+  without reclaiming agent work. Schema tests cover same-version cleanup-table
+  repair, content and credential exclusion, and v12 downgrade removal. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a

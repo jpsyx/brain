@@ -17,8 +17,17 @@ impl App {
             #[cfg(test)]
             self.receiver.run_after_restart_scan_hook();
         }
-        match self.receiver.take_durable_run() {
+        let run = match self.receiver.take_durable_run() {
+            DurableReceiverRun::AnswerCleanupPending(active) => {
+                self.continue_receiver_answer_controller_cleanup(active);
+                return;
+            }
+            run => run,
+        };
+        self.continue_oldest_receiver_answer_cleanup();
+        match run {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
+            DurableReceiverRun::AnswerCleanupPending(_) => unreachable!(),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
             DurableReceiverRun::RecoveryClaimed(claimed) if receiver_enabled => {
                 self.launch_claimed_receiver_recovery(claimed);

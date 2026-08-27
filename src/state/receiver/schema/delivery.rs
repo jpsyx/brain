@@ -53,12 +53,63 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
            CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL)
          );";
 
+const CREATE_ANSWER_CLEANUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_answer_cleanups (
+           job_id                  TEXT PRIMARY KEY REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
+           job_token               TEXT NOT NULL,
+           workspace_id            TEXT NOT NULL,
+           conversation_id         TEXT NOT NULL,
+           brain_instance_id       TEXT NOT NULL,
+           agent_kind              TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode')),
+           actor_id                TEXT NOT NULL,
+           channel                 TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
+           registered_session_id   TEXT NOT NULL,
+           actual_session_id       TEXT NOT NULL,
+           session_released        INTEGER NOT NULL DEFAULT 0 CHECK (session_released IN (0, 1)),
+           artifacts_removed       INTEGER NOT NULL DEFAULT 0 CHECK (artifacts_removed IN (0, 1)),
+           created_at_unix_ms      INTEGER NOT NULL,
+           updated_at_unix_ms      INTEGER NOT NULL,
+           UNIQUE (workspace_id, brain_instance_id)
+         );";
+
 pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     connection.execute_batch(CREATE_DELIVERY_TABLE)?;
+    connection.execute_batch(CREATE_ANSWER_CLEANUP_TABLE)?;
     ensure_optional_columns(connection)?;
+    ensure_answer_cleanup_columns(connection)?;
     reconcile_rows(connection)?;
     ensure_table_contract(connection)?;
     ensure_managed_indexes(connection)?;
+    Ok(())
+}
+
+fn ensure_answer_cleanup_columns(connection: &Connection) -> Result<()> {
+    for required in [
+        "job_id",
+        "job_token",
+        "workspace_id",
+        "conversation_id",
+        "brain_instance_id",
+        "agent_kind",
+        "actor_id",
+        "channel",
+        "registered_session_id",
+        "actual_session_id",
+        "session_released",
+        "artifacts_removed",
+        "created_at_unix_ms",
+        "updated_at_unix_ms",
+    ] {
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM pragma_table_info('receiver_answer_cleanups') WHERE name = ?1
+             )",
+            [required],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            bail!("receiver answer cleanup schema is missing required column {required}");
+        }
+    }
     Ok(())
 }
 

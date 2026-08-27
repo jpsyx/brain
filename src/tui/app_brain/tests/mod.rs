@@ -62,6 +62,7 @@ mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
 mod receiver_attachment_worker_support;
+mod receiver_durable_answer_cleanup;
 mod receiver_durable_answer_commit;
 mod receiver_durable_attachment_prompt;
 mod receiver_durable_attachment_worker;

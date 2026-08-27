@@ -267,6 +267,44 @@ impl AppServices {
             .complete_receiver_job_with_observation(request, observation)
     }
 
+    pub(crate) fn receiver_answer_cleanup(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+    ) -> Result<Option<crate::state::ReceiverAnswerCleanup>> {
+        self.db.receiver_answer_cleanup(job_id)
+    }
+
+    pub(crate) fn next_receiver_answer_cleanup(
+        &self,
+    ) -> Result<Option<crate::state::ReceiverAnswerCleanup>> {
+        self.db.next_receiver_answer_cleanup()
+    }
+
+    pub(crate) fn release_receiver_answer_cleanup_session(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .release_receiver_answer_cleanup_session(cleanup, observed_at_unix_ms)
+    }
+
+    pub(crate) fn mark_receiver_answer_artifacts_removed(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .mark_receiver_answer_artifacts_removed(cleanup, observed_at_unix_ms)
+    }
+
+    pub(crate) fn finish_receiver_answer_cleanup(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+    ) -> Result<bool> {
+        self.db.finish_receiver_answer_cleanup(cleanup)
+    }
+
     pub(crate) fn record_receiver_launch_retry(
         &self,
         job_id: crate::state::ReceiverJobId,

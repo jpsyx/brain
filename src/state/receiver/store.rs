@@ -7,6 +7,7 @@ use super::{
 };
 use crate::state::Db;
 
+mod answer_cleanup;
 mod claim;
 mod completion;
 mod control;

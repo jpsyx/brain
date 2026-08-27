@@ -1,5 +1,6 @@
 //! Durable receiver data types grouped by lifecycle responsibility.
 
+mod answer_cleanup;
 mod claim;
 mod conversation;
 mod delivery;
@@ -8,6 +9,7 @@ mod identity;
 mod job;
 mod observation;
 
+pub use answer_cleanup::ReceiverAnswerCleanup;
 pub use claim::{ReceiverAcceptance, ReceiverClaim, ReceiverRunClaim};
 pub use conversation::{
     ReceiverConversation, ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,

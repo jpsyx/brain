@@ -94,6 +94,32 @@ fn exact_completion_atomically_records_answer_ready_transcript_binding_and_outbo
     assert_eq!(delivery_count, 1);
     assert_eq!(delivery_state, "ready");
     assert_eq!(claim_owner, None);
+    let cleanup: (i64, String, String, i64, i64) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT COUNT(*), MIN(brain_instance_id), MIN(registered_session_id),
+                    MIN(session_released), MIN(artifacts_removed)
+             FROM receiver_answer_cleanups WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .expect("load exact post-commit cleanup");
+    assert_eq!(cleanup.0, 1);
+    assert_eq!(cleanup.1, fixture.registration.instance());
+    assert_eq!(
+        cleanup.2,
+        fixture.registration.registered_session().as_str()
+    );
+    assert_eq!((cleanup.3, cleanup.4), (0, 0));
 }
 
 #[test]
@@ -254,6 +280,81 @@ fn answer_ready_releases_agent_lane_for_the_next_queued_job() {
 }
 
 #[test]
+fn answer_cleanup_releases_only_its_exact_session_then_finishes_after_artifacts() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record exact answer")
+        .expect("exact answer owner");
+    let cleanup = fixture
+        .db
+        .receiver_answer_cleanup(fixture.job_id)
+        .expect("load answer cleanup")
+        .expect("pending answer cleanup");
+
+    assert!(!cleanup.session_released());
+    assert!(!cleanup.artifacts_removed());
+    assert!(
+        !fixture
+            .db
+            .finish_receiver_answer_cleanup(&cleanup)
+            .expect("unfinished cleanup cannot finish")
+    );
+    assert!(
+        fixture
+            .db
+            .release_receiver_answer_cleanup_session(&cleanup, 1_600)
+            .expect("release exact answer session")
+    );
+    let after_release = fixture
+        .db
+        .receiver_answer_cleanup(fixture.job_id)
+        .expect("reload answer cleanup")
+        .expect("cleanup still pending artifacts");
+    assert!(after_release.session_released());
+    assert!(!after_release.artifacts_removed());
+    assert_eq!(
+        fixture
+            .db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM receiver_session_registrations",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("remaining receiver registrations"),
+        0
+    );
+    assert!(
+        fixture
+            .db
+            .mark_receiver_answer_artifacts_removed(&after_release, 1_700)
+            .expect("acknowledge exact artifacts")
+    );
+    let complete = fixture
+        .db
+        .receiver_answer_cleanup(fixture.job_id)
+        .expect("reload completed local effects")
+        .expect("cleanup pending final handoff");
+    assert!(complete.session_released());
+    assert!(complete.artifacts_removed());
+    assert!(
+        fixture
+            .db
+            .finish_receiver_answer_cleanup(&complete)
+            .expect("finish exact answer cleanup")
+    );
+    assert!(
+        fixture
+            .db
+            .receiver_answer_cleanup(fixture.job_id)
+            .expect("reload finished cleanup")
+            .is_none()
+    );
+}
+
+#[test]
 fn delivery_insert_failure_rolls_back_transcript_binding_and_job_state() {
     for trigger in [
         "CREATE TRIGGER fail_answer_registration
@@ -267,6 +368,9 @@ fn delivery_insert_failure_rolls_back_transcript_binding_and_job_state() {
         "CREATE TRIGGER fail_answer_insert
          BEFORE INSERT ON receiver_deliveries
          BEGIN SELECT RAISE(FAIL, 'injected answer insert failure'); END;",
+        "CREATE TRIGGER fail_answer_cleanup
+         BEFORE INSERT ON receiver_answer_cleanups
+         BEGIN SELECT RAISE(FAIL, 'injected answer cleanup failure'); END;",
         "CREATE TRIGGER fail_answer_job
          BEFORE UPDATE OF state ON receiver_jobs
          WHEN NEW.state = 'answer-ready'
@@ -325,6 +429,16 @@ fn assert_completion_rolled_back(fixture: &super::binding::CompletionFixture) {
                 row.get::<_, i64>(0)
             })
             .expect("count rolled-back deliveries"),
+        0
+    );
+    assert_eq!(
+        fixture
+            .db
+            .conn
+            .query_row("SELECT COUNT(*) FROM receiver_answer_cleanups", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("count rolled-back answer cleanups"),
         0
     );
 }

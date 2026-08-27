@@ -127,9 +127,11 @@ main view, or moves keyboard focus. When receiver intent is enabled, the single
 event-loop consumer preserves the sync-freshness gate, claims the oldest ready
 durable job, and launches a new PTY and frontend-neutral `AgentController` in
 that background tab even while the main panel is busy. Later arrivals remain
-durable until the active run reaches a valid exact completion. Terminal close
-shuts down only that controller, reloads tasks, preserves provider reply
-  behavior, and leaves the active view, tab, and focus unchanged. Only a proved
+durable until the active run reaches a valid exact completion. Answer commit
+releases agent ownership at `answer-ready`; cleanup shuts down only that
+controller, releases its exact session, removes its private artifacts, reloads
+tasks, and starts sync in that order while leaving the active view, tab, and
+focus unchanged. Cleanup retries do not block a later job. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without
   exact completion preserves the fenced post-spawn job for BR-16.
 
@@ -1609,9 +1611,11 @@ conversation, instance, frontend, actor/channel, registered, actual, and
 completed sessions, answer, envelope, rendered turn, and lifecycle cursor.
 Later conversation turns or binding changes do not affect that proof; any
 conflict fails closed. No provider IO begins in this transaction. After commit,
-Brain releases the exact registration, closes the exact tab, removes the exact
-instance files, starts the completion push, reloads tasks, and permits the next
-agent job. Artifact completion, child exit,
+Brain closes the exact controller and tab, releases the exact registration,
+removes the exact instance files, reloads tasks, and only then starts the
+completion push. Exact session and artifact progress remains machine-local and
+durable until successful, so a later tick or fresh App retries it without
+restoring agent ownership or blocking the next job. Artifact completion, child exit,
 lost ownership, and orderly shutdown remove only the exact instance's response,
 observation snapshot, and observation lock while preserving durable facts and
 unrelated instance files. Poll diagnostics use one content-free shape containing

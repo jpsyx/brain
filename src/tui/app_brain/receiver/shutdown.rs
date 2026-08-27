@@ -42,6 +42,10 @@ impl App {
                 self.shutdown_spawned_recovery_run(spawned);
             }
             DurableReceiverRun::Active(active) => self.shutdown_active_receiver_run(active),
+            DurableReceiverRun::AnswerCleanupPending(active) => {
+                self.shutdown_active_receiver_run(active);
+                crate::logging::log("receiver shutdown preserved answer cleanup authority");
+            }
             DurableReceiverRun::CleanupPending(pending) => {
                 self.shutdown_cleanup_pending_receiver_run(&pending);
             }
