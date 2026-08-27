@@ -46,11 +46,16 @@ pub(super) fn terminalize(
     now: i64,
     consume_launch_attempt: bool,
 ) -> Result<Option<ReceiverReconciliationEffect>> {
-    let cleanup_instance = job
-        .observation_instance()
-        .map(str::to_owned)
+    let pending_cleanup = job
+        .recovery_cleanup_instance()
+        .zip(job.recovery_cleanup_session_id());
+    let cleanup_instance = pending_cleanup
+        .map(|(instance, _)| instance.to_owned())
+        .or_else(|| job.observation_instance().map(str::to_owned))
         .or_else(|| candidate.owner.clone());
-    let cleanup_session_id = job.observation_session_id().map(str::to_owned);
+    let cleanup_session_id = pending_cleanup
+        .map(|(_, session_id)| session_id.to_owned())
+        .or_else(|| job.observation_session_id().map(str::to_owned));
     let sql = format!(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -83,13 +88,15 @@ pub(super) fn terminalize(
     if changed != 1 {
         return Ok(None);
     }
-    release_registration(
-        &transaction,
-        workspace_id,
-        job.conversation_id(),
-        cleanup_instance.as_deref(),
-        now,
-    )?;
+    if pending_cleanup.is_none() {
+        release_registration(
+            &transaction,
+            workspace_id,
+            job.conversation_id(),
+            cleanup_instance.as_deref(),
+            now,
+        )?;
+    }
     transaction.commit()?;
     Ok(Some(ReceiverReconciliationEffect::new(
         ReceiverReconciliationAction::TerminalFailure,

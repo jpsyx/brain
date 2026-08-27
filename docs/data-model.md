@@ -341,6 +341,10 @@ ordered migrations were last applied. It is machine state, not portable
 workspace data and not part of a workspace's UUID cache. A later ordinary
 invocation still reconciles current managed artifacts even when this stamp
 already matches, which is how a missing hook is recreated without user action.
+The 0.84.8 receiver-cleanup boundary also reconciles partial cleanup-fence
+metadata. Its 0.84.7 down mapping makes cleanup-pending recovery terminal and
+non-replayable while retaining the complete instance/session tuple,
+registration, and native-session lock for exact cleanup after a later upgrade.
 
 ### Receiver address routing (`server/receiver/routing.rs`)
 
@@ -1198,7 +1202,12 @@ by the absolute limit. It also persists the superseded instance and native
 session as an all-or-none cleanup fence while retaining their exact
 registration. The acknowledgement seam requires the same job, token, recovery
 snapshot, instance, session, and registration in one immediate transaction;
-only then does it release the registration and clear the fence. The separate
+only then does it release the registration and native-session lock and clear
+the fence. The same exact acknowledgement is valid after the ownerless recovery
+has terminalized with pending notice intent. Until then, the failed row retains
+the tuple and recurring reconciliation returns the same terminal cleanup
+identifiers after restart. That read-only redrive does not create another notice
+intent and the terminal row does not block later FIFO work. The separate
 recovery-claim seam accepts only that cleanup-acknowledged due row when it is
 also the workspace's globally oldest claimable or blocking row. It establishes
 the launch deadline and never rediscovers accepted work or increments recovery

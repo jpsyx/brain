@@ -1,12 +1,12 @@
 impl Fixture {
-    fn state_db(&self, workspace_id: &str) -> PathBuf {
+    pub(super) fn state_db(&self, workspace_id: &str) -> PathBuf {
         self.home
             .join(".cache/brain/workspaces")
             .join(workspace_id)
             .join("state.db")
     }
 
-    fn seed_pre_receiver_state(&self) {
+    pub(super) fn seed_pre_receiver_state(&self) {
         for workspace_id in [
             "11111111-1111-4111-8111-111111111111",
             "22222222-2222-4222-8222-222222222222",

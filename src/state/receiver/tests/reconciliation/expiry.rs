@@ -78,7 +78,7 @@ fn assert_reopened_due_recovery_boundary(
         .expect("reconcile ownerless recovery boundary");
     assert_eq!(
         effect.as_ref().map(ReceiverReconciliationEffect::reason),
-        expected_reason
+        Some(expected_reason.unwrap_or(ReceiverReconciliationReason::AcceptedStall))
     );
     let job = reopened
         .receiver_job(job_id)

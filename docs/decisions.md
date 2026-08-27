@@ -2537,15 +2537,22 @@ cannot pass an older expired-owner lifecycle or due ordinary retry. The
 transaction's writer lock keeps those checks and the later claim update
 indivisible.
 
-Terminal reconciliation persists a stable content-free reason and a pending
-unavailable-notice bit in the same transaction that releases ownership and the
-superseded registration. The ordinary launch-retry seam requires an ordinary
-attempt. Planning, registration, spawn, or shutdown failure for an exact live
-recovery owner instead uses a dedicated terminal transition, preserving the
-single-launch recovery budget and setting notice intent. Semantic effects carry
-only opaque job, token, cleanup instance, and cleanup session identifiers.
-Frontend validation, process cleanup, recovery launch, and provider notice
-delivery remain outside the state layer.
+Terminal reconciliation persists a stable content-free reason and one pending
+unavailable-notice bit in the same transaction that releases ownership. It
+releases an ordinary superseded registration immediately, but a cleanup-pending
+recovery must retain its exact tuple, registration, and native-session lock.
+Otherwise terminalization at a deadline would discard the only durable cleanup
+authority and strand an unacknowledgeable lock. Recurring reconciliation
+therefore redrives the same terminal cleanup identifiers across restart. The
+exact acknowledgement accepts either the due recovery or its terminal failed
+state and releases both lock surfaces atomically; read-only redrive neither
+blocks later FIFO work nor duplicates notice state. The ordinary launch-retry
+seam requires an ordinary attempt. Planning, registration, spawn, or shutdown
+failure for an exact live recovery owner instead uses a dedicated terminal
+transition, preserving the single-launch recovery budget and setting notice
+intent. Semantic effects carry only opaque job, token, cleanup instance, and
+cleanup session identifiers. Frontend validation, process cleanup, recovery
+launch, and provider notice delivery remain outside the state layer.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come
@@ -2555,6 +2562,14 @@ a partial v10 table also fails missing active deadlines closed. A v10 downgrade
 keeps representable ordinary v9 work but terminalizes a nonterminal recovery
 attempt before removing the new columns, because v9 cannot distinguish that
 attempt from replayable ordinary work.
+
+The cleanup fence was introduced after the original schema-v10 migration, so it
+has a separate automatic boundary at 0.84.8 even though the SQLite schema
+number remains 10. Upgrade and later reconciliation repair managed partial
+state. Downgrade to 0.84.7 terminalizes cleanup-pending recovery before old code
+runs, but retains a complete cleanup tuple and its locks. This favors no replay
+and eventual exact cleanup over pretending an older binary can safely resume
+the fenced work.
 
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged

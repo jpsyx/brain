@@ -106,6 +106,25 @@ impl ReceiverReconciliationReason {
             Self::IncompleteLegacyCompletion => "recovery-incomplete-legacy-completion",
         }
     }
+
+    pub(super) fn parse(value: &str) -> Option<Self> {
+        [
+            Self::PreAcceptanceTimeout,
+            Self::PreAcceptanceExhausted,
+            Self::AcceptedStall,
+            Self::AbsoluteWorkExpired,
+            Self::RecoveryExpired,
+            Self::RecoveryExhausted,
+            Self::RecoveryPlanningFailed,
+            Self::RecoveryRegistrationFailed,
+            Self::RecoverySpawnFailed,
+            Self::RecoveryShutdown,
+            Self::NativeSessionUnavailable,
+            Self::IncompleteLegacyCompletion,
+        ]
+        .into_iter()
+        .find(|reason| reason.as_str() == value)
+    }
 }
 
 /// Content-free identifiers for the one effect a reconciliation winner may execute.

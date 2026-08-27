@@ -38,14 +38,16 @@ impl Db {
             rusqlite::TransactionBehavior::Immediate,
         )?;
         let Some(candidate) = oldest_blocking_candidate(&transaction, &self.workspace_id)? else {
-            return Ok(None);
+            return cleanup::pending_cleanup_effect(&transaction, &self.workspace_id);
         };
         let Some(job) = load_receiver_job(&transaction, &self.workspace_id, candidate.job_id)?
         else {
             return Ok(None);
         };
         match decide_receiver_recovery(job.recovery_snapshot(now_unix_ms)) {
-            ReceiverRecoveryDecision::Wait => Ok(None),
+            ReceiverRecoveryDecision::Wait => {
+                cleanup::pending_cleanup_effect(&transaction, &self.workspace_id)
+            }
             ReceiverRecoveryDecision::RequeuePreAcceptance => {
                 let retry_at = to_i64(
                     now_unix_ms.saturating_add(PRE_ACCEPTANCE_RETRY_DELAY_MS),

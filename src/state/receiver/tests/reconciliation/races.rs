@@ -86,7 +86,7 @@ fn reconciliation_winner_fences_every_late_writer_from_the_old_instance() {
 }
 
 #[test]
-fn two_reconcilers_publish_only_one_effect_for_the_same_snapshot() {
+fn two_reconcilers_mutate_once_and_redrive_the_exact_cleanup_effect() {
     let temporary = tempfile::tempdir().expect("temporary receiver state");
     let path = temporary.path().join("state.db");
     let fixture = accepted_run_in(
@@ -104,23 +104,25 @@ fn two_reconcilers_publish_only_one_effect_for_the_same_snapshot() {
         receiver_user_id().as_str(),
     )
     .expect("open second receiver store");
-    assert!(
-        fixture
-            .db
-            .reconcile_next_receiver_job(301_400)
-            .expect("first reconciliation")
-            .is_some()
-    );
-    assert!(
-        second
-            .reconcile_next_receiver_job(301_400)
-            .expect("second reconciliation")
-            .is_none()
-    );
+    let first_effect = fixture
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("first reconciliation")
+        .expect("first cleanup effect");
+    let after_first = second
+        .receiver_job(fixture.job_id)
+        .expect("load first reconciled job")
+        .expect("first reconciled job");
+    let second_effect = second
+        .reconcile_next_receiver_job(301_400)
+        .expect("second reconciliation")
+        .expect("redriven cleanup effect");
+    assert_eq!(second_effect, first_effect);
     let reconciled = second
         .receiver_job(fixture.job_id)
         .expect("load reconciled job")
         .expect("reconciled job");
+    assert_eq!(reconciled, after_first);
     assert_eq!(reconciled.recovery_count(), 1);
     assert_eq!(reconciled.state(), ReceiverJobState::Retrying);
 }

@@ -495,3 +495,220 @@ transition.
 The focused fix commit contains the 0.84.8 release metadata, source, tests,
 docs, and this appended report. Its final hash is supplied in the handoff
 because embedding it here would change that hash.
+
+## Fix round 2 of 5
+
+### Status
+
+DONE
+
+This round resolves both Important findings in
+`task-3-rereview-1.md` and supersedes the earlier report wherever cleanup
+terminalization or migration boundaries changed. The crate version moved from
+0.84.8 to 0.84.9.
+
+### Behavior corrected
+
+- A cleanup-pending ownerless recovery that reaches its recovery or absolute
+  deadline now becomes terminal without discarding the exact superseded native
+  instance/session tuple. Its receiver registration and `brain_sessions` lock
+  remain durable until exact cleanup acknowledgement.
+- Recurring reconciliation returns the same opaque cleanup identifiers after
+  terminalization and after database reopen. The redrive is read-only, retains
+  one pending-notice intent, and does not keep later FIFO work from being
+  claimed.
+- Exact cleanup acknowledgement now accepts either the ownerless due recovery
+  or its pending-notice terminal state. A wrong instance or session fails
+  closed. The matching acknowledgement releases the receiver registration and
+  native-session lock and clears the tuple in the same immediate transaction.
+- The cleanup fence now has an automatic startup migration boundary introduced
+  at 0.84.8. Upgrade and ordinary current-version reconciliation repair managed
+  partial state. Downgrade to 0.84.7 terminalizes cleanup-pending recovery while
+  retaining its complete tuple and locks, so old code cannot claim it and a
+  later upgrade can still finish exact cleanup.
+- Adjacent boundary selection has a pure unit test. Compiled-binary upgrade and
+  downgrade tests use the repository startup-migration path, and existing
+  help/version coverage continues to prove those commands have no migration
+  side effects.
+
+Task 4 still owns native process cleanup, calling the acknowledgement seam,
+recovery launch/resume effects, and unavailable-notice delivery. No App,
+frontend adapter, hook, provider, or delivery code changed.
+
+### RED evidence
+
+#### Terminal cleanup survival and exact acknowledgement
+
+Command:
+
+```text
+cargo test --release --lib state::receiver::tests::reconciliation::terminal_cleanup_survives_restart_redrives_and_acknowledges_exactly -- --exact --test-threads=1 --nocapture
+```
+
+Observed failure:
+
+```text
+assertion `left == right` failed
+left: None
+right: Some("ordinary-instance")
+```
+
+The terminal transition used the cleared observation cursor instead of the
+durable cleanup tuple, so its effect lost both cleanup identifiers and released
+the registration before Task 4 could acknowledge it.
+
+#### Adjacent cleanup-fence downgrade
+
+The first compiled fixture run failed during setup with `no such table:
+brain_sessions`; that was a test-fixture omission rather than product RED. After
+the fixture created the legacy-compatible session table, the same behavioral
+test produced the genuine failure:
+
+```text
+cargo test --release --test startup_migration receiver_model::adjacent_cleanup_fence_down_migration_terminalizes_without_losing_exact_cleanup -- --exact --test-threads=1 --nocapture
+
+assertion `left == right` failed
+left: "retrying"
+right: "failed"
+```
+
+No 0.84.8 startup migration existed, so downgrade left the cleanup-pending
+recovery replayable by 0.84.7.
+
+#### Redrive expectation reconciliation
+
+After the reviewed terminal redrive was green, the full reconciliation module
+honestly exposed three older assertions that expected no effect from a persisted
+cleanup fence:
+
+```text
+cargo test --release --lib state::receiver::tests::reconciliation -- --test-threads=1
+
+ownerless_due_recovery_terminalizes_at_absolute_expiry_after_reopen ... FAILED
+ownerless_due_recovery_terminalizes_at_recovery_expiry_after_reopen ... FAILED
+two_reconcilers_publish_only_one_effect_for_the_same_snapshot ... FAILED
+```
+
+The first two received the required pre-deadline `AcceptedStall` cleanup
+redrive. The separate-handle test received the same read-only cleanup effect
+after the first handle had performed the sole durable CAS. Their assertions now
+pin one mutation plus repeatable exact cleanup delivery rather than suppressing
+the reviewed redrive.
+
+### GREEN and refactor evidence
+
+The terminal restart test turned green with the exact same command:
+
+```text
+test result: ok. 1 passed; 0 failed
+```
+
+The adjacent downgrade test turned green with the exact same command after the
+0.84.8 migration was registered. The focused adjacent upgrade repair and
+boundary-selection tests also passed:
+
+```text
+cargo test --release --lib startup_migration::tests::cleanup_fence_boundary_is_exactly_adjacent_to_0847 -- --exact --test-threads=1
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --test startup_migration receiver_recovery_cleanup::adjacent_cleanup_fence -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+```
+
+The expanded startup-migration fixture was split into a focused sibling module.
+That refactor initially exposed sibling-private fixture methods at compile time;
+narrow `pub(super)` visibility fixed the test-only seam, and the same two tests
+then passed.
+
+Final focused suites:
+
+```text
+cargo test --release --lib state::receiver::tests::reconciliation -- --test-threads=1
+test result: ok. 21 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests::recovery_claim -- --test-threads=1
+test result: ok. 5 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests::schema -- --test-threads=1
+test result: ok. 18 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests -- --test-threads=1
+test result: ok. 110 passed; 0 failed
+
+cargo test --release --lib startup_migration:: -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+
+cargo test --release --test startup_migration receiver_model -- --test-threads=1
+test result: ok. 9 passed; 0 failed
+
+cargo test --release --test startup_migration receiver_recovery_cleanup -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+```
+
+### Files and self-review
+
+- `state/receiver/store/reconciliation/{terminal,cleanup}.rs` retain and
+  redrive cleanup authority through terminal state and acknowledge it with the
+  same full-snapshot CAS and registration check used by the due recovery.
+- `startup_migration/receiver_recovery_cleanup.rs` owns the new 0.84.8 up/down
+  boundary; `state/receiver/schema/recovery.rs` owns its conservative state
+  mapping without changing the schema-v10 number.
+- Reopen coverage asserts effect identifiers, tuple persistence, registration
+  and session-lock retention/release, wrong-ack refusal, single notice intent,
+  FIFO continuation, and cessation of redrive after exact acknowledgement.
+- Adjacent migration coverage proves downgrade safety against the old recovery
+  claim shape and upgrade repair of a partial cleanup tuple.
+- The startup receiver-model test file is back below the approximate 400-line
+  modularity smell threshold; cleanup-boundary coverage is in its own focused
+  file.
+- All six Task 3 contract documents and release metadata were updated. Durable
+  metadata remains content-free.
+
+The deferred progress-deadline clamp consolidation remains assigned to Task 5.
+This round did not alter deadline derivation.
+
+### Final gates
+
+The required uninterrupted release suite completed in one invocation:
+
+```text
+cargo test --release -- --test-threads=1
+library: 2289 passed; 0 failed
+all integration test binaries passed
+startup_migration: 17 passed; 0 failed
+doc-tests: 0 passed; 0 failed
+```
+
+The first strict-clippy pass found a test-only seven-field tuple under
+`clippy::type_complexity`. Replacing it with a named test record exposed
+`clippy::items_after_statements` on the next pass. Moving the record to module
+scope resolved both without changing production behavior; the two adjacent
+migration tests passed again afterward.
+
+Final gates:
+
+```text
+cargo fmt --all -- --check
+exit code 0
+
+cargo test --release --test startup_migration receiver_recovery_cleanup -- --test-threads=1
+test result: ok. 2 passed; 0 failed
+
+cargo clippy --release --all-targets -- -D warnings
+Finished `release` profile; exit code 0
+
+git diff --check
+exit code 0
+```
+
+### Concerns
+
+None within the Task 3 store and migration boundary. Task 4 must execute native
+cleanup before calling the exact acknowledgement seam and must continue
+redriving cleanup when the returned effect is terminal.
+
+### Commit
+
+The focused fix commit contains the 0.84.9 release metadata, source, tests,
+docs, and this appended report. Its final hash is supplied in the handoff
+because embedding it here would change that hash.

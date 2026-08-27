@@ -191,6 +191,49 @@ pub(super) fn reconcile_metadata(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn down_cleanup_fence_path(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let connection = Connection::open(path)?;
+    if !has_column(&connection, "recovery_cleanup_instance")?
+        || !has_column(&connection, "recovery_cleanup_session_id")?
+    {
+        return Ok(());
+    }
+    let transaction = connection.unchecked_transaction()?;
+    transaction.execute_batch(
+        "UPDATE receiver_jobs
+         SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+             retry_at_unix_ms = NULL, retry_from_state = NULL,
+             last_error = CASE
+               WHEN state = 'failed' AND last_error LIKE 'recovery-%' THEN last_error
+               ELSE 'recovery-native-session-unavailable'
+             END,
+             observation_instance = NULL, observation_session_id = NULL,
+             observation_revision = 0, attempt_accepted_at_unix_ms = NULL,
+             attempt_progressing_at_unix_ms = NULL,
+             latest_progress_at_unix_ms = NULL,
+             launch_expires_at_unix_ms = NULL,
+             acceptance_expires_at_unix_ms = NULL,
+             progress_expires_at_unix_ms = NULL,
+             recovery_count = MAX(recovery_count, 1), attempt_kind = 'recovery',
+             pending_unavailable_notice = 1,
+             recovery_cleanup_instance = CASE
+               WHEN recovery_cleanup_instance IS NOT NULL
+                AND recovery_cleanup_session_id IS NOT NULL
+               THEN recovery_cleanup_instance ELSE NULL END,
+             recovery_cleanup_session_id = CASE
+               WHEN recovery_cleanup_instance IS NOT NULL
+                AND recovery_cleanup_session_id IS NOT NULL
+               THEN recovery_cleanup_session_id ELSE NULL END
+         WHERE recovery_cleanup_instance IS NOT NULL
+            OR recovery_cleanup_session_id IS NOT NULL;",
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub(crate) fn down_to_observation_path(path: &std::path::Path) -> Result<()> {
     if !path.exists() {
         return Ok(());

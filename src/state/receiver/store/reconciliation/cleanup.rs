@@ -1,12 +1,16 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
+use rusqlite::OptionalExtension as _;
 
 use super::support::{EXACT_SNAPSHOT_SQL, candidate_for_job};
-use crate::state::{Db, ReceiverAttemptKind, ReceiverJobId, ReceiverJobState, ReceiverJobToken};
+use crate::state::{
+    Db, ReceiverAttemptKind, ReceiverJobId, ReceiverJobState, ReceiverJobToken,
+    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
+};
 
 use super::super::{load::load_receiver_job, to_i64};
 
 impl Db {
-    /// Acknowledge exact local cleanup before a persisted recovery may be claimed.
+    /// Acknowledge exact local cleanup for a due or terminal persisted recovery.
     ///
     /// # Errors
     ///
@@ -40,9 +44,13 @@ impl Db {
             return Ok(false);
         };
         if job.token() != token
-            || candidate.state != ReceiverJobState::Retrying
+            || !matches!(
+                candidate.state,
+                ReceiverJobState::Retrying | ReceiverJobState::Failed
+            )
             || candidate.owner.is_some()
             || job.attempt_kind() != ReceiverAttemptKind::Recovery
+            || (candidate.state == ReceiverJobState::Failed && !job.pending_unavailable_notice())
             || job.recovery_cleanup_instance() != Some(instance)
             || job.recovery_cleanup_session_id() != Some(session_id)
         {
@@ -64,7 +72,7 @@ impl Db {
                  recovery_cleanup_session_id = NULL,
                  updated_at_unix_ms = ?5
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
-               AND state = 'retrying' AND attempt_kind = 'recovery'
+               AND state = ?8 AND attempt_kind = 'recovery'
                AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL
                AND recovery_cleanup_instance = ?4
                AND recovery_cleanup_session_id = ?6
@@ -80,6 +88,7 @@ impl Db {
                 now,
                 session_id,
                 candidate.exact_snapshot,
+                candidate.state.as_str(),
             ],
         )? != 1
         {
@@ -88,6 +97,51 @@ impl Db {
         transaction.commit()?;
         Ok(true)
     }
+}
+
+pub(super) fn pending_cleanup_effect(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+) -> Result<Option<ReceiverReconciliationEffect>> {
+    let job_id = transaction
+        .query_row(
+            "SELECT job_id FROM receiver_jobs
+             WHERE workspace_id = ?1
+               AND state IN ('retrying', 'failed')
+               AND attempt_kind = 'recovery'
+               AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL
+               AND recovery_cleanup_instance IS NOT NULL
+               AND recovery_cleanup_session_id IS NOT NULL
+             ORDER BY received_at_unix_ms, job_id
+             LIMIT 1",
+            [workspace_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(job_id) = job_id else {
+        return Ok(None);
+    };
+    let job_id = ReceiverJobId::parse(&job_id)?;
+    let job = load_receiver_job(transaction, workspace_id, job_id)?
+        .context("pending receiver cleanup job disappeared")?;
+    let reason = ReceiverReconciliationReason::parse(
+        job.last_error()
+            .context("pending receiver cleanup has no stable reason")?,
+    )
+    .context("pending receiver cleanup has an unknown stable reason")?;
+    let action = if job.state() == ReceiverJobState::Failed {
+        ReceiverReconciliationAction::TerminalFailure
+    } else {
+        ReceiverReconciliationAction::ScheduleRecovery
+    };
+    Ok(Some(ReceiverReconciliationEffect::new(
+        action,
+        reason,
+        job.id(),
+        job.token(),
+        job.recovery_cleanup_instance().map(str::to_owned),
+        job.recovery_cleanup_session_id().map(str::to_owned),
+    )))
 }
 
 fn release_exact_cleanup_registration(

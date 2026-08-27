@@ -113,6 +113,7 @@ pub struct Db {
 mod database;
 mod receiver;
 mod session_store;
+pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
 pub(crate) use receiver::schema::down_observation_to_registration_path as receiver_observation_schema_down;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;
 pub(crate) use receiver::schema::down_recovery_to_observation_path as receiver_recovery_schema_down;

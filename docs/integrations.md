@@ -1254,6 +1254,13 @@ fails active missing-deadline state closed without extending valid deadlines.
 Its down operation returns ordinary rows to v9 unchanged where representable and
 terminalizes any nonterminal recovery attempt so an older coordinator cannot
 replay it.
+The automatic 0.84.8 receiver-cleanup boundary handles the cleanup fence added
+after schema v10. Upgrade and same-version reconciliation repair missing or
+partial managed cleanup state. Downgrade to 0.84.7 converts cleanup-pending
+recovery into a terminal pending-notice row while retaining the exact cleanup
+tuple, receiver registration, and native-session lock. Old code therefore
+cannot claim the work, and a later upgrade can redrive and acknowledge the
+original cleanup safely.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
@@ -1371,6 +1378,12 @@ fence and registration until Task 4 shuts down the native run and acknowledges
 the same tuple through the full-snapshot CAS. Recovery claiming cannot cross
 that fence or an older expired-owner lifecycle row or due ordinary retry. An
 ownerless recovery remains reconcilable at its recovery or absolute deadline.
+If it terminalizes before cleanup acknowledgement, the store retains the exact
+tuple, registration, and session lock and keeps returning that terminal cleanup
+effect across restart. Exact acknowledgement accepts the matching due or failed
+recovery, clears the tuple, and releases both lock surfaces atomically. Wrong
+identifiers change nothing. Read-only redrive does not duplicate the notice bit
+or prevent later FIFO work from being claimed.
 Ordinary launch-retry recording rejects recovery attempts; a claimed recovery's
 planning, registration, spawn, or shutdown failure uses an exact terminal
 transition with pending-notice intent. The state layer never invokes an adapter,

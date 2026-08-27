@@ -622,7 +622,11 @@ is best-effort during ordinary startup:
 if its directory is read-only, idempotent reconciliation repeats next time and
 the requested command retains its own diagnostics. `install.sh` detects an existing binary and performs the
 same forward transition during upgrade or the registered reverse transition
-before downgrade. Users do not run a migration command.
+before downgrade. The receiver cleanup fence has its own 0.84.8 boundary: its
+upgrade repairs managed partial state, while downgrade to 0.84.7 terminalizes
+cleanup-pending recovery, preserves the exact cleanup tuple and lock, and makes
+the work non-replayable by the older binary. Users do not run a migration
+command.
 
 After readiness, the selected workspace and one resolved actor are pinned in
 the command context for the invocation's lifetime.
@@ -1637,7 +1641,12 @@ fence, and spends the recovery budget before any claim. Recovery discovery
 after restart can claim only that persisted attempt, only after exact cleanup
 acknowledgement, and only when it is the workspace's globally oldest claimable
 or blocking row. An ownerless recovery still terminalizes at its recovery or
-absolute deadline after reopen. Ordinary retry recording rejects recovery
+absolute deadline after reopen. If cleanup is still pending at that boundary,
+the terminal effect preserves and redrives the same opaque instance/session
+identifiers across later ticks and restarts. Exact acknowledgement then releases
+the retained registration and native-session lock from either the due recovery
+or terminal failed state. The pending notice remains one durable intent, and the
+terminal cleanup does not block later FIFO claims. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
 cleanup, native-history inspection, recovery launch, and notice delivery remain

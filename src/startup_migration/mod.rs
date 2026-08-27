@@ -6,6 +6,7 @@ mod receiver_lifecycle_observation;
 mod receiver_model;
 mod receiver_observation;
 mod receiver_recovery;
+mod receiver_recovery_cleanup;
 mod receiver_session_registration;
 mod version;
 
@@ -23,6 +24,7 @@ const RECEIVER_SESSION_REGISTRATION_VERSION: Version = Version::new(0, 75, 1);
 const RECEIVER_OBSERVATION_VERSION: Version = Version::new(0, 80, 0);
 const RECEIVER_LIFECYCLE_OBSERVATION_VERSION: Version = Version::new(0, 81, 0);
 const RECEIVER_RECOVERY_VERSION: Version = Version::new(0, 84, 0);
+const RECEIVER_RECOVERY_CLEANUP_VERSION: Version = Version::new(0, 84, 8);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -31,7 +33,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 7] = [
+const MIGRATIONS: [Migration; 8] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -66,6 +68,11 @@ const MIGRATIONS: [Migration; 7] = [
         introduced: RECEIVER_RECOVERY_VERSION,
         up: receiver_recovery::up,
         down: receiver_recovery::down,
+    },
+    Migration {
+        introduced: RECEIVER_RECOVERY_CLEANUP_VERSION,
+        up: receiver_recovery_cleanup::up,
+        down: receiver_recovery_cleanup::down,
     },
 ];
 
@@ -104,7 +111,7 @@ fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
     if from < to {
         for migration in MIGRATIONS
             .iter()
-            .filter(|migration| migration.introduced > from && migration.introduced <= to)
+            .filter(|migration| runs_on_upgrade(migration.introduced, from, to))
         {
             (migration.up)(home)?;
         }
@@ -112,7 +119,7 @@ fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
         for migration in MIGRATIONS
             .iter()
             .rev()
-            .filter(|migration| migration.introduced <= from && migration.introduced > to)
+            .filter(|migration| runs_on_downgrade(migration.introduced, from, to))
         {
             (migration.down)(home)?;
         }
@@ -125,6 +132,14 @@ fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn runs_on_upgrade(introduced: Version, from: Version, to: Version) -> bool {
+    introduced > from && introduced <= to
+}
+
+fn runs_on_downgrade(introduced: Version, from: Version, to: Version) -> bool {
+    introduced <= from && introduced > to
 }
 
 fn home_dir() -> Result<PathBuf> {
@@ -181,4 +196,28 @@ fn write_state(path: &Path, version: Version) -> Result<()> {
         let _ = std::fs::remove_file(&temporary);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_fence_boundary_is_exactly_adjacent_to_0847() {
+        let before = Version::new(0, 84, 7);
+        let cleanup = Version::new(0, 84, 8);
+        let down = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_downgrade(migration.introduced, cleanup, before))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+        let up = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_upgrade(migration.introduced, before, cleanup))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+
+        assert_eq!(down, vec![RECEIVER_RECOVERY_CLEANUP_VERSION]);
+        assert_eq!(up, vec![RECEIVER_RECOVERY_CLEANUP_VERSION]);
+    }
 }

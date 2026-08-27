@@ -274,6 +274,7 @@ fn has_column(connection: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
+pub(crate) use recovery::down_cleanup_fence_path;
 pub(crate) use recovery::down_to_observation_path as down_recovery_to_observation_path;
 
 pub(crate) fn down_observation_to_registration_path(path: &std::path::Path) -> Result<()> {

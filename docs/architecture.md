@@ -234,9 +234,12 @@ targeted and discovery claims also require the recovery to be the workspace's
 globally oldest claimable or blocking row. Exhaustion, ownerless recovery or
 absolute expiry, missing resume evidence, incomplete legacy completion, and
 any claimed-recovery planning, registration, spawn, or shutdown failure become
-terminal with a pending unavailable-notice intent. The transaction returns
-content-free effect identifiers, while controller cleanup, validation, launch,
-and notice delivery remain outside the state layer.
+terminal with a pending unavailable-notice intent. A terminal cleanup-pending
+row retains its exact tuple, registration, and session lock; recurring
+reconciliation redrives the same content-free cleanup identifiers across
+restart until an exact failed-state acknowledgement clears them. That terminal
+redrive neither duplicates notice state nor blocks later FIFO work. Controller
+cleanup, validation, launch, and notice delivery remain outside the state layer.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error
@@ -342,7 +345,11 @@ that started before the migration; no current frontend setting registers those
 legacy paths. The 0.81 receiver-lifecycle migration installs the normalized
 observation producers and has an exact down path that removes only its canonical
 hooks and script while restoring the frozen 0.80 OpenCode plugin. Same-basename
-user commands are not managed entries. The version stamp lives at
+user commands are not managed entries. The 0.84.8 receiver-cleanup migration
+reconciles the exact cleanup fence on upgrade. Its down path terminalizes any
+cleanup-pending recovery without clearing the retained instance/session tuple,
+registration, or native-session lock, so a 0.84.7 binary cannot replay it and a
+later upgrade can finish exact cleanup. The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
 
