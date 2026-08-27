@@ -622,8 +622,11 @@ is best-effort during ordinary startup:
 if its directory is read-only, idempotent reconciliation repeats next time and
 the requested command retains its own diagnostics. `install.sh` detects an existing binary and performs the
 same forward transition during upgrade or the registered reverse transition
-before downgrade. The receiver cleanup fence has its own 0.84.8 boundary: its
-upgrade repairs managed partial state, while downgrade to 0.84.7 terminalizes
+before downgrade. The receiver cleanup fence has its own 0.84.8 boundary.
+Upgrade reconstructs a missing fence half only from one fully attributed
+registration and attributed native-session row, preserving exact redrive and
+acknowledgement. Ambiguous or mismatched evidence fails closed without
+releasing either unproved resource. Downgrade to 0.84.7 terminalizes
 cleanup-pending recovery, preserves the exact cleanup tuple and lock, and makes
 the work non-replayable by the older binary. Users do not run a migration
 command.
@@ -1650,7 +1653,9 @@ terminal cleanup does not block later FIFO claims. Ordinary retry recording reje
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
 cleanup, native-history inspection, recovery launch, and notice delivery remain
-separate App effects.
+separate App effects. Automatic startup repair preserves this authority when
+one cleanup identifier is missing only if one fully attributed durable
+registration and attributed session row proves the exact missing half.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

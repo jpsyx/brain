@@ -2565,11 +2565,17 @@ attempt from replayable ordinary work.
 
 The cleanup fence was introduced after the original schema-v10 migration, so it
 has a separate automatic boundary at 0.84.8 even though the SQLite schema
-number remains 10. Upgrade and later reconciliation repair managed partial
-state. Downgrade to 0.84.7 terminalizes cleanup-pending recovery before old code
-runs, but retains a complete cleanup tuple and its locks. This favors no replay
-and eventual exact cleanup over pretending an older binary can safely resume
-the fenced work.
+number remains 10. Upgrade and later reconciliation rebuild a one-sided fence
+only when exactly one receiver registration and attributed native-session row match the
+complete workspace, conversation, frontend, actor, channel, instance, and
+native-session identity. This preserves redrive and acknowledgement authority
+without guessing. Ambiguous or mismatched evidence terminalizes and clears the
+invalid fence but retains every unproved registration and lock, because
+releasing an unrelated native session would be worse than requiring later
+manual repair. Downgrade to 0.84.7 terminalizes cleanup-pending recovery before
+old code runs, but retains a complete cleanup tuple and its locks. This favors
+no replay and eventual exact cleanup over pretending an older binary can safely
+resume the fenced work.
 
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged

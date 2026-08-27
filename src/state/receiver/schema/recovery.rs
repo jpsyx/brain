@@ -3,6 +3,8 @@ use rusqlite::Connection;
 
 use super::{OBSERVATION_VERSION, VERSION, has_column};
 
+mod cleanup;
+
 const COLUMNS: &[(&str, &str)] = &[
     ("attempt_accepted_at_unix_ms", "INTEGER"),
     ("attempt_progressing_at_unix_ms", "INTEGER"),
@@ -97,6 +99,7 @@ pub(super) fn migrate_v9_metadata(connection: &Connection) -> Result<()> {
 }
 
 pub(super) fn reconcile_metadata(connection: &Connection) -> Result<()> {
+    cleanup::reconcile_partial_fences(connection)?;
     let needs_repair = connection.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM receiver_jobs
@@ -117,8 +120,6 @@ pub(super) fn reconcile_metadata(connection: &Connection) -> Result<()> {
                   AND recovery_expires_at_unix_ms IS NULL)
               OR (state IN ('accepted', 'processing')
                   AND absolute_work_expires_at_unix_ms IS NULL)
-              OR ((recovery_cleanup_instance IS NULL)
-                  != (recovery_cleanup_session_id IS NULL))
          )",
         [],
         |row| row.get::<_, bool>(0),
@@ -128,19 +129,6 @@ pub(super) fn reconcile_metadata(connection: &Connection) -> Result<()> {
     }
     connection.execute_batch(
         "UPDATE receiver_jobs
-         SET state = 'failed', claim_owner = NULL,
-             claim_expires_at_unix_ms = NULL, retry_at_unix_ms = NULL,
-             retry_from_state = NULL,
-             last_error = 'recovery-native-session-unavailable',
-             launch_expires_at_unix_ms = NULL,
-             acceptance_expires_at_unix_ms = NULL,
-             progress_expires_at_unix_ms = NULL,
-             pending_unavailable_notice = 1,
-             recovery_cleanup_instance = NULL,
-             recovery_cleanup_session_id = NULL
-         WHERE (recovery_cleanup_instance IS NULL)
-             != (recovery_cleanup_session_id IS NULL);
-         UPDATE receiver_jobs
          SET recovery_count = CASE
                WHEN attempt_kind = 'recovery' AND recovery_count = 0 THEN 1
                ELSE recovery_count

@@ -341,8 +341,12 @@ ordered migrations were last applied. It is machine state, not portable
 workspace data and not part of a workspace's UUID cache. A later ordinary
 invocation still reconciles current managed artifacts even when this stamp
 already matches, which is how a missing hook is recreated without user action.
-The 0.84.8 receiver-cleanup boundary also reconciles partial cleanup-fence
-metadata. Its 0.84.7 down mapping makes cleanup-pending recovery terminal and
+The 0.84.8 receiver-cleanup boundary also reconciles one-sided cleanup-fence
+metadata. It reconstructs the missing identifier only when one fully
+attributed receiver registration and native-session row prove the exact
+tuple. Ambiguous or mismatched evidence becomes terminal with notice intent;
+the invalid partial fence is cleared, but unproved registrations and locks are
+retained. Its 0.84.7 down mapping makes cleanup-pending recovery terminal and
 non-replayable while retaining the complete instance/session tuple,
 registration, and native-session lock for exact cleanup after a later upgrade.
 

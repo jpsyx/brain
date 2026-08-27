@@ -712,3 +712,171 @@ redriving cleanup when the returned effect is terminal.
 The focused fix commit contains the 0.84.9 release metadata, source, tests,
 docs, and this appended report. Its final hash is supplied in the handoff
 because embedding it here would change that hash.
+
+## Fix round 3 of 5
+
+### Status
+
+DONE
+
+This round resolves the remaining Important finding in
+`task-3-rereview-2.md` and supersedes the earlier claim that every partial
+cleanup fence can simply be terminalized and cleared. The crate version moved
+from 0.84.9 to 0.84.10.
+
+### Behavior corrected
+
+- Automatic 0.84.8 upgrade and current-version reconciliation now examine a
+  one-sided cleanup fence inside the schema transaction. If exactly one
+  receiver registration and attributed `brain_sessions` row match the complete
+  workspace, conversation, frontend, actor, channel, known cleanup identifier,
+  and effective native-session identity, repair reconstructs the missing
+  identifier and terminalizes with one pending-notice intent.
+- The reconstructed complete tuple retains the original registration and lock,
+  so recurring store reconciliation redrives the exact opaque cleanup instance
+  and session after reopen. Wrong acknowledgement leaves both resources intact;
+  exact acknowledgement releases the registration and session lock and clears
+  the tuple atomically.
+- Ambiguous or mismatched registration evidence fails closed. Repair
+  terminalizes with notice intent and clears the invalid partial fence, but it
+  does not release any registration or native-session lock whose identity was
+  not proved. No cleanup effect or acknowledgement authority is invented.
+- The focused schema-v10 repair now has a dedicated
+  `state/receiver/schema/recovery/cleanup.rs` child module. The parent remains
+  the coordinator for v10 repair and downgrade mapping.
+
+Task 4 still owns native process cleanup and use of the existing exact
+acknowledgement seam. No App, TUI effect executor, frontend, provider, hook,
+prompt, or notice-delivery behavior changed.
+
+### RED evidence
+
+Both missing halves were introduced before the production repair:
+
+```text
+cargo test --release --test startup_migration receiver_recovery_cleanup::adjacent_cleanup_fence_upgrade_reconstructs_missing -- --test-threads=1 --nocapture
+
+adjacent_cleanup_fence_upgrade_reconstructs_missing_instance ... FAILED
+adjacent_cleanup_fence_upgrade_reconstructs_missing_session ... FAILED
+assertion `left == right` failed
+left: None
+right: Some("ordinary-instance")
+```
+
+The existing repair cleared the surviving half, so neither damaged state
+retained a complete tuple for redrive or acknowledgement.
+
+After the first production repair made both tuple assertions green, the new
+real-store redrive assertion exposed invalid fixture-only inbound JSON:
+
+```text
+parse durable receiver job: missing field `job_id`
+```
+
+The fixture now seeds a valid minimal content-free `InboundJob` representation.
+Converting that fixture to a raw string first produced an escaping compile
+error; correcting the raw literal was test plumbing, not a product RED.
+
+The schema-child refactor also exposed a real compatibility regression in the
+schema-free v5 startup fixture:
+
+```text
+no such table: brain_sessions
+```
+
+The child had prepared its registration/session join even when no partial fence
+existed. A cheap partial-fence existence query now returns before that join, so
+older schema fixtures retain their prior compatibility.
+
+### GREEN and safety evidence
+
+The same two-test command passed after exact reconstruction and fixture repair:
+
+```text
+test result: ok. 2 passed; 0 failed
+```
+
+The ambiguous-instance and mismatched-session characterization was added after
+the exact repair was green. Its first run passed, so it is recorded honestly as
+safety evidence rather than historical RED:
+
+```text
+cargo test --release --test startup_migration receiver_recovery_cleanup_safety::adjacent_cleanup_upgrade_never_releases_ambiguous_or_mismatched_registration -- --exact --test-threads=1 --nocapture
+test result: ok. 1 passed; 0 failed
+```
+
+That compiled adjacent-upgrade coverage asserts terminal state, one notice
+intent, invalid tuple clearance, retained registrations and locks, absence of a
+cleanup redrive, and failed acknowledgement when exact authority cannot be
+proved. The two exact cases assert the reconstructed identifiers, retained
+resources, terminal redrive, wrong acknowledgement refusal, exact
+acknowledgement release, and cessation of redrive.
+
+Final focused suites:
+
+```text
+cargo test --release --lib state::receiver::tests::schema -- --test-threads=1
+test result: ok. 18 passed; 0 failed
+
+cargo test --release --lib state::receiver::tests -- --test-threads=1
+test result: ok. 110 passed; 0 failed
+
+cargo test --release --lib startup_migration::tests -- --test-threads=1
+test result: ok. 1 passed; 0 failed
+
+cargo test --release --test startup_migration -- --test-threads=1
+test result: ok. 19 passed; 0 failed
+
+cargo test --release --test install_script -- --test-threads=1
+test result: ok. 5 passed; 0 failed
+```
+
+### Final gates
+
+The required full serial release suite completed in one uninterrupted
+invocation:
+
+```text
+cargo test --release -- --test-threads=1
+library: 2289 passed; 0 failed
+all integration test binaries passed
+startup_migration: 19 passed; 0 failed
+doc-tests: 0 passed; 0 failed
+```
+
+Final formatting and lint gates:
+
+```text
+cargo fmt --all -- --check
+exit code 0
+
+cargo clippy --release --all-targets -- -D warnings
+Finished `release` profile; exit code 0
+
+git diff --check
+exit code 0
+```
+
+### Files, privacy, and concerns
+
+- `state/receiver/schema/recovery/cleanup.rs` owns exact one-sided-fence
+  reconstruction and the fail-closed fallback inside the existing schema
+  transaction.
+- `tests/startup_migration/receiver_recovery_cleanup.rs` covers both missing
+  halves through compiled adjacent upgrade and real store redrive and
+  acknowledgement. The sibling safety module covers ambiguous and mismatched
+  evidence without growing the main fixture beyond its focused responsibility.
+- All six Task 3 contract documents and 0.84.10 release metadata were updated.
+  Durable and effect metadata remains content-free.
+
+The intentional fail-closed case retains unproved registrations and locks but
+has no cleanup redrive authority. This avoids releasing an unrelated session;
+manual diagnosis may be needed for such already-corrupt ambiguous state. Task 4
+must continue to perform cleanup before exact acknowledgement whenever the
+reconciler supplies a complete tuple.
+
+### Commit
+
+The focused fix commit contains the 0.84.10 release metadata, source, tests,
+docs, and this appended report. Its final hash is supplied in the handoff
+because embedding it here would change that hash.

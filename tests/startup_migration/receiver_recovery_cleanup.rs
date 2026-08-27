@@ -1,8 +1,8 @@
-fn seed_cleanup_pending_recovery(path: &Path) {
+pub(super) fn seed_cleanup_pending_recovery(path: &Path) {
     rusqlite::Connection::open(path)
         .expect("cleanup-fence state")
         .execute_batch(
-            "CREATE TABLE IF NOT EXISTS brain_sessions (
+            r#"CREATE TABLE IF NOT EXISTS brain_sessions (
                agent_kind        TEXT NOT NULL,
                agent_session_id  TEXT NOT NULL,
                brain_instance_id TEXT NOT NULL,
@@ -47,10 +47,15 @@ fn seed_cleanup_pending_recovery(path: &Path) {
                ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
                 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
                 '11111111-1111-4111-8111-111111111111',
-                'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'sms', '{}', 'retrying',
+                'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'sms',
+                '{"job_id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                  "workspace_id":"11111111-1111-4111-8111-111111111111",
+                  "actor":{"user_id":"pablo","display_name":"Pablo","channel":"sms"},
+                  "channel":"sms","authenticated_sender":"sender","prompt":"",
+                  "attachments":[],"received_at_unix_ms":100}', 'retrying',
                 100, 200, 0, 200, 'processing', 'recovery-accepted-stall',
                 600000, 1800000, 1, 'recovery', 0,
-                'ordinary-instance', 'native-session');",
+                'ordinary-instance', 'native-session');"#,
         )
         .expect("seed cleanup-pending recovery");
 }
@@ -150,8 +155,23 @@ fn adjacent_cleanup_fence_down_migration_terminalizes_without_losing_exact_clean
     );
 }
 
+#[derive(Clone, Copy)]
+enum MissingCleanupHalf {
+    Instance,
+    Session,
+}
+
 #[test]
-fn adjacent_cleanup_fence_upgrade_repairs_partial_managed_state() {
+fn adjacent_cleanup_fence_upgrade_reconstructs_missing_instance() {
+    assert_adjacent_cleanup_fence_upgrade(MissingCleanupHalf::Instance);
+}
+
+#[test]
+fn adjacent_cleanup_fence_upgrade_reconstructs_missing_session() {
+    assert_adjacent_cleanup_fence_upgrade(MissingCleanupHalf::Session);
+}
+
+fn assert_adjacent_cleanup_fence_upgrade(missing: MissingCleanupHalf) {
     let fixture = Fixture::new();
     fixture.seed_pre_receiver_state();
     let first = fixture.run(&["server", "status"]);
@@ -166,13 +186,17 @@ fn adjacent_cleanup_fence_upgrade_repairs_partial_managed_state() {
     connection
         .execute_batch("PRAGMA ignore_check_constraints = ON;")
         .expect("allow partial cleanup tuple");
-    connection
-        .execute(
+    let damage_sql = match missing {
+        MissingCleanupHalf::Instance => {
+            "UPDATE receiver_jobs SET recovery_cleanup_instance = NULL
+             WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'"
+        }
+        MissingCleanupHalf::Session => {
             "UPDATE receiver_jobs SET recovery_cleanup_session_id = NULL
-             WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",
-            [],
-        )
-        .expect("damage cleanup tuple");
+             WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'"
+        }
+    };
+    connection.execute(damage_sql, []).expect("damage cleanup tuple");
     connection
         .execute_batch("PRAGMA ignore_check_constraints = OFF;")
         .expect("restore cleanup constraints");
@@ -215,6 +239,83 @@ fn adjacent_cleanup_fence_upgrade_repairs_partial_managed_state() {
         Some("recovery-native-session-unavailable")
     );
     assert_eq!(repaired.2, 1);
-    assert_eq!(repaired.3, None);
-    assert_eq!(repaired.4, None);
+    assert_eq!(repaired.3.as_deref(), Some("ordinary-instance"));
+    assert_eq!(repaired.4.as_deref(), Some("native-session"));
+    drop(connection);
+    assert_cleanup_resources(&family, 1, Some(42));
+
+    let db = brain::state::Db::open_path_with_legacy_identity(
+        &family,
+        "11111111-1111-4111-8111-111111111111",
+        "pablo",
+    )
+    .expect("open repaired cleanup state");
+    let effect = db
+        .reconcile_next_receiver_job(201)
+        .expect("redrive reconstructed cleanup")
+        .expect("reconstructed cleanup effect");
+    assert_eq!(
+        effect.action(),
+        brain::state::ReceiverReconciliationAction::TerminalFailure
+    );
+    assert_eq!(
+        effect.reason(),
+        brain::state::ReceiverReconciliationReason::NativeSessionUnavailable
+    );
+    assert_eq!(effect.cleanup_instance(), Some("ordinary-instance"));
+    assert_eq!(effect.cleanup_session_id(), Some("native-session"));
+    let job_id = uuid::Uuid::parse_str("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        .expect("job UUID")
+        .into();
+    let token = brain::state::ReceiverJobToken::parse(
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    )
+    .expect("job token");
+    assert!(
+        !db.acknowledge_receiver_recovery_cleanup(
+            job_id,
+            token,
+            "wrong-instance",
+            "native-session",
+            202,
+        )
+        .expect("reject wrong reconstructed cleanup acknowledgement")
+    );
+    assert_cleanup_resources(&family, 1, Some(42));
+    assert!(
+        db.acknowledge_receiver_recovery_cleanup(
+            job_id,
+            token,
+            "ordinary-instance",
+            "native-session",
+            203,
+        )
+        .expect("acknowledge reconstructed cleanup")
+    );
+    assert_cleanup_resources(&family, 0, None);
+    assert!(
+        db.reconcile_next_receiver_job(204)
+            .expect("cleanup stops redriving after acknowledgement")
+            .is_none()
+    );
+}
+
+fn assert_cleanup_resources(path: &Path, expected_registrations: i64, expected_lock: Option<i64>) {
+    let connection = rusqlite::Connection::open(path).expect("cleanup resource state");
+    let resources: (i64, Option<i64>) = connection
+        .query_row(
+            "SELECT
+               (SELECT COUNT(*) FROM receiver_session_registrations
+                WHERE workspace_id = '11111111-1111-4111-8111-111111111111'
+                  AND conversation_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+                  AND brain_instance_id = 'ordinary-instance'),
+               (SELECT locked_pid FROM brain_sessions
+                WHERE workspace_id = '11111111-1111-4111-8111-111111111111'
+                  AND brain_instance_id = 'ordinary-instance'
+                  AND agent_session_id = 'native-session')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load cleanup resources");
+    assert_eq!(resources, (expected_registrations, expected_lock));
 }

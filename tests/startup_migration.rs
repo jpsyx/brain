@@ -475,3 +475,9 @@ mod receiver_recovery_cleanup {
 
     include!("startup_migration/receiver_recovery_cleanup.rs");
 }
+
+mod receiver_recovery_cleanup_safety {
+    use super::*;
+
+    include!("startup_migration/receiver_recovery_cleanup_safety.rs");
+}

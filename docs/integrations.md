@@ -1255,12 +1255,17 @@ Its down operation returns ordinary rows to v9 unchanged where representable and
 terminalizes any nonterminal recovery attempt so an older coordinator cannot
 replay it.
 The automatic 0.84.8 receiver-cleanup boundary handles the cleanup fence added
-after schema v10. Upgrade and same-version reconciliation repair missing or
-partial managed cleanup state. Downgrade to 0.84.7 converts cleanup-pending
-recovery into a terminal pending-notice row while retaining the exact cleanup
-tuple, receiver registration, and native-session lock. Old code therefore
-cannot claim the work, and a later upgrade can redrive and acknowledge the
-original cleanup safely.
+after schema v10. Upgrade and same-version reconciliation reconstruct a missing
+fence half only when one registration and attributed session row match every durable
+workspace, conversation, frontend, actor, channel, instance, and native-session
+identifier. That complete tuple keeps recurring cleanup redrive and exact
+acknowledgement available. Ambiguous or mismatched evidence terminalizes and
+clears the invalid fence without releasing an unproved registration or session
+lock. Downgrade to 0.84.7 converts cleanup-pending recovery into a terminal
+pending-notice row while retaining the exact cleanup tuple, receiver
+registration, and native-session lock. Old code therefore cannot claim the
+work, and a later upgrade can redrive and acknowledge the original cleanup
+safely.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
