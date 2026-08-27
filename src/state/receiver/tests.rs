@@ -101,4 +101,5 @@ mod schema {
     include!("tests/schema.rs");
     include!("tests/schema_sections/collisions.rs");
     include!("tests/schema_sections/downgrade.rs");
+    include!("tests/schema_sections/writer_ordering.rs");
 }

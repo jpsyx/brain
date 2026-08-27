@@ -612,9 +612,10 @@ first move is a failing test that reproduces it, *then* the fix.
   post-spawn ambiguity becomes conservatively failed. The state test wrapper
   and store are split along identity, acceptance, claim, conversation,
   completion, and schema seams rather than collected in one oversized file.
-  Schema-v11 tests prove partial notice-lease repair, exact v11-to-v10 removal,
-  immediate-writer reservation before schema inspection under a concurrent
-  writer, and continuation through the v10-to-v9 recovery downgrade. Separate-handle
+  Schema-v11 tests prove partial notice-lease repair and exact v11-to-v10 removal.
+  Deterministic separate-handle mutations prove the v11-to-v10, cleanup-fence,
+  and v10-to-v9 downgrade boundaries reserve the immediate writer before reading
+  mutable column or version authority, then evaluate the post-lock shape. Separate-handle
   notice tests prove one finite claimant, wrong-owner acknowledgement refusal,
   retry after exact lease expiry, and ordinary FIFO eligibility while notice
   handoff remains leased. Exact stale-registration tests require the complete

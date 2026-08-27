@@ -2775,6 +2775,13 @@ old code runs, but retains a complete cleanup tuple and its locks. This favors
 no replay and eventual exact cleanup over pretending an older binary can safely
 resume the fenced work.
 
+Recovery-schema downgrades reserve an immediate SQLite writer before reading
+mutable column shape or schema-version authority. Ordinary startup
+reconciliation and installer-driven downgrade can overlap on one workspace DB,
+so a pre-transaction eligibility read would be stale by the time DDL begins.
+Each boundary now evaluates eligibility and transforms data inside the same
+writer transaction; a post-lock ineligible shape returns without mutation.
+
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
 admission protocol, and their execution policy. The remaining `jobs.sock`

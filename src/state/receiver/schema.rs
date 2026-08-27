@@ -290,5 +290,9 @@ pub(crate) use notice::down_unavailable_notice_path;
 pub(super) use notice::down_unavailable_notice_path_with_busy_observer;
 pub(crate) use recovery::down_cleanup_fence_path;
 pub(crate) use recovery::down_to_observation_path as down_recovery_to_observation_path;
+#[cfg(test)]
+pub(in crate::state::receiver) use recovery::{
+    down_cleanup_fence_path_with_busy_observer, down_to_observation_path_with_busy_observer,
+};
 
 use notice::ensure_unavailable_notice_columns;

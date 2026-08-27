@@ -2,6 +2,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 use super::{OBSERVATION_VERSION, RECOVERY_VERSION, has_column};
+use crate::state::Db;
 
 mod cleanup;
 
@@ -180,16 +181,39 @@ pub(super) fn reconcile_metadata(connection: &Connection) -> Result<()> {
 }
 
 pub(crate) fn down_cleanup_fence_path(path: &std::path::Path) -> Result<()> {
+    down_cleanup_fence_path_inner(path, None)
+}
+
+#[cfg(test)]
+pub(in crate::state::receiver) fn down_cleanup_fence_path_with_busy_observer(
+    path: &std::path::Path,
+    observer: fn(i32) -> bool,
+) -> Result<()> {
+    down_cleanup_fence_path_inner(path, Some(observer))
+}
+
+fn down_cleanup_fence_path_inner(
+    path: &std::path::Path,
+    busy_observer: Option<fn(i32) -> bool>,
+) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     let connection = Connection::open(path)?;
-    if !has_column(&connection, "recovery_cleanup_instance")?
-        || !has_column(&connection, "recovery_cleanup_session_id")?
-    {
+    Db::configure(&connection)?;
+    if let Some(observer) = busy_observer {
+        connection.busy_handler(Some(observer))?;
+    }
+    let transaction = rusqlite::Transaction::new_unchecked(
+        &connection,
+        rusqlite::TransactionBehavior::Immediate,
+    )?;
+    let has_instance = has_column(&transaction, "recovery_cleanup_instance")?;
+    let has_session = has_column(&transaction, "recovery_cleanup_session_id")?;
+    if !has_instance || !has_session {
+        transaction.commit()?;
         return Ok(());
     }
-    let transaction = connection.unchecked_transaction()?;
     transaction.execute_batch(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -223,15 +247,38 @@ pub(crate) fn down_cleanup_fence_path(path: &std::path::Path) -> Result<()> {
 }
 
 pub(crate) fn down_to_observation_path(path: &std::path::Path) -> Result<()> {
+    down_to_observation_path_inner(path, None)
+}
+
+#[cfg(test)]
+pub(in crate::state::receiver) fn down_to_observation_path_with_busy_observer(
+    path: &std::path::Path,
+    observer: fn(i32) -> bool,
+) -> Result<()> {
+    down_to_observation_path_inner(path, Some(observer))
+}
+
+fn down_to_observation_path_inner(
+    path: &std::path::Path,
+    busy_observer: Option<fn(i32) -> bool>,
+) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
     let connection = Connection::open(path)?;
-    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    Db::configure(&connection)?;
+    if let Some(observer) = busy_observer {
+        connection.busy_handler(Some(observer))?;
+    }
+    let transaction = rusqlite::Transaction::new_unchecked(
+        &connection,
+        rusqlite::TransactionBehavior::Immediate,
+    )?;
+    let version: i32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version != RECOVERY_VERSION {
+        transaction.commit()?;
         return Ok(());
     }
-    let transaction = connection.unchecked_transaction()?;
     transaction.execute_batch(
         "DROP INDEX IF EXISTS receiver_jobs_ready;
          DROP INDEX IF EXISTS receiver_jobs_job_token;
