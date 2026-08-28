@@ -64,6 +64,280 @@ fn assert_malformed_v11_shape_rolls_back_delivery_downgrade(alter_schema: &str) 
     assert!(!error.to_string().contains("private"));
 }
 
+#[derive(Clone, Copy)]
+enum V11ContractDamage {
+    ChannelCheck,
+    ProviderUniqueness,
+    ConversationForeignKey,
+    ManagedIndexes,
+}
+
+fn damage_receiver_jobs_contract(connection: &rusqlite::Connection, damage: V11ContractDamage) {
+    if matches!(damage, V11ContractDamage::ManagedIndexes) {
+        connection
+            .execute_batch(
+                "DROP INDEX IF EXISTS receiver_jobs_ready;
+                 DROP INDEX IF EXISTS receiver_jobs_job_token;",
+            )
+            .expect("remove managed v11 indexes");
+        return;
+    }
+    let sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND name = 'receiver_jobs'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load receiver jobs contract");
+    let damaged = match damage {
+        V11ContractDamage::ChannelCheck => sql.replace(
+            "channel                   TEXT NOT NULL CHECK (channel IN ('sms', 'email'))",
+            "channel                   TEXT NOT NULL",
+        ),
+        V11ContractDamage::ProviderUniqueness => {
+            sql.replace("UNIQUE (workspace_id, channel, provider_id),", "")
+        }
+        V11ContractDamage::ConversationForeignKey => sql.replace(
+            "conversation_id           TEXT NOT NULL REFERENCES receiver_conversations(conversation_id)",
+            "conversation_id           TEXT NOT NULL",
+        ),
+        V11ContractDamage::ManagedIndexes => unreachable!(),
+    }
+    .replacen(
+        "CREATE TABLE receiver_jobs",
+        "CREATE TABLE receiver_jobs_damaged",
+        1,
+    );
+    assert!(damaged != sql, "contract mutation did not change the fixture");
+    connection
+        .execute_batch(&format!(
+            "PRAGMA foreign_keys = OFF;
+             DROP INDEX IF EXISTS receiver_jobs_ready;
+             DROP INDEX IF EXISTS receiver_jobs_job_token;
+             {damaged};
+             INSERT INTO receiver_jobs_damaged SELECT * FROM receiver_jobs;
+             DROP TABLE receiver_jobs;
+             ALTER TABLE receiver_jobs_damaged RENAME TO receiver_jobs;
+             PRAGMA foreign_keys = ON;"
+        ))
+        .expect("install damaged receiver jobs contract");
+}
+
+fn v11_index_matches(
+    connection: &rusqlite::Connection,
+    name: &str,
+    unique: bool,
+    columns: &[&str],
+) -> bool {
+    let actual_unique = connection
+        .query_row(
+            "SELECT \"unique\" FROM pragma_index_list('receiver_jobs') WHERE name = ?1",
+            [name],
+            |row| row.get::<_, bool>(0),
+        )
+        .ok();
+    let actual_columns = connection
+        .prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")
+        .and_then(|mut statement| {
+            statement
+                .query_map([name], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .unwrap_or_default();
+    actual_unique == Some(unique)
+        && actual_columns
+            .iter()
+            .map(String::as_str)
+            .eq(columns.iter().copied())
+}
+
+#[test]
+fn v12_down_rebuilds_every_v11_job_constraint_and_managed_index() {
+    for damage in [
+        V11ContractDamage::ChannelCheck,
+        V11ContractDamage::ProviderUniqueness,
+        V11ContractDamage::ConversationForeignKey,
+        V11ContractDamage::ManagedIndexes,
+    ] {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let path = temporary.path().join("state.db");
+        {
+            let db = Db::open_path_with_legacy_identity(
+                &path,
+                &receiver_workspace_id().to_string(),
+                receiver_user_id().as_str(),
+            )
+            .expect("receiver state");
+            let identity =
+                ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+            db.accept_receiver_job(&receiver_job(Some("v11-contract-one"), 100), &identity)
+                .expect("accept first retained job");
+            db.accept_receiver_job(&receiver_job(Some("v11-contract-two"), 101), &identity)
+                .expect("accept second retained job");
+            damage_receiver_jobs_contract(&db.conn, damage);
+        }
+
+        super::super::schema::down_delivery_path(&path)
+            .expect("rebuild exact v11 receiver jobs contract");
+
+        let connection = rusqlite::Connection::open(&path).expect("downgraded v11 state");
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("enable old-reader foreign keys");
+        let sql: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master
+                 WHERE type = 'table' AND name = 'receiver_jobs'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load rebuilt v11 contract");
+        assert!(
+            sql.contains("CHECK (channel IN ('sms', 'email'))"),
+            "v11 channel constraint was not restored"
+        );
+        assert!(
+            sql.contains("REFERENCES receiver_conversations(conversation_id)"),
+            "v11 conversation foreign key was not restored"
+        );
+        assert!(
+            sql.contains("UNIQUE (workspace_id, channel, provider_id)"),
+            "v11 provider uniqueness was not restored"
+        );
+        assert!(
+            v11_index_matches(
+                &connection,
+                "receiver_jobs_ready",
+                false,
+                &[
+                    "state",
+                    "retry_at_unix_ms",
+                    "received_at_unix_ms",
+                    "job_id"
+                ]
+            ),
+            "v11 ready index was not restored"
+        );
+        assert!(
+            v11_index_matches(
+                &connection,
+                "receiver_jobs_job_token",
+                true,
+                &["job_token"]
+            ),
+            "v11 token index was not restored"
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE receiver_jobs SET channel = 'invalid' WHERE provider_id = 'v11-contract-one'",
+                    [],
+                )
+                .is_err(),
+            "old reader accepted an invalid channel"
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE receiver_jobs SET conversation_id = 'missing' WHERE provider_id = 'v11-contract-one'",
+                    [],
+                )
+                .is_err(),
+            "old reader accepted an orphan conversation"
+        );
+        assert!(
+            connection
+                .execute(
+                    "UPDATE receiver_jobs SET provider_id = 'v11-contract-one' WHERE provider_id = 'v11-contract-two'",
+                    [],
+                )
+                .is_err(),
+            "old reader accepted a duplicate provider identity"
+        );
+    }
+}
+
+#[test]
+fn v12_down_rejects_malformed_rows_without_stamping_or_dropping_v12_state() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("state.db");
+    {
+        let db = Db::open_path_with_legacy_identity(
+            &path,
+            &receiver_workspace_id().to_string(),
+            receiver_user_id().as_str(),
+        )
+        .expect("receiver state");
+        let identity =
+            ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+        db.accept_receiver_job(&receiver_job(Some("v11-invalid-row"), 100), &identity)
+            .expect("accept retained job");
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master
+                 WHERE type = 'table' AND name = 'receiver_jobs'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load receiver jobs contract");
+        let damaged = sql
+            .replace("CHECK (retry_count >= 0)", "")
+            .replacen(
+                "CREATE TABLE receiver_jobs",
+                "CREATE TABLE receiver_jobs_damaged",
+                1,
+            );
+        db.conn
+            .execute_batch(&format!(
+                "PRAGMA foreign_keys = OFF;
+                 DROP INDEX IF EXISTS receiver_jobs_ready;
+                 DROP INDEX IF EXISTS receiver_jobs_job_token;
+                 {damaged};
+                 INSERT INTO receiver_jobs_damaged SELECT * FROM receiver_jobs;
+                 DROP TABLE receiver_jobs;
+                 ALTER TABLE receiver_jobs_damaged RENAME TO receiver_jobs;
+                 UPDATE receiver_jobs SET retry_count = -1;
+                 PRAGMA foreign_keys = ON;"
+            ))
+            .expect("stage malformed v12 source row");
+    }
+
+    assert!(
+        super::super::schema::down_delivery_path(&path).is_err(),
+        "malformed v12 source row was stamped as v11"
+    );
+    let connection = rusqlite::Connection::open(path).expect("rolled-back v12 state");
+    let unchanged: (i64, i64, i64, i64) = (
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("retained schema version"),
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs') WHERE name = 'response_sender'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("retained response sender"),
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'receiver_deliveries'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("retained delivery table"),
+        connection
+            .query_row("SELECT MIN(retry_count) FROM receiver_jobs", [], |row| row.get(0))
+            .expect("retained malformed source row"),
+    );
+    assert!(
+        unchanged == (12, 1, 1, -1),
+        "failed downgrade did not roll back atomically"
+    );
+}
+
 #[test]
 fn v12_down_requires_the_complete_v11_conversation_shape() {
     assert_malformed_v11_shape_rolls_back_delivery_downgrade(

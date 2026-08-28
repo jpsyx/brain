@@ -259,5 +259,8 @@ fn resend_replay_uses_the_exact_delivery_key_and_byte_identical_payload() {
     assert_eq!(first.idempotency_header_count(), 1);
     assert!(first.uses_frozen_sender());
     assert!(first.has_one_authorization_header());
-    assert_eq!(format!("{first:?}"), "ResendRequestProof(<redacted>)");
+    assert!(
+        format!("{first:?}") == "ResendRequestProof(<redacted>)",
+        "Resend request proof Debug was not redacted"
+    );
 }

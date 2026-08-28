@@ -63,30 +63,40 @@ fn oldest_due_final_answer_claim_is_independent_and_exact() {
         .expect("claim delivery")
         .expect("due delivery");
 
-    assert_eq!(claim.job_id(), first.job_id);
-    assert_eq!(claim.token(), first.token);
-    assert_eq!(claim.owner(), "delivery-owner");
-    assert_eq!(claim.expires_at_unix_ms(), 32_000);
+    assert!(claim.job_id() == first.job_id, "claim selected the wrong job");
+    assert!(claim.token() == first.token, "claim selected the wrong token");
+    assert!(claim.owner() == "delivery-owner", "claim selected the wrong owner");
+    assert!(claim.expires_at_unix_ms() == 32_000, "claim expiry was wrong");
     assert_eq!(claim.attempt_count(), 1);
-    assert_eq!(claim.provider(), ReceiverProviderCapability::Twilio);
+    assert!(
+        claim.provider() == ReceiverProviderCapability::Twilio,
+        "claim selected the wrong provider"
+    );
     assert!(claim.envelope().sms().is_some());
-    assert_ne!(claim.delivery_id().to_string(), claim.attempt_id().to_string());
-    assert_eq!(
+    assert!(
+        claim.delivery_id().to_string() != claim.attempt_id().to_string(),
+        "delivery and attempt identifiers collided"
+    );
+    assert!(
         first
             .db
             .receiver_job(first.job_id)
             .expect("load claimed job")
             .expect("claimed job")
-            .state(),
-        ReceiverJobState::Delivering
+            .state()
+            == ReceiverJobState::Delivering,
+        "claimed job did not enter delivery"
     );
     let later_claim = first
         .db
         .claim_next_receiver_delivery("racing-owner", 2_000, 32_000)
         .expect("claim independent later delivery")
         .expect("later delivery remains claimable");
-    assert_eq!(later_claim.job_id(), later_job);
-    assert_ne!(later_claim.attempt_id(), claim.attempt_id());
+    assert!(later_claim.job_id() == later_job, "later claim selected the wrong job");
+    assert!(
+        later_claim.attempt_id() != claim.attempt_id(),
+        "independent claims reused an attempt identifier"
+    );
     assert!(
         first
             .db
@@ -96,14 +106,14 @@ fn oldest_due_final_answer_claim_is_independent_and_exact() {
         "each exact delivery can be claimed only once"
     );
 
-    assert_eq!(
+    assert!(
         first
             .db
             .receiver_job(later_job)
             .expect("load independent job")
             .expect("independent job")
-            .state(),
-        ReceiverJobState::Delivering,
+            .state()
+            == ReceiverJobState::Delivering,
         "the independent delivery claim owns the later job"
     );
     assert!(
@@ -140,15 +150,19 @@ fn exact_result_cas_retries_without_returning_to_agent_processing() {
         )
         .expect("apply retry result");
 
-    assert_eq!(applied, ReceiverDeliveryApplyOutcome::Applied);
-    assert_eq!(
+    assert!(
+        applied == ReceiverDeliveryApplyOutcome::Applied,
+        "retry result was not applied"
+    );
+    assert!(
         fixture
             .db
             .receiver_job(fixture.job_id)
             .expect("load retrying job")
             .expect("retrying job")
-            .state(),
-        ReceiverJobState::Retrying
+            .state()
+            == ReceiverJobState::Retrying,
+        "retrying job entered the wrong state"
     );
     let row: (String, i64, i64, Option<String>) = fixture
         .db
@@ -178,7 +192,7 @@ fn stale_and_duplicate_provider_results_are_idempotently_ignored() {
     let reference = ReceiverProviderReference::parse("SM0123456789abcdef0123456789abcdef")
         .expect("provider reference");
 
-    assert_eq!(
+    assert!(
         fixture
             .db
             .apply_receiver_delivery_result(
@@ -186,10 +200,11 @@ fn stale_and_duplicate_provider_results_are_idempotently_ignored() {
                 2_200,
                 ReceiverProviderResultClass::Acknowledged(reference.clone()),
             )
-            .expect("acknowledge delivery"),
-        ReceiverDeliveryApplyOutcome::Applied
+            .expect("acknowledge delivery")
+            == ReceiverDeliveryApplyOutcome::Applied,
+        "acknowledged delivery was not applied"
     );
-    assert_eq!(
+    assert!(
         fixture
             .db
             .apply_receiver_delivery_result(
@@ -197,17 +212,19 @@ fn stale_and_duplicate_provider_results_are_idempotently_ignored() {
                 2_300,
                 ReceiverProviderResultClass::Acknowledged(reference),
             )
-            .expect("ignore duplicate result"),
-        ReceiverDeliveryApplyOutcome::Stale
+            .expect("ignore duplicate result")
+            == ReceiverDeliveryApplyOutcome::Stale,
+        "duplicate delivery result was not stale"
     );
-    assert_eq!(
+    assert!(
         fixture
             .db
             .receiver_job(fixture.job_id)
             .expect("load done job")
             .expect("done job")
-            .state(),
-        ReceiverJobState::Done
+            .state()
+            == ReceiverJobState::Done,
+        "acknowledged job did not finish"
     );
 }
 
@@ -220,19 +237,21 @@ fn restart_reconciliation_distinguishes_pre_spawn_and_twilio_io() {
         .expect("claim safe delivery")
         .expect("safe delivery");
 
-    assert_eq!(
+    assert!(
         safe.db
             .reconcile_expired_receiver_deliveries(3_000)
-            .expect("reconcile pre-spawn claim"),
-        1
+            .expect("reconcile pre-spawn claim")
+            == 1,
+        "pre-spawn reconciliation count was wrong"
     );
-    assert_eq!(
+    assert!(
         safe.db
             .receiver_job(safe_claim.job_id())
             .expect("load safe job")
             .expect("safe job")
-            .state(),
-        ReceiverJobState::AnswerReady
+            .state()
+            == ReceiverJobState::AnswerReady,
+        "pre-spawn claim did not return to answer-ready"
     );
 
     let ambiguous = answer_ready_fixture();
@@ -246,12 +265,13 @@ fn restart_reconciliation_distinguishes_pre_spawn_and_twilio_io() {
         .mark_receiver_delivery_io_started(&ambiguous_claim, 4_100)
         .expect("mark provider IO"));
 
-    assert_eq!(
+    assert!(
         ambiguous
             .db
             .reconcile_expired_receiver_deliveries(5_000)
-            .expect("reconcile provider IO"),
-        1
+            .expect("reconcile provider IO")
+            == 1,
+        "provider reconciliation count was wrong"
     );
     let row: (String, String) = ambiguous
         .db
@@ -269,14 +289,15 @@ fn restart_reconciliation_distinguishes_pre_spawn_and_twilio_io() {
             "provider-acceptance-unknown".to_owned()
         )
     );
-    assert_eq!(
+    assert!(
         ambiguous
             .db
             .receiver_job(ambiguous_claim.job_id())
             .expect("load ambiguous job")
             .expect("ambiguous job")
-            .state(),
-        ReceiverJobState::Failed
+            .state()
+            == ReceiverJobState::Failed,
+        "ambiguous job did not fail"
     );
 }
 
@@ -299,8 +320,14 @@ fn saturated_pre_spawn_claim_is_released_without_recording_an_attempt() {
         .expect("reclaim delivery")
         .expect("released delivery is immediately due");
 
-    assert_eq!(replay.delivery_id(), claim.delivery_id());
-    assert_ne!(replay.attempt_id(), claim.attempt_id());
+    assert!(
+        replay.delivery_id() == claim.delivery_id(),
+        "released delivery identity changed"
+    );
+    assert!(
+        replay.attempt_id() != claim.attempt_id(),
+        "released delivery reused an attempt identifier"
+    );
     assert_eq!(replay.attempt_count(), 1);
 }
 
@@ -312,7 +339,10 @@ fn worker_publication_failure_after_io_marker_restores_an_unsent_twilio_attempt(
         .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
         .expect("claim delivery")
         .expect("due delivery");
-    assert_eq!(claim.provider(), ReceiverProviderCapability::Twilio);
+    assert!(
+        claim.provider() == ReceiverProviderCapability::Twilio,
+        "publication test selected the wrong provider"
+    );
     assert!(fixture
         .db
         .mark_receiver_delivery_io_started(&claim, 2_100)
@@ -334,14 +364,15 @@ fn worker_publication_failure_after_io_marker_restores_an_unsent_twilio_attempt(
         )
         .expect("load safely released publication");
     assert_eq!(row, ("ready".to_owned(), 0, None, 0));
-    assert_eq!(
+    assert!(
         fixture
             .db
             .receiver_job(fixture.job_id)
             .expect("load safely released job")
             .expect("job remains")
-            .state(),
-        ReceiverJobState::AnswerReady
+            .state()
+            == ReceiverJobState::AnswerReady,
+        "safely released job did not return to answer-ready"
     );
 }
 
@@ -445,12 +476,13 @@ fn resend_io_restart_replays_frozen_answer_and_envelope_inside_the_window() {
         .mark_receiver_delivery_io_started(&claim, 4_100)
         .expect("mark provider IO"));
 
-    assert_eq!(
+    assert!(
         fixture
             .db
             .reconcile_expired_receiver_deliveries(5_000)
-            .expect("reconcile resend provider IO"),
-        1
+            .expect("reconcile resend provider IO")
+            == 1,
+        "resend reconciliation count was wrong"
     );
     let after: (String, String, String, String, i64) = fixture
         .db

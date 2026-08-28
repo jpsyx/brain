@@ -49,9 +49,18 @@ fn authenticated_email_uses_injected_fetch_without_external_io() {
     })
     .unwrap();
 
-    assert_eq!(inbound.sender, "member@example.test");
-    assert_eq!(inbound.prompt, "private prompt");
-    assert_eq!(inbound.receiving_address, "brain@example.test");
+    assert!(
+        inbound.sender == "member@example.test",
+        "authenticated sender was not canonical"
+    );
+    assert!(
+        inbound.prompt == "private prompt",
+        "authenticated prompt was not preserved"
+    );
+    assert!(
+        inbound.receiving_address == "brain@example.test",
+        "authenticated receiving address was not canonical"
+    );
 }
 
 #[test]
@@ -160,21 +169,28 @@ fn received_email_uses_html_fallback_participants_and_attachment_downloads() {
 
     let fetched = parse_received_email(email, attachments).unwrap();
 
-    assert_eq!(fetched.body, "Hello from email");
-    assert_eq!(fetched.sender, "sender@example.com");
+    assert!(
+        fetched.body == "Hello from email",
+        "received body was not converted as expected"
+    );
+    assert!(
+        fetched.sender == "sender@example.com",
+        "received sender was not preserved"
+    );
     assert_eq!(fetched.subject, "Original topic");
     assert_eq!(
         fetched.message_id.as_deref(),
         Some("<message-1@example.com>")
     );
-    assert_eq!(
-        fetched.participants,
-        vec![
-            "sender@example.com",
-            "brain@example.com",
-            "copy@example.com",
-            "reply@example.com"
-        ]
+    assert!(
+        fetched.participants
+            == vec![
+                "sender@example.com",
+                "brain@example.com",
+                "copy@example.com",
+                "reply@example.com"
+            ],
+        "received participants were not preserved"
     );
     assert_eq!(fetched.attachments.len(), 1);
     assert_eq!(fetched.attachments[0].provider_id.as_deref(), Some("a1"));
@@ -200,13 +216,22 @@ fn email_reply_payload_preserves_subject_and_message_lineage() {
         Some("<message-1@example.test>"),
     );
 
-    assert_eq!(payload["subject"], "Re: Original topic");
-    assert_eq!(
-        payload["headers"]["In-Reply-To"],
-        "<message-1@example.test>"
+    assert!(
+        payload["subject"] == "Re: Original topic",
+        "reply subject was not preserved"
     );
-    assert_eq!(payload["headers"]["References"], "<message-1@example.test>");
-    assert_eq!(payload["to"], serde_json::json!(["member@example.test"]));
+    assert!(
+        payload["headers"]["In-Reply-To"] == "<message-1@example.test>",
+        "reply parent header was not preserved"
+    );
+    assert!(
+        payload["headers"]["References"] == "<message-1@example.test>",
+        "reply reference header was not preserved"
+    );
+    assert!(
+        payload["to"] == serde_json::json!(["member@example.test"]),
+        "reply recipients were not preserved"
+    );
 }
 
 #[test]
@@ -335,10 +360,12 @@ fn a_real_from_header_with_a_display_name_still_authenticates() {
     })
     .unwrap();
 
-    assert_eq!(inbound.sender, "member@example.test");
-    assert_eq!(
-        inbound.participants,
-        ["member@example.test", "copy@example.test"],
+    assert!(
+        inbound.sender == "member@example.test",
+        "display-name sender was not canonicalized"
+    );
+    assert!(
+        inbound.participants == ["member@example.test", "copy@example.test"],
         "thread participants must reduce to bare addresses so the reply \
          allowlist can match them, dropping anything unparseable"
     );
@@ -356,8 +383,7 @@ fn an_html_only_email_reaches_the_agent_as_text_within_the_prompt_budget() {
 
     assert!(
         fetched.body.starts_with("Paragraph."),
-        "markup must not reach the agent: {}",
-        &fetched.body[..40.min(fetched.body.len())]
+        "markup must not reach the agent"
     );
     assert!(!fetched.body.contains("<p>"));
     assert!(
@@ -373,7 +399,10 @@ fn a_plain_text_email_is_still_delivered_verbatim() {
 
     let fetched = parse_received_email(email, br#"{"data":[]}"#).unwrap();
 
-    assert_eq!(fetched.body, "Ship the report by Friday.");
+    assert!(
+        fetched.body == "Ship the report by Friday.",
+        "plain text body was not preserved"
+    );
 }
 
 fn resend_signature(key: &[u8], id: &str, timestamp: &str, body: &[u8]) -> String {

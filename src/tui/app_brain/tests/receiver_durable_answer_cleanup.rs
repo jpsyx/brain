@@ -25,9 +25,15 @@ fn session_release_failure_retains_cleanup_without_blocking_the_next_job() {
     );
     assert_eq!(delivery_count(&app, first.job_id()), 1);
     assert!(!artifact.exists());
-    assert_eq!(transport.shutdowns(), 1);
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
     assert!(app.brain.receiver_run_observations().is_empty());
-    assert_eq!(answer_cleanup_flags(&app, first.job_id()), Some((0, 1)));
+    assert!(
+        answer_cleanup_flags(&app, first.job_id()) == Some((0, 1)),
+        "session cleanup flags were wrong"
+    );
     assert_eq!(registration_count(&app), 1);
     assert_eq!(sync.pushes(), 0, "sync must wait for exact session release");
 
@@ -35,7 +41,10 @@ fn session_release_failure_retains_cleanup_without_blocking_the_next_job() {
         .replace_receiver_transport(TransportRecording::default().transport());
     app.tick_receiver();
 
-    assert_eq!(answer_cleanup_flags(&app, first.job_id()), None);
+    assert!(
+        answer_cleanup_flags(&app, first.job_id()).is_none(),
+        "finished session cleanup remained pending"
+    );
     assert_eq!(
         registration_count(&app),
         1,
@@ -66,8 +75,14 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
         ReceiverJobState::AnswerReady
     );
     assert!(artifact.exists());
-    assert_eq!(transport.shutdowns(), 1);
-    assert_eq!(answer_cleanup_flags(&app, first.job_id()), Some((1, 0)));
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
+    assert!(
+        answer_cleanup_flags(&app, first.job_id()) == Some((1, 0)),
+        "artifact cleanup flags were wrong"
+    );
     assert_eq!(registration_count(&app), 0);
     assert_eq!(
         first_sync.pushes(),
@@ -91,7 +106,10 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
     restarted.tick_receiver();
 
     assert!(!artifact.exists());
-    assert_eq!(answer_cleanup_flags(&restarted, first.job_id()), None);
+    assert!(
+        answer_cleanup_flags(&restarted, first.job_id()).is_none(),
+        "restarted cleanup remained pending"
+    );
     assert_eq!(restart_sync.pushes(), 1);
     assert_eq!(
         restarted.brain.receiver_run_observations()[0].job_id,
@@ -117,7 +135,10 @@ fn completion_sync_start_failure_is_post_commit_and_content_free() {
     assert_eq!(completion_evidence_count(&app, first.job_id()), 1);
     assert_eq!(sync.pushes(), 1);
     assert!(!artifact.exists());
-    assert_eq!(transport.shutdowns(), 1);
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
     let diagnostic = app
         .receiver
         .last_observation_diagnostic()
@@ -149,7 +170,10 @@ fn successful_answer_commit_runs_each_post_commit_effect_once_then_launches_next
     );
     assert_eq!(completion_evidence_count(&app, first.job_id()), 1);
     assert_eq!(sync.pushes(), 1);
-    assert_eq!(transport.shutdowns(), 1);
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
     assert!(app.brain.receiver_run_observations().is_empty());
     assert!(!artifact.exists());
     assert!(app.tasks.contains_task_named("Reloaded after answer"));
@@ -187,19 +211,23 @@ fn final_sync_starts_after_every_private_cleanup_boundary_in_order() {
         job_state(&db, first.job_id()),
         ReceiverJobState::AnswerReady
     );
-    assert_eq!(transport.shutdowns(), 1);
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
     assert!(!artifact.exists());
     assert_eq!(registration_count(&app), 0);
     assert_eq!(sync.pushes(), 1);
-    assert_eq!(
-        app.receiver.answer_cleanup_events(),
-        &[
-            ReceiverAnswerCleanupEvent::ControllerShutdown,
-            ReceiverAnswerCleanupEvent::SessionRelease,
-            ReceiverAnswerCleanupEvent::ArtifactCleanup,
-            ReceiverAnswerCleanupEvent::TaskReload,
-            ReceiverAnswerCleanupEvent::SyncLaunch,
-        ]
+    assert!(
+        app.receiver.answer_cleanup_events()
+            == [
+                ReceiverAnswerCleanupEvent::ControllerShutdown,
+                ReceiverAnswerCleanupEvent::SessionRelease,
+                ReceiverAnswerCleanupEvent::ArtifactCleanup,
+                ReceiverAnswerCleanupEvent::TaskReload,
+                ReceiverAnswerCleanupEvent::SyncLaunch,
+            ],
+        "answer cleanup boundaries ran out of order"
     );
 }
 

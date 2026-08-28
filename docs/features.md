@@ -1617,7 +1617,9 @@ final-answer delivery envelope, replaces the native binding, moves the job to
 `answer-ready`, and releases the agent claim. The sender is the canonical
 number or mailbox proven by authenticated ingress, including normalized
 human-formatted receiver configuration, and is never reread from mutable
-environment at completion. Invalid legacy sender shapes terminalize atomically.
+environment at completion. Email delivery requires the exact bare lowercase
+configured-mailbox syntax, including valid local-part dots and domain labels.
+Invalid legacy sender shapes terminalize atomically.
 If an email job has no trusted accepted recipient, the same
 transaction advances transcript and cleanup authority but persists an
 unclaimable terminal authorization outcome instead of leaving the run active.

@@ -1227,7 +1227,10 @@ privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
 both directions. The down-up round trip proves the exact schema-v11 job column
 order and data survive while `response_sender` and both v12-only tables are
-removed before version 11 is recorded. It reconstructs the exact pre-Task-3 v12 table from commit
+removed before version 11 is recorded. Mutated-schema cases remove checks,
+provider uniqueness, the conversation foreign key, and each managed index, then
+prove downgrade reconstructs their exact old-reader behavior. Malformed source
+rows prove the database transition rolls back without a v11 stamp. It reconstructs the exact pre-Task-3 v12 table from commit
 `0473434`, preserves its envelope, then proves claim, IO start,
 acknowledgement, and final job completion. Repair tests also prove that a
 malformed or pre-frozen-sender final-answer row terminalizes its matching job.
@@ -1247,21 +1250,25 @@ The composed HTTP-to-state suite accepts a human-formatted SMS receiver and a
 whitespace-padded email receiver, then proves authentication persists the
 canonical sender and completion advances transcript, outbox, cleanup, and job
 state with that immutable identity. Defensive completion tests prove every
-noncanonical or malformed persisted sender, including mailbox case and display-name
-variants, becomes an unclaimable terminal outcome in render, decode, repair,
-and completion. The composed App suite deletes sender configuration after acceptance
+noncanonical or malformed persisted sender, including mailbox case, padding,
+display delimiters, multiple at signs, invalid local-part dots, and malformed
+domain dots or hyphens, becomes an unclaimable terminal outcome in render,
+decode, repair, and completion. The composed App suite deletes sender configuration after acceptance
 and proves the answer still commits with the frozen identity. The composed state suite
 proves that missing trusted email recipients atomically produce a terminal
 authorization outcome, advance transcript and cleanup authority, survive reopen
-replay, and never enter the provider claim lane. The receiver privacy policy rejects
-content-bearing whole-value assertions throughout the recursively discovered
-Task 3 delivery, completion, migration, provider, and composed App suites,
-requiring digest, boolean, length, count, or field-presence proofs instead.
-`tests/module_structure.rs` recursively discovers receiver model, schema,
-completion-store, and delivery-store production modules for its size guard.
-Its lexical counter excludes exact `#[cfg(test)]` items, including large inline
-test modules, but resumes counting later production; braces in strings and
-comments cannot hide that production. The delivery cleanup table contract stays
+replay, and never enter the provider claim lane. The receiver privacy policy
+recursively discovers authenticated HTTP, provider, state, App, and App-service
+Task 3 suites. Its identifier-aware assertion scan tracks local aliases and
+rejects raw values hidden in tuples, Debug formatting, implicit format capture,
+or mixed with a length proof, while content-free count identifiers remain
+valid. Every audited assertion uses a fixed-message boolean, digest, length,
+count, or field-presence proof instead. `tests/module_structure.rs` recursively
+discovers receiver state, provider-delivery, and composed App production modules
+for its size guard. Its lexical counter masks strings, raw strings, characters,
+and nested comments, then excludes test-only attributed items, fields, and
+variants, including stacked and composed `cfg` predicates. It resumes counting
+later production after comma, semicolon, and braced targets. The delivery cleanup table contract stays
 in its focused schema module.
 
 ## Test layout

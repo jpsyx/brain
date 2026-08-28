@@ -42,7 +42,10 @@ fn another_app_cannot_take_answer_cleanup_before_origin_shutdown_handoff() {
         job_state(&db, first.job_id()),
         ReceiverJobState::AnswerReady
     );
-    assert_eq!(transport.shutdowns(), 1);
+    assert!(
+        transport.shutdowns() == 1,
+        "controller shutdown count was wrong"
+    );
     assert!(!artifact.exists());
     assert_eq!(registration_count(origin.context.state_db_path()), 0);
     assert_eq!(cleanup_progress(origin.context.state_db_path()), None);
@@ -62,7 +65,10 @@ fn reaped_origin_takeover_finishes_every_post_answer_effect() {
         origin.tick_receiver();
     }));
     assert!(crash.is_err());
-    assert_eq!(transport.shutdowns(), 0);
+    assert!(
+        transport.shutdowns() == 0,
+        "controller shut down before takeover"
+    );
     assert!(artifact.exists());
     drop(origin);
 

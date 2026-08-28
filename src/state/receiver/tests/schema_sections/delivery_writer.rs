@@ -45,7 +45,7 @@ fn v11_upgrade_reserves_the_writer_before_inspecting_delivery_schema() {
     };
     worker.join().expect("v12 upgrade worker");
 
-    assert!(result.is_ok(), "v12 upgrade failed after wait: {result:?}");
+    assert!(result.is_ok(), "v12 upgrade failed after writer wait");
     let connection = rusqlite::Connection::open(path).expect("upgraded state");
     let marker: i64 = connection
         .query_row(
@@ -105,7 +105,7 @@ fn v12_downgrade_reserves_the_writer_before_inspecting_v11_shape() {
     };
     worker.join().expect("v12 downgrade worker");
 
-    assert!(result.is_ok(), "v12 downgrade failed after wait: {result:?}");
+    assert!(result.is_ok(), "v12 downgrade failed after writer wait");
     let connection = rusqlite::Connection::open(path).expect("downgraded state");
     let marker: i64 = connection
         .query_row(
@@ -115,5 +115,8 @@ fn v12_downgrade_reserves_the_writer_before_inspecting_v11_shape() {
             |row| row.get(0),
         )
         .expect("concurrent marker count");
-    assert_eq!(marker, 1);
+    assert!(
+        marker == 0,
+        "exact v11 rebuild retained the concurrent v12-only marker"
+    );
 }

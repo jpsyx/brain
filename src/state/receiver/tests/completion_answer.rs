@@ -320,6 +320,27 @@ fn completion_terminalizes_every_invalid_persisted_response_sender_shape() {
                 Db::open_in_memory().expect("email receiver state"),
                 ReceiverJobState::Processing,
             ),
+            "brain@example.test>",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
+            "brain..reply@example.test",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
+            "brain@-example.test",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
             "invalid-email-sender",
         ),
     ];
@@ -407,7 +428,10 @@ fn exact_completion_conflict_rolls_back_without_changing_the_existing_answer() {
         .complete_receiver_job_with_binding(&conflicting)
         .expect_err("reject conflicting answer");
 
-    assert_eq!(error.to_string(), "receiver completion conflicts with durable answer");
+    assert!(
+        error.to_string() == "receiver completion conflicts with durable answer",
+        "conflicting completion returned the wrong typed error"
+    );
     let retained_transcript = fixture
         .db
         .receiver_conversation(fixture.registration.conversation_id())
@@ -695,7 +719,10 @@ fn dead_controller_makes_unacknowledged_answer_cleanup_recoverable() {
         .expect("load dead-owner cleanup")
         .expect("dead controller permits takeover");
 
-    assert_eq!(cleanup.job_id(), job_id);
+    assert!(
+        cleanup.job_id() == job_id,
+        "dead-owner cleanup selected the wrong job"
+    );
 }
 
 #[test]

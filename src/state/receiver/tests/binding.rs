@@ -89,9 +89,10 @@ fn native_binding_replacement_requires_the_exact_instance_actual_session_and_pre
             .receiver_conversation(accepted.conversation_id())
             .expect("load conversation")
             .expect("conversation remains durable");
-        assert_eq!(
-            conversation.transcript_markdown(),
-            "# Portable transcript\n\nUser: private context"
+        assert!(
+            private_text_proof(conversation.transcript_markdown())
+                == private_text_proof("# Portable transcript\n\nUser: private context"),
+            "portable transcript content changed during binding replacement"
         );
         assert_eq!(
             conversation.binding(),

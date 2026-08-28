@@ -206,8 +206,7 @@ fn resend_request(
     envelope: &crate::state::ReceiverEmailEnvelope,
 ) -> anyhow::Result<CurlRequest> {
     anyhow::ensure!(
-        crate::users::normalize_mailbox(envelope.sender()).is_ok()
-            && envelope.sender().trim() == envelope.sender(),
+        crate::users::validate_canonical_mailbox(envelope.sender()).is_ok(),
         "receiver email sender is invalid"
     );
     let payload = super::email_payload(

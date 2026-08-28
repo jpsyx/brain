@@ -97,7 +97,10 @@ fn failing_answer_shutdown_does_not_block_a_later_answer_or_exact_cleanup() {
     );
     assert!(first_shutdown.is_alive());
     assert_eq!(first_shutdown.shutdowns(), 1);
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 1);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 1,
+        "pending controller cleanup count was wrong"
+    );
     assert!(app.brain.receiver_run_observations().is_empty());
     assert!(first_artifact.exists());
 
@@ -122,7 +125,10 @@ fn failing_answer_shutdown_does_not_block_a_later_answer_or_exact_cleanup() {
     assert_eq!(first_shutdown.shutdowns(), 4);
     assert!(first_shutdown.is_alive());
     assert!(first_artifact.exists());
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 2);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 2,
+        "pending controller cleanup count was wrong"
+    );
     assert!(second_shutdown.is_alive());
     assert_eq!(second_shutdown.shutdowns(), 0);
 
@@ -131,7 +137,10 @@ fn failing_answer_shutdown_does_not_block_a_later_answer_or_exact_cleanup() {
     assert_eq!(second_shutdown.shutdowns(), 1);
     assert!(second_shutdown.is_alive());
     assert_eq!(first_shutdown.shutdowns(), 4);
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 2);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 2,
+        "pending controller cleanup count was wrong"
+    );
     assert!(first_artifact.exists());
     assert!(second_artifact.exists());
 
@@ -139,14 +148,20 @@ fn failing_answer_shutdown_does_not_block_a_later_answer_or_exact_cleanup() {
 
     assert_eq!(first_shutdown.shutdowns(), 5);
     assert!(!first_shutdown.is_alive());
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 1);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 1,
+        "pending controller cleanup count was wrong"
+    );
     assert!(!first_artifact.exists());
 
     app.tick_receiver();
 
     assert_eq!(second_shutdown.shutdowns(), 2);
     assert!(!second_shutdown.is_alive());
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 0);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 0,
+        "pending controller cleanup count was wrong"
+    );
     assert!(!second_artifact.exists());
 }
 
@@ -163,14 +178,20 @@ fn orderly_runtime_shutdown_retries_each_parked_answer_controller_once() {
     app.tick_receiver();
     let artifact = publish_valid_completion(&app, "durable before orderly shutdown");
     app.tick_receiver();
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 1);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 1,
+        "pending controller cleanup count was wrong"
+    );
     assert!(shutdown.is_alive());
 
     app.shutdown_receiver_runtime();
 
     assert_eq!(shutdown.shutdowns(), 2);
     assert!(!shutdown.is_alive());
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 0);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 0,
+        "pending controller cleanup count was wrong"
+    );
     assert!(!artifact.exists());
     assert_eq!(
         job_state(&db, accepted.job_id()),
@@ -211,7 +232,10 @@ fn full_cleanup_registry_preserves_the_ninth_exact_controller_and_artifact() {
         shutdowns.push(shutdown);
     }
 
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 8);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 8,
+        "bounded controller cleanup count was wrong"
+    );
     assert_eq!(app.brain.receiver_run_observations().len(), 1);
     assert_eq!(
         app.brain.receiver_run_observations()[0].job_id,
@@ -223,7 +247,10 @@ fn full_cleanup_registry_preserves_the_ninth_exact_controller_and_artifact() {
 
     assert!(shutdowns.iter().all(ShutdownFailureRecording::is_alive));
     assert!(artifacts.iter().all(|artifact| artifact.exists()));
-    assert_eq!(app.receiver.pending_answer_controller_cleanups(), 8);
+    assert!(
+        app.receiver.pending_answer_controller_cleanups() == 8,
+        "bounded controller cleanup count changed"
+    );
 }
 
 #[test]

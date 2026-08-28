@@ -8,29 +8,33 @@ fn html_only_mail_becomes_readable_text_instead_of_raw_markup() {
 
     let text = html_to_text(html);
 
-    assert_eq!(text, "Hello there.\n\nSecond line & more.");
-    assert!(!text.contains('<'), "markup must not survive: {text}");
+    assert!(
+        text == "Hello there.\n\nSecond line & more.",
+        "HTML mail was not converted to the expected text"
+    );
+    assert!(!text.contains('<'), "markup must not survive");
     assert!(!text.contains("alert"), "script bodies must not survive");
     assert!(!text.contains("color"), "style bodies must not survive");
 }
 
 #[test]
 fn line_breaks_and_entities_are_preserved_as_written() {
-    assert_eq!(
-        html_to_text("<div>One<br>Two<br/>Three</div>"),
-        "One\nTwo\nThree"
+    assert!(
+        html_to_text("<div>One<br>Two<br/>Three</div>") == "One\nTwo\nThree",
+        "line breaks were not preserved"
     );
-    assert_eq!(
-        html_to_text("<p>&lt;tag&gt; &quot;quoted&quot; &#39;apostrophe&#39;&nbsp;end</p>"),
-        "<tag> \"quoted\" 'apostrophe' end"
+    assert!(
+        html_to_text("<p>&lt;tag&gt; &quot;quoted&quot; &#39;apostrophe&#39;&nbsp;end</p>")
+            == "<tag> \"quoted\" 'apostrophe' end",
+        "HTML entities were not decoded as expected"
     );
 }
 
 #[test]
 fn a_message_within_the_budget_is_handed_over_untouched() {
-    assert_eq!(
-        bounded_prompt("A short question.", 100),
-        "A short question."
+    assert!(
+        bounded_prompt("A short question.", 100) == "A short question.",
+        "an in-budget prompt was changed"
     );
 }
 
@@ -43,8 +47,7 @@ fn an_oversized_message_is_truncated_and_says_so() {
     assert!(bounded.len() < long.len());
     assert!(
         bounded.contains("truncated"),
-        "the agent must be told the message was cut: {}",
-        &bounded[bounded.len().saturating_sub(120)..]
+        "the agent must be told the message was cut"
     );
     assert!(bounded.starts_with("xxxx"));
 }

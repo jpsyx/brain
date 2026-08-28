@@ -3110,8 +3110,10 @@ registrations before dropping the v12 tables. A filesystem failure leaves v12
 and its database authority intact; retry treats already removed exact files as
 success. Once authority is discharged, the database transaction removes the
 outbox, cleanup table, and `receiver_jobs.response_sender` column, preserves the
-remaining schema-v11 job rows and shape, and changes `user_version` only after
-the full downgrade succeeds.
+remaining schema-v11 job rows, rebuilds the table from the canonical v11 DDL,
+and recreates every v11 check, uniqueness rule, foreign key, and managed index.
+Source rows that violate that contract roll the database transaction back. The
+migration changes `user_version` only after the full downgrade succeeds.
 
 Same-version repair uses only already durable evidence. A legacy cleanup whose
 `session_released` flag is one has already discharged the authority protected by
@@ -3130,9 +3132,13 @@ is non-secret routing data. Provider account, token, and API-key credentials
 stay live and machine-local; the row never stores them. The row stores provider
 attempt and acknowledgement metadata but never credentials.
 Authenticated ingress is the only normalization boundary. Defensive consumers
-require a frozen email sender to equal the canonical bare lowercase mailbox
-returned by normalization; accepting a display name or case variant later would
-repair persisted evidence instead of detecting corruption.
+use one pure outbound mailbox validator that accepts only Brain's canonical
+bare lowercase ASCII address subset. It rejects residual display delimiters,
+whitespace and controls, multiple at signs, invalid local-part dots, and empty,
+oversized, dotted, or hyphen-misplaced domain labels. Rendering, persisted
+envelope decoding, completion preparation, and same-version repair therefore
+reject case and display variants as well as malformed values that normalization
+would otherwise leave unchanged.
 This content-bearing outbox is deliberately separate from content-free public
 status and diagnostics.
 

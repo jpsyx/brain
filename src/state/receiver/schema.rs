@@ -5,6 +5,7 @@ use super::ReceiverJobToken;
 
 mod delivery;
 mod downgrade;
+mod job_contract;
 mod notice;
 mod recovery;
 mod token;
@@ -44,59 +45,6 @@ pub(super) fn up_with_token_factory(
            UNIQUE (workspace_id, user_id, channel, conversation_key),
            CHECK ((agent_kind IS NULL) = (agent_session_id IS NULL))
          );
-         CREATE TABLE IF NOT EXISTS receiver_jobs (
-           job_id                    TEXT PRIMARY KEY,
-           job_token                 TEXT NOT NULL UNIQUE,
-           workspace_id              TEXT NOT NULL,
-           conversation_id           TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
-           channel                   TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
-           provider_id               TEXT,
-           inbound_json              TEXT NOT NULL,
-           state                     TEXT NOT NULL CHECK (state IN (
-             'queued', 'claimed', 'launching', 'launched', 'accepted', 'processing',
-             'answer-ready', 'delivering', 'retrying', 'failed', 'done'
-           )),
-           received_at_unix_ms       INTEGER NOT NULL,
-           updated_at_unix_ms        INTEGER NOT NULL,
-           claim_owner               TEXT,
-           claim_expires_at_unix_ms  INTEGER,
-           retry_count               INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
-           retry_at_unix_ms           INTEGER,
-           retry_from_state           TEXT CHECK (retry_from_state IN (
-             'claimed', 'launching', 'accepted', 'processing', 'delivering'
-           )),
-           last_error                TEXT,
-           launched_at_unix_ms       INTEGER,
-           accepted_at_unix_ms       INTEGER,
-           progressing_at_unix_ms    INTEGER,
-           completed_at_unix_ms      INTEGER,
-           observation_instance      TEXT,
-           observation_session_id    TEXT,
-           observation_revision      INTEGER NOT NULL DEFAULT 0 CHECK (observation_revision >= 0),
-           attempt_accepted_at_unix_ms INTEGER,
-           attempt_progressing_at_unix_ms INTEGER,
-           latest_progress_at_unix_ms INTEGER,
-           launch_expires_at_unix_ms INTEGER,
-           acceptance_expires_at_unix_ms INTEGER,
-           progress_expires_at_unix_ms INTEGER,
-           recovery_expires_at_unix_ms INTEGER,
-           absolute_work_expires_at_unix_ms INTEGER,
-           recovery_count            INTEGER NOT NULL DEFAULT 0 CHECK (recovery_count >= 0),
-           attempt_kind              TEXT NOT NULL DEFAULT 'ordinary'
-             CHECK (attempt_kind IN ('ordinary', 'recovery')),
-           pending_unavailable_notice INTEGER NOT NULL DEFAULT 0
-             CHECK (pending_unavailable_notice IN (0, 1)),
-           recovery_cleanup_instance  TEXT,
-           recovery_cleanup_session_id TEXT,
-           unavailable_notice_owner TEXT,
-           unavailable_notice_expires_at_unix_ms INTEGER,
-           UNIQUE (workspace_id, channel, provider_id),
-           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL)),
-           CHECK ((recovery_cleanup_instance IS NULL) =
-                  (recovery_cleanup_session_id IS NULL))
-         );
-         CREATE INDEX IF NOT EXISTS receiver_jobs_ready
-           ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);
          CREATE TABLE IF NOT EXISTS receiver_session_registrations (
            workspace_id          TEXT NOT NULL,
            conversation_id       TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
@@ -108,6 +56,11 @@ pub(super) fn up_with_token_factory(
            actual_session_id     TEXT,
            PRIMARY KEY (workspace_id, brain_instance_id)
          );",
+    )?;
+    job_contract::create_v11_table_if_missing(&transaction)?;
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS receiver_jobs_ready
+           ON receiver_jobs(state, retry_at_unix_ms, received_at_unix_ms, job_id);",
     )?;
     if !has_launch_retry_origin(&transaction)? {
         transaction.execute_batch(

@@ -28,7 +28,10 @@ fn crash_before_answer_commit_retains_agent_work_and_blocks_the_next_job() {
             .is_empty()
     );
     assert!(artifact.exists());
-    assert_eq!(transport.shutdowns(), 0);
+    assert!(
+        transport.shutdowns() == 0,
+        "controller shut down before commit"
+    );
 }
 
 #[test]
@@ -63,7 +66,10 @@ fn crash_after_answer_commit_preserves_one_answer_and_releases_the_agent_lane() 
         1
     );
     assert!(artifact.exists(), "post-commit cleanup did not run");
-    assert_eq!(transport.shutdowns(), 0);
+    assert!(
+        transport.shutdowns() == 0,
+        "controller shut down before post-commit recovery"
+    );
     assert_eq!(
         db.claim_next_receiver_run("restart-owner", 2, 30_002)
             .expect("claim after post-commit crash")

@@ -231,9 +231,15 @@ fn v12_repair_preserves_but_terminalizes_a_legacy_envelope_without_frozen_sender
 
 #[test]
 fn v12_repair_terminalizes_noncanonical_email_sender_forms() {
-    for (case_index, sender) in ["Brain@Example.Test", "Brain <brain@example.test>"]
-        .into_iter()
-        .enumerate()
+    for (case_index, sender) in [
+        "Brain@Example.Test",
+        "Brain <brain@example.test>",
+        "brain@example.test>",
+        "brain..reply@example.test",
+        "brain@-example.test",
+    ]
+    .into_iter()
+    .enumerate()
     {
         let fixture = super::binding::email_completion_fixture_in(
             Db::open_in_memory().expect("email receiver state"),

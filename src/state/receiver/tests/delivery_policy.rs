@@ -27,7 +27,10 @@ fn acknowledged_result_finishes_with_the_redacted_provider_reference() {
         ReceiverProviderResultClass::Acknowledged(reference.clone()),
     );
 
-    assert_eq!(decision, ReceiverDeliveryDecision::Acknowledged(reference));
+    assert!(
+        decision == ReceiverDeliveryDecision::Acknowledged(reference),
+        "acknowledged provider result selected the wrong decision"
+    );
     assert!(!format!("{decision:?}").contains("provider-ack-private"));
 }
 

@@ -41,7 +41,19 @@ fn serialized_delivery_envelopes_require_and_preserve_the_exact_outbound_sender(
 fn email_delivery_render_rejects_noncanonical_persisted_sender_forms() {
     let job = email_delivery_job();
 
-    for sender in ["Brain@Example.Test", "Brain <brain@example.test>"] {
+    for sender in [
+        "Brain@Example.Test",
+        " Brain@example.test ",
+        "Brain <brain@example.test>",
+        "brain@example.test>",
+        ".brain@example.test",
+        "brain.@example.test",
+        "brain..reply@example.test",
+        "brain@-example.test",
+        "brain@example-.test",
+        "brain@example..test",
+        "brain@example_test",
+    ] {
         let result = render_receiver_delivery(
             &job,
             ReceiverResponseKind::FinalAnswer,
@@ -61,7 +73,19 @@ fn email_delivery_render_rejects_noncanonical_persisted_sender_forms() {
 
 #[test]
 fn serialized_email_envelope_rejects_noncanonical_sender_forms() {
-    for sender in ["Brain@Example.Test", "Brain <brain@example.test>"] {
+    for sender in [
+        "Brain@Example.Test",
+        " Brain@example.test ",
+        "Brain <brain@example.test>",
+        "brain@example.test>",
+        ".brain@example.test",
+        "brain.@example.test",
+        "brain..reply@example.test",
+        "brain@-example.test",
+        "brain@example-.test",
+        "brain@example..test",
+        "brain@example_test",
+    ] {
         let encoded = serde_json::json!({
             "channel": "email",
             "value": {

@@ -160,7 +160,11 @@ invariant they cover, such as `remote_schema_preflight.rs` or
 `receiver_origin_upgrade.rs`; they never encode split order. The
 `tests/module_structure.rs` architecture guard checks every tracked Rust file
 under `src/` and `tests/` and fails with each offending path if a numbered
-`part_<digits>.rs` fragment returns.
+`part_<digits>.rs` fragment returns. Its receiver production counter masks Rust
+strings, raw strings, character literals, and nested comments before parsing
+stacked `cfg` attributes and their field, variant, semicolon, or braced target.
+It recursively discovers receiver state, provider-delivery, and composed App
+service modules so future files enter the production budget automatically.
 
 ## Module ownership boundaries
 
@@ -493,7 +497,11 @@ exact registrations and locks. Artifact failure rolls back database changes so
 the automatic installer downgrade can retry without losing cleanup authority.
 Only after that drain does it map nonblank provider acknowledgements to done and
 every other delivery to a non-replayable terminal job, preserves conversation
-transcripts, and only then removes the cleanup table and outbox.
+transcripts, and only then removes the cleanup table and outbox. It rebuilds
+`receiver_jobs` from the canonical v11 DDL inside the same transaction, copying
+only retained v11 columns and recreating its checks, uniqueness, foreign key,
+and managed indexes before recording version 11. Rows that cannot satisfy that
+contract abort without stamping or dropping the v12 database state.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
