@@ -167,17 +167,18 @@ fn v12_repair_rebuilds_the_real_0473434_delivery_shape_before_claiming() {
             .state(),
         ReceiverJobState::Done
     );
-    assert_eq!(
-        fixture
-            .db
-            .conn
-            .query_row::<String, _, _>(
-                "SELECT envelope_json FROM receiver_deliveries",
-                [],
-                |row| row.get(0),
-            )
-            .expect("frozen delivery after compatibility repair"),
-        frozen_before
+    let frozen_after = fixture
+        .db
+        .conn
+        .query_row::<String, _, _>(
+            "SELECT envelope_json FROM receiver_deliveries",
+            [],
+            |row| row.get(0),
+        )
+        .expect("frozen delivery after compatibility repair");
+    assert!(
+        private_text_proof(&frozen_after) == private_text_proof(&frozen_before),
+        "compatibility repair changed the frozen delivery proof"
     );
 }
 
@@ -213,7 +214,10 @@ fn v12_repair_preserves_but_terminalizes_a_legacy_envelope_without_frozen_sender
         .expect("load repaired legacy envelope");
     assert_eq!(repaired.0, "failed");
     assert_eq!(repaired.1.as_deref(), Some("invalid-request"));
-    assert_eq!(repaired.2, legacy, "repair must not rewrite private content");
+    assert!(
+        private_text_proof(&repaired.2) == private_text_proof(legacy),
+        "repair changed the private envelope proof"
+    );
     assert_eq!(
         fixture
             .db
@@ -665,7 +669,10 @@ fn v12_down_preserves_transcripts_and_maps_acknowledged_and_unacknowledged_jobs(
     assert_eq!(states.1, "failed");
     assert_eq!(states.2.as_deref(), Some("downgrade-no-replay"));
     assert!(!states.2.unwrap_or_default().contains("private"));
-    assert_eq!(transcript, "private portable transcript");
+    assert!(
+        transcript == "private portable transcript",
+        "downgrade changed the retained transcript"
+    );
     assert_eq!(delivery_tables, 0);
     assert_eq!(cleanup_tables, 0);
     assert_eq!(version, 11);

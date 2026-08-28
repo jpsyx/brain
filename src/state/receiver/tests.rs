@@ -116,6 +116,7 @@ mod delivery_policy {
 }
 
 mod delivery_store {
+    use super::support::*;
     use super::*;
 
     include!("tests/delivery_store.rs");

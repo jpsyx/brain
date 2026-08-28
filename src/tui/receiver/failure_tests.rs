@@ -190,6 +190,7 @@ fn inbound(workspace: &WorkspaceContext, actor: &crate::actor::ActorContext) -> 
         actor: actor.clone(),
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: "private receiver prompt".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 100,

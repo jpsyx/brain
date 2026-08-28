@@ -73,3 +73,44 @@ fn crash_after_answer_commit_preserves_one_answer_and_releases_the_agent_lane() 
         second.job_id()
     );
 }
+
+#[test]
+fn completion_survives_sender_config_deletion_and_uses_the_accepted_identity() {
+    let (_temporary, mut app, db, first, _second, _transport) = answer_fixture();
+    let registry_store = app.context.command().registry_store.clone();
+    let mut registry = crate::workspace::RegistryStore::load_from(registry_store.path())
+        .expect("machine registry");
+    registry
+        .workspaces
+        .get_mut(app.context.workspace().name())
+        .expect("selected workspace")
+        .env
+        .remove("resend_from_email");
+    registry_store
+        .replace(&registry)
+        .expect("delete mutable sender configuration");
+    publish_valid_completion(&app, "answer after sender config deletion");
+
+    app.tick_receiver();
+
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "sender config deletion prevented durable answer completion"
+    );
+    let envelope_json: String = rusqlite::Connection::open(app.context.state_db_path())
+        .expect("open receiver state")
+        .query_row(
+            "SELECT envelope_json FROM receiver_deliveries WHERE job_id = ?1",
+            [first.job_id().to_string()],
+            |row| row.get(0),
+        )
+        .expect("load frozen delivery envelope");
+    let envelope: crate::state::ReceiverDeliveryEnvelope =
+        serde_json::from_str(&envelope_json).expect("decode frozen delivery envelope");
+    assert!(
+        envelope
+            .email()
+            .is_some_and(|email| email.sender() == "brain@example.test"),
+        "delivery did not retain the sender stored at acceptance"
+    );
+}

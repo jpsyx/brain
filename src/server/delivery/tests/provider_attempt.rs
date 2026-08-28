@@ -160,6 +160,56 @@ fn nonzero_provider_process_cannot_acknowledge_an_apparent_success_body() {
 }
 
 #[test]
+fn curl_resolution_and_connect_failures_are_safe_retries_for_both_providers() {
+    use crate::state::{
+        ReceiverDeliveryDecision as Decision, ReceiverDeliveryErrorCategory as Error,
+        ReceiverDeliveryPolicySnapshot, ReceiverProviderCapability as Provider,
+        ReceiverProviderResultClass as ResultClass, decide_receiver_delivery,
+    };
+
+    for provider in [Provider::Twilio, Provider::Resend] {
+        for exit_code in [5, 6, 7] {
+            let result = classify_provider_process_output(provider, false, Some(exit_code), b"");
+            assert!(
+                result == ResultClass::DefinitelyNotAccepted(Error::TransportUnavailable),
+                "curl resolution/connect failure was not classified as pre-provider"
+            );
+            assert!(matches!(
+                decide_receiver_delivery(ReceiverDeliveryPolicySnapshot {
+                    provider,
+                    attempt_count: 1,
+                    first_attempt_at_unix_ms: Some(1_000),
+                    now_unix_ms: 2_000,
+                    result,
+                }),
+                Decision::RetryAt {
+                    retry_at_unix_ms: 62_000,
+                    error_category: Error::TransportUnavailable,
+                }
+            ));
+        }
+    }
+}
+
+#[test]
+fn neighboring_curl_failures_remain_conservatively_ambiguous() {
+    use crate::state::{
+        ReceiverDeliveryAmbiguity as Ambiguity, ReceiverProviderCapability as Provider,
+        ReceiverProviderResultClass as ResultClass,
+    };
+
+    for provider in [Provider::Twilio, Provider::Resend] {
+        for exit_code in [4, 8, 28] {
+            assert!(
+                classify_provider_process_output(provider, false, Some(exit_code), b"")
+                    == ResultClass::Ambiguous(Ambiguity::ProviderAcceptanceUnknown),
+                "a curl failure without definite pre-provider semantics became retry-safe"
+            );
+        }
+    }
+}
+
+#[test]
 fn oversized_or_malformed_success_is_ambiguous_without_echoing_the_body() {
     let private = "private-provider-response";
     let oversized = vec![b'x'; PROVIDER_RESPONSE_LIMIT + 1];

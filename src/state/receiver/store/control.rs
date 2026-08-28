@@ -30,6 +30,7 @@ impl Db {
         let control = transaction
             .query_row(
                 "SELECT job.conversation_id, job.received_at_unix_ms, job.inbound_json,
+                        job.response_sender,
                         conversation.user_id, conversation.channel,
                         conversation.conversation_key
                  FROM receiver_jobs AS job
@@ -45,19 +46,27 @@ impl Db {
                         row.get::<_, String>(0)?,
                         row.get::<_, i64>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(3)?,
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((conversation_id, received_at_unix_ms, inbound_json, user_id, channel, key)) =
-            control
+        let Some((
+            conversation_id,
+            received_at_unix_ms,
+            inbound_json,
+            response_sender,
+            user_id,
+            channel,
+            key,
+        )) = control
         else {
             return Ok(false);
         };
-        let inbound: InboundJob = serde_json::from_str(&inbound_json)?;
+        let inbound = super::decode_inbound(&inbound_json, response_sender)?;
         if parse_control_command(&inbound.prompt) != Some(ControlCommand::NewSession) {
             return Ok(false);
         }
@@ -107,7 +116,8 @@ impl Db {
         let queued = {
             let mut statement = transaction.prepare(
                 "SELECT job.job_id, job.conversation_id, job.received_at_unix_ms,
-                        job.inbound_json, conversation.user_id, conversation.channel,
+                        job.inbound_json, job.response_sender,
+                        conversation.user_id, conversation.channel,
                         conversation.conversation_key
                  FROM receiver_jobs AS job
                  JOIN receiver_conversations AS conversation
@@ -124,16 +134,26 @@ impl Db {
                         row.get::<_, String>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(4)?,
                         row.get::<_, String>(5)?,
                         row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
                     ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
         let restart = queued.into_iter().find_map(
-            |(job_id, conversation_id, received_at, inbound_json, user, channel, key)| {
-                let inbound = serde_json::from_str::<InboundJob>(&inbound_json).ok()?;
+            |(
+                job_id,
+                conversation_id,
+                received_at,
+                inbound_json,
+                response_sender,
+                user,
+                channel,
+                key,
+            )| {
+                let inbound = super::decode_inbound(&inbound_json, response_sender).ok()?;
                 (parse_control_command(&inbound.prompt) == Some(ControlCommand::Restart)).then_some(
                     (
                         job_id,
@@ -228,7 +248,7 @@ fn load_restart_backlog(
     restart_job_id: ReceiverJobId,
 ) -> Result<Vec<InboundJob>> {
     let mut statement = transaction.prepare(
-        "SELECT inbound_json FROM receiver_jobs
+        "SELECT inbound_json, response_sender FROM receiver_jobs
          WHERE workspace_id = ?1 AND claim_owner IS NULL
            AND (
              received_at_unix_ms < ?2
@@ -250,9 +270,12 @@ fn load_restart_backlog(
                 restart_received_at_unix_ms,
                 restart_job_id.to_string(),
             ],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )?
-        .map(|row| Ok(serde_json::from_str(&row?)?))
+        .map(|row| {
+            let (inbound_json, response_sender) = row?;
+            super::decode_inbound(&inbound_json, response_sender)
+        })
         .collect()
 }
 

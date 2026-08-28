@@ -1320,6 +1320,10 @@ metadata. Credentials remain in the machine-local provider adapter.
 Same-version repair rebuilds the earlier v12 check contract before a claim can
 enter `delivering`, preserves every row, and terminalizes malformed or
 pre-frozen-sender final answers together with their matching job.
+Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
+without modifying `inbound_json`, preserving same-version reader compatibility.
+Authenticated ingress fills it before acknowledgement; completion uses only
+that value, and legacy NULL rows terminalize without rereading environment.
 Reconciliation terminalizes interrupted or malformed delivery leases without
 replay. Its down
 path reserves an immediate writer before schema inspection, verifies the v11
@@ -1648,6 +1652,9 @@ delivery-ID idempotency key. Resend HTTP 5xx and
 `concurrent_idempotent_requests` use that safe replay path, while a changed
 idempotency payload is rejected terminally. Twilio HTTP 5xx and other
 post-request uncertainty are terminal because retrying can duplicate an SMS.
+Curl exits 5, 6, and 7 are retry-safe for either provider because resolution or
+TCP connection failed before a request could be accepted; other nonzero exits
+remain ambiguous unless a narrower provider response proves otherwise.
 Executor publication is nonblocking; a disconnected start handoff proves the
 operation was never sent and rolls back only the exact attempt increment.
 

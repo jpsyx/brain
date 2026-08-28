@@ -30,6 +30,32 @@ pub(super) fn privacy_diagnostic_violations(source: &str) -> Vec<&'static str> {
     violations
 }
 
+pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
+    let masked = mask_non_code(source);
+    ["assert_eq!", "assert_ne!"]
+        .into_iter()
+        .flat_map(|macro_name| macro_bodies(&masked, macro_name))
+        .filter(|body| {
+            let assertion = &masked[body.clone()];
+            [
+                "envelope_json",
+                "completion_evidence_json",
+                "transcript",
+                "frozen_before",
+                "legacy",
+                "before.0",
+                "before.1",
+                "before.2",
+                "after.0",
+                "after.1",
+                "after.2",
+            ]
+            .into_iter()
+            .any(|private_value| assertion.contains(private_value))
+        })
+        .count()
+}
+
 fn contains_private_diagnostic_value(diagnostic: &str) -> bool {
     let masked = mask_non_code(diagnostic);
     diagnostic.contains(":?")

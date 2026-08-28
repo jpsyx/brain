@@ -3,13 +3,13 @@ use rusqlite::OptionalExtension as _;
 
 use crate::state::{
     Db, ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverDeliveryId,
-    ReceiverObservationSet, ReceiverResponseKind, render_receiver_delivery,
-    render_receiver_transcript,
+    ReceiverObservationSet, render_receiver_transcript,
 };
 
 use super::authorization::{AuthorizedCompletion, CompletionEvidence, validate_inbound_scope};
 use super::duplicate::existing_completion_outcome;
 use super::lifecycle::{StoredEvidence, merge_completion_evidence};
+use super::preparation;
 
 struct ActiveCompletion {
     evidence: StoredEvidence,
@@ -37,7 +37,8 @@ pub(super) fn complete(
                     attempt_accepted_at_unix_ms, attempt_progressing_at_unix_ms,
                     latest_progress_at_unix_ms, completed_at_unix_ms,
                     observation_revision, observation_session_id,
-                    job.inbound_json, conversation.transcript_markdown
+                    job.inbound_json, job.response_sender,
+                    conversation.transcript_markdown
              FROM receiver_jobs AS job
              JOIN receiver_conversations AS conversation
                ON conversation.workspace_id = job.workspace_id
@@ -71,17 +72,18 @@ pub(super) fn complete(
                         revision: row.get(6)?,
                         session_id: row.get(7)?,
                     },
-                    inbound: serde_json::from_str::<crate::server::receiver::InboundJob>(
+                    inbound: super::super::decode_inbound(
                         &row.get::<_, String>(8)?,
+                        row.get::<_, Option<String>>(9)?,
                     )
                     .map_err(|error| {
                         rusqlite::Error::FromSqlConversionFailure(
                             8,
                             rusqlite::types::Type::Text,
-                            Box::new(error),
+                            error.into(),
                         )
                     })?,
-                    transcript: row.get(9)?,
+                    transcript: row.get(10)?,
                 })
             },
         )
@@ -90,14 +92,8 @@ pub(super) fn complete(
         return Ok(None);
     };
     validate_inbound_scope(&stored.inbound, request)?;
-    let envelope = render_receiver_delivery(
-        &stored.inbound,
-        ReceiverResponseKind::FinalAnswer,
-        request.outbound_sender,
-        request.answer,
-    )?;
-    let envelope_json =
-        serde_json::to_string(&envelope).context("serialize durable receiver delivery envelope")?;
+    let prepared = preparation::prepare(&stored.inbound, request.answer)?;
+    let envelope_json = prepared.envelope_json();
     let transcript =
         render_receiver_transcript(&stored.transcript, &stored.inbound.prompt, request.answer);
     let merged = merge_completion_evidence(
@@ -110,7 +106,7 @@ pub(super) fn complete(
         &db.workspace_id,
         request,
         &stored.inbound.prompt,
-        &envelope_json,
+        envelope_json,
         &merged,
     );
     let completion_evidence_json = serde_json::to_string(&completion_evidence)
@@ -151,15 +147,17 @@ pub(super) fn complete(
     transaction.execute(
         "INSERT INTO receiver_deliveries
            (delivery_id, job_id, job_token, response_kind, envelope_json,
-            completion_evidence_json, state, attempt_count,
+            completion_evidence_json, state, attempt_count, error_category,
             created_at_unix_ms, updated_at_unix_ms)
-         VALUES (?1, ?2, ?3, 'final-answer', ?4, ?5, 'ready', 0, ?6, ?6)",
+         VALUES (?1, ?2, ?3, 'final-answer', ?4, ?5, ?6, 0, ?7, ?8, ?8)",
         rusqlite::params![
             delivery_id.to_string(),
             request.job_id.to_string(),
             request.token.to_string(),
             envelope_json,
             completion_evidence_json,
+            prepared.state(),
+            prepared.error_category(),
             merged.completed,
         ],
     )?;
@@ -186,7 +184,7 @@ pub(super) fn complete(
     )?;
     let changed = transaction.execute(
         "UPDATE receiver_jobs
-         SET state = 'answer-ready', accepted_at_unix_ms = ?4,
+         SET state = ?16, accepted_at_unix_ms = ?4,
              progressing_at_unix_ms = ?5, completed_at_unix_ms = ?6,
              attempt_accepted_at_unix_ms = ?7,
              attempt_progressing_at_unix_ms = ?8,
@@ -194,7 +192,7 @@ pub(super) fn complete(
              observation_revision = ?10, observation_session_id = ?11,
              claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_at_unix_ms = NULL, retry_from_state = NULL,
-             last_error = NULL, pending_unavailable_notice = 0,
+             last_error = ?17, pending_unavailable_notice = 0,
              updated_at_unix_ms = ?6
          WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3 AND claim_owner = ?12
            AND claim_expires_at_unix_ms > ?13
@@ -216,6 +214,8 @@ pub(super) fn complete(
             authorized.authorized_at_unix_ms,
             request.registration.instance(),
             request.registration.conversation_id().to_string(),
+            prepared.job_state(),
+            prepared.job_error(),
         ],
     )?;
     if changed != 1 {

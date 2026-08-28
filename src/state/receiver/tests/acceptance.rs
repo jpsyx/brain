@@ -38,6 +38,35 @@ fn accepted_receiver_job_and_conversation_survive_database_reopen() {
 }
 
 #[test]
+fn accepted_receiver_job_persists_the_sender_without_breaking_same_version_json() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let job = receiver_job(Some("provider-frozen-sender"), 100);
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let accepted = db
+        .accept_receiver_job(&job, &identity)
+        .expect("accept receiver job");
+    let (response_sender, inbound_json): (Option<String>, String) = db
+        .conn
+        .query_row(
+            "SELECT response_sender, inbound_json FROM receiver_jobs WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load frozen sender storage");
+    let encoded: serde_json::Value =
+        serde_json::from_str(&inbound_json).expect("decode compatibility inbound JSON");
+
+    assert!(
+        response_sender.as_deref() == Some("+12125550100"),
+        "accepted job did not persist its frozen response sender"
+    );
+    assert!(
+        encoded.get("response_sender").is_none(),
+        "same-version inbound JSON became unreadable by the prior release"
+    );
+}
+
+#[test]
 fn provider_delivery_id_deduplicates_without_replacing_the_original_job() {
     let db = Db::open_in_memory().expect("receiver state");
     let original = receiver_job(Some("provider-duplicate"), 100);

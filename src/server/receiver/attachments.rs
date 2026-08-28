@@ -275,6 +275,11 @@ mod tests {
             actor: crate::actor::test_actor("attachment-user"),
             channel,
             authenticated_sender: "sender@example.test".to_owned(),
+            response_sender: match channel {
+                super::Channel::Sms => "+13105550100",
+                super::Channel::Email => "brain@example.test",
+            }
+            .to_owned(),
             prompt: "inspect attachment".to_owned(),
             attachments: vec![super::super::AttachmentRef {
                 url: "https://expired.example/private".to_owned(),

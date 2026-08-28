@@ -265,6 +265,11 @@ pub(crate) fn classify_provider_process_output(
     output: &[u8],
 ) -> ReceiverProviderResultClass {
     if !process_success {
+        if matches!(exit_code, Some(5..=7)) {
+            return ReceiverProviderResultClass::DefinitelyNotAccepted(
+                ReceiverDeliveryErrorCategory::TransportUnavailable,
+            );
+        }
         let failure = if exit_code == Some(28) {
             ReceiverProviderProcessFailure::Timeout
         } else {

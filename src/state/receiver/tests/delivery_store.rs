@@ -469,7 +469,12 @@ fn resend_io_restart_replays_frozen_answer_and_envelope_inside_the_window() {
         )
         .expect("load reconciled resend delivery");
 
-    assert_eq!((&after.0, &after.1, &after.2), (&before.0, &before.1, &before.2));
+    assert!(
+        private_text_proof(&after.0) == private_text_proof(&before.0)
+            && private_text_proof(&after.1) == private_text_proof(&before.1)
+            && private_text_proof(&after.2) == private_text_proof(&before.2),
+        "restart reconciliation changed immutable private delivery proofs"
+    );
     assert_eq!(after.3, "retrying");
     assert_eq!(after.4, 65_000);
 }

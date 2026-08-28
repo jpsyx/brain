@@ -50,6 +50,8 @@ pub struct InboundJob {
     pub actor: crate::actor::ActorContext,
     pub channel: Channel,
     pub authenticated_sender: String,
+    #[serde(skip)]
+    pub response_sender: String,
     pub prompt: String,
     pub attachments: Vec<AttachmentRef>,
     pub received_at_unix_ms: u64,

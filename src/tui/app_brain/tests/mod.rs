@@ -41,6 +41,11 @@ fn receiver_job(
         channel,
         prompt: prompt.to_owned(),
         authenticated_sender: "+15551234567".to_owned(),
+        response_sender: match channel {
+            Channel::Sms => "+13105550100",
+            Channel::Email => "brain@example.test",
+        }
+        .to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 1,
         provider_id: Some("provider-message-1".to_owned()),

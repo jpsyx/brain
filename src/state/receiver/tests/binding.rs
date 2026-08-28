@@ -277,7 +277,6 @@ impl CompletionFixture {
             owner: "owner",
             registration: &self.registration,
             completed_session: &self.completed_session,
-            outbound_sender: "+12125550100",
             answer: "exact assistant answer",
             observed_at_unix_ms: 1_500,
             authorized_at_unix_ms: 1_500,
@@ -290,12 +289,36 @@ pub(super) fn completion_fixture(state: ReceiverJobState) -> CompletionFixture {
 }
 
 pub(super) fn completion_fixture_in(db: Db, state: ReceiverJobState) -> CompletionFixture {
-    use crate::agent::{AgentKind, AgentSession, SessionScope};
-
     let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
     let job = receiver_job(None, 100);
+    completion_fixture_for_job(db, state, job, &identity)
+}
+
+pub(super) fn email_completion_fixture_in(db: Db, state: ReceiverJobState) -> CompletionFixture {
+    let identity = ReceiverConversationIdentity::email(
+        receiver_workspace_id(),
+        receiver_user_id(),
+        EmailLineage::verified("provider-thread").expect("email lineage"),
+    );
+    let job = receiver_job_for(
+        receiver_workspace_id(),
+        crate::server::receiver::Channel::Email,
+        Some("provider-email"),
+        100,
+    );
+    completion_fixture_for_job(db, state, job, &identity)
+}
+
+fn completion_fixture_for_job(
+    db: Db,
+    state: ReceiverJobState,
+    job: crate::server::receiver::InboundJob,
+    identity: &ReceiverConversationIdentity,
+) -> CompletionFixture {
+    use crate::agent::{AgentKind, AgentSession, SessionScope};
+
     let accepted = db
-        .accept_receiver_job(&job, &identity)
+        .accept_receiver_job(&job, identity)
         .expect("accept receiver job");
     let scope = SessionScope::new(AgentKind::Codex, receiver_workspace_id(), job.actor);
     let placeholder = AgentSession::new("pending-completion").expect("placeholder");

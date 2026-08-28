@@ -75,21 +75,12 @@ impl App {
         observed_at_unix_ms: u64,
         authorized_at_unix_ms: u64,
     ) {
-        let sender_variable =
-            crate::server::receiver::routing::address_var(active.claim.job().inbound().channel);
-        let Some(outbound_sender) = crate::env::get(self.context.command(), sender_variable) else {
-            self.log_receiver_observation(&active, None, "outbound-sender-unavailable");
-            self.receiver
-                .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
-            return;
-        };
         let request = crate::state::ReceiverCompletionRequest {
             job_id: active.claim.job().id(),
             token: active.claim.job().token(),
             owner: active.claim.claim().owner(),
             registration: &active.attribution,
             completed_session,
-            outbound_sender: &outbound_sender,
             answer: message,
             observed_at_unix_ms,
             authorized_at_unix_ms,

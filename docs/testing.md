@@ -1209,7 +1209,9 @@ first move is a failing test that reproduces it, *then* the fix.
 
 **Durable receiver delivery model.** `state::receiver::tests` covers frozen
 SMS and email envelopes, serialization round trips, redacted Debug, exact
-acceptance-time outbound sender, recipients, and email lineage, whole-set
+authenticated-ingress outbound sender persistence outside the compatibility
+JSON frame, config-independent completion, legacy NULL terminalization,
+recipients, and email lineage, whole-set
 recipient rejection,
 serialized-envelope validation, every provider-result branch, one/five/30-minute
 retry delays, permanent-category terminalization, attempt exhaustion, deadline
@@ -1231,9 +1233,17 @@ schedule and exhaustion policy, safe pre-spawn release, Resend and Twilio
 restart outcomes, immutable envelope/evidence/transcript preservation, bounded
 response parsing, exact provider identifiers, byte-identical Resend replay,
 bounded and redacted Resend conflict parsing, provider-specific HTTP 5xx,
+exact curl 5/6/7 pre-provider retry classification with conservative neighbors,
 nonblocking queue publication, safe unsent-publication rollback, queue
 saturation, cancellation, lost results, fresh-App reconciliation, and
 independent next-job progress without sleeps or network.
+The composed App suite deletes sender configuration after acceptance and proves
+the answer still commits with the frozen identity. The composed state suite
+proves that missing trusted email recipients atomically produce a terminal
+authorization outcome, advance transcript and cleanup authority, survive reopen
+replay, and never enter the provider claim lane. The receiver privacy policy rejects
+content-bearing whole-value assertions in cumulative delivery migration and
+reconciliation tests, requiring digest or field-presence proofs instead.
 `tests/module_structure.rs` includes delivery envelope decoding, envelope,
 identity, status, policy, schema, and claim/decode/result/reconciliation store
 seams in its production-size guard.

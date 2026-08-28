@@ -736,7 +736,8 @@ UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
 attachment references, receipt time, provider delivery ID, authenticated
 thread participants, the actor's acceptance-time normalized response email,
 and the acceptance-time allowed response recipients. Authenticated ingress
-stores that complete frame in the matching workspace DB before provider
+stores that frame plus the verified receiving number or email address in the
+job's nullable `response_sender` column before provider
 success. A provider retry with the same workspace/channel/provider identity
 returns the original durable job rather than replacing its accepted frame.
 Follow-ups retain the
@@ -1180,6 +1181,15 @@ without copying attacker-controlled content into the error.
 The public status and every Debug implementation redact envelope, recipient,
 sender, provider reference, and answer content.
 
+The response sender is captured when authenticated ingress accepts the job,
+not when the agent finishes. Completion never rereads mutable environment
+configuration. Same-version repair adds the nullable column without extending
+the deny-unknown inbound JSON frame, so the prior schema-v12 release can still
+read new jobs. A legacy NULL sender becomes a terminal `invalid-request`
+outcome. An email answer with no trusted accepted recipient atomically advances
+the transcript and cleanup authority but records a failed `authorization`
+outcome that cannot be claimed for provider delivery.
+
 The pure delivery policy permits one initial provider attempt followed by
 delays of one, five, and 30 minutes only for transport failures proved not
 accepted. Authorization, credentials, invalid request, provider rejection, and
@@ -1193,6 +1203,9 @@ idempotency boundary. Resend HTTP 5xx and
 policy; `invalid_idempotent_request` and other 409 conflicts are terminal
 provider rejection. Twilio HTTP 5xx is terminal ambiguity because create has no
 equivalent key and retrying an accepted request could duplicate the SMS.
+Curl exits 5, 6, and 7 are safe pre-provider transport failures for both
+providers because proxy resolution, host resolution, or TCP connection failed.
+Neighboring generic exits and timeouts remain conservative.
 Atomic App answer persistence now writes this outbox before
 provider IO. Outbox claiming and provider result commits remain later delivery
 work.

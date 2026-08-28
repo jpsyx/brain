@@ -28,7 +28,7 @@ pub(super) fn load_receiver_job(
                     progress_expires_at_unix_ms, recovery_expires_at_unix_ms,
                     absolute_work_expires_at_unix_ms, recovery_count, attempt_kind,
                     pending_unavailable_notice, recovery_cleanup_instance,
-                    recovery_cleanup_session_id
+                    recovery_cleanup_session_id, response_sender
              FROM receiver_jobs WHERE workspace_id = ?1 AND job_id = ?2",
             rusqlite::params![workspace_id, job_id.to_string()],
             |row| {
@@ -61,6 +61,7 @@ pub(super) fn load_receiver_job(
                     row.get::<_, bool>(25)?,
                     row.get::<_, Option<String>>(26)?,
                     row.get::<_, Option<String>>(27)?,
+                    row.get::<_, Option<String>>(28)?,
                 ))
             },
         )
@@ -94,11 +95,12 @@ pub(super) fn load_receiver_job(
         pending_unavailable_notice,
         recovery_cleanup_instance,
         recovery_cleanup_session_id,
+        response_sender,
     )) = stored
     else {
         return Ok(None);
     };
-    let inbound = serde_json::from_str(&inbound_json).context("parse durable receiver job")?;
+    let inbound = super::decode_inbound(&inbound_json, response_sender)?;
     let state = ReceiverJobState::parse(&state)
         .ok_or_else(|| anyhow::anyhow!("unknown durable receiver job state {state:?}"))?;
     Ok(Some(ReceiverJob::from_stored(

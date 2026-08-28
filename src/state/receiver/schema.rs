@@ -122,6 +122,7 @@ pub(super) fn up_with_token_factory(
     ensure_observation_columns(&transaction, &mut next_token)?;
     recovery::ensure_columns(&transaction)?;
     ensure_unavailable_notice_columns(&transaction)?;
+    ensure_response_sender_column(&transaction)?;
     delivery::ensure_schema(&transaction)?;
     if current_version < VERSION && !had_any_recovery_column {
         recovery::migrate_v9_metadata(&transaction)?;
@@ -131,6 +132,13 @@ pub(super) fn up_with_token_factory(
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
     transaction.commit()?;
+    Ok(())
+}
+
+fn ensure_response_sender_column(connection: &Connection) -> Result<()> {
+    if !has_column(connection, "response_sender")? {
+        connection.execute_batch("ALTER TABLE receiver_jobs ADD COLUMN response_sender TEXT;")?;
+    }
     Ok(())
 }
 

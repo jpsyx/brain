@@ -66,6 +66,7 @@ fn authenticated_completion_persists_answer_without_calling_provider() {
         channel: Channel::Sms,
         prompt: "authenticated request".to_owned(),
         authenticated_sender: "+15551234567".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 1,
         provider_id: Some("provider-message-1".to_owned()),

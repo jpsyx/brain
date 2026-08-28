@@ -9,7 +9,7 @@ mod diagnostics;
 #[path = "policy/literals.rs"]
 mod literals;
 
-use diagnostics::privacy_diagnostic_violations;
+use diagnostics::{privacy_diagnostic_violations, private_whole_value_assertion_violations};
 use literals::source_privacy_violations;
 
 #[test]
@@ -27,6 +27,22 @@ fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
         assert!(
             privacy_diagnostic_violations(&source).is_empty(),
             "privacy test contains unsafe diagnostics at case index {case_index}"
+        );
+    }
+}
+
+#[test]
+fn delivery_immutability_tests_never_print_private_whole_values_on_failure() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for relative in [
+        "src/state/receiver/tests/schema_sections/delivery.rs",
+        "src/state/receiver/tests/delivery_store.rs",
+    ] {
+        let source =
+            std::fs::read_to_string(root.join(relative)).expect("receiver delivery privacy source");
+        assert!(
+            private_whole_value_assertion_violations(&source) == 0,
+            "receiver delivery test contains a private whole-value diagnostic"
         );
     }
 }

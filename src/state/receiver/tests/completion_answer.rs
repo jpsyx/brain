@@ -123,6 +123,162 @@ fn exact_completion_atomically_records_answer_ready_transcript_binding_and_outbo
 }
 
 #[test]
+fn completion_uses_the_sender_frozen_with_the_authenticated_inbound_job() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    let request = fixture.request();
+
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&request)
+        .expect("record answer after machine sender changed")
+        .expect("exact answer owner");
+    let claim = fixture
+        .db
+        .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
+        .expect("claim frozen delivery")
+        .expect("frozen delivery exists");
+
+    assert!(
+        claim
+            .envelope()
+            .sms()
+            .is_some_and(|sms| sms.sender() == "+12125550100"),
+        "delivery did not use the sender frozen at inbound acceptance"
+    );
+}
+
+#[test]
+fn email_completion_without_an_authorized_recipient_is_terminal_and_restart_idempotent() {
+    let temporary = tempfile::tempdir().expect("temporary receiver state");
+    let path = temporary.path().join("state.db");
+    let workspace = receiver_workspace_id().to_string();
+    let actor = receiver_user_id();
+    let fixture = super::binding::email_completion_fixture_in(
+        Db::open_path_with_legacy_identity(&path, &workspace, actor.as_str())
+            .expect("file-backed receiver state"),
+        ReceiverJobState::Processing,
+    );
+    let first = fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record terminal authorization outcome")
+        .expect("exact terminal outcome");
+    let row: (String, Option<String>, i64) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT delivery.state, delivery.error_category,
+                    (SELECT COUNT(*) FROM receiver_answer_cleanups AS cleanup
+                     WHERE cleanup.job_id = delivery.job_id)
+             FROM receiver_deliveries AS delivery WHERE delivery.job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load terminal authorization outcome");
+    assert!(row.0 == "failed", "authorization outcome was sendable");
+    assert!(
+        row.1.as_deref() == Some("authorization"),
+        "terminal outcome had the wrong content-free category"
+    );
+    assert!(row.2 == 1, "answer cleanup authority was not persisted");
+    assert!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load terminal job")
+            .is_some_and(|job| job.state() == ReceiverJobState::Failed),
+        "authorization failure did not release the agent lane"
+    );
+    assert!(
+        fixture
+            .db
+            .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
+            .expect("inspect delivery lane")
+            .is_none(),
+        "authorization failure entered the provider delivery lane"
+    );
+    let transcript = fixture
+        .db
+        .receiver_conversation(fixture.registration.conversation_id())
+        .expect("load terminal conversation")
+        .expect("terminal conversation")
+        .transcript_markdown()
+        .to_owned();
+    assert!(
+        receiver_transcript_has_exact_turn(
+            &transcript,
+            "Remember the durable receiver job",
+            "exact assistant answer",
+        ),
+        "terminal authorization did not advance the portable transcript"
+    );
+
+    let job_id = fixture.job_id;
+    let token = fixture.token;
+    let registration = fixture.registration.clone();
+    let completed_session = fixture.completed_session.clone();
+    drop(fixture);
+    let reopened = Db::open_path_with_legacy_identity(&path, &workspace, actor.as_str())
+        .expect("reopen terminal receiver state");
+    let replay = reopened
+        .complete_receiver_job_with_binding(&ReceiverCompletionRequest {
+            job_id,
+            token,
+            owner: "owner",
+            registration: &registration,
+            completed_session: &completed_session,
+            answer: "exact assistant answer",
+            observed_at_unix_ms: 1_500,
+            authorized_at_unix_ms: 1_500,
+        })
+        .expect("replay terminal authorization outcome")
+        .expect("existing terminal outcome");
+    assert!(!first.delivery_id().to_string().is_empty());
+    assert!(!replay.newly_recorded());
+}
+
+#[test]
+fn completion_terminalizes_a_legacy_job_without_a_frozen_response_sender() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_jobs SET response_sender = NULL WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("stage legacy accepted inbound job");
+
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("terminalize missing frozen sender")
+        .expect("exact terminal outcome");
+    let row: (String, Option<String>) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT state, error_category FROM receiver_deliveries WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load legacy terminal outcome");
+    assert!(row.0 == "failed", "legacy sender outcome was sendable");
+    assert!(
+        row.1.as_deref() == Some("invalid-request"),
+        "legacy sender outcome had the wrong content-free category"
+    );
+    assert!(
+        fixture
+            .db
+            .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
+            .expect("inspect delivery lane")
+            .is_none(),
+        "legacy sender outcome entered the provider delivery lane"
+    );
+}
+
+#[test]
 fn exact_completion_conflict_rolls_back_without_changing_the_existing_answer() {
     let fixture = super::binding::completion_fixture(ReceiverJobState::Launched);
     let request = fixture.request();
@@ -588,7 +744,6 @@ fn later_answer_commits_while_prior_same_instance_cleanup_remains_pending() {
         owner: "later-owner",
         registration: &registration,
         completed_session: &first.completed_session,
-        outbound_sender: "+12125550100",
         answer: "later exact assistant answer",
         observed_at_unix_ms: 2_300,
         authorized_at_unix_ms: 2_300,
@@ -749,7 +904,6 @@ fn concurrent_identical_completion_records_one_answer_and_one_existing_outcome()
                     owner: "owner",
                     registration: &registration,
                     completed_session: &completed_session,
-                    outbound_sender: "+12125550100",
                     answer: "exact assistant answer",
                     observed_at_unix_ms: 1_500,
                     authorized_at_unix_ms: 1_500,

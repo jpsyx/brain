@@ -3108,9 +3108,10 @@ or downgrade. A legacy row with `session_released` zero remains fenced.
 ## Freeze provider payloads before IO and classify ambiguity by provider
 
 Schema v12 establishes one durable delivery row per job and semantic response
-kind before provider IO. Its serialized envelope is derived from the immutable
-accepted job and the exact outbound sender configured when the answer is
-accepted, so later config, user, formatter, or thread changes cannot alter the
+kind before provider IO. Authenticated ingress freezes the verified receiving
+number or email address in the job before acknowledging the provider. The
+serialized answer envelope is derived only from that immutable accepted job,
+so later config deletion or changes, user edits, formatter changes, or thread changes cannot alter the
 sender, recipients, reply lineage, or body bytes during a retry. Sender identity
 is non-secret routing data. Provider account, token, and API-key credentials
 stay live and machine-local; the row never stores them. The row stores provider
@@ -3127,7 +3128,10 @@ terminal rejection. Twilio create exposes no equivalent key; even a documented
 20500 HTTP 5xx can follow provider acceptance, so every Twilio 5xx becomes
 terminal ambiguity instead of risking a duplicate SMS.
 Only transport failures proved not accepted use the bounded one, five, and 30
-minute delays. Permanent categories remain terminal even when presented on the
+minute delays. Curl exits 5, 6, and 7 prove proxy resolution, host resolution,
+or TCP connection failed before provider acceptance and are the only nonzero
+exit codes promoted to this safe branch. Neighboring initialization, protocol,
+server-reply, timeout, and post-request failures remain conservative. Permanent categories remain terminal even when presented on the
 definitely-not-accepted branch. Resend ambiguity schedules a retry only when
 that retry deadline, not merely the current clock, remains inside the 24-hour
 window. Any malformed frozen recipient rejects the whole response intent, and

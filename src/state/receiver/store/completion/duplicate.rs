@@ -8,6 +8,7 @@ use crate::state::{
 
 use super::authorization::CompletionEvidence;
 use super::lifecycle::validate_existing_observation;
+use super::preparation::terminal_record_is_valid;
 
 struct ExistingCompletion {
     delivery_id: String,
@@ -15,6 +16,8 @@ struct ExistingCompletion {
     envelope_json: String,
     completion_evidence_json: Option<String>,
     job_state: String,
+    delivery_state: String,
+    error_category: Option<String>,
 }
 
 pub(super) fn existing_completion_outcome(
@@ -26,7 +29,8 @@ pub(super) fn existing_completion_outcome(
     let stored = transaction
         .query_row(
             "SELECT delivery.delivery_id, delivery.job_token, delivery.envelope_json,
-                    delivery.completion_evidence_json, job.state
+                    delivery.completion_evidence_json, job.state, delivery.state,
+                    delivery.error_category
              FROM receiver_deliveries AS delivery
              JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
              WHERE job.workspace_id = ?1 AND job.job_id = ?2
@@ -39,6 +43,8 @@ pub(super) fn existing_completion_outcome(
                     envelope_json: row.get(2)?,
                     completion_evidence_json: row.get(3)?,
                     job_state: row.get(4)?,
+                    delivery_state: row.get(5)?,
+                    error_category: row.get(6)?,
                 })
             },
         )
@@ -66,8 +72,14 @@ pub(super) fn existing_completion_outcome(
         .ok_or_else(|| anyhow::anyhow!("receiver completion conflicts with durable answer"))?;
     let completion_evidence: CompletionEvidence = serde_json::from_str(completion_evidence_json)
         .map_err(|_| anyhow::anyhow!("receiver completion evidence is invalid"))?;
-    let _: ReceiverDeliveryEnvelope = serde_json::from_str(&stored.envelope_json)
-        .map_err(|_| anyhow::anyhow!("receiver delivery envelope is invalid"))?;
+    if !terminal_record_is_valid(
+        &stored.delivery_state,
+        stored.error_category.as_deref(),
+        &stored.envelope_json,
+    ) {
+        let _: ReceiverDeliveryEnvelope = serde_json::from_str(&stored.envelope_json)
+            .map_err(|_| anyhow::anyhow!("receiver delivery envelope is invalid"))?;
+    }
     anyhow::ensure!(
         completion_evidence.matches(workspace_id, request, &stored.envelope_json),
         "receiver completion conflicts with durable answer"

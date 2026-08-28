@@ -30,6 +30,10 @@ pub(super) fn finish_pipeline(
     };
     if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
         let job = result.expect("live authority should commit under the control mutex");
+        assert!(
+            job.response_sender == "+13105550100",
+            "authenticated dispatch did not freeze its verified receiving number"
+        );
         let db = crate::state::Db::open(workspace).expect("durable receiver state");
         let persisted = db
             .receiver_job(crate::state::ReceiverJobId::from(job.job_id))

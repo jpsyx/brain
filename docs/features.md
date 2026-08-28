@@ -1614,7 +1614,12 @@ claim, conversation, instance, registered and actual session, frontend,
 actor/channel scope, and lifecycle evidence. It appends one authenticated user
 turn and the exact assistant answer to the portable transcript, freezes one
 final-answer delivery envelope, replaces the native binding, moves the job to
-`answer-ready`, and releases the agent claim. An identical duplicate returns
+`answer-ready`, and releases the agent claim. The sender comes from
+authenticated ingress acceptance and is never reread from mutable environment
+at completion. If an email job has no trusted accepted recipient, the same
+transaction advances transcript and cleanup authority but persists an
+unclaimable terminal authorization outcome instead of leaving the run active.
+An identical duplicate returns
 the existing delivery without another transcript turn or outbox row only when
 the persisted completion proof exactly matches the original job, token,
 conversation, instance, frontend, actor/channel, registered, actual, and
@@ -1640,11 +1645,14 @@ before later ordinary FIFO work. Final-answer delivery now uses a separate
 oldest-due claim and bounded provider worker. Acknowledged provider references
 finish the job, safe failures schedule bounded retries, and provider-specific
 ambiguity becomes either an exact Resend replay or terminal failure. The exact
-outbound number or email sender is frozen with the accepted answer, so a config
+outbound number or email sender is frozen with the authenticated inbound job, so a config
 change cannot retarget later attempts; only provider credentials remain live.
 Resend HTTP 5xx and concurrent-idempotency conflicts safely replay the same
 delivery key and bytes, while changed-payload conflicts fail terminally.
 Twilio HTTP 5xx is terminal ambiguity because retrying could duplicate an SMS.
+Curl proxy-resolution, host-resolution, and TCP-connect exits 5, 6, and 7 are
+safe pre-provider retries for either provider; timeout and neighboring generic
+process failures remain conservative.
 Legacy notices and controls still use their existing background path. BR-18
 still owns final schema migration/reconciliation, durable phase reporting, and
 removal of the narrowly retained legacy job-socket lifetime representation; it no longer needs to

@@ -60,7 +60,7 @@ pub(super) fn authenticate(
         prompt,
         participants: vec![sender],
         attachments,
-        receiving_address: String::new(),
+        receiving_address: config.twilio_from_number.clone(),
         provider_id: fields.get("MessageSid").cloned(),
         email_reply: None,
     })

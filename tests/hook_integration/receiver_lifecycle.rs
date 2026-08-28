@@ -112,6 +112,7 @@ fn registered_receiver(frontend: AgentKind, session_id: &str, instance: &str) ->
         actor: actor.clone(),
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: "receiver lifecycle".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 100,

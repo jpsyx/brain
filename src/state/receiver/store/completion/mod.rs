@@ -7,6 +7,7 @@ use crate::state::{
 mod authorization;
 mod duplicate;
 mod lifecycle;
+mod preparation;
 mod transaction;
 
 impl Db {
