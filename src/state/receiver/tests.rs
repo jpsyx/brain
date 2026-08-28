@@ -127,6 +127,7 @@ mod delivery_fallback {
 
     include!("tests/delivery_fallback.rs");
     include!("tests/delivery_fallback_success.rs");
+    include!("tests/delivery_fallback_ordering.rs");
 }
 
 mod delivery_store {
