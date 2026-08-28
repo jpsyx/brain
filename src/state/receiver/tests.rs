@@ -36,6 +36,7 @@ mod completion_answer {
     use super::*;
 
     include!("tests/completion_answer.rs");
+    include!("tests/completion_reaper.rs");
 }
 
 mod recovery {

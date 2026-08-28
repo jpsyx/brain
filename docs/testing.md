@@ -392,8 +392,12 @@ first move is a failing test that reproduces it, *then* the fix.
   cover crashes before and after commit, the two-App window between answer
   commit and originating controller shutdown, exact origin acknowledgement,
   end-to-end dead-owner takeover after atomic lock-reap acknowledgement,
+  a deterministic two-connection replacement-owner race between liveness
+  sampling and the immediate reap transaction,
   same-PID main-session and stale-PID takeover denial, multiple same-instance
-  cleanup rows with a later answer commit, durable session-release and artifact-cleanup retries, sync-start
+  cleanup rows with a later answer commit, fair bounded retries for multiple
+  still-live cleanup controllers, full-registry preservation of the next exact
+  controller and artifact, durable session-release and artifact-cleanup retries, sync-start
   failures, durable answers, and next-job release. They prove that controller
   shutdown opens the cleanup fence, session and artifact flags progress
   independently, and task reload plus sync wait for both. Agent-controller
@@ -402,8 +406,9 @@ first move is a failing test that reproduces it, *then* the fix.
   fence. A fresh App resumes
   only an eligible cleanup without reclaiming agent work. Schema tests cover
   same-version cleanup-table, legacy instance-unique-index and shutdown-ack
-  column repair, content and credential exclusion, and v12 downgrade cleanup.
-  Down tests prove unacknowledged refusal, exact session and private-artifact
+  column repair, progressed and untouched pre-fence rows, content and credential
+  exclusion, and v12 downgrade cleanup. Down tests prove repaired progressed
+  cleanup completion, repaired untouched refusal, exact session and private-artifact
   discharge, and filesystem failure with intact authority plus idempotent
   retry. That matrix
   also proves fresh and

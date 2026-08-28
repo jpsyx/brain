@@ -3067,8 +3067,20 @@ fenced: no App may release the session or remove artifacts until the originating
 exact Brain instance waits for and durably acknowledges confirmed exit of its
 exact child. A kill request alone is not proof. Restart takeover requires
 authoritative dead-lock reaping to persist the same acknowledgement atomically
-before it unlocks that exact session. PID equality, inequality, and reuse are
-never handoff proof; a remaining lock makes cleanup wait.
+before it unlocks that exact session. Reaping compares the complete sampled
+session tuple and locked PID inside the same immediate transaction; a replacement
+owner makes both acknowledgement and unlock lose together. PID equality,
+inequality, and reuse are never handoff proof; a remaining lock makes cleanup
+wait.
+
+Confirmed shutdown retry is process-local because only the owning
+`AgentController` can prove the exact child exited. Brain therefore moves a
+completed controller out of the single receiver tab into a cleanup-only FIFO
+with a fixed capacity of eight. One entry receives one attempt per cleanup pass and a
+failure rotates behind its peers. This preserves ordinary FIFO progress and
+supports multiple shutdown failures without an unbounded controller or private
+prompt registry. At capacity, Brain keeps the next completed controller in its
+exact tab and does not release its session or artifacts.
 
 Session release and artifact removal have independent success flags. Brain
 attempts both after the controller fence opens, and artifact removal may finish
@@ -3087,6 +3099,11 @@ only each instance's three private artifacts, and then exact-unlocks and removes
 registrations before dropping the v12 tables. A filesystem failure leaves v12
 and its database authority intact; retry treats already removed exact files as
 success.
+
+Same-version repair uses only already durable evidence. A legacy cleanup whose
+`session_released` flag is one has already discharged the authority protected by
+the newer shutdown fence, so repair sets its acknowledgement and permits finish
+or downgrade. A legacy row with `session_released` zero remains fenced.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

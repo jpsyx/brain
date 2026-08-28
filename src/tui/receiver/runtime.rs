@@ -2,7 +2,9 @@
 
 use std::time::Instant;
 
-use super::DurableReceiverRun;
+use super::{DurableReceiverRun, ReceiverAnswerControllerCleanup};
+
+const MAX_ANSWER_CONTROLLER_CLEANUPS: usize = 8;
 
 mod sync;
 
@@ -57,6 +59,7 @@ pub(crate) struct ReceiverRuntime {
     enabled: bool,
     sync_gate: Option<ReceiverSyncGate>,
     durable_run: DurableReceiverRun,
+    answer_controller_cleanups: std::collections::VecDeque<ReceiverAnswerControllerCleanup>,
     #[cfg(test)]
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
@@ -87,6 +90,7 @@ impl ReceiverRuntime {
             enabled,
             sync_gate: None,
             durable_run: DurableReceiverRun::Idle,
+            answer_controller_cleanups: std::collections::VecDeque::new(),
             #[cfg(test)]
             after_restart_scan_hook: None,
             #[cfg(test)]
@@ -257,6 +261,33 @@ impl ReceiverRuntime {
 
     pub(crate) fn store_durable_run(&mut self, run: DurableReceiverRun) {
         self.durable_run = run;
+    }
+
+    pub(crate) fn has_answer_controller_cleanup_capacity(&self) -> bool {
+        self.answer_controller_cleanups.len() < MAX_ANSWER_CONTROLLER_CLEANUPS
+    }
+
+    pub(crate) fn push_answer_controller_cleanup(
+        &mut self,
+        cleanup: ReceiverAnswerControllerCleanup,
+    ) {
+        assert!(self.has_answer_controller_cleanup_capacity());
+        self.answer_controller_cleanups.push_back(cleanup);
+    }
+
+    pub(crate) fn take_answer_controller_cleanup(
+        &mut self,
+    ) -> Option<ReceiverAnswerControllerCleanup> {
+        self.answer_controller_cleanups.pop_front()
+    }
+
+    pub(crate) fn answer_controller_cleanup_count(&self) -> usize {
+        self.answer_controller_cleanups.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_answer_controller_cleanups(&self) -> usize {
+        self.answer_controller_cleanup_count()
     }
 
     #[cfg(test)]

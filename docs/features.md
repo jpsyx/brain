@@ -136,7 +136,12 @@ startup lock reaping atomically records the same handoff before it unlocks the
 exact session; PID equality or reuse is never takeover proof. Those two cleanup
 effects retry independently, then task reload
 and sync finish the handoff while leaving the active view, tab, and focus
-unchanged. Cleanup retries do not block a later job. Only a proved
+unchanged. A bounded cleanup-only registry detaches completed receiver tabs,
+retains their exact controllers, and gives each pending shutdown one fair retry
+per pass. The ordinary receiver lane can launch and complete later FIFO jobs
+while those exits remain unconfirmed; only a full eight-controller registry
+holds the next completed controller in its exact tab. Cleanup retries do not
+block a later job. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without
   exact completion preserves the fenced post-spawn job for BR-16.
 

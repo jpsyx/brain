@@ -2,7 +2,9 @@
 
 use crate::state::{ReceiverAnswerCleanup, ReceiverJobId};
 use crate::tui::App;
-use crate::tui::receiver::{ActiveReceiverRun, DurableReceiverRun};
+use crate::tui::receiver::{
+    ActiveReceiverRun, DurableReceiverRun, ReceiverAnswerControllerCleanup,
+};
 
 impl App {
     pub(super) fn continue_oldest_receiver_answer_cleanup(&mut self) {
@@ -13,58 +15,74 @@ impl App {
         }
     }
 
-    pub(super) fn begin_receiver_answer_cleanup(&mut self, active: ActiveReceiverRun) {
-        match self.brain.shutdown_receiver_run(
+    pub(super) fn begin_receiver_answer_cleanup(&mut self, active: ActiveReceiverRun) -> bool {
+        if !self.receiver.has_answer_controller_cleanup_capacity() {
+            self.defer_receiver_answer_controller_cleanup(active);
+            return false;
+        }
+        let Some(controller) = self.brain.detach_receiver_run_controller(
             active.tab_id,
             active.claim.job().id(),
             active.attribution.instance(),
-        ) {
-            Ok(true) => {
-                let controller_pid = i32::try_from(std::process::id()).unwrap_or(0);
-                if !self
-                    .services
-                    .acknowledge_receiver_answer_controller_shutdown(
-                        active.claim.job().id(),
-                        active.claim.job().token(),
-                        active.attribution.instance(),
-                        controller_pid,
-                        self.receiver_now_unix_ms(),
-                    )
-                    .unwrap_or(false)
-                {
-                    self.defer_receiver_answer_controller_cleanup(active);
-                    return;
-                }
-                if self
-                    .brain
-                    .remove_shutdown_receiver_run(
-                        active.tab_id,
-                        active.claim.job().id(),
-                        active.attribution.instance(),
-                    )
-                    .is_none()
-                {
-                    self.defer_receiver_answer_controller_cleanup(active);
-                    return;
-                }
-                #[cfg(test)]
-                self.receiver.record_answer_cleanup_event(
-                    crate::tui::receiver::ReceiverAnswerCleanupEvent::ControllerShutdown,
-                );
-                self.continue_receiver_answer_cleanup_for(active.claim.job().id());
+        ) else {
+            self.defer_receiver_answer_controller_cleanup(active);
+            return false;
+        };
+        let cleanup = ReceiverAnswerControllerCleanup {
+            active,
+            controller,
+            shutdown_confirmed: false,
+        };
+        self.receiver.push_answer_controller_cleanup(cleanup);
+        self.continue_oldest_receiver_answer_controller_cleanup();
+        true
+    }
+
+    pub(super) fn continue_oldest_receiver_answer_controller_cleanup(&mut self) {
+        let Some(mut cleanup) = self.receiver.take_answer_controller_cleanup() else {
+            return;
+        };
+        if !cleanup.shutdown_confirmed {
+            if cleanup.controller.shutdown().is_err() {
+                let job_id = cleanup.active.claim.job().id();
+                self.receiver.push_answer_controller_cleanup(cleanup);
+                crate::logging::log(format!(
+                    "receiver answer cleanup incomplete job={job_id} boundary=controller-shutdown"
+                ));
+                return;
             }
-            Ok(false) | Err(_) => self.defer_receiver_answer_controller_cleanup(active),
+            cleanup.shutdown_confirmed = true;
         }
+        let active = &cleanup.active;
+        let controller_pid = i32::try_from(std::process::id()).unwrap_or(0);
+        let acknowledged = self
+            .services
+            .acknowledge_receiver_answer_controller_shutdown(
+                active.claim.job().id(),
+                active.claim.job().token(),
+                active.attribution.instance(),
+                controller_pid,
+                self.receiver_now_unix_ms(),
+            )
+            .unwrap_or(false);
+        if !acknowledged {
+            let job_id = active.claim.job().id();
+            self.receiver.push_answer_controller_cleanup(cleanup);
+            crate::logging::log(format!(
+                "receiver answer cleanup incomplete job={job_id} boundary=controller-handoff"
+            ));
+            return;
+        }
+        let job_id = active.claim.job().id();
+        #[cfg(test)]
+        self.receiver.record_answer_cleanup_event(
+            crate::tui::receiver::ReceiverAnswerCleanupEvent::ControllerShutdown,
+        );
+        drop(cleanup);
+        self.continue_receiver_answer_cleanup_for(job_id);
     }
 
-    pub(super) fn continue_receiver_answer_controller_cleanup(
-        &mut self,
-        active: ActiveReceiverRun,
-    ) {
-        self.begin_receiver_answer_cleanup(active);
-    }
-
-    fn continue_receiver_answer_cleanup_for(&mut self, job_id: ReceiverJobId) {
+    pub(super) fn continue_receiver_answer_cleanup_for(&mut self, job_id: ReceiverJobId) {
         match self.services.receiver_answer_cleanup(job_id) {
             Ok(Some(cleanup)) => self.continue_receiver_answer_cleanup(cleanup),
             Ok(None) => {}

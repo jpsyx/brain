@@ -23,8 +23,8 @@ pub(crate) use failure::cleanup_receiver_launch;
 pub(crate) use failure::rollback_receiver_launch;
 pub(crate) use run::{
     ActiveReceiverRun, ClaimedReceiverRun, CleanupPendingReceiverRun, DurableReceiverRun,
-    PreSpawnRecoveryCleanup, PreSpawnRecoveryOutcome, ReceiverCleanupAuthority,
-    ReceiverEffectOutcome, SpawnedRecoveryRun, SpawnedRecoveryStage,
+    PreSpawnRecoveryCleanup, PreSpawnRecoveryOutcome, ReceiverAnswerControllerCleanup,
+    ReceiverCleanupAuthority, ReceiverEffectOutcome, SpawnedRecoveryRun, SpawnedRecoveryStage,
 };
 #[cfg(test)]
 pub(crate) use runtime::{

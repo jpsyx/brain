@@ -2087,7 +2087,13 @@ lifecycle boundary exists, that fresh App time is also the durable fallback.
 After the committed answer-ready boundary, Brain durably acknowledges exact
 controller shutdown before any other App may continue cleanup. Exact session
 release and private artifact removal then progress independently, and task
-reload plus the immediate push wait for both. A synchronous PTY
+reload plus the immediate push wait for both. A fixed-capacity cleanup-only
+registry detaches the completed background tab while retaining its exact
+`AgentController`. One oldest entry is retried per cleanup pass and failures rotate to
+the back, so later FIFO agent work keeps using the single receiver tab while
+multiple confirmed-exit attempts progress fairly. When all eight cleanup slots
+are occupied, the next completed run remains in its exact tab instead of
+dropping controller authority or private artifacts. A synchronous PTY
 spawn failure releases the exact registration and claim, shuts down the new
 controller once, and records a durable pre-spawn retry with a clock observation
 sampled after cleanup, without changing the main panel. Successful spawn is the
@@ -2115,8 +2121,11 @@ reply migration.
 Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful
-spawn it removes the exact local receiver tab, artifact, observation, and lock
-without releasing or retrying the durable correlation. The next enabled tick
+spawn without an answer it removes the exact local receiver tab, artifact,
+observation, and lock without releasing or retrying the durable correlation.
+For answer-ready work it retries every parked cleanup controller once and keeps
+the exact controller, session, and artifacts intact unless shutdown is
+confirmed and its handoff is durably acknowledged. The next enabled tick
 reconciles expired `launching`, `launched`, `accepted`, and `processing` rows
 before restart controls or new claim work.
 

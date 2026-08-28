@@ -425,6 +425,16 @@ impl BrainPanelState {
         self.ephemeral_tabs.remove_receiver_run(id)
     }
 
+    pub(crate) fn detach_receiver_run_controller(
+        &mut self,
+        id: SessionTabId,
+        job_id: ReceiverJobId,
+        instance: &str,
+    ) -> Option<AgentController> {
+        self.ephemeral_tabs
+            .detach_receiver_run_controller(id, job_id, instance)
+    }
+
     pub(crate) fn shutdown_receiver_run(
         &mut self,
         id: SessionTabId,

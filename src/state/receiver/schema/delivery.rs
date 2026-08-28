@@ -120,7 +120,9 @@ fn ensure_answer_cleanup_table_contract(connection: &Connection) -> Result<()> {
             created_at_unix_ms, updated_at_unix_ms)
          SELECT job_id, job_token, workspace_id, conversation_id, brain_instance_id,
                 agent_kind, actor_id, channel, registered_session_id, actual_session_id,
-                controller_shutdown_acknowledged, session_released, artifacts_removed,
+                CASE WHEN session_released = 1 THEN 1
+                     ELSE controller_shutdown_acknowledged END,
+                session_released, artifacts_removed,
                 created_at_unix_ms, updated_at_unix_ms
          FROM receiver_answer_cleanups_v12_rebuild;
          DROP TABLE receiver_answer_cleanups_v12_rebuild;",
@@ -176,6 +178,12 @@ fn ensure_answer_cleanup_optional_columns(connection: &Connection) -> Result<()>
                CHECK (controller_shutdown_acknowledged IN (0, 1));",
         )?;
     }
+    connection.execute(
+        "UPDATE receiver_answer_cleanups
+         SET controller_shutdown_acknowledged = 1
+         WHERE session_released = 1 AND controller_shutdown_acknowledged = 0",
+        [],
+    )?;
     Ok(())
 }
 

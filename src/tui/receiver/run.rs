@@ -34,6 +34,12 @@ pub(crate) struct ActiveReceiverRun {
     pub(crate) _attachments: super::attachments::PreparedReceiverAttachments,
 }
 
+pub(crate) struct ReceiverAnswerControllerCleanup {
+    pub(crate) active: ActiveReceiverRun,
+    pub(crate) controller: AgentController,
+    pub(crate) shutdown_confirmed: bool,
+}
+
 pub(crate) enum PreSpawnRecoveryOutcome {
     RestoreClaim,
     Lost,

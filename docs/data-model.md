@@ -1197,7 +1197,10 @@ credential. A durable controller-shutdown acknowledgement fences the row until
 the originating exact Brain instance has confirmed that its exact child exited.
 A different App may take over only after authoritative startup dead-lock
 reaping atomically persists that acknowledgement before unlocking the exact
-dead session. PID equality, inequality, or reuse is not takeover proof, and a
+dead session. Both writes are conditional on the sampled frontend, session,
+instance, workspace, actor, channel, and locked PID in one immediate
+transaction. A replacement owner therefore keeps its lock and the cleanup
+fence. PID equality, inequality, or reuse is not takeover proof, and a
 remaining exact lock keeps cleanup waiting. Independent flags acknowledge exact session release and private
 artifact removal. Artifact removal may succeed while session release is still
 pending; neither flag authorizes the other. The row is not an agent claim and
@@ -1210,6 +1213,9 @@ requires the durable handoff proof, removes the three exact private artifacts,
 and discharges the exact registration and session lock. A file failure retains
 schema v12 and its cleanup authority for an idempotent retry; only a successful
 drain removes the machine-local cleanup table and outbox.
+Same-version repair reconstructs the shutdown acknowledgement only for a
+pre-fence row whose `session_released` flag already proves its session authority
+was discharged. It does not invent acknowledgement for an untouched row.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the
@@ -1406,8 +1412,11 @@ distinguishes ordinary claimed, recovery claimed, active, answer cleanup, and
 recovery cleanup. Recovery cleanup remembers whether controller shutdown and
 artifact removal already succeeded, so retries do not re-enter active renewal
 or repeat completed steps. Answer cleanup uses its separate state row after the
-answer transaction releases agent ownership; only controller shutdown remains
-process-local. Disabling receiver intent prevents a new claim while idle and prevents
+answer transaction releases agent ownership. A separate bounded FIFO holds up
+to eight exact controllers awaiting confirmed shutdown, independent of the one
+durable receiver run. One cleanup controller is retried per cleanup pass and a failure
+rotates to the back; a ninth completed run stays in its exact tab until capacity
+opens. Disabling receiver intent prevents a new claim while idle and prevents
 every pending ordinary or recovery claim from starting a process. It still
 renews pending claims and manages active completion, child exit, or cleanup,
 including across a later re-enable. Later arrivals remain `queued` and

@@ -89,6 +89,49 @@ fn delivery_cleanup_down_state(path: &std::path::Path, staged: &DeliveryCleanupD
     (version, cleanup_tables, registrations, locked_pid)
 }
 
+fn repair_pre_fence_delivery_cleanup(
+    path: &std::path::Path,
+    staged: &DeliveryCleanupDownFixture,
+    session_released: bool,
+) {
+    let db = Db::open_path_with_legacy_identity(
+        path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("receiver state");
+    if session_released {
+        db.conn
+            .execute(
+                "UPDATE receiver_answer_cleanups SET session_released = 1
+                 WHERE job_id = ?1",
+                [&staged.job_id],
+            )
+            .expect("stage progressed pre-fence cleanup");
+        db.conn
+            .execute(
+                "DELETE FROM receiver_session_registrations
+                 WHERE brain_instance_id = ?1",
+                [&staged.instance],
+            )
+            .expect("stage discharged registration authority");
+        db.conn
+            .execute(
+                "UPDATE brain_sessions SET locked_pid = NULL
+                 WHERE brain_instance_id = ?1",
+                [&staged.instance],
+            )
+            .expect("stage discharged session lock");
+    }
+    db.conn
+        .execute_batch(
+            "ALTER TABLE receiver_answer_cleanups
+             DROP COLUMN controller_shutdown_acknowledged;",
+        )
+        .expect("stage pre-fence answer cleanup table");
+    super::super::schema::up(&db.conn, 12).expect("repair pre-fence answer cleanup table");
+}
+
 #[test]
 fn v12_down_refuses_to_drop_unacknowledged_cleanup_authority() {
     let temporary = tempfile::tempdir().expect("temporary directory");
@@ -103,6 +146,38 @@ fn v12_down_refuses_to_drop_unacknowledged_cleanup_authority() {
     assert!(staged.observation.is_file());
     assert!(staged.observation_lock.is_file());
     assert!(!error.to_string().contains("private"));
+}
+
+#[test]
+fn v12_down_finishes_a_repaired_pre_fence_cleanup_with_released_session_authority() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("state.db");
+    let staged = stage_delivery_cleanup_down(&path, false);
+    repair_pre_fence_delivery_cleanup(&path, &staged, true);
+
+    super::super::schema::down_delivery_path(&path)
+        .expect("drain repaired progressed cleanup and downgrade");
+
+    assert_eq!(delivery_cleanup_down_state(&path, &staged), (11, 0, 0, None));
+    assert!(!staged.response.exists());
+    assert!(!staged.observation.exists());
+    assert!(!staged.observation_lock.exists());
+}
+
+#[test]
+fn v12_down_keeps_a_repaired_untouched_pre_fence_cleanup_fenced() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("state.db");
+    let staged = stage_delivery_cleanup_down(&path, false);
+    repair_pre_fence_delivery_cleanup(&path, &staged, false);
+
+    super::super::schema::down_delivery_path(&path)
+        .expect_err("untouched repaired cleanup must retain controller authority");
+
+    assert_eq!(delivery_cleanup_down_state(&path, &staged), (12, 1, 1, Some(42)));
+    assert!(staged.response.is_file());
+    assert!(staged.observation.is_file());
+    assert!(staged.observation_lock.is_file());
 }
 
 #[test]

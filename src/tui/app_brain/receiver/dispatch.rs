@@ -17,10 +17,14 @@ impl App {
             #[cfg(test)]
             self.receiver.run_after_restart_scan_hook();
         }
+        self.continue_oldest_receiver_answer_controller_cleanup();
         let run = match self.receiver.take_durable_run() {
             DurableReceiverRun::AnswerCleanupPending(active) => {
-                self.continue_receiver_answer_controller_cleanup(active);
-                return;
+                if self.begin_receiver_answer_cleanup(active) {
+                    DurableReceiverRun::Idle
+                } else {
+                    return;
+                }
             }
             run => run,
         };

@@ -135,18 +135,46 @@ fn v12_repair_recreates_a_missing_answer_cleanup_table() {
 }
 
 #[test]
-fn v12_repair_adds_the_controller_shutdown_acknowledgement_to_an_older_cleanup_table() {
-    let db = Db::open_in_memory().expect("receiver state");
-    db.conn
+fn v12_repair_recognizes_a_pre_fence_cleanup_whose_session_was_already_released() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record exact answer")
+        .expect("exact answer owner");
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_answer_cleanups SET session_released = 1
+             WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("stage progressed pre-fence cleanup");
+    fixture
+        .db
+        .conn
+        .execute("DELETE FROM receiver_session_registrations", [])
+        .expect("stage discharged registration authority");
+    fixture
+        .db
+        .conn
+        .execute("UPDATE brain_sessions SET locked_pid = NULL", [])
+        .expect("stage discharged session lock");
+    fixture
+        .db
+        .conn
         .execute_batch(
             "ALTER TABLE receiver_answer_cleanups
              DROP COLUMN controller_shutdown_acknowledged;",
         )
         .expect("stage pre-handoff answer cleanup table");
 
-    super::super::schema::up(&db.conn, 12).expect("repair answer cleanup handoff column");
+    super::super::schema::up(&fixture.db.conn, 12)
+        .expect("repair progressed answer cleanup handoff");
 
-    let column: (String, String) = db
+    let column: (String, String) = fixture
+        .db
         .conn
         .query_row(
             "SELECT name, dflt_value FROM pragma_table_info('receiver_answer_cleanups')
@@ -156,6 +184,60 @@ fn v12_repair_adds_the_controller_shutdown_acknowledgement_to_an_older_cleanup_t
         )
         .expect("controller shutdown acknowledgement column");
     assert_eq!(column, ("controller_shutdown_acknowledged".to_owned(), "0".to_owned()));
+    let cleanup = fixture
+        .db
+        .next_receiver_answer_cleanup()
+        .expect("load repaired progressed cleanup")
+        .expect("released legacy cleanup is eligible");
+    assert!(cleanup.controller_shutdown_acknowledged());
+    assert!(cleanup.session_released());
+    assert!(fixture
+        .db
+        .mark_receiver_answer_artifacts_removed(&cleanup, 1_700)
+        .expect("finish repaired artifacts"));
+    let cleanup = fixture
+        .db
+        .receiver_answer_cleanup(fixture.job_id)
+        .expect("reload repaired cleanup")
+        .expect("repaired cleanup remains");
+    assert!(fixture
+        .db
+        .finish_receiver_answer_cleanup(&cleanup)
+        .expect("finish repaired cleanup"));
+}
+
+#[test]
+fn v12_repair_keeps_an_untouched_pre_fence_cleanup_unacknowledged() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record exact answer")
+        .expect("exact answer owner");
+    fixture
+        .db
+        .conn
+        .execute_batch(
+            "ALTER TABLE receiver_answer_cleanups
+             DROP COLUMN controller_shutdown_acknowledged;",
+        )
+        .expect("stage untouched pre-fence cleanup");
+
+    super::super::schema::up(&fixture.db.conn, 12)
+        .expect("repair untouched answer cleanup handoff");
+
+    let cleanup = fixture
+        .db
+        .receiver_answer_cleanup(fixture.job_id)
+        .expect("load repaired untouched cleanup")
+        .expect("untouched cleanup remains");
+    assert!(!cleanup.controller_shutdown_acknowledged());
+    assert!(!cleanup.session_released());
+    assert!(fixture
+        .db
+        .next_receiver_answer_cleanup()
+        .expect("inspect untouched cleanup fence")
+        .is_none());
 }
 
 #[test]

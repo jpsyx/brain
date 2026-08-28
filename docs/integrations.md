@@ -1112,7 +1112,10 @@ Which session to run is decided by the **lock + recency** model in
    down the exact controller, waits for the PTY waiter to confirm that exact
    child exited, and durably acknowledges that exact-instance handoff before
    another App may proceed. A failed kill or bounded exit-confirmation timeout
-   leaves the fence closed and retries shutdown. Session release and exact-instance
+   leaves the fence closed and retries shutdown. The complete sampled session
+   tuple and locked PID condition both the handoff acknowledgement and unlock
+   inside one immediate startup transaction, so a replacement owner keeps its
+   lock and the fence stays closed. Session release and exact-instance
    file removal then retry independently, so private artifacts may be gone while
    session release is still pending. Task reload and the configured sync push
    wait for both flags. Controller, session, and artifact progress stays in the
@@ -1446,7 +1449,12 @@ waits for confirmed exit of its exact child, closes only the matching receiver
 tab, and durably opens the exact-instance fence. Session release and
 exact-instance file removal then progress
 independently without changing the active view or focus. A cleanup-only local
-runtime retries controller shutdown. The machine-local
+runtime registry retains at most eight exact controllers independently of the
+one active receiver run. Each cleanup pass retries the oldest controller once and
+rotates a failed attempt to the back, so later FIFO jobs can launch and finish
+while multiple shutdowns remain pending. At capacity, the next completed
+controller stays in its exact background tab and retains its private artifacts.
+The machine-local
 `receiver_answer_cleanups` row retains the exact registration and artifact
 identity plus independent success flags; task reload and any configured sync
 launch wait until both flags succeed. Startup
