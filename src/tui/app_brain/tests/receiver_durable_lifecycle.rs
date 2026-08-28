@@ -315,9 +315,10 @@ fn fresh_claude_completion_persists_its_native_id_and_the_next_message_resumes_i
             .map(|binding| (binding.frontend(), binding.native_session_id().to_owned(),)),
         Some((AgentKind::Claude, native_id.as_str().to_owned()))
     );
-    assert_eq!(
-        conversation.transcript_markdown(),
-        "# Portable transcript\n\nPrior durable context\n\n## Authenticated user\n\n```text\nfirst message\n```\n\n## Assistant\n\n```text\nfirst answer\n```"
+    assert!(
+        conversation.transcript_markdown()
+            == "# Portable transcript\n\nPrior durable context\n\n## Authenticated user\n\n```text\nfirst message\n```\n\n## Assistant\n\n```text\nfirst answer\n```",
+        "portable transcript changed"
     );
     let second = accept_email_job_in_thread(&app, &db, "claude-thread", "second message", 200);
     let second_transport = TransportRecording::default();

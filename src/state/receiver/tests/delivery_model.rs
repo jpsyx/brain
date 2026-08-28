@@ -272,9 +272,12 @@ fn rendered_email_without_message_lineage_round_trips_through_validation() {
 
     assert!(decoded == envelope, "rendered email envelope changed");
     let email = decoded.email().expect("email envelope");
-    assert_eq!(email.in_reply_to(), None);
-    assert_eq!(email.references(), None);
-    assert_eq!(email.provider_email_id(), Some("provider-email"));
+    assert!(email.in_reply_to().is_none(), "email reply lineage was set");
+    assert!(email.references().is_none(), "email references were set");
+    assert!(
+        email.provider_email_id() == Some("provider-email"),
+        "email provider lineage changed"
+    );
 }
 
 #[test]
@@ -321,9 +324,9 @@ fn email_delivery_rejects_any_invalid_accepted_recipient_without_partial_deliver
         )
         .expect_err("one malformed accepted recipient must reject the entire delivery");
 
-        assert_eq!(
-            error.to_string(),
-            "receiver delivery has an invalid accepted email recipient"
+        assert!(
+            error.to_string() == "receiver delivery has an invalid accepted email recipient",
+            "invalid recipient error category changed"
         );
         let rendered = format!("{error:?} {error}");
         assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));

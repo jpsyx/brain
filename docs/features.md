@@ -141,7 +141,10 @@ retains their exact controllers, and gives each pending shutdown one fair retry
 per pass. The ordinary receiver lane can launch and complete later FIFO jobs
 while those exits remain unconfirmed; only a full eight-controller registry
 holds the next completed controller in its exact tab. Cleanup retries do not
-block a later job. Only a proved
+block a later job. A fresh App applies the same fairness to durable cleanup
+rows: an incomplete oldest row moves behind its eligible peers before another
+pass, so its persistent session, artifact, reload, or sync failure cannot
+starve a later answer's exact cleanup. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without
   exact completion preserves the fenced post-spawn job for BR-16.
 
@@ -1660,7 +1663,9 @@ delivery key and bytes, while changed-payload conflicts fail terminally.
 Twilio HTTP 5xx is terminal ambiguity because retrying could duplicate an SMS.
 Curl proxy-resolution, host-resolution, and TCP-connect exits 5, 6, and 7 are
 safe pre-provider retries for either provider; timeout and neighboring generic
-process failures remain conservative.
+process failures remain conservative. If Brain cannot construct its provider
+worker, it records one definitely-not-accepted transport attempt through this
+same bounded retry policy instead of immediately reclaiming the row in a loop.
 The same tick reconciles malformed or missing semantic-response authority before
 claiming the oldest due row. It records only content-free phase and stable
 terminal-reason counts (`retry-exhausted`, `permanent-rejection`,

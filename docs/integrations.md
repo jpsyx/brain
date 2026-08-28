@@ -1123,7 +1123,11 @@ Which session to run is decided by the **lock + recency** model in
    dead-lock reaping may permit a fresh App to retry only by atomically recording
    the handoff acknowledgement before it unlocks the exact dead session. A
    remaining lock, including one whose PID equals the new process, denies
-   takeover. Answer cleanup,
+   takeover. Fresh-App cleanup discovery orders eligible rows by
+   `updated_at_unix_ms`, then creation time and job ID. Any incomplete row has
+   its update time advanced behind the current eligible set before the next
+   pass, preserving exact authority while preventing one row-specific failure
+   from starving later cleanup. Answer cleanup,
    child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
@@ -1134,7 +1138,11 @@ Which session to run is decided by the **lock + recency** model in
    controller actions through `AgentController`; terminal notices become semantic
    outbox rows after exact cleanup authority is released. Schema v12 and the App now own atomic
    answer persistence plus independent outbox claiming, typed provider
-   acknowledgement, delivery-only retry, and expired-lease reconciliation.
+   acknowledgement, delivery-only retry, and expired-lease reconciliation. A
+   missing provider worker is represented by a single reserved claim that
+   publishes a typed definitely-not-accepted transport result on its next
+   bounded poll. It therefore consumes the normal retry budget and cannot form
+   an immediate claim-release loop.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.

@@ -94,7 +94,10 @@ fn attachment_refresh_failure_retries_without_launch_or_private_error_persistenc
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
     assert_eq!(job.retry_count(), 1);
-    assert_eq!(job.last_error(), Some("launch-planning"));
+    assert!(
+        job.last_error() == Some("launch-planning"),
+        "attachment staging recorded the wrong error category"
+    );
     assert!(!job.last_error().unwrap_or_default().contains("credential"));
     assert_eq!(
         (
@@ -143,7 +146,10 @@ fn durable_dispatch_retries_when_stager_returns_a_path_outside_the_receiver_inbo
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.last_error(), Some("launch-planning"));
+    assert!(
+        job.last_error() == Some("launch-planning"),
+        "attachment download recorded the wrong error category"
+    );
 }
 
 #[test]
@@ -187,7 +193,10 @@ fn durable_dispatch_retries_when_a_download_exceeds_the_attachment_size_limit() 
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.last_error(), Some("launch-planning"));
+    assert!(
+        job.last_error() == Some("launch-planning"),
+        "oversized attachment recorded the wrong error category"
+    );
 }
 
 impl ReceiverAttachmentRuntime for TestAttachmentRuntime {
@@ -272,7 +281,10 @@ fn durable_dispatch_retries_without_staging_an_unbounded_attachment_batch() {
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
     assert_eq!(job.retry_count(), 1);
-    assert_eq!(job.last_error(), Some("launch-planning"));
+    assert!(
+        job.last_error() == Some("launch-planning"),
+        "attachment worker recorded the wrong error category"
+    );
 }
 
 #[test]

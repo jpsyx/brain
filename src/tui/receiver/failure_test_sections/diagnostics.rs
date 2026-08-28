@@ -120,7 +120,10 @@ fn rollback_surfaces_explicit_registration_cleanup_failure_after_stopping_and_re
     })
     .expect_err("surface explicit session cleanup failure");
 
-    assert_eq!(error.to_string(), "exact receiver release failed");
+    assert!(
+        error.to_string() == "exact receiver release failed",
+        "receiver release returned the wrong error category"
+    );
     assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
     let retry = services
         .claim_receiver_run("retry-owner", 2_000, 2_500)

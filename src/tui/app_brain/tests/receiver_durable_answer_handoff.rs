@@ -32,23 +32,35 @@ fn another_app_cannot_take_answer_cleanup_before_origin_shutdown_handoff() {
                 artifact_during_commit.exists(),
                 "a second App must not remove artifacts before exact controller shutdown"
             );
-            assert_eq!(registration_count(&state_path), 1);
-            assert_eq!(cleanup_progress(&state_path), Some((0, 0, 0)));
+            assert!(
+                registration_count(&state_path) == 1,
+                "competing App changed the registration count"
+            );
+            assert!(
+                cleanup_progress(&state_path) == Some((0, 0, 0)),
+                "competing App advanced exact cleanup"
+            );
         }));
 
     origin.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "handoff changed the durable job state"
     );
     assert!(
         transport.shutdowns() == 1,
         "controller shutdown count was wrong"
     );
     assert!(!artifact.exists());
-    assert_eq!(registration_count(origin.context.state_db_path()), 0);
-    assert_eq!(cleanup_progress(origin.context.state_db_path()), None);
+    assert!(
+        registration_count(origin.context.state_db_path()) == 0,
+        "handoff retained a registration"
+    );
+    assert!(
+        cleanup_progress(origin.context.state_db_path()).is_none(),
+        "handoff retained cleanup authority"
+    );
 }
 
 #[test]
@@ -79,9 +91,9 @@ fn reaped_origin_takeover_finishes_every_post_answer_effect() {
         .with_pid_alive(|_| false)
         .reap_dead_locks()
         .expect("reap exact dead-origin lock");
-    assert_eq!(
-        cleanup_progress_at(restarted.context.state_db_path()),
-        Some((1, 0, 0))
+    assert!(
+        cleanup_progress_at(restarted.context.state_db_path()) == Some((1, 0, 0)),
+        "takeover started from the wrong cleanup boundary"
     );
     restarted.receiver.record_intent(true);
     configure_receiver_sync(&restarted);
@@ -101,17 +113,20 @@ fn reaped_origin_takeover_finishes_every_post_answer_effect() {
 
     restarted.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Delivering,
+        "takeover did not preserve independent provider delivery"
     );
     assert!(!artifact.exists());
-    assert_eq!(cleanup_progress_at(restarted.context.state_db_path()), None);
+    assert!(
+        cleanup_progress_at(restarted.context.state_db_path()).is_none(),
+        "takeover retained cleanup authority"
+    );
     assert_eq!(sync.pushes(), 1);
     assert!(restarted.tasks.contains_task_named("Reloaded by takeover"));
-    assert_eq!(
-        restarted.brain.receiver_run_observations()[0].job_id,
-        second.job_id()
+    assert!(
+        restarted.brain.receiver_run_observations()[0].job_id == second.job_id(),
+        "takeover launched the wrong later job"
     );
 }
 

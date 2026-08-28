@@ -400,7 +400,9 @@ first move is a failing test that reproduces it, *then* the fix.
   same-PID main-session and stale-PID takeover denial, multiple same-instance
   cleanup rows with a later answer commit, fair bounded retries for multiple
   still-live cleanup controllers, full-registry preservation of the next exact
-  controller and artifact, durable session-release and artifact-cleanup retries, sync-start
+  controller and artifact, durable selection that rotates one persistently
+  failing oldest fresh-App cleanup behind a later row, durable session-release
+  and artifact-cleanup retries, sync-start
   failures, durable answers, and next-job release. They prove that controller
   shutdown opens the cleanup fence, session and artifact flags progress
   independently, and task reload plus sync wait for both. Agent-controller
@@ -1248,6 +1250,12 @@ exact curl 5/6/7 pre-provider retry classification with conservative neighbors,
 nonblocking queue publication, safe unsent-publication rollback, queue
 saturation, cancellation, lost results, fresh-App reconciliation, and
 independent next-job progress without sleeps or network.
+The final producer characterization drives each real Claude, Codex, and
+OpenCode completion producer from its exact artifact through one atomic
+transcript append and `answer-ready`, then through the same frontend-neutral
+provider reservation and acknowledgement to `done`. Worker-construction
+coverage proves an unavailable executor publishes one bounded durable attempt
+and cannot immediately reclaim the same row.
 Task 4 adds mandatory replay-window tests at exact 24-hour equality and after
 offline restart, missing-row/table repair across same-version and down/up paths,
 legacy-notice migration at repair and runtime reconciliation, atomic `/new` and
@@ -1279,12 +1287,19 @@ Task 3 suites. Its identifier-aware assertion scan tracks local aliases and
 rejects raw values hidden in tuples, Debug formatting, implicit format capture,
 or mixed with a length proof, while content-free count identifiers remain
 valid. Every audited assertion uses a fixed-message boolean, digest, length,
-count, or field-presence proof instead. `tests/module_structure.rs` recursively
-discovers receiver state, provider-delivery, and composed App production modules
+count, or field-presence proof instead. The assertion scanner also covers
+`debug_assert` variants, destructuring and adversarial neutral aliases,
+interpolation, and misleading `is` or `has` names. Discovery includes future
+receiver, provider, and App test paths without a name-only safe allowlist.
+`tests/module_structure.rs` recursively
+discovers receiver state, provider-delivery, App services, and composed App
+production modules
 for its size guard. Its lexical counter masks strings, raw strings, characters,
 and nested comments, then excludes test-only attributed items, fields, and
 variants, including stacked and composed `cfg` predicates. It resumes counting
-later production after comma, semicolon, and braced targets. The delivery cleanup table contract stays
+later production after generic angle-delimited commas, ordinary commas,
+semicolons, and braced targets. The structural suites are split into cohesive
+lexer, discovery, accounting, policy, and syntax modules. The delivery cleanup table contract stays
 in its focused schema module.
 
 ## Test layout

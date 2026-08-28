@@ -33,6 +33,45 @@ impl Db {
         Ok(None)
     }
 
+    /// Move one incomplete cleanup behind the current workspace snapshot.
+    pub fn defer_receiver_answer_cleanup(
+        &self,
+        cleanup: &ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        let observed_at_unix_ms = to_i64(observed_at_unix_ms, "receiver answer cleanup time")?;
+        let changed = self.conn.execute(
+            "UPDATE receiver_answer_cleanups AS cleanup
+             SET updated_at_unix_ms = MAX(
+               ?5,
+               CASE
+                 WHEN COALESCE((
+                   SELECT MAX(peer.updated_at_unix_ms)
+                   FROM receiver_answer_cleanups AS peer
+                   WHERE peer.workspace_id = ?1
+                 ), 0) < 9223372036854775807
+                 THEN COALESCE((
+                   SELECT MAX(peer.updated_at_unix_ms)
+                   FROM receiver_answer_cleanups AS peer
+                   WHERE peer.workspace_id = ?1
+                 ), 0) + 1
+                 ELSE 9223372036854775807
+               END
+             )
+             WHERE cleanup.workspace_id = ?1 AND cleanup.job_id = ?2
+               AND cleanup.job_token = ?3 AND cleanup.brain_instance_id = ?4
+               AND cleanup.controller_shutdown_acknowledged = 1",
+            rusqlite::params![
+                self.workspace_id,
+                cleanup.job_id().to_string(),
+                cleanup.token().to_string(),
+                cleanup.instance(),
+                observed_at_unix_ms,
+            ],
+        )?;
+        Ok(changed == 1)
+    }
+
     /// Persist the originating controller's exact successful shutdown handoff.
     pub fn acknowledge_receiver_answer_controller_shutdown(
         &self,
@@ -373,7 +412,7 @@ fn cleanup_select(filter: &str) -> String {
                 cleanup.session_released, cleanup.artifacts_removed
          FROM receiver_answer_cleanups AS cleanup
          WHERE cleanup.workspace_id = ?1 {filter}
-         ORDER BY cleanup.created_at_unix_ms, cleanup.job_id"
+         ORDER BY cleanup.updated_at_unix_ms, cleanup.created_at_unix_ms, cleanup.job_id"
     )
 }
 

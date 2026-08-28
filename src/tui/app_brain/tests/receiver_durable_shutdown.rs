@@ -117,7 +117,7 @@ fn orderly_shutdown_after_lease_expiry_preserves_launched_job_and_correlation() 
 
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
     assert_eq!(job, after_first_shutdown);
-    assert_eq!(job, durable_before);
+    assert!(job == durable_before, "shutdown changed the durable job");
     assert_eq!(
         app.services
             .locked_session_for_instance(attribution.instance(), attribution.scope()),
@@ -189,7 +189,7 @@ fn orderly_active_shutdown_cleans_attachments_without_replaying_launched_work() 
     app.shutdown_receiver_runtime();
 
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(job, durable_before);
+    assert!(job == durable_before, "shutdown changed the durable job");
     assert!(!directory.exists());
     assert_eq!(transport.shutdowns(), 1);
 }
@@ -231,8 +231,14 @@ fn orderly_shell_shutdown_cancels_claimed_staging_and_records_one_planning_retry
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
     assert_eq!(job.state(), ReceiverJobState::Retrying);
     assert_eq!(job.retry_count(), 1);
-    assert_eq!(job.retry_at_unix_ms(), Some(clock.unix_ms() + 5_000));
-    assert_eq!(job.last_error(), Some("launch-planning"));
+    assert!(
+        job.retry_at_unix_ms() == Some(clock.unix_ms() + 5_000),
+        "shutdown retry time changed"
+    );
+    assert!(
+        job.last_error() == Some("launch-planning"),
+        "shutdown retry category changed"
+    );
     assert_eq!(worker.cancellations(), 1);
     assert_eq!(worker.shutdowns(), 1);
 }

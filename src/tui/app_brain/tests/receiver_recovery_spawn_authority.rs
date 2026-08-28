@@ -236,13 +236,14 @@ fn successful_spawn_cleanup_failure_retains_exact_fence_until_retry() {
             .expect("terminal recovery");
         assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
         assert!(!terminal.pending_unavailable_notice());
-        assert_eq!(
+        assert!(
             fixture
                 .db
                 .receiver_delivery_counts()
                 .unwrap()
-                .answer_ready(),
-            1
+                .answer_ready()
+                == 1,
+            "spawn cleanup changed the answer-ready count"
         );
         assert!(matches!(
             terminal.last_error(),

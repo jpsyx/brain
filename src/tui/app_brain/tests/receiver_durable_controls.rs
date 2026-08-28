@@ -107,9 +107,9 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
         .receiver_conversation(command.conversation_id())
         .unwrap()
         .expect("retired conversation remains durable");
-    assert_eq!(
-        retired.transcript_markdown(),
-        "# Old transcript\n\nPrivate prior context"
+    assert!(
+        retired.transcript_markdown() == "# Old transcript\n\nPrivate prior context",
+        "retired transcript changed"
     );
     assert_eq!(retired.binding(), Some(&old_binding));
     let fresh = db
@@ -127,7 +127,10 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
         .receiver_conversation(unrelated.conversation_id())
         .unwrap()
         .expect("unrelated conversation");
-    assert_eq!(untouched.transcript_markdown(), "# Unrelated transcript");
+    assert!(
+        untouched.transcript_markdown() == "# Unrelated transcript",
+        "unrelated transcript changed"
+    );
     assert_eq!(untouched.binding(), Some(&unrelated_binding));
     assert_eq!(
         app.services
@@ -254,9 +257,9 @@ fn durable_restart_cuts_prior_backlog_during_active_run_and_preserves_later_fres
         .receiver_conversation(untouched.conversation_id())
         .unwrap()
         .expect("untouched conversation");
-    assert_eq!(
-        untouched_conversation.transcript_markdown(),
-        "# Untouched transcript"
+    assert!(
+        untouched_conversation.transcript_markdown() == "# Untouched transcript",
+        "untouched transcript changed"
     );
     assert_eq!(untouched_conversation.binding(), Some(&untouched_binding));
     assert_eq!(

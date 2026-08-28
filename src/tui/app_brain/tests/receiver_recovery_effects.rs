@@ -181,7 +181,10 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
     assert_eq!(exited.state(), ReceiverJobState::AnswerReady);
     assert_eq!(exited.last_error(), Some("recovery-launch-shutdown"));
     assert!(!exited.pending_unavailable_notice());
-    assert_eq!(db.receiver_delivery_counts().unwrap().answer_ready(), 1);
+    assert!(
+        db.receiver_delivery_counts().unwrap().answer_ready() == 1,
+        "recovery shutdown changed the answer-ready count"
+    );
     assert!(app.brain.receiver_run_observations().is_empty());
 
     drop(sessions_override);
@@ -222,9 +225,9 @@ fn pending_unavailable_notice_becomes_durable_before_fifo_advances() {
                     .pending_unavailable_notice(),
                 "durable notice migration must precede restart controls"
             );
-            assert_eq!(
-                scan_db.receiver_delivery_counts().unwrap().answer_ready(),
-                1
+            assert!(
+                scan_db.receiver_delivery_counts().unwrap().delivering() == 1,
+                "restart scan did not retain the durable notice delivery"
             );
         }));
     let transport = TransportRecording::default();
@@ -232,7 +235,10 @@ fn pending_unavailable_notice_becomes_durable_before_fifo_advances() {
 
     app.tick_receiver();
 
-    assert_eq!(db.receiver_delivery_counts().unwrap().answer_ready(), 1);
+    assert!(
+        db.receiver_delivery_counts().unwrap().delivering() == 1,
+        "notice migration did not begin one durable delivery attempt"
+    );
     assert_eq!(
         db.receiver_job(later.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Launched,
@@ -306,10 +312,9 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
         let fenced = db.receiver_job(terminal.job_id()).unwrap().unwrap();
         assert_eq!(fenced.state(), ReceiverJobState::Failed, "{failure:?}");
         assert!(fenced.pending_unavailable_notice(), "{failure:?}");
-        assert_eq!(
-            db.receiver_delivery_counts().unwrap().answer_ready(),
-            0,
-            "{failure:?}"
+        assert!(
+            db.receiver_delivery_counts().unwrap().answer_ready() == 0,
+            "cleanup failure created an answer-ready delivery"
         );
         assert_eq!(
             app.brain.receiver_run_observations().len(),
@@ -358,10 +363,9 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
             ReceiverJobState::AnswerReady,
             "{failure:?}"
         );
-        assert_eq!(
-            db.receiver_delivery_counts().unwrap().answer_ready(),
-            1,
-            "{failure:?}"
+        assert!(
+            db.receiver_delivery_counts().unwrap().answer_ready() == 1,
+            "cleanup recovery changed the answer-ready count"
         );
         assert_eq!(later_transport.launch_specs().len(), 1, "{failure:?}");
     }

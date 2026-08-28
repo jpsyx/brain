@@ -7,7 +7,27 @@ use crate::server::delivery::{
 use crate::state::{ReceiverDeliveryApplyOutcome, ReceiverDeliveryClaim};
 use crate::workspace::CommandContext;
 
-pub(super) struct UnavailableReceiverDeliveryExecution;
+#[derive(Default)]
+pub(super) struct UnavailableReceiverDeliveryExecution {
+    completed: std::sync::Arc<std::sync::Mutex<Option<ReceiverDeliveryClaim>>>,
+}
+
+struct UnavailableReceiverDeliveryStart {
+    completed: std::sync::Arc<std::sync::Mutex<Option<ReceiverDeliveryClaim>>>,
+    claim: ReceiverDeliveryClaim,
+}
+
+impl crate::server::delivery::ReceiverDeliveryStart for UnavailableReceiverDeliveryStart {
+    fn start(self: Box<Self>) -> anyhow::Result<()> {
+        let mut completed = self
+            .completed
+            .lock()
+            .map_err(|_| anyhow::anyhow!("unavailable delivery result lock was poisoned"))?;
+        *completed = Some(self.claim);
+        drop(completed);
+        Ok(())
+    }
+}
 
 impl ReceiverDeliveryExecution for UnavailableReceiverDeliveryExecution {
     fn reserve(
@@ -16,11 +36,25 @@ impl ReceiverDeliveryExecution for UnavailableReceiverDeliveryExecution {
         claim: ReceiverDeliveryClaim,
     ) -> Result<Box<dyn crate::server::delivery::ReceiverDeliveryStart>, Box<ReceiverDeliveryClaim>>
     {
-        Err(Box::new(claim))
+        Ok(Box::new(UnavailableReceiverDeliveryStart {
+            completed: self.completed.clone(),
+            claim,
+        }))
     }
 
     fn poll(&self) -> ReceiverDeliveryExecutionPoll {
-        ReceiverDeliveryExecutionPoll::Disconnected
+        let Ok(mut completed) = self.completed.lock() else {
+            return ReceiverDeliveryExecutionPoll::Disconnected;
+        };
+        let Some(claim) = completed.take() else {
+            return ReceiverDeliveryExecutionPoll::Pending;
+        };
+        ReceiverDeliveryExecutionPoll::Ready {
+            claim: Box::new(claim),
+            result: crate::state::ReceiverProviderResultClass::DefinitelyNotAccepted(
+                crate::state::ReceiverDeliveryErrorCategory::TransportUnavailable,
+            ),
+        }
     }
 
     fn cancel(&mut self) {}

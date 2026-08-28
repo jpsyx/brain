@@ -3105,7 +3105,11 @@ Sync launch is intentionally at-least-once across a crash after launch but
 before row deletion; duplicate sync is safer than discarding cleanup authority.
 Cleanup authority is keyed by exact job, not Brain instance. Multiple pending
 rows for one instance are therefore independent, and an earlier artifact retry
-cannot make a later answer transaction fail or re-block FIFO.
+cannot make a later answer transaction fail or re-block FIFO. Fresh-App
+discovery orders eligible rows by last attempt, creation time, and job ID. An
+incomplete row is durably moved behind the current eligible set before the next
+pass. This rotates persistent session, artifact, reload, and sync failures
+without weakening exact handoff authority or discarding cleanup progress.
 
 The schema-v12 down migration must discharge this authority rather than erase
 it. It refuses unacknowledged rows, validates exact unreleased sessions, removes
@@ -3173,6 +3177,11 @@ lost-result ambiguity. A proved pre-spawn interruption safely requeues without
 consuming an attempt. A crash after IO uses the same Resend replay or Twilio ambiguity
 decision as an in-process lost result. Notices, controls, and fallback notices
 use this same lane and exact provider-result boundary.
+Provider-worker construction failure is treated as a bounded delivery result,
+not as a pre-attempt release. The unavailable executor retains one exact claim
+and publishes a typed definitely-not-accepted transport result on its next
+poll. The normal policy records the attempt and retry deadline, preventing a
+fresh event-loop tick from claiming and releasing the same row indefinitely.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a

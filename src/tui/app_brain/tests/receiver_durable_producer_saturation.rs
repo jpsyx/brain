@@ -113,9 +113,14 @@ fn assert_saturated_stop_finishes_once(phase: &str, progressing_at: Option<u64>)
 
         app.tick_receiver();
 
-        assert_eq!(
-            db.receiver_job(accepted.job_id()).unwrap().unwrap(),
-            completed
+        let delivery_started = db.receiver_job(accepted.job_id()).unwrap().unwrap();
+        assert!(
+            delivery_started.state() == ReceiverJobState::Delivering
+                && delivery_started.observation_revision() == completed.observation_revision()
+                && delivery_started.accepted_at_unix_ms() == completed.accepted_at_unix_ms()
+                && delivery_started.progressing_at_unix_ms() == completed.progressing_at_unix_ms()
+                && delivery_started.completed_at_unix_ms() == completed.completed_at_unix_ms(),
+            "provider delivery changed saturated completion evidence"
         );
         assert_eq!(transport.shutdowns(), 1, "{kind:?} delivered twice");
     }

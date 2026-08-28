@@ -132,9 +132,9 @@ impl FreshConflictAppFixture {
             .expect("fresh-conflict job after cleanup");
         assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
         assert!(!terminal.pending_unavailable_notice());
-        assert_eq!(
-            self.db.receiver_delivery_counts().unwrap().answer_ready(),
-            1
+        assert!(
+            self.db.receiver_delivery_counts().unwrap().answer_ready() == 1,
+            "fresh-conflict cleanup changed the answer-ready count"
         );
         let prior = self.prior_session();
         assert_eq!(self.session_lock(&prior), None);

@@ -1241,8 +1241,12 @@ Curl exits 5, 6, and 7 are safe pre-provider transport failures for both
 providers because proxy resolution, host resolution, or TCP connection failed.
 Neighboring generic exits and timeouts remain conservative.
 Atomic App answer persistence now writes this outbox before
-provider IO. Outbox claiming and provider result commits remain later delivery
-work.
+provider IO. A separate oldest-due claim advances the frozen row through
+provider IO and an exact provider-result commit without restoring agent
+ownership. Worker-construction unavailability publishes one
+definitely-not-accepted transport result for the retained claim, consuming the
+ordinary bounded retry budget rather than releasing the same row for immediate
+reclaim.
 
 **Post-answer cleanup authority.** The same answer transaction inserts one
 machine-local `receiver_answer_cleanups` row with the exact job, token,
@@ -1261,7 +1265,11 @@ artifact removal. Artifact removal may succeed while session release is still
 pending; neither flag authorizes the other. The row is not an agent claim and
 does not participate in FIFO blocking. Its job primary key permits multiple
 pending rows for one Brain instance, so a later answer can commit and launch
-while earlier cleanup retries. Brain deletes each row only after both flags,
+while earlier cleanup retries. Eligible cleanup rows are ordered by
+`updated_at_unix_ms`, then `created_at_unix_ms` and job ID. When a pass cannot
+finish a row, Brain advances that row's update time past the current eligible
+set, preserving its exact flags and authority while making a later row next.
+Brain deletes each row only after both flags,
 task reload, and any configured sync launch succeed, so recurring ticks can
 finish cleanup without re-entering agent work. The schema-v12 down path first
 requires the durable handoff proof, removes the three exact private artifacts,

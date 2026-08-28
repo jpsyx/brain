@@ -19,11 +19,14 @@ fn session_release_failure_retains_cleanup_without_blocking_the_next_job() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "session cleanup failure changed the durable job state"
     );
-    assert_eq!(delivery_count(&app, first.job_id()), 1);
+    assert!(
+        delivery_count(&app, first.job_id()) == 1,
+        "session cleanup failure changed the delivery count"
+    );
     assert!(!artifact.exists());
     assert!(
         transport.shutdowns() == 1,
@@ -34,7 +37,10 @@ fn session_release_failure_retains_cleanup_without_blocking_the_next_job() {
         answer_cleanup_flags(&app, first.job_id()) == Some((0, 1)),
         "session cleanup flags were wrong"
     );
-    assert_eq!(registration_count(&app), 1);
+    assert!(
+        registration_count(&app) == 1,
+        "failed session cleanup changed the registration count"
+    );
     assert_eq!(sync.pushes(), 0, "sync must wait for exact session release");
 
     app.brain
@@ -45,15 +51,14 @@ fn session_release_failure_retains_cleanup_without_blocking_the_next_job() {
         answer_cleanup_flags(&app, first.job_id()).is_none(),
         "finished session cleanup remained pending"
     );
-    assert_eq!(
-        registration_count(&app),
-        1,
+    assert!(
+        registration_count(&app) == 1,
         "the next job owns one registration"
     );
     assert_eq!(sync.pushes(), 1);
-    assert_eq!(
-        app.brain.receiver_run_observations()[0].job_id,
-        second.job_id()
+    assert!(
+        app.brain.receiver_run_observations()[0].job_id == second.job_id(),
+        "later cleanup job did not start"
     );
 }
 
@@ -70,9 +75,9 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "artifact cleanup failure changed the durable job state"
     );
     assert!(artifact.exists());
     assert!(
@@ -83,7 +88,10 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
         answer_cleanup_flags(&app, first.job_id()) == Some((1, 0)),
         "artifact cleanup flags were wrong"
     );
-    assert_eq!(registration_count(&app), 0);
+    assert!(
+        registration_count(&app) == 0,
+        "artifact cleanup failure retained a registration"
+    );
     assert_eq!(
         first_sync.pushes(),
         0,
@@ -111,10 +119,81 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
         "restarted cleanup remained pending"
     );
     assert_eq!(restart_sync.pushes(), 1);
-    assert_eq!(
-        restarted.brain.receiver_run_observations()[0].job_id,
-        second.job_id()
+    assert!(
+        restarted.brain.receiver_run_observations()[0].job_id == second.job_id(),
+        "artifact cleanup restart did not launch the later job"
     );
+}
+
+#[test]
+fn fresh_app_rotates_a_persistently_failing_cleanup_behind_a_later_row() {
+    let (temporary, mut app, _db, first, second, _transport) = answer_fixture();
+    let first_artifact = publish_valid_completion(&app, "first private cleanup answer");
+    app.receiver
+        .inject_answer_cleanup_failure(first.job_id(), ReceiverCleanupBoundary::Session);
+    app.tick_receiver();
+    assert!(!first_artifact.exists());
+
+    app.receiver
+        .inject_answer_cleanup_failure(first.job_id(), ReceiverCleanupBoundary::Session);
+    app.brain
+        .replace_receiver_transport(TransportRecording::default().transport());
+    app.tick_receiver();
+    assert!(
+        app.brain.receiver_run_observations()[0].job_id == second.job_id(),
+        "fair cleanup did not start the later job"
+    );
+
+    let second_artifact = publish_valid_completion(&app, "second private cleanup answer");
+    app.receiver
+        .inject_answer_cleanup_failure(first.job_id(), ReceiverCleanupBoundary::Session);
+    app.receiver
+        .inject_answer_cleanup_failure(second.job_id(), ReceiverCleanupBoundary::Session);
+    app.receiver
+        .inject_answer_cleanup_failure(second.job_id(), ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    assert!(second_artifact.exists());
+    assert!(answer_cleanup_flags(&app, first.job_id()).is_some());
+    assert!(answer_cleanup_flags(&app, second.job_id()).is_some());
+    drop(app);
+
+    let cli = Cli::parse_from(["tasks"]);
+    let mut restarted = test_app(&temporary, &cli, AgentKind::Claude);
+    restarted.receiver.record_intent(true);
+    configure_receiver_sync(&restarted);
+    let sync = CompletionSyncRuntime::new(true);
+    restarted
+        .services
+        .replace_receiver_sync_runtime(Box::new(sync.clone()));
+    std::fs::write(
+        restarted.context.tasks_csv_path(),
+        "task_uuid,task_id,task_name,task_type,status,priority,due_date,hard_deadline,start_date,assigned_to,system_key,see_also,notes,project,energy_level,context,estimated_duration,blocked_by,defer_count,created_date,completed_date,last_touched,linear_issue\n\
+         8f4ff482-4d40-4a2d-91b1-73ca9f1bfad4,T1,Reloaded after fair cleanup,,not_started,p2,,false,,pablo,,,,,,,,,0,2026-08-24,,,\n",
+    )
+    .expect("replace task fixture");
+    restarted
+        .receiver
+        .inject_answer_cleanup_failure(first.job_id(), ReceiverCleanupBoundary::Session);
+    restarted
+        .receiver
+        .inject_answer_cleanup_failure(first.job_id(), ReceiverCleanupBoundary::Session);
+
+    restarted.tick_receiver();
+    restarted.tick_receiver();
+
+    assert!(answer_cleanup_flags(&restarted, first.job_id()).is_some());
+    assert!(answer_cleanup_flags(&restarted, second.job_id()).is_none());
+    assert!(!second_artifact.exists());
+    assert!(
+        registration_count(&restarted) == 1,
+        "fair cleanup retained the wrong session count"
+    );
+    assert!(
+        restarted
+            .tasks
+            .contains_task_named("Reloaded after fair cleanup")
+    );
+    assert_eq!(sync.pushes(), 1);
 }
 
 #[test]
@@ -128,11 +207,14 @@ fn completion_sync_start_failure_is_post_commit_and_content_free() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "sync failure changed the durable job state"
     );
-    assert_eq!(completion_evidence_count(&app, first.job_id()), 1);
+    assert!(
+        completion_evidence_count(&app, first.job_id()) == 1,
+        "sync failure changed completion evidence count"
+    );
     assert_eq!(sync.pushes(), 1);
     assert!(!artifact.exists());
     assert!(
@@ -164,11 +246,14 @@ fn successful_answer_commit_runs_each_post_commit_effect_once_then_launches_next
 
     app.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "successful cleanup changed the durable job state"
     );
-    assert_eq!(completion_evidence_count(&app, first.job_id()), 1);
+    assert!(
+        completion_evidence_count(&app, first.job_id()) == 1,
+        "successful cleanup changed completion evidence count"
+    );
     assert_eq!(sync.pushes(), 1);
     assert!(
         transport.shutdowns() == 1,
@@ -185,14 +270,17 @@ fn successful_answer_commit_runs_each_post_commit_effect_once_then_launches_next
             |row| row.get(0),
         )
         .expect("remaining receiver registrations");
-    assert_eq!(registrations, 0);
+    assert!(
+        registrations == 0,
+        "successful cleanup retained a registration"
+    );
 
     app.brain
         .replace_receiver_transport(TransportRecording::default().transport());
     app.tick_receiver();
-    assert_eq!(
-        app.brain.receiver_run_observations()[0].job_id,
-        second.job_id()
+    assert!(
+        app.brain.receiver_run_observations()[0].job_id == second.job_id(),
+        "successful cleanup did not launch the later job"
     );
 }
 
@@ -207,16 +295,19 @@ fn final_sync_starts_after_every_private_cleanup_boundary_in_order() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "ordered cleanup changed the durable job state"
     );
     assert!(
         transport.shutdowns() == 1,
         "controller shutdown count was wrong"
     );
     assert!(!artifact.exists());
-    assert_eq!(registration_count(&app), 0);
+    assert!(
+        registration_count(&app) == 0,
+        "ordered cleanup retained a registration"
+    );
     assert_eq!(sync.pushes(), 1);
     assert!(
         app.receiver.answer_cleanup_events()

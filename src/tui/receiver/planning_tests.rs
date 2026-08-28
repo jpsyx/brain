@@ -242,7 +242,10 @@ fn accepted_recovery_plan_is_resume_only_bounded_and_contains_no_private_job_mat
 
     let plan = plan_receiver_recovery(job.id(), job.token(), session.clone());
 
-    assert_eq!(plan.session_plan(), &SessionPlan::resume(session));
+    assert!(
+        plan.session_plan() == &SessionPlan::resume(session),
+        "recovery selected the wrong session plan"
+    );
     assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
     assert!(plan.initial_prompt().contains(&job.id().to_string()));
     assert!(plan.initial_prompt().contains("Inspect the prior work"));
@@ -320,15 +323,13 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
                     case.name,
                     kind.label(),
                 );
-                assert_eq!(
-                    plan.initial_prompt(),
-                    format!(
-                        "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
-                        job.token()
-                    ),
-                    "{} for {} must omit portable transcript context",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.initial_prompt()
+                        == format!(
+                            "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
+                            job.token()
+                        ),
+                    "resume prompt did not omit portable transcript context"
                 );
             } else {
                 assert_eq!(
@@ -444,7 +445,10 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
             .expect("current authenticated message heading");
 
         assert!(prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES);
-        assert_eq!(transcript, "portable context from the preceding turn");
+        assert!(
+            transcript == "portable context from the preceding turn",
+            "portable transcript context changed"
+        );
         assert!(current.starts_with(CURRENT_PROMPT));
         assert!(current.contains("path=\"/workspaces/family/inbox/attachment-000.bin\""));
         assert!(current.contains("path=\"/workspaces/family/inbox/attachment-255.bin\""));
@@ -538,9 +542,9 @@ fn receiver_launch_appends_the_exact_job_token_marker_as_the_final_prompt_line()
             );
             let expected = format!("<!-- brain:receiver-job-token={} -->", job.token());
 
-            assert_eq!(
-                plan.initial_prompt().lines().last(),
-                Some(expected.as_str())
+            assert!(
+                plan.initial_prompt().lines().last() == Some(expected.as_str()),
+                "receiver job token marker was not last"
             );
             assert_eq!(plan.initial_prompt().matches(&expected).count(), 1);
             assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
@@ -664,7 +668,10 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
             assert!(prompt.contains(&paths[0].display().to_string()));
             assert!(prompt.contains("[Current authenticated message truncated]"));
             assert!(prompt.contains("[Additional local attachment files omitted]"));
-            assert_eq!(prompt.lines().last(), Some(marker.as_str()));
+            assert!(
+                prompt.lines().last() == Some(marker.as_str()),
+                "receiver job token marker was not last"
+            );
             assert_eq!(prompt.matches(&marker).count(), 1);
             assert_eq!(command.matches(&marker).count(), 1);
             assert!(

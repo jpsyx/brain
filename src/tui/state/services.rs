@@ -49,13 +49,13 @@ impl AppServices {
             Ok(execution) => Box::new(execution),
             Err(error) => {
                 crate::logging::log(format!("receiver delivery worker start failed: {error}"));
-                Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution)
+                Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default())
             }
         };
         #[cfg(test)]
         let receiver_delivery_execution: Box<
             dyn crate::server::delivery::ReceiverDeliveryExecution,
-        > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution);
+        > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default());
         Self {
             agenda_runner: init.agenda_runner,
             open_runner: init.open_runner,
@@ -308,6 +308,15 @@ impl AppServices {
             controller_pid,
             observed_at_unix_ms,
         )
+    }
+
+    pub(crate) fn defer_receiver_answer_cleanup(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .defer_receiver_answer_cleanup(cleanup, observed_at_unix_ms)
     }
 
     pub(crate) fn release_receiver_answer_cleanup_session(

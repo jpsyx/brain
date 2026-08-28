@@ -93,7 +93,10 @@ impl App {
     fn continue_receiver_answer_cleanup(&mut self, mut cleanup: ReceiverAnswerCleanup) {
         if !cleanup.session_released() {
             #[cfg(test)]
-            let released = if self
+            let released = if self.receiver.take_answer_cleanup_failure(
+                cleanup.job_id(),
+                crate::tui::receiver::ReceiverCleanupBoundary::Session,
+            ) || self
                 .receiver
                 .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Session)
             {
@@ -126,7 +129,10 @@ impl App {
         }
         if !cleanup.artifacts_removed() {
             #[cfg(test)]
-            let removed = if self
+            let removed = if self.receiver.take_answer_cleanup_failure(
+                cleanup.job_id(),
+                crate::tui::receiver::ReceiverCleanupBoundary::Artifacts,
+            ) || self
                 .receiver
                 .take_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts)
             {
@@ -161,6 +167,7 @@ impl App {
             }
         }
         if !cleanup.session_released() || !cleanup.artifacts_removed() {
+            self.defer_receiver_answer_cleanup(&cleanup);
             return;
         }
         if self.reload_tasks().is_err() {
@@ -168,6 +175,7 @@ impl App {
                 "receiver answer cleanup incomplete job={} boundary=task-reload",
                 cleanup.job_id()
             ));
+            self.defer_receiver_answer_cleanup(&cleanup);
             return;
         }
         #[cfg(test)]
@@ -187,6 +195,7 @@ impl App {
             self.receiver
                 .record_observation_diagnostic(diagnostic.clone());
             crate::logging::log(diagnostic);
+            self.defer_receiver_answer_cleanup(&cleanup);
             return;
         }
         #[cfg(test)]
@@ -202,6 +211,20 @@ impl App {
         {
             crate::logging::log(format!(
                 "receiver answer cleanup incomplete job={} boundary=finish",
+                cleanup.job_id()
+            ));
+            self.defer_receiver_answer_cleanup(&cleanup);
+        }
+    }
+
+    fn defer_receiver_answer_cleanup(&self, cleanup: &ReceiverAnswerCleanup) {
+        if !self
+            .services
+            .defer_receiver_answer_cleanup(cleanup, self.receiver_now_unix_ms())
+            .unwrap_or(false)
+        {
+            crate::logging::log(format!(
+                "receiver answer cleanup incomplete job={} boundary=defer",
                 cleanup.job_id()
             ));
         }

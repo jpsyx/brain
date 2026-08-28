@@ -384,7 +384,10 @@ fn exact_result_cas_retries_without_returning_to_agent_processing() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .expect("load retry row");
-    assert_eq!(row, ("retrying".to_owned(), 1, 62_200, None));
+    assert!(
+        row == ("retrying".to_owned(), 1, 62_200, None),
+        "retry metadata changed"
+    );
 }
 
 #[test]
@@ -492,12 +495,12 @@ fn restart_reconciliation_distinguishes_pre_spawn_and_twilio_io() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("load ambiguous delivery");
-    assert_eq!(
-        row,
-        (
+    assert!(
+        row == (
             "ambiguous".to_owned(),
-            "provider-acceptance-unknown".to_owned()
-        )
+            "provider-acceptance-unknown".to_owned(),
+        ),
+        "ambiguous provider state changed"
     );
     assert!(
         ambiguous
@@ -573,7 +576,10 @@ fn worker_publication_failure_after_io_marker_restores_an_unsent_twilio_attempt(
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .expect("load safely released publication");
-    assert_eq!(row, ("ready".to_owned(), 0, None, 0));
+    assert!(
+        row == ("ready".to_owned(), 0, None, 0),
+        "publication release metadata changed"
+    );
     assert!(
         fixture
             .db
@@ -717,6 +723,6 @@ fn resend_io_restart_replays_frozen_answer_and_envelope_inside_the_window() {
             && private_text_proof(&after.2) == private_text_proof(&before.2),
         "restart reconciliation changed immutable private delivery proofs"
     );
-    assert_eq!(after.3, "retrying");
-    assert_eq!(after.4, 65_000);
+    assert!(after.3 == "retrying", "resend state was not retrying");
+    assert!(after.4 == 65_000, "resend retry time changed");
 }

@@ -75,6 +75,8 @@ pub(crate) struct ReceiverRuntime {
     #[cfg(test)]
     cleanup_failure_boundaries: Vec<ReceiverCleanupBoundary>,
     #[cfg(test)]
+    answer_cleanup_failures: Vec<(crate::state::ReceiverJobId, ReceiverCleanupBoundary)>,
+    #[cfg(test)]
     answer_cleanup_events: Vec<ReceiverAnswerCleanupEvent>,
     #[cfg(test)]
     recovery_tab_error: Option<crate::tui::state::ReceiverRunTabError>,
@@ -105,6 +107,8 @@ impl ReceiverRuntime {
             launch_boundary_hooks: Vec::new(),
             #[cfg(test)]
             cleanup_failure_boundaries: Vec::new(),
+            #[cfg(test)]
+            answer_cleanup_failures: Vec::new(),
             #[cfg(test)]
             answer_cleanup_events: Vec::new(),
             #[cfg(test)]
@@ -217,6 +221,32 @@ impl ReceiverRuntime {
             return false;
         };
         self.cleanup_failure_boundaries.remove(index);
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inject_answer_cleanup_failure(
+        &mut self,
+        job_id: crate::state::ReceiverJobId,
+        boundary: ReceiverCleanupBoundary,
+    ) {
+        self.answer_cleanup_failures.push((job_id, boundary));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_answer_cleanup_failure(
+        &mut self,
+        job_id: crate::state::ReceiverJobId,
+        boundary: ReceiverCleanupBoundary,
+    ) -> bool {
+        let Some(index) = self
+            .answer_cleanup_failures
+            .iter()
+            .position(|candidate| *candidate == (job_id, boundary))
+        else {
+            return false;
+        };
+        self.answer_cleanup_failures.remove(index);
         true
     }
 

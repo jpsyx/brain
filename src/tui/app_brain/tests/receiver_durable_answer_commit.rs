@@ -17,9 +17,18 @@ fn crash_before_answer_commit_retains_agent_work_and_blocks_the_next_job() {
     let crash = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.tick_receiver()));
 
     assert!(crash.is_err());
-    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Launched);
-    assert_eq!(job_state(&db, second.job_id()), ReceiverJobState::Queued);
-    assert_eq!(delivery_count(&app, first.job_id()), 0);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Launched,
+        "pre-commit crash changed the active job state"
+    );
+    assert!(
+        job_state(&db, second.job_id()) == ReceiverJobState::Queued,
+        "pre-commit crash changed the queued job state"
+    );
+    assert!(
+        delivery_count(&app, first.job_id()) == 0,
+        "pre-commit crash created a delivery"
+    );
     assert!(
         db.receiver_conversation(first.conversation_id())
             .expect("load pre-commit conversation")
@@ -46,13 +55,22 @@ fn crash_after_answer_commit_preserves_one_answer_and_releases_the_agent_lane() 
     let crash = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.tick_receiver()));
 
     assert!(crash.is_err());
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "post-commit crash changed the active job state"
     );
-    assert_eq!(job_state(&db, second.job_id()), ReceiverJobState::Queued);
-    assert_eq!(delivery_count(&app, first.job_id()), 1);
-    assert_eq!(completion_evidence_count(&app, first.job_id()), 1);
+    assert!(
+        job_state(&db, second.job_id()) == ReceiverJobState::Queued,
+        "post-commit crash changed the queued job state"
+    );
+    assert!(
+        delivery_count(&app, first.job_id()) == 1,
+        "post-commit crash changed the delivery count"
+    );
+    assert!(
+        completion_evidence_count(&app, first.job_id()) == 1,
+        "post-commit crash changed the evidence count"
+    );
     let transcript = db
         .receiver_conversation(first.conversation_id())
         .expect("load post-commit conversation")
@@ -70,13 +88,14 @@ fn crash_after_answer_commit_preserves_one_answer_and_releases_the_agent_lane() 
         transport.shutdowns() == 0,
         "controller shut down before post-commit recovery"
     );
-    assert_eq!(
+    assert!(
         db.claim_next_receiver_run("restart-owner", 2, 30_002)
             .expect("claim after post-commit crash")
             .expect("later agent work is available")
             .job()
-            .id(),
-        second.job_id()
+            .id()
+            == second.job_id(),
+        "post-commit crash exposed the wrong later job"
     );
 }
 

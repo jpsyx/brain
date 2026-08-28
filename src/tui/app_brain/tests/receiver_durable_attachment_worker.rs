@@ -207,7 +207,10 @@ fn staging_failure_records_retry_from_the_post_result_clock() {
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_at_unix_ms(), Some(clock.unix_ms() + 5_000));
+    assert!(
+        job.retry_at_unix_ms() == Some(clock.unix_ms() + 5_000),
+        "attachment retry time changed"
+    );
 }
 
 #[test]
@@ -350,7 +353,10 @@ fn a_late_prior_generation_result_cannot_attach_to_the_restarted_stage() {
 
     app.tick_receiver();
     let stale_stage = worker.stage(0);
-    assert_eq!(stale_stage.job_id(), accepted.job_id());
+    assert!(
+        stale_stage.job_id() == accepted.job_id(),
+        "stale attachment stage belonged to the wrong job"
+    );
     app.receiver.record_intent(false);
     app.tick_receiver();
     app.receiver.record_intent(true);

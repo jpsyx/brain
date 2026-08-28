@@ -2156,6 +2156,14 @@ pre-provider-IO expiry use one pure frozen-authority fallback decision and one
 exact transaction. Each delivery tick records content-free phase and stable
 terminal-reason diagnostics; read-only status renders those counts without
 creating or migrating state.
+Fresh-App cleanup discovery orders eligible durable cleanup rows by their last
+attempt, then creation time and job ID. Every incomplete row is durably moved
+behind its peers before the next pass, so a persistent row-specific session,
+artifact, task-reload, or sync failure cannot starve a later exact cleanup. If
+the provider worker cannot be constructed, the executor retains the exact
+claim long enough to publish one typed, definitely-not-accepted transport
+result. The ordinary policy consumes one bounded attempt and schedules its
+retry instead of repeatedly releasing and reclaiming the same due row.
 Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful

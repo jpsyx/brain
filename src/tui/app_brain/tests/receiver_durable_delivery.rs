@@ -13,7 +13,7 @@ use crate::state::{
 };
 
 #[derive(Clone)]
-struct ScriptedDeliveryExecution {
+pub(super) struct ScriptedDeliveryExecution {
     state: Arc<Mutex<ScriptedDeliveryState>>,
     result: ReceiverProviderResultClass,
     publication_fails: bool,
@@ -27,7 +27,7 @@ struct ScriptedDeliveryState {
 }
 
 impl ScriptedDeliveryExecution {
-    fn acknowledged() -> Self {
+    pub(super) fn acknowledged() -> Self {
         Self {
             state: Arc::new(Mutex::new(ScriptedDeliveryState::default())),
             result: ReceiverProviderResultClass::Acknowledged(
@@ -44,7 +44,7 @@ impl ScriptedDeliveryExecution {
         execution
     }
 
-    fn reservation_count(&self) -> usize {
+    pub(super) fn reservation_count(&self) -> usize {
         self.state
             .lock()
             .expect("scripted delivery state")
@@ -143,19 +143,24 @@ fn app_tick_claims_starts_and_applies_final_answer_delivery_independently() {
     publish_valid_completion(&app, "immutable delivered answer");
 
     app.tick_receiver();
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "delivery startup changed the answer-ready state"
     );
     app.tick_receiver();
     assert_eq!(execution.reservation_count(), 1);
-    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Delivering);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Delivering,
+        "delivery did not enter provider IO"
+    );
     app.tick_receiver();
 
-    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Done);
-    assert_ne!(
-        job_state(&db, second.job_id()),
-        ReceiverJobState::Delivering,
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Done,
+        "acknowledged delivery did not finish"
+    );
+    assert!(
+        job_state(&db, second.job_id()) != ReceiverJobState::Delivering,
         "delivery ownership is independent from the later agent job"
     );
 }
@@ -169,16 +174,16 @@ fn app_requeues_an_attempt_when_publication_proves_it_was_never_sent() {
     publish_valid_completion(&app, "immutable unsent answer");
 
     app.tick_receiver();
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "unsent publication changed the answer-ready state"
     );
     app.tick_receiver();
 
     assert_eq!(execution.reservation_count(), 1);
-    assert_eq!(
-        job_state(&db, first.job_id()),
-        ReceiverJobState::AnswerReady
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "publication failure did not restore answer-ready"
     );
 
     app.tick_receiver();
@@ -186,6 +191,57 @@ fn app_requeues_an_attempt_when_publication_proves_it_was_never_sent() {
         execution.reservation_count(),
         2,
         "unsent answer remains due"
+    );
+}
+
+#[test]
+fn worker_construction_failure_becomes_one_bounded_durable_attempt() {
+    let (_temporary, mut app, db, first, _second, _transport) = answer_fixture();
+    publish_valid_completion(&app, "immutable answer without a delivery worker");
+
+    app.tick_receiver();
+    app.tick_receiver();
+    app.tick_receiver();
+
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Retrying,
+        "worker construction failure did not schedule retry"
+    );
+    let delivery: (String, i64, Option<i64>, Option<String>) =
+        rusqlite::Connection::open(app.context.state_db_path())
+            .expect("open receiver state after worker construction failure")
+            .query_row(
+                "SELECT state, attempt_count, retry_at_unix_ms, error_category
+                 FROM receiver_deliveries WHERE job_id = ?1",
+                [first.job_id().to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("load bounded worker construction result");
+    assert!(
+        delivery
+            == (
+                "retrying".to_owned(),
+                1,
+                delivery.2,
+                Some("transport-unavailable".to_owned()),
+            )
+            && delivery.2.is_some(),
+        "worker construction failure did not consume one bounded retry attempt"
+    );
+
+    app.tick_receiver();
+
+    assert!(
+        rusqlite::Connection::open(app.context.state_db_path())
+            .expect("reopen receiver state after bounded retry")
+            .query_row(
+                "SELECT attempt_count FROM receiver_deliveries WHERE job_id = ?1",
+                [first.job_id().to_string()],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("load stable bounded attempt count")
+            == 1,
+        "worker construction retry was reclaimed immediately"
     );
 }
 
@@ -221,7 +277,10 @@ fn fresh_app_reconciles_expired_resend_io_before_new_delivery_work() {
 
     restarted.tick_receiver();
 
-    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Retrying);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Retrying,
+        "expired provider IO did not schedule retry"
+    );
     assert_eq!(execution.reservation_count(), 0);
 }
 
@@ -279,7 +338,10 @@ fn fresh_app_terminalizes_due_resend_retry_after_idempotency_window_before_provi
     restarted.tick_receiver();
 
     assert_eq!(execution.reservation_count(), 0);
-    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Failed);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Failed,
+        "expired idempotency window did not fail delivery"
+    );
     let terminal: (String, Option<String>) =
         rusqlite::Connection::open(restarted.context.state_db_path())
             .expect("open receiver state after retry reconciliation")

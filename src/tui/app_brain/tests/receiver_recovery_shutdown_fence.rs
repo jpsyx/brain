@@ -292,13 +292,14 @@ fn shutdown_after_claim_expiry_terminalizes_spawned_recovery_immediately() {
     );
     assert!(terminal.recovery_cleanup_instance().is_none());
     assert!(terminal.recovery_cleanup_session_id().is_none());
-    assert_eq!(
+    assert!(
         fixture
             .db
             .receiver_delivery_counts()
             .unwrap()
-            .answer_ready(),
-        1
+            .answer_ready()
+            == 1,
+        "expired-claim cleanup changed the answer-ready count"
     );
     fixture.app.tick_receiver();
     assert_ne!(
@@ -380,13 +381,14 @@ fn pre_spawn_reconciliation_effect_is_exactly_acknowledged_after_shutdown() {
         "the attributed pre-spawn effect must be acknowledged, not bypassed"
     );
     assert!(terminal.recovery_cleanup_session_id().is_none());
-    assert_eq!(
+    assert!(
         fixture
             .db
             .receiver_delivery_counts()
             .unwrap()
-            .answer_ready(),
-        1
+            .answer_ready()
+            == 1,
+        "pre-spawn cleanup changed the answer-ready count"
     );
 }
 

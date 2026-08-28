@@ -188,15 +188,13 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
     runtime.advance(std::time::Duration::from_millis(250));
     app.tick_receiver();
 
-    assert_eq!(
-        app.brain.receiver_run_observations().len(),
-        1,
-        "journal completion should launch the claimed job; durable job is {:?}",
-        db.receiver_job(accepted.job_id()).unwrap().unwrap()
+    assert!(
+        app.brain.receiver_run_observations().len() == 1,
+        "journal completion did not launch one claimed job"
     );
-    assert_eq!(
-        app.brain.receiver_run_observations()[0].job_id,
-        accepted.job_id()
+    assert!(
+        app.brain.receiver_run_observations()[0].job_id == accepted.job_id(),
+        "journal completion launched the wrong job"
     );
     assert_eq!(receiver_recording.launch_specs().len(), 1);
 }

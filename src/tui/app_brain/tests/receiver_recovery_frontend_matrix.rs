@@ -92,10 +92,9 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
 
     let recovered = db.receiver_job(stalled.job_id()).unwrap().unwrap();
     assert_eq!(recovered.state(), ReceiverJobState::Launched, "{kind:?}");
-    assert_eq!(
-        recovered.attempt_kind(),
-        ReceiverAttemptKind::Recovery,
-        "{kind:?}"
+    assert!(
+        recovered.attempt_kind() == ReceiverAttemptKind::Recovery,
+        "frontend recovery used the wrong attempt kind"
     );
     assert_eq!(recovered.recovery_count(), 1, "{kind:?}");
     let recovery = app.receiver.active_durable_run().expect("active recovery");
@@ -169,7 +168,10 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
     assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
-    assert_eq!(completed.observation_revision(), 3, "{kind:?}");
+    assert!(
+        completed.observation_revision() == 3,
+        "frontend recovery changed the observation revision"
+    );
     assert!(!completed.pending_unavailable_notice(), "{kind:?}");
     assert!(!completion_path.exists(), "{kind:?}");
     assert!(app.brain.receiver_run_observations().is_empty(), "{kind:?}");
