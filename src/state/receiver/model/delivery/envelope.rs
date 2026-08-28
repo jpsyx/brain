@@ -263,12 +263,11 @@ pub fn render_receiver_delivery(
             })
         }
         crate::server::receiver::Channel::Email => {
-            crate::users::normalize_mailbox(outbound_sender)
+            let sender = crate::users::normalize_mailbox(outbound_sender)
                 .map_err(|_| ReceiverDeliveryRenderError::InvalidOutboundSender)?;
-            if outbound_sender.trim() != outbound_sender {
+            if sender != outbound_sender {
                 return Err(ReceiverDeliveryRenderError::InvalidOutboundSender);
             }
-            let sender = outbound_sender.to_owned();
             let recipients = inbound
                 .response_email
                 .iter()

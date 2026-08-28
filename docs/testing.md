@@ -1225,7 +1225,9 @@ response kind, optional-column ordering, stale managed-index rebuilding,
 duplicate uniqueness failure, nonblank provider acknowledgements,
 privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
-both directions. It reconstructs the exact pre-Task-3 v12 table from commit
+both directions. The down-up round trip proves the exact schema-v11 job column
+order and data survive while `response_sender` and both v12-only tables are
+removed before version 11 is recorded. It reconstructs the exact pre-Task-3 v12 table from commit
 `0473434`, preserves its envelope, then proves claim, IO start,
 acknowledgement, and final job completion. Repair tests also prove that a
 malformed or pre-frozen-sender final-answer row terminalizes its matching job.
@@ -1245,26 +1247,29 @@ The composed HTTP-to-state suite accepts a human-formatted SMS receiver and a
 whitespace-padded email receiver, then proves authentication persists the
 canonical sender and completion advances transcript, outbox, cleanup, and job
 state with that immutable identity. Defensive completion tests prove every
-noncanonical or malformed persisted sender becomes an unclaimable terminal
-outcome. The composed App suite deletes sender configuration after acceptance
+noncanonical or malformed persisted sender, including mailbox case and display-name
+variants, becomes an unclaimable terminal outcome in render, decode, repair,
+and completion. The composed App suite deletes sender configuration after acceptance
 and proves the answer still commits with the frozen identity. The composed state suite
 proves that missing trusted email recipients atomically produce a terminal
 authorization outcome, advance transcript and cleanup authority, survive reopen
 replay, and never enter the provider claim lane. The receiver privacy policy rejects
-content-bearing whole-value assertions in cumulative delivery migration and
-reconciliation tests, requiring digest or field-presence proofs instead.
-`tests/module_structure.rs` includes delivery envelope decoding, envelope,
-identity, status, policy, schema, and claim/decode/result/reconciliation store
-seams in its size guard. The guard counts the complete file, so an early
-test-only attribute or re-export cannot hide later production code, and the
-delivery cleanup table contract stays in its focused schema module.
+content-bearing whole-value assertions throughout the recursively discovered
+Task 3 delivery, completion, migration, provider, and composed App suites,
+requiring digest, boolean, length, count, or field-presence proofs instead.
+`tests/module_structure.rs` recursively discovers receiver model, schema,
+completion-store, and delivery-store production modules for its size guard.
+Its lexical counter excludes exact `#[cfg(test)]` items, including large inline
+test modules, but resumes counting later production; braces in strings and
+comments cannot hide that production. The delivery cleanup table contract stays
+in its focused schema module.
 
 ## Test layout
 
 | Location | Scope |
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
-| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard keeps the model and schema coordinator plus their cohesive identity, conversation, observation, job, claim, effect, notice, and downgrade modules within the production-size prompt. It applies the same bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
+| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard recursively discovers model, schema, completion-store, and delivery-store modules, excludes exact inline `#[cfg(test)]` items from the production budget, and resumes counting later production. It also applies the bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |

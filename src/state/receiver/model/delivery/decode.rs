@@ -53,12 +53,11 @@ pub(super) fn decode_email_envelope(
 ) -> Result<ReceiverEmailEnvelope, &'static str> {
     let raw = serde_json::from_value::<RawReceiverEmailEnvelope>(value)
         .map_err(|_| "receiver email delivery envelope is invalid")?;
-    crate::users::normalize_mailbox(&raw.sender)
+    let sender = crate::users::normalize_mailbox(&raw.sender)
         .map_err(|_| "receiver email delivery envelope is invalid")?;
-    if raw.sender.trim() != raw.sender {
+    if sender != raw.sender {
         return Err("receiver email delivery envelope is invalid");
     }
-    let sender = raw.sender;
     if raw.recipients.is_empty()
         || raw.subject.trim().is_empty()
         || raw.subject.trim() != raw.subject

@@ -51,7 +51,10 @@ fn thread_delivery_intersects_participants_and_allowlist() {
         &["me@example.com".to_owned(), "other@example.com".to_owned()],
         "me@example.com",
     );
-    assert_eq!(recipients, vec!["other@example.com"]);
+    assert!(
+        recipients == ["other@example.com"],
+        "thread recipient intersection changed"
+    );
 }
 
 #[test]
@@ -61,9 +64,8 @@ fn trusted_recipients_apply_the_same_address_rule_as_the_thread_intersection() {
         &["thread@example.test".to_owned()],
     );
 
-    assert_eq!(
-        recipients,
-        vec!["member@example.test", "thread@example.test"],
+    assert!(
+        recipients == ["member@example.test", "thread@example.test"],
         "one address rule must decide the reply, not two"
     );
 }
@@ -82,9 +84,8 @@ fn a_configured_from_address_with_a_display_name_is_still_never_echoed_back() {
         "Brain <Brain@Example.com>",
     );
 
-    assert_eq!(
-        recipients,
-        vec!["other@example.com"],
+    assert!(
+        recipients == ["other@example.com"],
         "the receiving address must be excluded however it is configured"
     );
 }
@@ -100,7 +101,10 @@ fn response_recipients_are_derived_from_the_immutable_actor() {
         &actor(),
         "brain@example.test",
     );
-    assert_eq!(recipients, vec!["member@example.test"]);
+    assert!(
+        recipients == ["member@example.test"],
+        "immutable actor recipients changed"
+    );
 }
 
 #[test]
@@ -124,10 +128,22 @@ fn processing_and_final_email_use_acceptance_time_recipients_subject_and_lineage
             &format!("<p>{message}</p>"),
             reply.message_id.as_deref(),
         );
-        assert_eq!(payload["to"], serde_json::json!(accepted_recipients));
-        assert_eq!(payload["subject"], "Re: Quarterly planning");
-        assert_eq!(payload["headers"]["In-Reply-To"], "<message@example.test>");
-        assert_eq!(payload["headers"]["References"], "<message@example.test>");
+        assert!(
+            payload["to"] == serde_json::json!(accepted_recipients),
+            "accepted email recipients changed"
+        );
+        assert!(
+            payload["subject"] == "Re: Quarterly planning",
+            "accepted email subject changed"
+        );
+        assert!(
+            payload["headers"]["In-Reply-To"] == "<message@example.test>",
+            "accepted email reply lineage changed"
+        );
+        assert!(
+            payload["headers"]["References"] == "<message@example.test>",
+            "accepted email reference lineage changed"
+        );
     }
 }
 

@@ -32,9 +32,12 @@ fn accepted_receiver_job_and_conversation_survive_database_reopen() {
         .expect("conversation remains present");
     assert!(accepted.was_inserted());
     assert_eq!(persisted.state(), ReceiverJobState::Queued);
-    assert_eq!(persisted.inbound(), &job);
+    assert!(persisted.inbound() == &job, "persisted inbound job changed");
     assert_eq!(conversation.identity(), &identity);
-    assert_eq!(conversation.transcript_markdown(), "");
+    assert!(
+        conversation.transcript_markdown().is_empty(),
+        "new conversation transcript was not empty"
+    );
 }
 
 #[test]
@@ -83,12 +86,13 @@ fn provider_delivery_id_deduplicates_without_replacing_the_original_job() {
     assert!(first.was_inserted());
     assert!(!second.was_inserted());
     assert_eq!(second.job_id(), first.job_id());
-    assert_eq!(
+    assert!(
         db.receiver_job(first.job_id())
             .expect("load original")
             .expect("original job")
-            .inbound(),
-        &original
+            .inbound()
+            == &original,
+        "provider deduplication replaced the original inbound job"
     );
 }
 

@@ -1189,8 +1189,11 @@ identity that authenticated destination confirmation proved. Completion never
 rereads mutable environment configuration. Same-version repair adds the
 nullable column without extending the deny-unknown inbound JSON frame, so the
 prior schema-v12 release can still read new jobs. A legacy NULL, noncanonical,
-or malformed sender becomes a terminal `invalid-request`
-outcome. An email answer with no trusted accepted recipient atomically advances
+or malformed sender becomes a terminal `invalid-request` outcome. Defensive
+email rendering, envelope decoding, and repair require the persisted value to
+equal the canonical bare lowercase mailbox returned by normalization; they do
+not silently accept a display name or case variant. An email answer with no
+trusted accepted recipient atomically advances
 the transcript and cleanup authority but records a failed `authorization`
 outcome that cannot be claimed for provider delivery.
 
@@ -1237,7 +1240,9 @@ finish cleanup without re-entering agent work. The schema-v12 down path first
 requires the durable handoff proof, removes the three exact private artifacts,
 and discharges the exact registration and session lock. A file failure retains
 schema v12 and its cleanup authority for an idempotent retry; only a successful
-drain removes the machine-local cleanup table and outbox.
+drain removes the machine-local cleanup table and outbox. The same transaction
+then removes `receiver_jobs.response_sender`, restoring the exact schema-v11
+jobs table and retained job data before it records schema version 11.
 Same-version repair reconstructs the shutdown acknowledgement only for a
 pre-fence row whose `session_released` flag already proves its session authority
 was discharged. It does not invent acknowledgement for an untouched row.

@@ -17,7 +17,7 @@ fn serialized_delivery_envelopes_require_and_preserve_the_exact_outbound_sender(
         serde_json::json!({
             "channel": "email",
             "value": {
-                "sender": "Brain <brain@example.test>",
+                "sender": "brain@example.test",
                 "recipients": ["member@example.test"],
                 "subject": "Re: Question",
                 "text": "safe",
@@ -30,9 +30,55 @@ fn serialized_delivery_envelopes_require_and_preserve_the_exact_outbound_sender(
     ] {
         let envelope = serde_json::from_value::<ReceiverDeliveryEnvelope>(encoded.clone())
             .expect("sender is immutable envelope routing data");
-        assert_eq!(
-            serde_json::to_value(envelope).expect("serialize immutable envelope"),
-            encoded
+        assert!(
+            serde_json::to_value(envelope).expect("serialize immutable envelope") == encoded,
+            "serialized immutable envelope changed"
+        );
+    }
+}
+
+#[test]
+fn email_delivery_render_rejects_noncanonical_persisted_sender_forms() {
+    let job = email_delivery_job();
+
+    for sender in ["Brain@Example.Test", "Brain <brain@example.test>"] {
+        let result = render_receiver_delivery(
+            &job,
+            ReceiverResponseKind::FinalAnswer,
+            sender,
+            DELIVERY_PRIVATE_BODY,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(ReceiverDeliveryRenderError::InvalidOutboundSender)
+            ),
+            "noncanonical persisted email sender was rendered"
+        );
+    }
+}
+
+#[test]
+fn serialized_email_envelope_rejects_noncanonical_sender_forms() {
+    for sender in ["Brain@Example.Test", "Brain <brain@example.test>"] {
+        let encoded = serde_json::json!({
+            "channel": "email",
+            "value": {
+                "sender": sender,
+                "recipients": ["member@example.test"],
+                "subject": "Re: Question",
+                "text": "safe",
+                "html": "<p>safe</p>",
+                "in_reply_to": null,
+                "references": null,
+                "provider_email_id": "provider-email"
+            }
+        });
+
+        assert!(
+            serde_json::from_value::<ReceiverDeliveryEnvelope>(encoded).is_err(),
+            "noncanonical persisted email sender decoded"
         );
     }
 }
@@ -73,8 +119,11 @@ fn sms_delivery_freezes_the_accepted_sender_and_existing_length_behavior() {
     .expect("render immutable SMS delivery");
     let sms = envelope.sms().expect("SMS envelope");
 
-    assert_eq!(sms.sender(), "+12125550100");
-    assert_eq!(sms.recipient(), "+12125550199");
+    assert!(sms.sender() == "+12125550100", "SMS sender changed");
+    assert!(
+        sms.recipient() == "+12125550199",
+        "SMS recipient changed"
+    );
     assert!(sms.long_form_available());
     assert!(sms.body().chars().count() <= crate::server::reply::SMS_LIMIT);
     assert!(!sms.body().contains("**"));
@@ -93,17 +142,26 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
     .expect("render immutable email delivery");
     let email = envelope.email().expect("email envelope");
 
-    assert_eq!(email.sender(), "brain@example.test");
-    assert_eq!(
-        email.recipients(),
-        ["copy@example.test", "primary@example.test"]
+    assert!(email.sender() == "brain@example.test", "email sender changed");
+    assert!(
+        email.recipients() == ["copy@example.test", "primary@example.test"],
+        "email recipients changed"
     );
-    assert_eq!(email.subject(), "Re: Question");
-    assert_eq!(email.text(), "## Answer\n\nDetails");
+    assert!(email.subject() == "Re: Question", "email subject changed");
+    assert!(email.text() == "## Answer\n\nDetails", "email text changed");
     assert!(email.html().contains("<h2>Answer</h2>"));
-    assert_eq!(email.in_reply_to(), Some(DELIVERY_PRIVATE_MESSAGE_ID));
-    assert_eq!(email.references(), Some(DELIVERY_PRIVATE_MESSAGE_ID));
-    assert_eq!(email.provider_email_id(), Some("provider-email"));
+    assert!(
+        email.in_reply_to() == Some(DELIVERY_PRIVATE_MESSAGE_ID),
+        "email reply lineage changed"
+    );
+    assert!(
+        email.references() == Some(DELIVERY_PRIVATE_MESSAGE_ID),
+        "email reference lineage changed"
+    );
+    assert!(
+        email.provider_email_id() == Some("provider-email"),
+        "email provider lineage changed"
+    );
     assert!(!email.recipients().contains(&"outsider@example.test".to_owned()));
 }
 
@@ -188,7 +246,7 @@ fn rendered_email_without_message_lineage_round_trips_through_validation() {
     let decoded: ReceiverDeliveryEnvelope =
         serde_json::from_str(&encoded).expect("reload rendered envelope");
 
-    assert_eq!(decoded, envelope);
+    assert!(decoded == envelope, "rendered email envelope changed");
     let email = decoded.email().expect("email envelope");
     assert_eq!(email.in_reply_to(), None);
     assert_eq!(email.references(), None);
@@ -371,7 +429,7 @@ fn delivery_envelopes_round_trip_without_exposing_content_through_debug() {
     let decoded: ReceiverDeliveryEnvelope =
         serde_json::from_str(&encoded).expect("deserialize delivery envelope");
 
-    assert_eq!(decoded, envelope);
+    assert!(decoded == envelope, "private delivery envelope changed");
     for rendered in [format!("{envelope:?}"), format!("{:?}", envelope.email())] {
         assert!(!rendered.contains(DELIVERY_PRIVATE_BODY));
         assert!(!rendered.contains(DELIVERY_PRIVATE_RECIPIENT));
@@ -400,7 +458,10 @@ fn delivery_identities_and_public_status_have_redacted_debug() {
 
     assert_eq!(delivery_id.to_string(), "10000000-0000-4000-8000-000000000001");
     assert_eq!(attempt_id.to_string(), "20000000-0000-4000-8000-000000000002");
-    assert_eq!(provider_reference.as_str(), "provider-reference-private");
+    assert!(
+        provider_reference.as_str() == "provider-reference-private",
+        "provider reference changed"
+    );
     assert_eq!(status.state(), ReceiverDeliveryState::Retrying);
     assert_eq!(status.attempt_count(), 2);
     assert!(status.has_provider_reference());

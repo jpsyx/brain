@@ -230,6 +230,76 @@ fn v12_repair_preserves_but_terminalizes_a_legacy_envelope_without_frozen_sender
 }
 
 #[test]
+fn v12_repair_terminalizes_noncanonical_email_sender_forms() {
+    for (case_index, sender) in ["Brain@Example.Test", "Brain <brain@example.test>"]
+        .into_iter()
+        .enumerate()
+    {
+        let fixture = super::binding::email_completion_fixture_in(
+            Db::open_in_memory().expect("email receiver state"),
+            ReceiverJobState::Processing,
+        );
+        fixture
+            .db
+            .complete_receiver_job_with_binding(&fixture.request())
+            .expect("record durable email answer")
+            .expect("exact answer owner");
+        let envelope_json = serde_json::json!({
+            "channel": "email",
+            "value": {
+                "sender": sender,
+                "recipients": ["member@example.test"],
+                "subject": "Re: Question",
+                "text": "private answer",
+                "html": "<p>private answer</p>",
+                "in_reply_to": null,
+                "references": null,
+                "provider_email_id": "provider-email"
+            }
+        })
+        .to_string();
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE receiver_deliveries
+                 SET envelope_json = ?2, state = 'ready', error_category = NULL
+                 WHERE job_id = ?1",
+                rusqlite::params![fixture.job_id.to_string(), envelope_json],
+            )
+            .expect("stage noncanonical frozen email sender");
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE receiver_jobs SET state = 'answer-ready' WHERE job_id = ?1",
+                [fixture.job_id.to_string()],
+            )
+            .expect("stage matching answer-ready job");
+
+        super::super::schema::up(&fixture.db.conn, 12)
+            .expect("repair noncanonical frozen email sender");
+
+        let terminal: (bool, bool) = fixture
+            .db
+            .conn
+            .query_row(
+                "SELECT delivery.state = 'failed', job.state = 'failed'
+                 FROM receiver_deliveries AS delivery
+                 JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
+                 WHERE delivery.job_id = ?1",
+                [fixture.job_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load repaired email delivery");
+        assert!(
+            terminal.0 && terminal.1,
+            "noncanonical email sender repair was not terminal at case index {case_index}"
+        );
+    }
+}
+
+#[test]
 fn v12_schema_creates_the_content_outbox_without_credential_columns() {
     let db = Db::open_in_memory().expect("receiver state");
 

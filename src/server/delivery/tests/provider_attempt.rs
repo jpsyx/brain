@@ -254,7 +254,7 @@ fn resend_replay_uses_the_exact_delivery_key_and_byte_identical_payload() {
     let first = resend_request_for_test("secret", delivery_id, &envelope).expect("first request");
     let replay = resend_request_for_test("secret", delivery_id, &envelope).expect("replay request");
 
-    assert_eq!(first, replay);
+    assert!(first == replay, "Resend replay request changed");
     assert!(first.has_exact_delivery_key());
     assert_eq!(first.idempotency_header_count(), 1);
     assert!(first.uses_frozen_sender());

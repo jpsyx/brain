@@ -32,19 +32,148 @@ fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
 }
 
 #[test]
-fn delivery_immutability_tests_never_print_private_whole_values_on_failure() {
+fn cumulative_task_three_tests_never_print_private_whole_values_on_failure() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for relative in [
-        "src/state/receiver/tests/schema_sections/delivery.rs",
-        "src/state/receiver/tests/delivery_store.rs",
-    ] {
-        let source =
-            std::fs::read_to_string(root.join(relative)).expect("receiver delivery privacy source");
+    let sources = discover_task_three_privacy_tests(root);
+    assert!(
+        sources.len() >= 12,
+        "Task 3 private assertion discovery unexpectedly narrowed"
+    );
+    for (case_index, path) in sources.into_iter().enumerate() {
+        let source = std::fs::read_to_string(path).expect("receiver delivery privacy source");
         assert!(
             private_whole_value_assertion_violations(&source) == 0,
-            "receiver delivery test contains a private whole-value diagnostic"
+            "receiver delivery test contains a private whole-value diagnostic at case index {case_index}"
         );
     }
+}
+
+#[test]
+fn task_three_private_assertion_policy_rejects_raw_values_but_allows_safe_proofs() {
+    for mutation in [
+        "assert_eq!(conversation.transcript_markdown(), expected);",
+        "assert_eq!(persisted.inbound(), expected);",
+        "assert_eq!(email.sender(), expected);",
+        "assert_eq!(email.recipients(), expected);",
+        "assert_eq!(recipients, expected);",
+        "assert_eq!(assistant_answer, expected);",
+        "assert_eq!(decoded_envelope, expected);",
+        "assert_eq!(payload, expected);",
+        "assert_eq!(completion_evidence_json, expected);",
+    ] {
+        assert!(
+            private_whole_value_assertion_violations(mutation) > 0,
+            "private whole-value assertion mutation was accepted"
+        );
+    }
+    for proof in [
+        "assert!(private_text_proof(transcript) == expected_proof);",
+        "assert_eq!(transcript.matches(heading).count(), 1);",
+        "assert!(email.sender() == canonical_sender);",
+        "assert!(answer.len() == expected_len);",
+    ] {
+        assert!(
+            private_whole_value_assertion_violations(proof) == 0,
+            "safe private-value proof was rejected"
+        );
+    }
+}
+
+#[test]
+fn future_task_three_delivery_tests_are_discovered_for_private_assertion_audit() {
+    let temporary = tempfile::tempdir().expect("temporary repository");
+    for relative in [
+        "src/server/delivery/tests.rs",
+        "src/state/receiver/tests/delivery_future.rs",
+        "src/state/receiver/tests/acceptance.rs",
+        "src/state/receiver/tests/unrelated.rs",
+        "src/server/delivery/tests/future.rs",
+        "src/tui/app_brain/tests/receiver_durable_answer_commit.rs",
+    ] {
+        let path = temporary.path().join(relative);
+        std::fs::create_dir_all(path.parent().expect("fixture parent")).expect("fixture directory");
+        std::fs::write(path, "#[test] fn fixture() {}\n").expect("fixture source");
+    }
+
+    let discovered = discover_task_three_privacy_tests(temporary.path());
+
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("state/receiver/tests/delivery_future.rs")),
+        "future receiver delivery test was not audited"
+    );
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("server/delivery/tests.rs")),
+        "provider delivery root test was not audited"
+    );
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("server/delivery/tests/future.rs")),
+        "future provider delivery test was not audited"
+    );
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("state/receiver/tests/acceptance.rs")),
+        "Task 3 acceptance test was not audited"
+    );
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("receiver_durable_answer_commit.rs")),
+        "Task 3 composed answer test was not audited"
+    );
+    assert!(
+        discovered
+            .iter()
+            .all(|path| !path.ends_with("state/receiver/tests/unrelated.rs")),
+        "unrelated receiver test entered the Task 3 privacy audit"
+    );
+}
+
+fn discover_task_three_privacy_tests(root: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for directory in [
+        root.join("src/server/delivery/tests"),
+        root.join("src/state/receiver/tests"),
+    ] {
+        if directory.is_dir() {
+            collect_sources(&directory, &mut candidates);
+        }
+    }
+    for relative in [
+        "src/server/delivery/tests.rs",
+        "src/tui/app_brain/tests/receiver_durable_answer_commit.rs",
+        "src/tui/app_brain/tests/receiver_durable_delivery.rs",
+    ] {
+        let path = root.join(relative);
+        if path.is_file() {
+            candidates.push(path);
+        }
+    }
+    candidates.retain(|path| {
+        let relative = path.strip_prefix(root).expect("repository test source");
+        let filename = relative
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        relative == Path::new("src/server/delivery/tests.rs")
+            || relative.starts_with("src/server/delivery/tests")
+            || relative == Path::new("src/state/receiver/tests/acceptance.rs")
+            || relative == Path::new("src/state/receiver/tests/completion_answer.rs")
+            || relative.starts_with("src/state/receiver/tests/schema_sections")
+                && filename.starts_with("delivery")
+            || relative.starts_with("src/state/receiver/tests") && filename.starts_with("delivery_")
+            || relative == Path::new("src/tui/app_brain/tests/receiver_durable_answer_commit.rs")
+            || relative == Path::new("src/tui/app_brain/tests/receiver_durable_delivery.rs")
+    });
+    candidates.sort();
+    candidates.dedup();
+    candidates
 }
 
 #[test]

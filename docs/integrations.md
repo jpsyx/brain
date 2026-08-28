@@ -1324,7 +1324,9 @@ Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
 Authenticated ingress fills it with the canonical receiving identity actually
 proved by signature and destination confirmation before acknowledgement;
-completion uses only that value, and legacy NULL, noncanonical, or malformed
+completion uses only that value. Defensive rendering, serialized-envelope
+decoding, and repair require an email sender already equal to its normalized
+bare lowercase mailbox, so legacy NULL, display-name, case-variant, or malformed
 rows terminalize without rereading environment.
 Reconciliation terminalizes interrupted or malformed delivery leases without
 replay. Its down
@@ -1335,6 +1337,10 @@ other row to a non-replayable failed job. Repair adds optional columns before
 managed indexes, rebuilds stale index signatures, fails closed on duplicate
 semantic responses, converts blank acknowledgements to explicit ambiguity,
 retains conversation transcripts, and drops the outbox last on downgrade.
+After draining private cleanup authority, the downgrade also removes the v12
+`receiver_jobs.response_sender` column and both v12-only tables while retaining
+the exact schema-v11 job rows and column order. It records `user_version = 11`
+only after every removal succeeds in the same transaction.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root

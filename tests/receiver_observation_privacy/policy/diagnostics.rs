@@ -37,10 +37,28 @@ pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
         .flat_map(|macro_name| macro_bodies(&masked, macro_name))
         .filter(|body| {
             let assertion = &masked[body.clone()];
+            if assertion.contains(".len()")
+                || assertion.contains(".matches(") && assertion.contains(".count()")
+            {
+                return false;
+            }
             [
                 "envelope_json",
                 "completion_evidence_json",
-                "transcript",
+                "transcript_markdown",
+                "_transcript",
+                ".inbound()",
+                ".sender()",
+                ".recipient()",
+                ".recipients()",
+                ".text()",
+                ".body()",
+                "assistant_answer",
+                "envelope",
+                "payload",
+                "provider_reference",
+                "recipients",
+                "response_sender",
                 "frozen_before",
                 "legacy",
                 "before.0",

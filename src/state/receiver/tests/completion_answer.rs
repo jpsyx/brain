@@ -12,7 +12,10 @@ fn portable_transcript_appends_exact_markdown_escaped_turn_once() {
     assert!(appended.contains(answer));
     assert_eq!(appended.matches("## Authenticated user").count(), 1);
     assert_eq!(appended.matches("## Assistant").count(), 1);
-    assert_ne!(duplicate, appended, "the pure renderer exposes append semantics");
+    assert!(
+        private_text_proof(&duplicate) != private_text_proof(&appended),
+        "the pure renderer exposes append semantics"
+    );
     assert!(
         receiver_transcript_has_exact_turn(&appended, inbound, answer),
         "the stored transcript must recognize an exact duplicate turn"
@@ -68,14 +71,16 @@ fn exact_completion_atomically_records_answer_ready_transcript_binding_and_outbo
             .state(),
         ReceiverJobState::AnswerReady
     );
-    assert_eq!(
-        fixture
-            .db
-            .receiver_conversation(fixture.registration.conversation_id())
-            .expect("reload conversation")
-            .expect("durable conversation")
-            .transcript_markdown(),
-        first_transcript
+    let reloaded_transcript = fixture
+        .db
+        .receiver_conversation(fixture.registration.conversation_id())
+        .expect("reload conversation")
+        .expect("durable conversation")
+        .transcript_markdown()
+        .to_owned();
+    assert!(
+        private_text_proof(&reloaded_transcript) == private_text_proof(&first_transcript),
+        "exact completion replay changed the durable transcript proof"
     );
     assert_eq!(first_transcript.matches("## Authenticated user").count(), 1);
     assert_eq!(first_transcript.matches("## Assistant").count(), 1);
@@ -301,6 +306,20 @@ fn completion_terminalizes_every_invalid_persisted_response_sender_shape() {
                 Db::open_in_memory().expect("email receiver state"),
                 ReceiverJobState::Processing,
             ),
+            "Brain@Example.Test",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
+            "Brain <brain@example.test>",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
             "invalid-email-sender",
         ),
     ];
@@ -389,14 +408,16 @@ fn exact_completion_conflict_rolls_back_without_changing_the_existing_answer() {
         .expect_err("reject conflicting answer");
 
     assert_eq!(error.to_string(), "receiver completion conflicts with durable answer");
-    assert_eq!(
-        fixture
-            .db
-            .receiver_conversation(fixture.registration.conversation_id())
-            .expect("reload conversation")
-            .expect("durable conversation")
-            .transcript_markdown(),
-        before
+    let retained_transcript = fixture
+        .db
+        .receiver_conversation(fixture.registration.conversation_id())
+        .expect("reload conversation")
+        .expect("durable conversation")
+        .transcript_markdown()
+        .to_owned();
+    assert!(
+        private_text_proof(&retained_transcript) == private_text_proof(&before),
+        "conflicting completion changed the durable transcript proof"
     );
     assert_eq!(
         fixture
@@ -459,7 +480,10 @@ fn exact_completion_replay_uses_immutable_evidence_after_later_turn_and_binding_
         .receiver_conversation(fixture.registration.conversation_id())
         .expect("reload later conversation")
         .expect("durable conversation");
-    assert_eq!(retained.transcript_markdown(), later_transcript);
+    assert!(
+        private_text_proof(retained.transcript_markdown()) == private_text_proof(&later_transcript),
+        "completion replay changed the later transcript proof"
+    );
     assert_eq!(retained.binding(), Some(&later_binding));
 }
 

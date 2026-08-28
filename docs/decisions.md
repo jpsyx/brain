@@ -2904,7 +2904,9 @@ automatic derives and manual implementations that delegate to nested fields.
 
 Privacy tests are part of this boundary because a regression assertion can leak
 the exact value it is trying to protect. The diagnostic policy scans every
-privacy-test module plus the adjacent launch-redaction test. It rejects raw
+privacy-test module plus the adjacent launch-redaction test. A focused Task 3
+pass also recursively discovers provider delivery tests and the receiver
+completion, delivery, schema, and composed App suites. It rejects raw
 whole-value equality, captured output formatting, and private-value
 interpolation. Content-free absence checks run before fixed-shape predicates,
 and failures report only stable categories, code or signal presence, byte
@@ -3106,7 +3108,10 @@ it. It refuses unacknowledged rows, validates exact unreleased sessions, removes
 only each instance's three private artifacts, and then exact-unlocks and removes
 registrations before dropping the v12 tables. A filesystem failure leaves v12
 and its database authority intact; retry treats already removed exact files as
-success.
+success. Once authority is discharged, the database transaction removes the
+outbox, cleanup table, and `receiver_jobs.response_sender` column, preserves the
+remaining schema-v11 job rows and shape, and changes `user_version` only after
+the full downgrade succeeds.
 
 Same-version repair uses only already durable evidence. A legacy cleanup whose
 `session_released` flag is one has already discharged the authority protected by
@@ -3124,6 +3129,10 @@ sender, recipients, reply lineage, or body bytes during a retry. Sender identity
 is non-secret routing data. Provider account, token, and API-key credentials
 stay live and machine-local; the row never stores them. The row stores provider
 attempt and acknowledgement metadata but never credentials.
+Authenticated ingress is the only normalization boundary. Defensive consumers
+require a frozen email sender to equal the canonical bare lowercase mailbox
+returned by normalization; accepting a display name or case variant later would
+repair persisted evidence instead of detecting corruption.
 This content-bearing outbox is deliberately separate from content-free public
 status and diagnostics.
 
