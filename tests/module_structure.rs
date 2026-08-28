@@ -48,6 +48,17 @@ fn is_numbered_fragment(filename: &str) -> bool {
         })
 }
 
+fn receiver_module_line_count(source: &str) -> usize {
+    source.lines().count()
+}
+
+#[test]
+fn receiver_module_guard_counts_production_after_test_only_items() {
+    let source = "pub fn before() {}\n#[cfg(test)]\npub use tests::fixture;\npub fn after() {}\n";
+
+    assert_eq!(receiver_module_line_count(source), 4);
+}
+
 #[test]
 fn receiver_recovery_model_and_schema_use_cohesive_modules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -67,6 +78,7 @@ fn receiver_recovery_model_and_schema_use_cohesive_modules() {
         "src/state/receiver/delivery_policy.rs",
         "src/state/receiver/schema.rs",
         "src/state/receiver/schema/delivery.rs",
+        "src/state/receiver/schema/delivery/cleanup_schema.rs",
         "src/state/receiver/schema/downgrade.rs",
         "src/state/receiver/schema/notice.rs",
         "src/state/receiver/store/completion/mod.rs",
@@ -86,13 +98,10 @@ fn receiver_recovery_model_and_schema_use_cohesive_modules() {
         "src/tui/app_brain/tests/receiver_recovery_native_cleanup_support.rs",
     ] {
         let source = std::fs::read_to_string(root.join(relative)).expect("receiver module source");
-        let production_lines = source
-            .lines()
-            .take_while(|line| *line != "#[cfg(test)]")
-            .count();
+        let module_lines = receiver_module_line_count(&source);
         assert!(
-            production_lines <= 400,
-            "{relative} has {production_lines} production lines"
+            module_lines <= 400,
+            "{relative} has {module_lines} module lines"
         );
     }
 }

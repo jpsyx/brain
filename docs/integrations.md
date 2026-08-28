@@ -1322,8 +1322,10 @@ enter `delivering`, preserves every row, and terminalizes malformed or
 pre-frozen-sender final answers together with their matching job.
 Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
-Authenticated ingress fills it before acknowledgement; completion uses only
-that value, and legacy NULL rows terminalize without rereading environment.
+Authenticated ingress fills it with the canonical receiving identity actually
+proved by signature and destination confirmation before acknowledgement;
+completion uses only that value, and legacy NULL, noncanonical, or malformed
+rows terminalize without rereading environment.
 Reconciliation terminalizes interrupted or malformed delivery leases without
 replay. Its down
 path reserves an immediate writer before schema inspection, verifies the v11
@@ -1445,8 +1447,9 @@ is still that locked row and still `completed`. It atomically appends the
 portable transcript, inserts the immutable final-answer outbox row, replaces
 the binding, moves the job to `answer-ready`, and clears the agent claim. No
 provider adapter or local delivery queue runs before commit. The outbox
-envelope freezes the exact configured outbound SMS number or email sender at
-this boundary. Later config changes cannot retarget a retry, while the provider
+envelope freezes the canonical outbound SMS number or email sender already
+proved and persisted at authenticated acceptance. Later config changes cannot
+retarget a retry, while the provider
 account, token, and API-key credentials remain live machine-local inputs. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
 new active session. The final-answer row also retains immutable private

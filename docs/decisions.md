@@ -2621,6 +2621,14 @@ cannot pass an older expired-owner lifecycle or due ordinary retry. The
 transaction's writer lock keeps those checks and the later claim update
 indivisible.
 
+An `answer-ready` or `delivering` job with an exact job/token final-answer
+outbox row has already left agent execution. Recovery discovery therefore
+excludes it from the agent FIFO blocker scan, matching reconciliation, while an
+incomplete final-answer state without that exact proof remains a blocker and
+fails closed. This keeps independent provider delivery from starving a later
+due same-session recovery without weakening ordering or fencing between agent
+runs.
+
 Terminal reconciliation persists a stable content-free reason and one pending
 unavailable-notice bit in the same transaction that releases ownership. Any
 live ordinary or recovery attempt with an exact instance/session pair retains

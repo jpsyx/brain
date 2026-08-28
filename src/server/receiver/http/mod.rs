@@ -1,5 +1,7 @@
 //! Provider authentication after an ingress has selected one live workspace.
 
+#[cfg(test)]
+mod completion_fixture;
 mod email;
 mod sms;
 
@@ -185,6 +187,19 @@ impl std::fmt::Display for ProviderError {
 }
 
 impl std::error::Error for ProviderError {}
+
+fn canonical_receiving_address(
+    config: &ProviderConfig,
+    channel: Channel,
+) -> Result<String, ProviderError> {
+    let raw = match channel {
+        Channel::Sms => &config.twilio_from_number,
+        Channel::Email => &config.resend_from_email,
+    };
+    crate::server::receiver::routing::normalize_address(channel, raw).ok_or(
+        ProviderError::NotConfigured("receiver sender identity is not configured"),
+    )
+}
 
 #[derive(Clone)]
 pub(super) struct AuthenticatedInbound {

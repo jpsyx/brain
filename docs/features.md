@@ -1614,9 +1614,11 @@ claim, conversation, instance, registered and actual session, frontend,
 actor/channel scope, and lifecycle evidence. It appends one authenticated user
 turn and the exact assistant answer to the portable transcript, freezes one
 final-answer delivery envelope, replaces the native binding, moves the job to
-`answer-ready`, and releases the agent claim. The sender comes from
-authenticated ingress acceptance and is never reread from mutable environment
-at completion. If an email job has no trusted accepted recipient, the same
+`answer-ready`, and releases the agent claim. The sender is the canonical
+number or mailbox proven by authenticated ingress, including normalized
+human-formatted receiver configuration, and is never reread from mutable
+environment at completion. Invalid legacy sender shapes terminalize atomically.
+If an email job has no trusted accepted recipient, the same
 transaction advances transcript and cleanup authority but persists an
 unclaimable terminal authorization outcome instead of leaving the run active.
 An identical duplicate returns
@@ -1641,7 +1643,10 @@ only opaque job and instance IDs, frontend, prior phase, observed boundary or
 without terminal evidence never replays the prompt. Each enabled receiver tick
 now reconciles stalled work before restart controls, executes exact cleanup,
 hands off one pending terminal notice, and claims a due same-session recovery
-before later ordinary FIFO work. Final-answer delivery now uses a separate
+before later ordinary FIFO work. Active `answer-ready` and `delivering` rows
+with an exact final-answer outbox are not agent FIFO blockers, so an older
+delivery cannot starve a later due recovery; incomplete final-answer states
+remain fail-closed blockers. Final-answer delivery now uses a separate
 oldest-due claim and bounded provider worker. Acknowledged provider references
 finish the job, safe failures schedule bounded retries, and provider-specific
 ambiguity becomes either an exact Resend replay or terminal failure. The exact

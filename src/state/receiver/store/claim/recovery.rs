@@ -160,15 +160,21 @@ fn oldest_workspace_claim_candidate(
 ) -> Result<Option<String>> {
     Ok(connection
         .query_row(
-            "SELECT job_id FROM receiver_jobs
-             WHERE workspace_id = ?1
+            "SELECT job.job_id FROM receiver_jobs AS job
+             WHERE job.workspace_id = ?1
                AND (
-                 state = 'queued'
-                 OR (state = 'retrying' AND retry_at_unix_ms <= ?2)
-                 OR state IN ('claimed', 'launching', 'launched', 'accepted',
-                              'processing', 'answer-ready', 'delivering')
+                 job.state = 'queued'
+                 OR (job.state = 'retrying' AND job.retry_at_unix_ms <= ?2)
+                 OR job.state IN ('claimed', 'launching', 'launched', 'accepted',
+                                  'processing')
+                 OR (job.state IN ('answer-ready', 'delivering') AND NOT EXISTS (
+                   SELECT 1 FROM receiver_deliveries AS delivery
+                   WHERE delivery.job_id = job.job_id
+                     AND delivery.job_token = job.job_token
+                     AND delivery.response_kind = 'final-answer'
+                 ))
                )
-             ORDER BY received_at_unix_ms, job_id
+             ORDER BY job.received_at_unix_ms, job.job_id
              LIMIT 1",
             rusqlite::params![workspace_id, now],
             |row| row.get(0),

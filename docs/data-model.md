@@ -736,8 +736,9 @@ UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
 attachment references, receipt time, provider delivery ID, authenticated
 thread participants, the actor's acceptance-time normalized response email,
 and the acceptance-time allowed response recipients. Authenticated ingress
-stores that frame plus the verified receiving number or email address in the
-job's nullable `response_sender` column before provider
+stores that frame plus the canonical receiving number or email address that
+signature verification and destination confirmation proved in the job's
+nullable `response_sender` column before provider
 success. A provider retry with the same workspace/channel/provider identity
 returns the original durable job rather than replacing its accepted frame.
 Follow-ups retain the
@@ -1181,11 +1182,14 @@ without copying attacker-controlled content into the error.
 The public status and every Debug implementation redact envelope, recipient,
 sender, provider reference, and answer content.
 
-The response sender is captured when authenticated ingress accepts the job,
-not when the agent finishes. Completion never rereads mutable environment
-configuration. Same-version repair adds the nullable column without extending
-the deny-unknown inbound JSON frame, so the prior schema-v12 release can still
-read new jobs. A legacy NULL sender becomes a terminal `invalid-request`
+The response sender is canonicalized and captured when authenticated ingress
+accepts the job, not when the agent finishes. Human-formatted SMS numbers and
+trimmed, case-normalized email addresses therefore become the same immutable
+identity that authenticated destination confirmation proved. Completion never
+rereads mutable environment configuration. Same-version repair adds the
+nullable column without extending the deny-unknown inbound JSON frame, so the
+prior schema-v12 release can still read new jobs. A legacy NULL, noncanonical,
+or malformed sender becomes a terminal `invalid-request`
 outcome. An email answer with no trusted accepted recipient atomically advances
 the transcript and cleanup authority but records a failed `authorization`
 outcome that cannot be claimed for provider delivery.
@@ -1397,7 +1401,11 @@ the tuple and recurring reconciliation returns the same terminal cleanup
 identifiers after restart. That read-only redrive does not create another notice
 intent and the terminal row does not block later FIFO work. The separate
 recovery-claim seam accepts only that cleanup-acknowledged due row when it is
-also the workspace's globally oldest claimable or blocking row. It establishes
+also the workspace's globally oldest claimable or blocking row. An
+`answer-ready` or `delivering` job with an exact matching final-answer outbox
+row belongs to the independent delivery lane and is excluded from this agent
+FIFO blocker scan; an incomplete row without that exact proof still blocks and
+reconciles closed. The claim establishes
 the launch deadline and never rediscovers accepted work or increments recovery
 count. An unclaimed recovery remains a reconciliation candidate and becomes
 `failed` at exact recovery or absolute expiry. Exhaustion, missing resume

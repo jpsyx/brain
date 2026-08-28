@@ -279,6 +279,90 @@ fn completion_terminalizes_a_legacy_job_without_a_frozen_response_sender() {
 }
 
 #[test]
+fn completion_terminalizes_every_invalid_persisted_response_sender_shape() {
+    let cases = [
+        (
+            super::binding::completion_fixture(ReceiverJobState::Processing),
+            "(212) 555-0100",
+        ),
+        (
+            super::binding::completion_fixture(ReceiverJobState::Processing),
+            "invalid-sms-sender",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
+            "  Brain@Example.Test  ",
+        ),
+        (
+            super::binding::email_completion_fixture_in(
+                Db::open_in_memory().expect("email receiver state"),
+                ReceiverJobState::Processing,
+            ),
+            "invalid-email-sender",
+        ),
+    ];
+
+    for (fixture, persisted_sender) in cases {
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE receiver_jobs SET response_sender = ?2 WHERE job_id = ?1",
+                rusqlite::params![fixture.job_id.to_string(), persisted_sender],
+            )
+            .expect("stage invalid frozen sender");
+
+        fixture
+            .db
+            .complete_receiver_job_with_binding(&fixture.request())
+            .expect("terminalize invalid frozen sender")
+            .expect("exact terminal outcome");
+        let terminal: (bool, bool) = fixture
+            .db
+            .conn
+            .query_row(
+                "SELECT state = 'failed', error_category = 'invalid-request'
+                 FROM receiver_deliveries WHERE job_id = ?1",
+                [fixture.job_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load invalid sender outcome");
+        assert!(terminal.0, "invalid sender outcome was sendable");
+        assert!(
+            terminal.1,
+            "invalid sender outcome had the wrong content-free category"
+        );
+        assert!(
+            fixture
+                .db
+                .receiver_job(fixture.job_id)
+                .expect("load invalid sender job")
+                .is_some_and(|job| job.state() == ReceiverJobState::Failed),
+            "invalid sender did not release the agent lane"
+        );
+        assert!(
+            fixture
+                .db
+                .receiver_answer_cleanup(fixture.job_id)
+                .expect("load invalid sender cleanup")
+                .is_some(),
+            "invalid sender did not persist cleanup authority"
+        );
+        assert!(
+            fixture
+                .db
+                .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
+                .expect("inspect invalid sender delivery lane")
+                .is_none(),
+            "invalid sender entered the provider delivery lane"
+        );
+    }
+}
+
+#[test]
 fn exact_completion_conflict_rolls_back_without_changing_the_existing_answer() {
     let fixture = super::binding::completion_fixture(ReceiverJobState::Launched);
     let request = fixture.request();

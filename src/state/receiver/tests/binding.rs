@@ -309,7 +309,7 @@ pub(super) fn email_completion_fixture_in(db: Db, state: ReceiverJobState) -> Co
     completion_fixture_for_job(db, state, job, &identity)
 }
 
-fn completion_fixture_for_job(
+pub(super) fn completion_fixture_for_job(
     db: Db,
     state: ReceiverJobState,
     job: crate::server::receiver::InboundJob,

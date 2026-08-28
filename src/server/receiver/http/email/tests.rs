@@ -55,6 +55,57 @@ fn authenticated_email_uses_injected_fetch_without_external_io() {
 }
 
 #[test]
+fn whitespace_authenticated_receiver_completes_with_the_canonical_frozen_sender() {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let body = br#"{"type":"email.received","data":{"from":"member@example.test","to":["brain@example.test"],"email_id":"email-canonical"}}"#;
+    let key = b"email-test-secret";
+    let signature = resend_signature(key, "webhook-canonical", &timestamp, body);
+    let headers = EmailHeaders {
+        webhook_id: "webhook-canonical",
+        timestamp: &timestamp,
+        signature: &signature,
+    };
+    let config = super::ProviderConfig {
+        workspace_id: crate::workspace::WorkspaceId::new(),
+        twilio_auth_token: String::new(),
+        twilio_from_number: String::new(),
+        public_base_url: String::new(),
+        resend_signing_secret: format!("whsec_{}", STANDARD.encode(key)),
+        resend_full_access_api_key: "full-access-key".to_owned(),
+        resend_from_email: "  Brain@Example.Test  ".to_owned(),
+    };
+    super::super::confirm_destination(&config, crate::server::receiver::Channel::Email, body)
+        .expect("confirm canonical signed email destination");
+    let authenticated = authenticate_payload(&headers, body, &config, |_, _| {
+        Ok(FetchedEmail {
+            body: "canonical answer".to_owned(),
+            sender: "member@example.test".to_owned(),
+            participants: vec!["member@example.test".to_owned()],
+            attachments: Vec::new(),
+            subject: "Canonical sender".to_owned(),
+            message_id: Some("<canonical@example.test>".to_owned()),
+        })
+    })
+    .expect("authenticate whitespace receiver email");
+
+    let proof = super::super::completion_fixture::complete_authenticated(
+        authenticated,
+        "brain@example.test",
+    );
+
+    assert!(proof.accepted_sender_is_canonical);
+    assert!(proof.envelope_sender_is_canonical);
+    assert!(proof.transcript_advanced);
+    assert!(proof.outbox_is_ready);
+    assert!(proof.cleanup_count == 1);
+    assert!(proof.job_is_answer_ready);
+}
+
+#[test]
 fn participants_include_from_to_cc_and_reply_to() {
     let data = json!({
         "from": "sender@example.com",

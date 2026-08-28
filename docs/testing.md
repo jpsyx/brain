@@ -388,7 +388,10 @@ first move is a failing test that reproduces it, *then* the fix.
   unknown JSON, blank and oversized answers, same-length in-place rewrites, and
   every identity mismatch. The reconciliation matrix separately proves that
   notice, control, and fallback-only rows cannot protect incomplete
-  `answer-ready` or `delivering` jobs as final-answer proof. App boundary tests
+  `answer-ready` or `delivering` jobs as final-answer proof. Recovery claim
+  coverage keeps an older exact final-answer row active while
+  proving a later due recovery is still discovered with its original token and
+  owner. App boundary tests
   cover crashes before and after commit, the two-App window between answer
   commit and originating controller shutdown, exact origin acknowledgement,
   end-to-end dead-owner takeover after atomic lock-reap acknowledgement,
@@ -623,7 +626,8 @@ first move is a failing test that reproduces it, *then* the fix.
   prove claiming only an already-due attempt preserves identity and first facts,
   consumes no additional budget, establishes the launch deadline, honors the
   exact cleanup-acknowledgement fence, and refuses both targeted and discovered
-  recovery behind an older expired-owner lifecycle or due ordinary retry.
+  recovery behind an older expired-owner lifecycle or due ordinary retry, but
+  not behind an older active job with exact final-answer delivery proof.
   Cross-tests prove the ordinary retry seam rejects recovery attempts and the
   exact recovery planning, registration, spawn, and shutdown failures
   terminalize with notice intent. Completion remains atomic across the
@@ -1237,8 +1241,13 @@ exact curl 5/6/7 pre-provider retry classification with conservative neighbors,
 nonblocking queue publication, safe unsent-publication rollback, queue
 saturation, cancellation, lost results, fresh-App reconciliation, and
 independent next-job progress without sleeps or network.
-The composed App suite deletes sender configuration after acceptance and proves
-the answer still commits with the frozen identity. The composed state suite
+The composed HTTP-to-state suite accepts a human-formatted SMS receiver and a
+whitespace-padded email receiver, then proves authentication persists the
+canonical sender and completion advances transcript, outbox, cleanup, and job
+state with that immutable identity. Defensive completion tests prove every
+noncanonical or malformed persisted sender becomes an unclaimable terminal
+outcome. The composed App suite deletes sender configuration after acceptance
+and proves the answer still commits with the frozen identity. The composed state suite
 proves that missing trusted email recipients atomically produce a terminal
 authorization outcome, advance transcript and cleanup authority, survive reopen
 replay, and never enter the provider claim lane. The receiver privacy policy rejects
@@ -1246,7 +1255,9 @@ content-bearing whole-value assertions in cumulative delivery migration and
 reconciliation tests, requiring digest or field-presence proofs instead.
 `tests/module_structure.rs` includes delivery envelope decoding, envelope,
 identity, status, policy, schema, and claim/decode/result/reconciliation store
-seams in its production-size guard.
+seams in its size guard. The guard counts the complete file, so an early
+test-only attribute or re-export cannot hide later production code, and the
+delivery cleanup table contract stays in its focused schema module.
 
 ## Test layout
 
