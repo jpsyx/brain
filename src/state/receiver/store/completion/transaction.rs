@@ -93,6 +93,7 @@ pub(super) fn complete(
     let envelope = render_receiver_delivery(
         &stored.inbound,
         ReceiverResponseKind::FinalAnswer,
+        request.outbound_sender,
         request.answer,
     )?;
     let envelope_json =

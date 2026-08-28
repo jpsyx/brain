@@ -7,7 +7,7 @@ pub(crate) use downgrade::down_path;
 #[cfg(test)]
 pub(in crate::state::receiver) use downgrade::down_path_with_busy_observer;
 
-const PROVIDER_REFERENCE_CONSTRAINT: &str = "length(trim(provider_reference)) > 0";
+const CURRENT_DELIVERY_CONTRACT: &str = "state = 'delivering' OR provider_io_started = 0";
 
 const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliveries (
            delivery_id                 TEXT PRIMARY KEY,
@@ -256,6 +256,65 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
          SET ambiguity_reason = 'result-commit-unknown'
          WHERE state = 'ambiguous' AND ambiguity_reason IS NULL;",
     )?;
+    terminalize_invalid_active_envelopes(connection)?;
+    connection.execute_batch(
+        "UPDATE receiver_jobs
+         SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+             retry_at_unix_ms = NULL, retry_from_state = NULL,
+             last_error = 'delivery-schema-repair',
+             updated_at_unix_ms = MAX(updated_at_unix_ms, COALESCE((
+               SELECT delivery.updated_at_unix_ms
+               FROM receiver_deliveries AS delivery
+               WHERE delivery.job_id = receiver_jobs.job_id
+                 AND delivery.job_token = receiver_jobs.job_token
+                 AND delivery.response_kind = 'final-answer'
+                 AND delivery.state IN ('failed', 'ambiguous')
+               LIMIT 1
+             ), updated_at_unix_ms))
+         WHERE EXISTS (
+           SELECT 1 FROM receiver_deliveries AS delivery
+           WHERE delivery.job_id = receiver_jobs.job_id
+             AND delivery.job_token = receiver_jobs.job_token
+             AND delivery.response_kind = 'final-answer'
+             AND delivery.state IN ('failed', 'ambiguous')
+         );",
+    )?;
+    Ok(())
+}
+
+fn terminalize_invalid_active_envelopes(connection: &Connection) -> Result<()> {
+    let invalid = {
+        let mut statement = connection.prepare(
+            "SELECT delivery_id, envelope_json FROM receiver_deliveries
+             WHERE response_kind = 'final-answer'
+               AND state IN ('ready', 'delivering', 'retrying')",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(delivery_id, envelope)| {
+                serde_json::from_str::<crate::state::ReceiverDeliveryEnvelope>(&envelope)
+                    .is_err()
+                    .then_some(delivery_id)
+            })
+            .collect::<Vec<_>>()
+    };
+    for delivery_id in invalid {
+        connection.execute(
+            "UPDATE receiver_deliveries
+             SET state = 'failed', retry_at_unix_ms = NULL,
+                 claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                 provider_io_started = 0, provider_reference = NULL,
+                 error_category = 'invalid-request', ambiguity_reason = NULL
+             WHERE delivery_id = ?1
+               AND response_kind = 'final-answer'
+               AND state IN ('ready', 'delivering', 'retrying')",
+            [delivery_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -266,7 +325,7 @@ fn ensure_table_contract(connection: &Connection) -> Result<()> {
         [],
         |row| row.get(0),
     )?;
-    if sql.contains(PROVIDER_REFERENCE_CONSTRAINT) {
+    if sql.contains(CURRENT_DELIVERY_CONTRACT) {
         return Ok(());
     }
     reject_duplicate_semantic_responses(connection)?;

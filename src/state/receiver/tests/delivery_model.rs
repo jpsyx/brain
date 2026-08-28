@@ -2,6 +2,41 @@ const DELIVERY_PRIVATE_BODY: &str = "private-delivery-body-a101";
 const DELIVERY_PRIVATE_RECIPIENT: &str = "private-delivery-recipient-b202@example.test";
 const DELIVERY_PRIVATE_MESSAGE_ID: &str = "private-delivery-message-c303@example.test";
 
+#[test]
+fn serialized_delivery_envelopes_require_and_preserve_the_exact_outbound_sender() {
+    for encoded in [
+        serde_json::json!({
+            "channel": "sms",
+            "value": {
+                "sender": "+12125550100",
+                "recipient": "+12125550199",
+                "body": "safe",
+                "long_form_available": false
+            }
+        }),
+        serde_json::json!({
+            "channel": "email",
+            "value": {
+                "sender": "Brain <brain@example.test>",
+                "recipients": ["member@example.test"],
+                "subject": "Re: Question",
+                "text": "safe",
+                "html": "<p>safe</p>",
+                "in_reply_to": null,
+                "references": null,
+                "provider_email_id": "provider-email"
+            }
+        }),
+    ] {
+        let envelope = serde_json::from_value::<ReceiverDeliveryEnvelope>(encoded.clone())
+            .expect("sender is immutable envelope routing data");
+        assert_eq!(
+            serde_json::to_value(envelope).expect("serialize immutable envelope"),
+            encoded
+        );
+    }
+}
+
 fn email_delivery_job() -> crate::server::receiver::InboundJob {
     let mut job = receiver_job_for(
         receiver_workspace_id(),
@@ -32,11 +67,13 @@ fn sms_delivery_freezes_the_accepted_sender_and_existing_length_behavior() {
     let envelope = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FinalAnswer,
+        "+12125550100",
         &answer,
     )
     .expect("render immutable SMS delivery");
     let sms = envelope.sms().expect("SMS envelope");
 
+    assert_eq!(sms.sender(), "+12125550100");
     assert_eq!(sms.recipient(), "+12125550199");
     assert!(sms.long_form_available());
     assert!(sms.body().chars().count() <= crate::server::reply::SMS_LIMIT);
@@ -50,11 +87,13 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
     let envelope = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FinalAnswer,
+        "brain@example.test",
         "  ## Answer\n\nDetails  ",
     )
     .expect("render immutable email delivery");
     let email = envelope.email().expect("email envelope");
 
+    assert_eq!(email.sender(), "brain@example.test");
     assert_eq!(
         email.recipients(),
         ["copy@example.test", "primary@example.test"]
@@ -80,6 +119,7 @@ fn email_delivery_rejects_blank_accepted_provider_lineage_before_persistence() {
         let error = render_receiver_delivery(
             &job,
             ReceiverResponseKind::FinalAnswer,
+            "brain@example.test",
             DELIVERY_PRIVATE_BODY,
         )
         .expect_err("blank provider lineage must fail before persistence");
@@ -110,6 +150,7 @@ fn email_delivery_rejects_blank_accepted_message_lineage_before_persistence() {
         let error = render_receiver_delivery(
             &job,
             ReceiverResponseKind::FinalAnswer,
+            "brain@example.test",
             DELIVERY_PRIVATE_BODY,
         )
         .expect_err("blank message lineage must fail before persistence");
@@ -139,6 +180,7 @@ fn rendered_email_without_message_lineage_round_trips_through_validation() {
     let envelope = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FinalAnswer,
+        "brain@example.test",
         DELIVERY_PRIVATE_BODY,
     )
     .expect("missing optional message lineage is allowed");
@@ -162,6 +204,7 @@ fn email_delivery_rejects_an_empty_accepted_recipient_set_without_echoing_conten
     let error = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FinalAnswer,
+        "brain@example.test",
         DELIVERY_PRIVATE_BODY,
     )
     .expect_err("empty trusted recipients must fail authorization");
@@ -191,6 +234,7 @@ fn email_delivery_rejects_any_invalid_accepted_recipient_without_partial_deliver
         let error = render_receiver_delivery(
             &job,
             ReceiverResponseKind::FinalAnswer,
+            "brain@example.test",
             DELIVERY_PRIVATE_BODY,
         )
         .expect_err("one malformed accepted recipient must reject the entire delivery");
@@ -213,6 +257,7 @@ fn sms_delivery_rejects_an_invalid_accepted_sender_without_echoing_it() {
     let error = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FinalAnswer,
+        "+12125550100",
         DELIVERY_PRIVATE_BODY,
     )
     .expect_err("invalid accepted SMS sender must fail closed");
@@ -231,6 +276,7 @@ fn serialized_sms_envelope_rejects_invalid_recipient_and_oversized_body() {
         serde_json::json!({
             "channel": "sms",
             "value": {
+                "sender": "+12125550100",
                 "recipient": "private-invalid-sender",
                 "body": "safe",
                 "long_form_available": false
@@ -239,6 +285,7 @@ fn serialized_sms_envelope_rejects_invalid_recipient_and_oversized_body() {
         serde_json::json!({
             "channel": "sms",
             "value": {
+                "sender": "+12125550100",
                 "recipient": "+12125550199",
                 "body": oversized,
                 "long_form_available": true
@@ -262,6 +309,7 @@ fn serialized_email_envelope_rejects_malformed_frozen_invariants_without_echoing
     let base = serde_json::json!({
         "channel": "email",
         "value": {
+            "sender": "brain@example.test",
             "recipients": ["member@example.test"],
             "subject": "Re: Question",
             "text": "Private answer",
@@ -314,6 +362,7 @@ fn delivery_envelopes_round_trip_without_exposing_content_through_debug() {
     let envelope = render_receiver_delivery(
         &job,
         ReceiverResponseKind::FallbackNotice,
+        "brain@example.test",
         DELIVERY_PRIVATE_BODY,
     )
     .expect("render private delivery");

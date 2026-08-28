@@ -305,6 +305,47 @@ fn saturated_pre_spawn_claim_is_released_without_recording_an_attempt() {
 }
 
 #[test]
+fn worker_publication_failure_after_io_marker_restores_an_unsent_twilio_attempt() {
+    let fixture = answer_ready_fixture();
+    let claim = fixture
+        .db
+        .claim_next_receiver_delivery("delivery-owner", 2_000, 32_000)
+        .expect("claim delivery")
+        .expect("due delivery");
+    assert_eq!(claim.provider(), ReceiverProviderCapability::Twilio);
+    assert!(fixture
+        .db
+        .mark_receiver_delivery_io_started(&claim, 2_100)
+        .expect("mark publication boundary"));
+
+    assert!(fixture
+        .db
+        .release_receiver_delivery_after_failed_publication(&claim, 2_100)
+        .expect("release work proven not to have reached the worker"));
+
+    let row: (String, i64, Option<i64>, i64) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT state, attempt_count, first_attempt_at_unix_ms, provider_io_started
+             FROM receiver_deliveries WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("load safely released publication");
+    assert_eq!(row, ("ready".to_owned(), 0, None, 0));
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load safely released job")
+            .expect("job remains")
+            .state(),
+        ReceiverJobState::AnswerReady
+    );
+}
+
+#[test]
 fn concurrent_delivery_claim_race_has_one_exact_winner() {
     let temporary = tempfile::tempdir().expect("temporary state directory");
     let path = temporary.path().join("state.db");
@@ -360,6 +401,7 @@ fn resend_io_restart_replays_frozen_answer_and_envelope_inside_the_window() {
     let email_envelope = serde_json::json!({
         "channel": "email",
         "value": {
+            "sender": "brain@example.test",
             "recipients": ["member@example.test"],
             "subject": "Re: Frozen subject",
             "text": "frozen private answer",

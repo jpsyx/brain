@@ -242,8 +242,25 @@ impl CurlRequest {
     }
 
     #[cfg(test)]
-    pub(super) fn config(&self) -> &str {
-        &self.config
+    pub(super) fn has_exact_option_for_test(&self, name: &str, value: &str) -> bool {
+        let exact = Self::new().option(name, value).config;
+        self.config
+            .lines()
+            .any(|line| exact.strip_suffix('\n') == Some(line))
+    }
+
+    #[cfg(test)]
+    pub(super) fn option_prefix_count_for_test(&self, name: &str, prefix: &str) -> usize {
+        let exact = Self::new().option(name, prefix).config;
+        let stem = exact.strip_suffix("\"\n").unwrap_or(&exact);
+        self.config.matches(stem).count()
+    }
+
+    #[cfg(test)]
+    pub(super) fn redacted_digest_for_test(&self) -> [u8; 32] {
+        use sha2::Digest as _;
+
+        sha2::Sha256::digest(self.config.as_bytes()).into()
     }
 }
 
@@ -433,8 +450,10 @@ mod tests {
             .map(|argument| argument.to_string_lossy())
             .collect::<Vec<_>>();
 
-        assert!(request.config().contains(secret));
-        assert!(request.config().contains(content));
+        assert!(
+            request.has_exact_option_for_test("header", &format!("Authorization: Bearer {secret}"))
+        );
+        assert!(request.has_exact_option_for_test("data", content));
         assert_eq!(arguments, ["--config", "-"]);
         assert!(!arguments.iter().any(|argument| argument.contains(secret)));
         assert!(!arguments.iter().any(|argument| argument.contains(content)));
@@ -442,13 +461,10 @@ mod tests {
 
     #[test]
     fn curl_config_quotes_control_characters_and_double_quotes() {
-        let request = CurlRequest::new().option("data", "line 1\n\"line 2\"\\end");
+        let private_control_value = "line 1\n\"line 2\"\\end";
+        let request = CurlRequest::new().option("data", private_control_value);
 
-        assert!(
-            request
-                .config()
-                .contains("data = \"line 1\\n\\\"line 2\\\"\\\\end\"")
-        );
+        assert!(request.has_exact_option_for_test("data", private_control_value));
     }
 
     #[test]

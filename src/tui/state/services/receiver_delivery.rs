@@ -105,16 +105,17 @@ impl AppServices {
             crate::logging::log(format!(
                 "receiver delivery worker publication failed: {error:#}"
             ));
-            let result = classify_provider_process_failure(
-                ReceiverProviderProcessFailure::LostResultChannel,
-            );
-            if let Err(apply_error) =
-                self.db
-                    .apply_receiver_delivery_result(&claim, now_unix_ms, result)
+            match self
+                .db
+                .release_receiver_delivery_after_failed_publication(&claim, now_unix_ms)
             {
-                crate::logging::log(format!(
-                    "receiver delivery publication failure commit failed: {apply_error:#}"
-                ));
+                Ok(true) => {}
+                Ok(false) => crate::logging::log(
+                    "receiver delivery publication release lost exact authority",
+                ),
+                Err(release_error) => crate::logging::log(format!(
+                    "receiver delivery publication release failed: {release_error:#}"
+                )),
             }
             return;
         }

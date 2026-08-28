@@ -128,6 +128,7 @@ pub struct ReceiverCompletionRequest<'a> {
     pub owner: &'a str,
     pub registration: &'a ReceiverSessionAttribution,
     pub completed_session: &'a crate::agent::AgentSession,
+    pub outbound_sender: &'a str,
     pub answer: &'a str,
     pub observed_at_unix_ms: u64,
     pub authorized_at_unix_ms: u64,

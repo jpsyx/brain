@@ -56,6 +56,46 @@ fn queue_saturation_is_reported_before_provider_work_can_start() {
 }
 
 #[test]
+fn publishing_queued_work_never_waits_for_the_worker_on_the_caller() {
+    let executor = BoundedDeliveryExecutor::<u8, u8>::new(1, "test-nonblocking-publish")
+        .expect("bounded executor");
+    let (started_tx, started_rx) = std::sync::mpsc::sync_channel(0);
+    let (finish_tx, finish_rx) = std::sync::mpsc::sync_channel(0);
+    executor
+        .reserve(1, move || {
+            started_tx.send(()).expect("signal active work");
+            finish_rx.recv().expect("release active work");
+            1
+        })
+        .expect("reserve active work")
+        .start()
+        .expect("publish active work");
+    started_rx.recv().expect("active work started");
+    let queued = executor.reserve(2, || 2).expect("reserve queued work");
+    let (published_tx, published_rx) = std::sync::mpsc::sync_channel(1);
+    let publish = std::thread::spawn(move || {
+        published_tx
+            .send(queued.start().is_ok())
+            .expect("record publication result");
+    });
+
+    let immediate = published_rx.recv_timeout(std::time::Duration::from_millis(250));
+    finish_tx.send(()).expect("finish active work");
+    if immediate.is_err() {
+        published_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("blocked publication eventually released");
+    }
+    publish.join().expect("join publication probe");
+
+    assert_eq!(
+        immediate,
+        Ok(true),
+        "event-loop publication must be nonblocking"
+    );
+}
+
+#[test]
 fn dropped_reservation_never_executes_provider_work() {
     let executor =
         BoundedDeliveryExecutor::<u8, u8>::new(1, "test-cancel").expect("bounded executor");

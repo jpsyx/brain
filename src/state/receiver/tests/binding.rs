@@ -277,6 +277,7 @@ impl CompletionFixture {
             owner: "owner",
             registration: &self.registration,
             completed_session: &self.completed_session,
+            outbound_sender: "+12125550100",
             answer: "exact assistant answer",
             observed_at_unix_ms: 1_500,
             authorized_at_unix_ms: 1_500,

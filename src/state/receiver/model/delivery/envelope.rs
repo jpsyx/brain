@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
 use super::ReceiverResponseKind;
+use super::decode::{decode_email_envelope, decode_sms_envelope};
 
 /// Byte-stable, acceptance-authorized provider payload.
 #[derive(Clone, PartialEq, Eq, Serialize)]
@@ -71,12 +72,13 @@ impl std::fmt::Debug for ReceiverDeliveryEnvelope {
     }
 }
 
-/// Frozen SMS destination and rendered body.
+/// Frozen SMS sender, destination, and rendered body.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReceiverSmsEnvelope {
-    recipient: String,
-    body: String,
-    long_form_available: bool,
+    pub(super) sender: String,
+    pub(super) recipient: String,
+    pub(super) body: String,
+    pub(super) long_form_available: bool,
 }
 
 impl<'de> Deserialize<'de> for ReceiverSmsEnvelope {
@@ -90,6 +92,11 @@ impl<'de> Deserialize<'de> for ReceiverSmsEnvelope {
 }
 
 impl ReceiverSmsEnvelope {
+    #[must_use]
+    pub fn sender(&self) -> &str {
+        &self.sender
+    }
+
     #[must_use]
     pub fn recipient(&self) -> &str {
         &self.recipient
@@ -112,16 +119,17 @@ impl std::fmt::Debug for ReceiverSmsEnvelope {
     }
 }
 
-/// Frozen email destinations, body alternatives, and provider lineage.
+/// Frozen email sender, destinations, body alternatives, and provider lineage.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReceiverEmailEnvelope {
-    recipients: Vec<String>,
-    subject: String,
-    text: String,
-    html: String,
-    in_reply_to: Option<String>,
-    references: Option<String>,
-    provider_email_id: Option<String>,
+    pub(super) sender: String,
+    pub(super) recipients: Vec<String>,
+    pub(super) subject: String,
+    pub(super) text: String,
+    pub(super) html: String,
+    pub(super) in_reply_to: Option<String>,
+    pub(super) references: Option<String>,
+    pub(super) provider_email_id: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for ReceiverEmailEnvelope {
@@ -135,6 +143,11 @@ impl<'de> Deserialize<'de> for ReceiverEmailEnvelope {
 }
 
 impl ReceiverEmailEnvelope {
+    #[must_use]
+    pub fn sender(&self) -> &str {
+        &self.sender
+    }
+
     #[must_use]
     pub fn recipients(&self) -> &[String] {
         &self.recipients
@@ -180,6 +193,7 @@ impl std::fmt::Debug for ReceiverEmailEnvelope {
 /// Failure to freeze one accepted response destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverDeliveryRenderError {
+    InvalidOutboundSender,
     NoTrustedEmailRecipients,
     InvalidAcceptedEmailRecipient,
     InvalidAcceptedEmailProviderId,
@@ -190,6 +204,7 @@ pub enum ReceiverDeliveryRenderError {
 impl Display for ReceiverDeliveryRenderError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
+            Self::InvalidOutboundSender => "receiver delivery has an invalid outbound sender",
             Self::NoTrustedEmailRecipients => "receiver delivery has no trusted email recipients",
             Self::InvalidAcceptedEmailRecipient => {
                 "receiver delivery has an invalid accepted email recipient"
@@ -224,10 +239,15 @@ impl std::error::Error for ReceiverDeliveryRenderError {}
 pub fn render_receiver_delivery(
     inbound: &crate::server::receiver::InboundJob,
     _response_kind: ReceiverResponseKind,
+    outbound_sender: &str,
     content: &str,
 ) -> Result<ReceiverDeliveryEnvelope, ReceiverDeliveryRenderError> {
     match inbound.channel {
         crate::server::receiver::Channel::Sms => {
+            let sender = crate::users::normalize_phone(outbound_sender)
+                .ok()
+                .filter(|normalized| normalized == outbound_sender)
+                .ok_or(ReceiverDeliveryRenderError::InvalidOutboundSender)?;
             let recipient = crate::users::normalize_phone(&inbound.authenticated_sender)
                 .ok()
                 .filter(|normalized| normalized == &inbound.authenticated_sender)
@@ -235,6 +255,7 @@ pub fn render_receiver_delivery(
             let reply = crate::server::reply::sms(content);
             Ok(ReceiverDeliveryEnvelope::Sms {
                 value: ReceiverSmsEnvelope {
+                    sender,
                     recipient,
                     body: reply.text,
                     long_form_available: reply.long_form_available,
@@ -242,6 +263,12 @@ pub fn render_receiver_delivery(
             })
         }
         crate::server::receiver::Channel::Email => {
+            crate::users::normalize_mailbox(outbound_sender)
+                .map_err(|_| ReceiverDeliveryRenderError::InvalidOutboundSender)?;
+            if outbound_sender.trim() != outbound_sender {
+                return Err(ReceiverDeliveryRenderError::InvalidOutboundSender);
+            }
+            let sender = outbound_sender.to_owned();
             let recipients = inbound
                 .response_email
                 .iter()
@@ -279,6 +306,7 @@ pub fn render_receiver_delivery(
                 .transpose()?;
             Ok(ReceiverDeliveryEnvelope::Email {
                 value: ReceiverEmailEnvelope {
+                    sender,
                     recipients,
                     subject: crate::server::delivery::reply_subject(lineage),
                     html: crate::server::reply::email_html(&reply.text),
@@ -290,86 +318,4 @@ pub fn render_receiver_delivery(
             })
         }
     }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawReceiverSmsEnvelope {
-    recipient: String,
-    body: String,
-    long_form_available: bool,
-}
-
-fn decode_sms_envelope(value: serde_json::Value) -> Result<ReceiverSmsEnvelope, &'static str> {
-    let raw = serde_json::from_value::<RawReceiverSmsEnvelope>(value)
-        .map_err(|_| "receiver SMS delivery envelope is invalid")?;
-    let recipient = crate::users::normalize_phone(&raw.recipient)
-        .ok()
-        .filter(|normalized| normalized == &raw.recipient)
-        .ok_or("receiver SMS delivery envelope is invalid")?;
-    if raw.body.chars().count() > crate::server::reply::SMS_LIMIT {
-        return Err("receiver SMS delivery envelope is invalid");
-    }
-    Ok(ReceiverSmsEnvelope {
-        recipient,
-        body: raw.body,
-        long_form_available: raw.long_form_available,
-    })
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawReceiverEmailEnvelope {
-    recipients: Vec<String>,
-    subject: String,
-    text: String,
-    html: String,
-    in_reply_to: Option<String>,
-    references: Option<String>,
-    provider_email_id: Option<String>,
-}
-
-fn decode_email_envelope(value: serde_json::Value) -> Result<ReceiverEmailEnvelope, &'static str> {
-    let raw = serde_json::from_value::<RawReceiverEmailEnvelope>(value)
-        .map_err(|_| "receiver email delivery envelope is invalid")?;
-    if raw.recipients.is_empty()
-        || raw.subject.trim().is_empty()
-        || raw.subject.trim() != raw.subject
-        || raw.text.trim() != raw.text
-        || raw.html.trim().is_empty()
-        || raw
-            .provider_email_id
-            .as_ref()
-            .is_some_and(|value| value.trim().is_empty())
-    {
-        return Err("receiver email delivery envelope is invalid");
-    }
-    let normalized = raw
-        .recipients
-        .iter()
-        .map(|recipient| crate::users::normalize_email(recipient))
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()
-        .map_err(|_| "receiver email delivery envelope is invalid")?
-        .into_iter()
-        .collect::<Vec<_>>();
-    if normalized != raw.recipients {
-        return Err("receiver email delivery envelope is invalid");
-    }
-    match (&raw.in_reply_to, &raw.references) {
-        (None, None) => {}
-        (Some(in_reply_to), Some(references))
-            if !in_reply_to.trim().is_empty()
-                && in_reply_to == references
-                && raw.provider_email_id.is_some() => {}
-        _ => return Err("receiver email delivery envelope is invalid"),
-    }
-    Ok(ReceiverEmailEnvelope {
-        recipients: raw.recipients,
-        subject: raw.subject,
-        text: raw.text,
-        html: raw.html,
-        in_reply_to: raw.in_reply_to,
-        references: raw.references,
-        provider_email_id: raw.provider_email_id,
-    })
 }

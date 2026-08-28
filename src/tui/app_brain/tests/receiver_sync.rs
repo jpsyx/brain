@@ -97,26 +97,6 @@ impl crate::tui::app_sync::ReceiverSyncRuntime for TestReceiverSyncRuntime {
 
 pub(super) fn configure_receiver_sync(app: &App) {
     let selected_name = app.context.workspace().name().clone();
-    app.context
-        .command()
-        .registry_store
-        .replace(&crate::workspace::MachineRegistry {
-            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
-            default_workspace: selected_name.clone(),
-            workspaces: std::collections::BTreeMap::from([(
-                selected_name.clone(),
-                crate::workspace::WorkspaceRecord {
-                    workspace_id: app.context.workspace().id(),
-                    root: app.context.workspace().root().to_path_buf(),
-                    aliases: std::collections::BTreeSet::new(),
-                    local_user_id: app.context.workspace().local_user_id().to_owned(),
-                    receiver_enabled: false,
-                    env: serde_json::Map::new(),
-                },
-            )]),
-            env: serde_json::Map::new(),
-        })
-        .unwrap();
     let mut registry =
         RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();
     registry

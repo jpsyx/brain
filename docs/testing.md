@@ -1209,7 +1209,8 @@ first move is a failing test that reproduces it, *then* the fix.
 
 **Durable receiver delivery model.** `state::receiver::tests` covers frozen
 SMS and email envelopes, serialization round trips, redacted Debug, exact
-acceptance-time recipients and email lineage, whole-set recipient rejection,
+acceptance-time outbound sender, recipients, and email lineage, whole-set
+recipient rejection,
 serialized-envelope validation, every provider-result branch, one/five/30-minute
 retry delays, permanent-category terminalization, attempt exhaustion, deadline
 equality, the scheduled Resend 24-hour boundary, and terminal Twilio ambiguity.
@@ -1218,17 +1219,24 @@ response kind, optional-column ordering, stale managed-index rebuilding,
 duplicate uniqueness failure, nonblank provider acknowledgements,
 privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
-both directions. The startup migration registry pins 0.85.0 directly after
+both directions. It reconstructs the exact pre-Task-3 v12 table from commit
+`0473434`, preserves its envelope, then proves claim, IO start,
+acknowledgement, and final job completion. Repair tests also prove that a
+malformed or pre-frozen-sender final-answer row terminalizes its matching job.
+The startup migration registry pins 0.85.0 directly after
 0.84.22. Atomic answer-ready runtime tests cover exact transcript, binding,
 outbox, cleanup-fence, and claim-release behavior. Delivery tests add concurrent
 oldest-due claim equality, exact stale and duplicate result rejection, retry
 schedule and exhaustion policy, safe pre-spawn release, Resend and Twilio
 restart outcomes, immutable envelope/evidence/transcript preservation, bounded
 response parsing, exact provider identifiers, byte-identical Resend replay,
-queue saturation, cancellation, lost results, fresh-App reconciliation, and
+bounded and redacted Resend conflict parsing, provider-specific HTTP 5xx,
+nonblocking queue publication, safe unsent-publication rollback, queue
+saturation, cancellation, lost results, fresh-App reconciliation, and
 independent next-job progress without sleeps or network.
-`tests/module_structure.rs` now includes the delivery envelope, identity,
-status, policy, and schema modules in its production-size guard.
+`tests/module_structure.rs` includes delivery envelope decoding, envelope,
+identity, status, policy, schema, and claim/decode/result/reconciliation store
+seams in its production-size guard.
 
 ## Test layout
 

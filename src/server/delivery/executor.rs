@@ -82,7 +82,7 @@ where
         input: T,
         operation: impl FnOnce() -> R + Send + 'static,
     ) -> Result<DeliveryExecutorPermit, DeliveryExecutorFull<T>> {
-        let (start, wait) = std::sync::mpsc::sync_channel(0);
+        let (start, wait) = std::sync::mpsc::sync_channel(1);
         let work = ReservedDelivery {
             input,
             start: wait,
@@ -121,11 +121,11 @@ pub(crate) struct DeliveryExecutorPermit {
 }
 
 impl DeliveryExecutorPermit {
-    pub(crate) fn start(mut self) -> Result<(), std::sync::mpsc::SendError<()>> {
+    pub(crate) fn start(mut self) -> Result<(), std::sync::mpsc::TrySendError<()>> {
         self.start
             .take()
             .expect("delivery permit start sender exists")
-            .send(())
+            .try_send(())
     }
 }
 

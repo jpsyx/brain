@@ -1314,10 +1314,14 @@ writer before inspecting version or columns, removes only those two columns,
 restores schema version 10 in that transaction, and then permits the existing
 recovery downgrade chain to continue.
 The automatic 0.85.0 boundary advances receiver state to schema v12 by adding
-the `receiver_deliveries` outbox. It freezes only acceptance-time destinations,
-rendered bodies, email lineage, and content-free provider-attempt metadata.
-Credentials remain in the machine-local provider adapter. Reconciliation
-terminalizes interrupted or malformed delivery leases without replay. Its down
+the `receiver_deliveries` outbox. It freezes the acceptance-time outbound sender,
+destinations, rendered bodies, email lineage, and content-free provider-attempt
+metadata. Credentials remain in the machine-local provider adapter.
+Same-version repair rebuilds the earlier v12 check contract before a claim can
+enter `delivering`, preserves every row, and terminalizes malformed or
+pre-frozen-sender final answers together with their matching job.
+Reconciliation terminalizes interrupted or malformed delivery leases without
+replay. Its down
 path reserves an immediate writer before schema inspection, verifies the v11
 conversation, job, recovery, notice, and registration shape, maps only an
 acknowledged row with a nonblank provider reference to done, and maps every
@@ -1436,7 +1440,10 @@ the immediate answer transaction rechecks that the artifact's validated session
 is still that locked row and still `completed`. It atomically appends the
 portable transcript, inserts the immutable final-answer outbox row, replaces
 the binding, moves the job to `answer-ready`, and clears the agent claim. No
-provider adapter or local delivery queue runs before commit. A concurrent
+provider adapter or local delivery queue runs before commit. The outbox
+envelope freezes the exact configured outbound SMS number or email sender at
+this boundary. Later config changes cannot retarget a retry, while the provider
+account, token, and API-key credentials remain live machine-local inputs. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
 new active session. The final-answer row also retains immutable private
 completion evidence for exact duplicate validation, including the registered,
@@ -1637,7 +1644,12 @@ completion. An enabled App tick instead claims them with a finite delivery-only
 lease and fresh attempt ID. It reserves bounded executor capacity before the
 exact IO-start CAS, then parses bounded Resend or Twilio success JSON into a
 redacted provider reference. Resend retries use the frozen envelope and stable
-delivery-ID idempotency key; Twilio uncertainty is terminal.
+delivery-ID idempotency key. Resend HTTP 5xx and
+`concurrent_idempotent_requests` use that safe replay path, while a changed
+idempotency payload is rejected terminally. Twilio HTTP 5xx and other
+post-request uncertainty are terminal because retrying can duplicate an SMS.
+Executor publication is nonblocking; a disconnected start handoff proves the
+operation was never sent and rolls back only the exact attempt increment.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact

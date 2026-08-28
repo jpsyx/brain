@@ -54,10 +54,24 @@ fn http_and_local_failures_follow_the_redacted_provider_matrix() {
         ReceiverProviderCapability as Provider, ReceiverProviderResultClass as ResultClass,
     };
 
-    for status in [429, 500, 503] {
+    assert_eq!(
+        classify_provider_http_response(Provider::Resend, 429, b"private response"),
+        ResultClass::DefinitelyNotAccepted(Error::TransportUnavailable)
+    );
+    for status in [500, 503] {
         assert_eq!(
             classify_provider_http_response(Provider::Resend, status, b"private response"),
-            ResultClass::DefinitelyNotAccepted(Error::TransportUnavailable)
+            ResultClass::Ambiguous(Ambiguity::ProviderAcceptanceUnknown),
+            "Resend can replay the frozen request with its delivery idempotency key"
+        );
+        assert_eq!(
+            classify_provider_http_response(
+                Provider::Twilio,
+                status,
+                br#"{"code":20500,"message":"private response"}"#,
+            ),
+            ResultClass::Ambiguous(Ambiguity::ProviderAcceptanceUnknown),
+            "Twilio documents that retrying an SMS POST after 20500 can duplicate it"
         );
     }
     for status in [400, 401, 403, 422] {
@@ -92,6 +106,39 @@ fn http_and_local_failures_follow_the_redacted_provider_matrix() {
     assert_eq!(
         classify_provider_process_failure(ReceiverProviderProcessFailure::ResponseTooLarge),
         ResultClass::Ambiguous(Ambiguity::ProviderAcknowledgementMalformed)
+    );
+}
+
+#[test]
+fn resend_409_distinguishes_concurrent_replay_from_a_changed_payload() {
+    use crate::state::{
+        ReceiverDeliveryAmbiguity as Ambiguity, ReceiverDeliveryErrorCategory as Error,
+        ReceiverProviderCapability as Provider, ReceiverProviderResultClass as ResultClass,
+    };
+
+    assert_eq!(
+        classify_provider_http_response(
+            Provider::Resend,
+            409,
+            br#"{"name":"concurrent_idempotent_requests","message":"private"}"#,
+        ),
+        ResultClass::Ambiguous(Ambiguity::ProviderAcceptanceUnknown)
+    );
+    assert_eq!(
+        classify_provider_http_response(
+            Provider::Resend,
+            409,
+            br#"{"name":"invalid_idempotent_request","message":"private"}"#,
+        ),
+        ResultClass::PermanentlyRejected(Error::ProviderRejected)
+    );
+    assert_eq!(
+        classify_provider_http_response(
+            Provider::Resend,
+            409,
+            br#"{"name":"unknown-private-error","message":"private"}"#,
+        ),
+        ResultClass::PermanentlyRejected(Error::ProviderRejected)
     );
 }
 
@@ -142,6 +189,7 @@ fn resend_replay_uses_the_exact_delivery_key_and_byte_identical_payload() {
         serde_json::from_value(serde_json::json!({
             "channel": "email",
             "value": {
+                "sender": "brain@example.test",
                 "recipients": ["member@example.test"],
                 "subject": "Re: Exact subject",
                 "text": "private exact text",
@@ -153,12 +201,13 @@ fn resend_replay_uses_the_exact_delivery_key_and_byte_identical_payload() {
         }))
         .expect("frozen email envelope");
 
-    let first = resend_request_for_test("secret", "brain@example.test", delivery_id, &envelope)
-        .expect("first request");
-    let replay = resend_request_for_test("secret", "brain@example.test", delivery_id, &envelope)
-        .expect("replay request");
+    let first = resend_request_for_test("secret", delivery_id, &envelope).expect("first request");
+    let replay = resend_request_for_test("secret", delivery_id, &envelope).expect("replay request");
 
     assert_eq!(first, replay);
-    assert!(first.contains("header = \"Idempotency-Key: 10000000-0000-4000-8000-000000000001\""));
-    assert_eq!(first.matches("Idempotency-Key:").count(), 1);
+    assert!(first.has_exact_delivery_key());
+    assert_eq!(first.idempotency_header_count(), 1);
+    assert!(first.uses_frozen_sender());
+    assert!(first.has_one_authorization_header());
+    assert_eq!(format!("{first:?}"), "ResendRequestProof(<redacted>)");
 }

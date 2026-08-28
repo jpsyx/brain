@@ -3108,17 +3108,24 @@ or downgrade. A legacy row with `session_released` zero remains fenced.
 ## Freeze provider payloads before IO and classify ambiguity by provider
 
 Schema v12 establishes one durable delivery row per job and semantic response
-kind before provider IO. Its serialized envelope is derived only from the
-immutable accepted job, so later config, user, formatter, or thread changes
-cannot alter recipients, reply lineage, or body bytes during a retry. The row
-stores provider attempt and acknowledgement metadata but never credentials.
+kind before provider IO. Its serialized envelope is derived from the immutable
+accepted job and the exact outbound sender configured when the answer is
+accepted, so later config, user, formatter, or thread changes cannot alter the
+sender, recipients, reply lineage, or body bytes during a retry. Sender identity
+is non-secret routing data. Provider account, token, and API-key credentials
+stay live and machine-local; the row never stores them. The row stores provider
+attempt and acknowledgement metadata but never credentials.
 This content-bearing outbox is deliberately separate from content-free public
 status and diagnostics.
 
 Retry safety depends on provider capability, not a generic transport error.
 Resend can repeat the same delivery ID as its idempotency key through the exact
-24-hour boundary. Twilio create exposes no equivalent key, so uncertainty after
-a Twilio attempt becomes terminal ambiguity instead of risking a duplicate SMS.
+24-hour boundary. Its HTTP 5xx and
+`concurrent_idempotent_requests` conflict therefore enter the ambiguous replay
+policy, while `invalid_idempotent_request` proves a changed payload and is a
+terminal rejection. Twilio create exposes no equivalent key; even a documented
+20500 HTTP 5xx can follow provider acceptance, so every Twilio 5xx becomes
+terminal ambiguity instead of risking a duplicate SMS.
 Only transport failures proved not accepted use the bounded one, five, and 30
 minute delays. Permanent categories remain terminal even when presented on the
 definitely-not-accepted branch. Resend ambiguity schedules a retry only when
@@ -3128,8 +3135,11 @@ persisted envelopes validate normalized destinations and static lineage without
 echoing their content. The final-answer lane now claims the oldest due outbox
 row independently, reserves bounded executor capacity before committing the
 durable IO-start fact, and applies typed results through an exact live-lease
-CAS. A proved pre-spawn interruption safely requeues without consuming an
-attempt. A crash after IO uses the same Resend replay or Twilio ambiguity
+CAS. Start publication is a bounded nonblocking handoff from the event loop. If
+that handoff reports a disconnected worker, the operation provably never ran,
+so an exact rollback restores the prior attempt state instead of inventing a
+lost-result ambiguity. A proved pre-spawn interruption safely requeues without
+consuming an attempt. A crash after IO uses the same Resend replay or Twilio ambiguity
 decision as an in-process lost result. Legacy notices and controls remain on
 their prior path until their separate cutover.
 

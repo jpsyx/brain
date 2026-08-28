@@ -38,6 +38,193 @@ fn persisted_job_token(db: &Db, job_id: ReceiverJobId) -> ReceiverJobToken {
     ReceiverJobToken::parse(&token).expect("valid persisted job token")
 }
 
+const PRE_TASK3_0473434_DELIVERY_TABLE: &str = "CREATE TABLE receiver_deliveries (
+           delivery_id                 TEXT PRIMARY KEY,
+           job_id                      TEXT NOT NULL REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
+           job_token                   TEXT NOT NULL,
+           response_kind               TEXT NOT NULL CHECK (response_kind IN (
+             'final-answer', 'unavailable-notice', 'control-acknowledgement', 'fallback-notice'
+           )),
+           envelope_json               TEXT NOT NULL,
+           completion_evidence_json    TEXT,
+           state                       TEXT NOT NULL CHECK (state IN (
+             'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'
+           )),
+           attempt_id                  TEXT,
+           attempt_count               INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+           retry_at_unix_ms             INTEGER,
+           claim_owner                 TEXT,
+           claim_expires_at_unix_ms    INTEGER,
+           first_attempt_at_unix_ms    INTEGER,
+           provider_reference          TEXT,
+           error_category              TEXT CHECK (error_category IN (
+             'authorization', 'credentials', 'invalid-request', 'provider-rejected',
+             'transport-unavailable', 'retry-exhausted', 'idempotency-window-expired'
+           )),
+           ambiguity_reason            TEXT CHECK (ambiguity_reason IN (
+             'provider-acceptance-unknown', 'provider-acknowledgement-malformed',
+             'result-commit-unknown', 'idempotency-window-expired'
+           )),
+           created_at_unix_ms          INTEGER NOT NULL,
+           updated_at_unix_ms          INTEGER NOT NULL,
+           UNIQUE (job_id, response_kind),
+           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL)),
+           CHECK (state = 'delivering' OR claim_owner IS NULL),
+           CHECK (state != 'delivering' OR (
+             attempt_id IS NOT NULL AND claim_owner IS NOT NULL
+             AND first_attempt_at_unix_ms IS NOT NULL
+           )),
+           CHECK (state = 'retrying' OR retry_at_unix_ms IS NULL),
+           CHECK (state != 'retrying' OR retry_at_unix_ms IS NOT NULL),
+           CHECK (state != 'acknowledged' OR (
+             provider_reference IS NOT NULL AND length(trim(provider_reference)) > 0
+           )),
+           CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL)
+         );";
+
+#[test]
+fn v12_repair_rebuilds_the_real_0473434_delivery_shape_before_claiming() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record durable answer")
+        .expect("exact answer owner");
+    let frozen_before: String = fixture
+        .db
+        .conn
+        .query_row("SELECT envelope_json FROM receiver_deliveries", [], |row| row.get(0))
+        .expect("frozen delivery before compatibility repair");
+    fixture
+        .db
+        .conn
+        .execute_batch(
+            "DROP INDEX receiver_deliveries_due;
+             ALTER TABLE receiver_deliveries RENAME TO receiver_deliveries_task3_current;",
+        )
+        .expect("stage the pre-Task3 table boundary");
+    fixture
+        .db
+        .conn
+        .execute_batch(PRE_TASK3_0473434_DELIVERY_TABLE)
+        .expect("create exact 0473434 delivery table");
+    fixture
+        .db
+        .conn
+        .execute_batch(
+            "INSERT INTO receiver_deliveries
+               (delivery_id, job_id, job_token, response_kind, envelope_json,
+                completion_evidence_json, state, attempt_id, attempt_count,
+                retry_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
+                first_attempt_at_unix_ms, provider_reference, error_category,
+                ambiguity_reason, created_at_unix_ms, updated_at_unix_ms)
+             SELECT delivery_id, job_id, job_token, response_kind, envelope_json,
+                    completion_evidence_json, state, attempt_id, attempt_count,
+                    retry_at_unix_ms, claim_owner, claim_expires_at_unix_ms,
+                    first_attempt_at_unix_ms, provider_reference, error_category,
+                    ambiguity_reason, created_at_unix_ms, updated_at_unix_ms
+             FROM receiver_deliveries_task3_current;
+             DROP TABLE receiver_deliveries_task3_current;",
+        )
+        .expect("preserve the baseline delivery row");
+
+    super::super::schema::up(&fixture.db.conn, 12).expect("repair same-version v12 shape");
+
+    let claim = fixture
+        .db
+        .claim_next_receiver_delivery("compatibility-owner", 2_000, 32_000)
+        .expect("claim after same-version repair")
+        .expect("preserved answer remains due");
+    assert_eq!(claim.job_id(), fixture.job_id);
+    assert!(
+        fixture
+            .db
+            .mark_receiver_delivery_io_started(&claim, 2_100)
+            .expect("mark compatibility provider IO")
+    );
+    assert_eq!(
+        fixture
+            .db
+            .apply_receiver_delivery_result(
+                &claim,
+                2_200,
+                ReceiverProviderResultClass::Acknowledged(
+                    ReceiverProviderReference::parse(
+                        "SM0123456789abcdef0123456789abcdef",
+                    )
+                    .expect("Twilio provider reference"),
+                ),
+            )
+            .expect("deliver preserved compatibility answer"),
+        ReceiverDeliveryApplyOutcome::Applied
+    );
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load delivered compatibility job")
+            .expect("compatibility job remains")
+            .state(),
+        ReceiverJobState::Done
+    );
+    assert_eq!(
+        fixture
+            .db
+            .conn
+            .query_row::<String, _, _>(
+                "SELECT envelope_json FROM receiver_deliveries",
+                [],
+                |row| row.get(0),
+            )
+            .expect("frozen delivery after compatibility repair"),
+        frozen_before
+    );
+}
+
+#[test]
+fn v12_repair_preserves_but_terminalizes_a_legacy_envelope_without_frozen_sender() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record durable answer")
+        .expect("exact answer owner");
+    let legacy = r#"{"channel":"sms","value":{"recipient":"+12125550199","body":"private answer","long_form_available":false}}"#;
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries SET envelope_json = ?2 WHERE job_id = ?1",
+            rusqlite::params![fixture.job_id.to_string(), legacy],
+        )
+        .expect("stage pre-frozen-sender delivery");
+
+    super::super::schema::up(&fixture.db.conn, 12).expect("repair legacy frozen envelope");
+
+    let repaired: (String, Option<String>, String) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT state, error_category, envelope_json
+             FROM receiver_deliveries WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load repaired legacy envelope");
+    assert_eq!(repaired.0, "failed");
+    assert_eq!(repaired.1.as_deref(), Some("invalid-request"));
+    assert_eq!(repaired.2, legacy, "repair must not rewrite private content");
+    assert_eq!(
+        fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load repaired legacy job")
+            .expect("legacy job remains")
+            .state(),
+        ReceiverJobState::Failed
+    );
+}
+
 #[test]
 fn v12_schema_creates_the_content_outbox_without_credential_columns() {
     let db = Db::open_in_memory().expect("receiver state");
@@ -367,6 +554,19 @@ fn v12_repair_terminalizes_an_interrupted_partial_delivery_lease() {
             None,
             Some("result-commit-unknown".to_owned())
         )
+    );
+    assert_eq!(
+        db.receiver_job(accepted.job_id())
+            .expect("load repaired job")
+            .expect("repaired job remains")
+            .state(),
+        ReceiverJobState::Failed,
+        "a terminal delivery repair must remove the corresponding job from the agent lane"
+    );
+    assert!(
+        db.claim_next_receiver_run("agent-owner", 1_000, 2_000)
+            .expect("inspect repaired agent lane")
+            .is_none()
     );
 }
 

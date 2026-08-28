@@ -1,6 +1,7 @@
 //! Immutable receiver response delivery types.
 
 mod claim;
+mod decode;
 mod envelope;
 mod identity;
 mod status;

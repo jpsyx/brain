@@ -32,6 +32,11 @@ struct ResendSuccess {
 }
 
 #[derive(Deserialize)]
+struct ResendError {
+    name: String,
+}
+
+#[derive(Deserialize)]
 struct TwilioSuccess {
     sid: String,
 }
@@ -41,18 +46,26 @@ pub(crate) fn classify_provider_http_response(
     status: u16,
     body: &[u8],
 ) -> ReceiverProviderResultClass {
-    if status == 429 || status >= 500 {
+    if body.len() > PROVIDER_RESPONSE_LIMIT {
+        return malformed_acknowledgement();
+    }
+    if status == 429 {
         return ReceiverProviderResultClass::DefinitelyNotAccepted(
             ReceiverDeliveryErrorCategory::TransportUnavailable,
         );
+    }
+    if status >= 500 {
+        return ReceiverProviderResultClass::Ambiguous(
+            ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
+        );
+    }
+    if provider == ReceiverProviderCapability::Resend && status == 409 {
+        return classify_resend_conflict(body);
     }
     if !(200..300).contains(&status) {
         return ReceiverProviderResultClass::PermanentlyRejected(
             ReceiverDeliveryErrorCategory::ProviderRejected,
         );
-    }
-    if body.len() > PROVIDER_RESPONSE_LIMIT {
-        return malformed_acknowledgement();
     }
     let reference = match provider {
         ReceiverProviderCapability::Resend => serde_json::from_slice::<ResendSuccess>(body)
@@ -66,6 +79,18 @@ pub(crate) fn classify_provider_http_response(
         malformed_acknowledgement,
         ReceiverProviderResultClass::Acknowledged,
     )
+}
+
+fn classify_resend_conflict(body: &[u8]) -> ReceiverProviderResultClass {
+    let concurrent = serde_json::from_slice::<ResendError>(body)
+        .is_ok_and(|error| error.name == "concurrent_idempotent_requests");
+    if concurrent {
+        ReceiverProviderResultClass::Ambiguous(ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown)
+    } else {
+        ReceiverProviderResultClass::PermanentlyRejected(
+            ReceiverDeliveryErrorCategory::ProviderRejected,
+        )
+    }
 }
 
 pub(crate) fn classify_provider_process_failure(
@@ -144,12 +169,6 @@ fn deliver_sms(
     let Some(token) = super::super::provider::get(command, "twilio_auth_token") else {
         return classify_provider_process_failure(ReceiverProviderProcessFailure::Credentials);
     };
-    let Some(from) = super::super::provider::get(command, "twilio_from_number") else {
-        return classify_provider_process_failure(ReceiverProviderProcessFailure::Credentials);
-    };
-    if crate::users::normalize_phone(&from).ok().as_deref() != Some(from.as_str()) {
-        return classify_provider_process_failure(ReceiverProviderProcessFailure::Preflight);
-    }
     let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json");
     let request = CurlRequest::new()
         .flag("silent")
@@ -159,7 +178,7 @@ fn deliver_sms(
         .option("request", "POST")
         .option("url", &endpoint)
         .option("data-urlencode", &format!("To={}", envelope.recipient()))
-        .option("data-urlencode", &format!("From={from}"))
+        .option("data-urlencode", &format!("From={}", envelope.sender()))
         .option("data-urlencode", &format!("Body={}", envelope.body()))
         .option("write-out", &format!("{HTTP_STATUS_MARKER}%{{http_code}}"));
     run_provider_request(ReceiverProviderCapability::Twilio, request, cancellation)
@@ -175,10 +194,7 @@ fn deliver_email(
     let Some(key) = super::super::provider::get(command, "resend_sending_api_key") else {
         return classify_provider_process_failure(ReceiverProviderProcessFailure::Credentials);
     };
-    let Some(from) = super::super::provider::get(command, "resend_from_email") else {
-        return classify_provider_process_failure(ReceiverProviderProcessFailure::Credentials);
-    };
-    let Ok(request) = resend_request(&key, &from, delivery_id, envelope) else {
+    let Ok(request) = resend_request(&key, delivery_id, envelope) else {
         return classify_provider_process_failure(ReceiverProviderProcessFailure::Preflight);
     };
     run_provider_request(ReceiverProviderCapability::Resend, request, cancellation)
@@ -186,16 +202,16 @@ fn deliver_email(
 
 fn resend_request(
     key: &str,
-    from: &str,
     delivery_id: ReceiverDeliveryId,
     envelope: &crate::state::ReceiverEmailEnvelope,
 ) -> anyhow::Result<CurlRequest> {
     anyhow::ensure!(
-        crate::users::normalize_mailbox(from).ok().as_deref() == Some(from),
+        crate::users::normalize_mailbox(envelope.sender()).is_ok()
+            && envelope.sender().trim() == envelope.sender(),
         "receiver email sender is invalid"
     );
     let payload = super::email_payload(
-        from,
+        envelope.sender(),
         envelope.recipients(),
         envelope.subject(),
         envelope.text(),
@@ -276,16 +292,68 @@ fn split_http_output(output: &[u8]) -> Option<(&[u8], u16)> {
 }
 
 #[cfg(test)]
+#[derive(PartialEq, Eq)]
+pub(super) struct ResendRequestProof {
+    digest: [u8; 32],
+    exact_delivery_key: bool,
+    idempotency_header_count: usize,
+    frozen_sender: bool,
+    authorization_header_count: usize,
+}
+
+#[cfg(test)]
+impl ResendRequestProof {
+    pub(super) const fn has_exact_delivery_key(&self) -> bool {
+        self.exact_delivery_key
+    }
+
+    pub(super) const fn idempotency_header_count(&self) -> usize {
+        self.idempotency_header_count
+    }
+
+    pub(super) const fn uses_frozen_sender(&self) -> bool {
+        self.frozen_sender
+    }
+
+    pub(super) const fn has_one_authorization_header(&self) -> bool {
+        self.authorization_header_count == 1
+    }
+}
+
+#[cfg(test)]
+impl std::fmt::Debug for ResendRequestProof {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ResendRequestProof(<redacted>)")
+    }
+}
+
+#[cfg(test)]
 pub(super) fn resend_request_for_test(
     key: &str,
-    from: &str,
     delivery_id: ReceiverDeliveryId,
     envelope: &ReceiverDeliveryEnvelope,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ResendRequestProof> {
     let ReceiverDeliveryEnvelope::Email { value } = envelope else {
         anyhow::bail!("receiver delivery is not email")
     };
-    Ok(resend_request(key, from, delivery_id, value)?
-        .config()
-        .to_owned())
+    let request = resend_request(key, delivery_id, value)?;
+    let delivery_key = format!("Idempotency-Key: {delivery_id}");
+    let payload = super::email_payload(
+        value.sender(),
+        value.recipients(),
+        value.subject(),
+        value.text(),
+        value.html(),
+        value.in_reply_to(),
+    )
+    .to_string();
+    Ok(ResendRequestProof {
+        digest: request.redacted_digest_for_test(),
+        exact_delivery_key: request.has_exact_option_for_test("header", &delivery_key),
+        idempotency_header_count: request
+            .option_prefix_count_for_test("header", "Idempotency-Key:"),
+        frozen_sender: request.has_exact_option_for_test("data", &payload),
+        authorization_header_count: request
+            .option_prefix_count_for_test("header", "Authorization: Bearer "),
+    })
 }

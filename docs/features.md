@@ -1639,10 +1639,15 @@ hands off one pending terminal notice, and claims a due same-session recovery
 before later ordinary FIFO work. Final-answer delivery now uses a separate
 oldest-due claim and bounded provider worker. Acknowledged provider references
 finish the job, safe failures schedule bounded retries, and provider-specific
-ambiguity becomes either an exact Resend replay or terminal failure. Legacy
-notices and controls still use their existing background path. BR-18 still owns final schema
-migration/reconciliation, durable phase reporting, and removal of the narrowly
-retained legacy job-socket lifetime representation; it no longer needs to
+ambiguity becomes either an exact Resend replay or terminal failure. The exact
+outbound number or email sender is frozen with the accepted answer, so a config
+change cannot retarget later attempts; only provider credentials remain live.
+Resend HTTP 5xx and concurrent-idempotency conflicts safely replay the same
+delivery key and bytes, while changed-payload conflicts fail terminally.
+Twilio HTTP 5xx is terminal ambiguity because retrying could duplicate an SMS.
+Legacy notices and controls still use their existing background path. BR-18
+still owns final schema migration/reconciliation, durable phase reporting, and
+removal of the narrowly retained legacy job-socket lifetime representation; it no longer needs to
 remove a parallel injection, warm-panel, or in-memory execution path.
 
 ### Durable receiver model foundation

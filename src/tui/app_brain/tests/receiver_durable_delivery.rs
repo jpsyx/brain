@@ -16,6 +16,7 @@ use crate::state::{
 struct ScriptedDeliveryExecution {
     state: Arc<Mutex<ScriptedDeliveryState>>,
     result: ReceiverProviderResultClass,
+    publication_fails: bool,
 }
 
 #[derive(Default)]
@@ -33,7 +34,14 @@ impl ScriptedDeliveryExecution {
                 ReceiverProviderReference::parse("10000000-0000-4000-8000-000000000001")
                     .expect("provider reference"),
             ),
+            publication_fails: false,
         }
+    }
+
+    fn publication_failure() -> Self {
+        let mut execution = Self::acknowledged();
+        execution.publication_fails = true;
+        execution
     }
 
     fn reservation_count(&self) -> usize {
@@ -56,10 +64,14 @@ struct ScriptedDeliveryStart {
     state: Arc<Mutex<ScriptedDeliveryState>>,
     claim: ReceiverDeliveryClaim,
     result: ReceiverProviderResultClass,
+    publication_fails: bool,
 }
 
 impl ReceiverDeliveryStart for ScriptedDeliveryStart {
     fn start(self: Box<Self>) -> anyhow::Result<()> {
+        if self.publication_fails {
+            anyhow::bail!("scripted worker disconnected before publication");
+        }
         self.state
             .lock()
             .expect("scripted delivery state")
@@ -84,6 +96,7 @@ impl ReceiverDeliveryExecution for ScriptedDeliveryExecution {
             state: self.state.clone(),
             claim,
             result: self.result.clone(),
+            publication_fails: self.publication_fails,
         }))
     }
 
@@ -144,6 +157,35 @@ fn app_tick_claims_starts_and_applies_final_answer_delivery_independently() {
         job_state(&db, second.job_id()),
         ReceiverJobState::Delivering,
         "delivery ownership is independent from the later agent job"
+    );
+}
+
+#[test]
+fn app_requeues_an_attempt_when_publication_proves_it_was_never_sent() {
+    let (_temporary, mut app, db, first, _second, _transport) = answer_fixture();
+    let execution = ScriptedDeliveryExecution::publication_failure();
+    app.services
+        .replace_receiver_delivery_execution(Box::new(execution.clone()));
+    publish_valid_completion(&app, "immutable unsent answer");
+
+    app.tick_receiver();
+    assert_eq!(
+        job_state(&db, first.job_id()),
+        ReceiverJobState::AnswerReady
+    );
+    app.tick_receiver();
+
+    assert_eq!(execution.reservation_count(), 1);
+    assert_eq!(
+        job_state(&db, first.job_id()),
+        ReceiverJobState::AnswerReady
+    );
+
+    app.tick_receiver();
+    assert_eq!(
+        execution.reservation_count(),
+        2,
+        "unsent answer remains due"
     );
 }
 

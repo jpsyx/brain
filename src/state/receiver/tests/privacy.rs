@@ -106,6 +106,7 @@ fn full_receiver_model_graph_debug_is_content_free() {
         owner: PRIVATE_OWNER,
         registration: &attribution,
         completed_session: &native_session,
+        outbound_sender: "+12125550100",
         answer: PRIVATE_ANSWER,
         observed_at_unix_ms: 1_300,
         authorized_at_unix_ms: 1_300,

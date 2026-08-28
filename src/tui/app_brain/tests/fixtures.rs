@@ -66,10 +66,20 @@ impl TestWorkspaceFixture {
                         aliases: std::collections::BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: false,
-                        env: serde_json::Map::from_iter([(
-                            "opencode_cmd".to_owned(),
-                            serde_json::Value::String(fake_opencode.display().to_string()),
-                        )]),
+                        env: serde_json::Map::from_iter([
+                            (
+                                "opencode_cmd".to_owned(),
+                                serde_json::Value::String(fake_opencode.display().to_string()),
+                            ),
+                            (
+                                "twilio_from_number".to_owned(),
+                                serde_json::Value::String("+12125550100".to_owned()),
+                            ),
+                            (
+                                "resend_from_email".to_owned(),
+                                serde_json::Value::String("Brain <brain@example.test>".to_owned()),
+                            ),
+                        ]),
                     },
                 )]),
                 env: serde_json::Map::new(),

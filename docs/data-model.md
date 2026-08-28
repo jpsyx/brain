@@ -1156,9 +1156,12 @@ receiver_session_registrations(
 **Durable response delivery.** Schema v12 adds `receiver_deliveries` as a
 dedicated content-bearing outbox. One job may have one row for each semantic
 response kind, which keeps a final answer distinct from a later safe fallback
-or notice. `envelope_json` freezes the acceptance-authorized SMS destination
-and shaped body, or the email recipient set, subject, text, HTML, provider
-lineage, `In-Reply-To`, and `References`. Credentials are never stored. Stable
+or notice. `envelope_json` freezes the acceptance-time outbound sender and
+authorized SMS destination and shaped body, or the outbound sender, email
+recipient set, subject, text, HTML, provider lineage, `In-Reply-To`, and
+`References`. The sender is non-secret routing identity; account identifiers,
+API keys, and authentication tokens remain live machine-local configuration
+and are never stored. Stable
 final-answer completion also freezes a private `completion_evidence_json`
 record containing the exact job and token, conversation and remote instance,
 frontend, actor and channel, registered, actual, and completed sessions,
@@ -1185,8 +1188,12 @@ them as definitely not accepted. A retry is due at exact deadline equality,
 and deadline arithmetic saturates. Resend may
 repeat the byte-identical envelope and delivery ID after an ambiguous result
 only when the scheduled retry itself remains inside the exact 24-hour
-idempotency boundary. Twilio ambiguity is terminal because create has no
-equivalent key. Atomic App answer persistence now writes this outbox before
+idempotency boundary. Resend HTTP 5xx and
+`concurrent_idempotent_requests` are ambiguous results that use that safe replay
+policy; `invalid_idempotent_request` and other 409 conflicts are terminal
+provider rejection. Twilio HTTP 5xx is terminal ambiguity because create has no
+equivalent key and retrying an accepted request could duplicate the SMS.
+Atomic App answer persistence now writes this outbox before
 provider IO. Outbox claiming and provider result commits remain later delivery
 work.
 
