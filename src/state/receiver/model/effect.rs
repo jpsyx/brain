@@ -1,4 +1,4 @@
-use super::{ReceiverJob, ReceiverJobId, ReceiverJobToken};
+use super::{ReceiverJobId, ReceiverJobToken};
 use crate::state::ReceiverJobState;
 
 /// Maximum pre-acceptance process-launch attempts for one durable job.
@@ -187,58 +187,5 @@ impl ReceiverReconciliationEffect {
     #[must_use]
     pub fn cleanup_session_id(&self) -> Option<&str> {
         self.cleanup_session_id.as_deref()
-    }
-}
-
-/// One finite writer lease for handing a terminal unavailable notice to the
-/// process-local delivery worker.
-#[derive(Clone, PartialEq, Eq)]
-pub struct ReceiverUnavailableNoticeClaim {
-    job_id: ReceiverJobId,
-    token: ReceiverJobToken,
-    owner: String,
-    expires_at_unix_ms: u64,
-    inbound: crate::server::receiver::InboundJob,
-}
-
-impl std::fmt::Debug for ReceiverUnavailableNoticeClaim {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("ReceiverUnavailableNoticeClaim(<redacted>)")
-    }
-}
-
-impl ReceiverUnavailableNoticeClaim {
-    pub(in crate::state::receiver) fn new(
-        job: &ReceiverJob,
-        owner: String,
-        expires_at_unix_ms: u64,
-    ) -> Self {
-        Self {
-            job_id: job.id(),
-            token: job.token(),
-            owner,
-            expires_at_unix_ms,
-            inbound: job.inbound().clone(),
-        }
-    }
-    #[must_use]
-    pub const fn job_id(&self) -> ReceiverJobId {
-        self.job_id
-    }
-    #[must_use]
-    pub const fn token(&self) -> ReceiverJobToken {
-        self.token
-    }
-    #[must_use]
-    pub fn owner(&self) -> &str {
-        &self.owner
-    }
-    #[must_use]
-    pub const fn expires_at_unix_ms(&self) -> u64 {
-        self.expires_at_unix_ms
-    }
-    #[must_use]
-    pub const fn inbound(&self) -> &crate::server::receiver::InboundJob {
-        &self.inbound
     }
 }

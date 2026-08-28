@@ -12,11 +12,7 @@ use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
 mod receiver_delivery;
-mod receiver_notice;
 mod receiver_recovery;
-
-pub(crate) use receiver_notice::ReceiverNoticeDelivery;
-use receiver_notice::SystemReceiverNoticeDelivery;
 
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
@@ -35,7 +31,6 @@ pub(crate) struct AppServices {
     receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
     receiver_delivery_execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
     receiver_delivery_active: Option<crate::state::ReceiverDeliveryClaim>,
-    receiver_notice_delivery: Box<dyn ReceiverNoticeDelivery>,
     #[cfg(test)]
     receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
 }
@@ -70,7 +65,6 @@ impl AppServices {
             receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
             receiver_delivery_execution,
             receiver_delivery_active: None,
-            receiver_notice_delivery: Box::new(SystemReceiverNoticeDelivery),
             #[cfg(test)]
             receiver_recovery_commit_visible_error: std::cell::Cell::new(false),
         }

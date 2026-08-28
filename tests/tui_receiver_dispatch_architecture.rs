@@ -102,13 +102,7 @@ fn production_receiver_dispatch_uses_only_isolated_durable_runs() {
             "live durable runtime operation {operation} must remain linted"
         );
     }
-    for current in [
-        "active.rs",
-        "artifact.rs",
-        "control.rs",
-        "dispatch.rs",
-        "reply.rs",
-    ] {
+    for current in ["active.rs", "artifact.rs", "control.rs", "dispatch.rs"] {
         let path = root.join("src/tui/app_brain/receiver").join(current);
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("read {current}: {error}"));

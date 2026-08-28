@@ -10,6 +10,7 @@ pub(super) struct DueDelivery {
     pub(super) envelope: ReceiverDeliveryEnvelope,
     pub(super) attempt_count: u32,
     pub(super) first_attempt_at_unix_ms: Option<u64>,
+    pub(super) retry_at_unix_ms: Option<u64>,
     pub(super) source_state: String,
 }
 
@@ -26,19 +27,23 @@ pub(super) struct ExpiredDelivery {
 }
 
 pub(super) fn decode_due_delivery(row: &rusqlite::Row<'_>) -> rusqlite::Result<DueDelivery> {
-    decode_delivery_parts(row).map(
-        |(delivery_id, job_id, token, envelope, attempt_count, first_attempt_at_unix_ms)| {
-            DueDelivery {
-                delivery_id,
-                job_id,
-                token,
-                envelope,
-                attempt_count,
-                first_attempt_at_unix_ms,
-                source_state: row.get(6).unwrap_or_default(),
-            }
-        },
-    )
+    let (delivery_id, job_id, token, envelope, attempt_count, first_attempt_at_unix_ms) =
+        decode_delivery_parts(row)?;
+    let retry_at_unix_ms = row
+        .get::<_, Option<i64>>(6)?
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|error| sql_decode_error(6, error))?;
+    Ok(DueDelivery {
+        delivery_id,
+        job_id,
+        token,
+        envelope,
+        attempt_count,
+        first_attempt_at_unix_ms,
+        retry_at_unix_ms,
+        source_state: row.get(7).unwrap_or_default(),
+    })
 }
 
 type DeliveryParts = (

@@ -2742,7 +2742,7 @@ cleanup boundary. Exact acknowledgement remains the sole release. This makes
 renewal-loss and observation-CAS-loss races equivalent to every other spawned
 recovery cleanup cut.
 
-## Why terminal notice handoff has its own finite lease
+## Why terminal notice handoff had its own finite lease
 
 The terminal notice is independent from cleanup and FIFO eligibility. Reusing
 the job claim would make a failed notification block later work; reusing the
@@ -2753,11 +2753,15 @@ clears the intent only after Brain's bounded local delivery worker accepts the
 fixed unavailable message. Queue failure or a claimant crash leaves the intent
 retryable after expiry, while the terminal row remains nonblocking.
 
-This is deliberately a local handoff guarantee, not exactly-once provider
+This BR-16 design was deliberately a local handoff guarantee, not exactly-once provider
 delivery. A crash can occur after queue acceptance but before the exact durable
 acknowledgement, and the provider can fail after the intent is cleared. Removing
 those ambiguities requires BR-17's durable delivery ledger and provider
 acknowledgement; BR-16 does not pretend the local CAS proves more than it does.
+
+BR-17 supersedes this runtime design. Schema v12 automatically converts the
+pending bit to one semantic `unavailable-notice` outbox row after exact cleanup
+authority clears, and all future delivery uses the generic provider-result seam.
 
 Automatic v9 upgrade derives finite accepted-work deadlines from the earliest
 available evidence and update time. Claimed and launching update times can come
@@ -4382,14 +4386,14 @@ text with block boundaries as line breaks, and caps the result at 16 KiB with
 an explicit truncation notice. A plain-text part, when present, is still
 preferred and passed through verbatim.
 
-## Why final answers and legacy controls use distinct delivery boundaries
+## Why every receiver reply now uses one durable delivery boundary
 
-Isolated answer completion derives recipients from the exact immutable accepted
-job and freezes them inside the atomic final-answer outbox transaction. It does
-not enter `App::reply_to_job` or start provider IO. Durable control replies still
-use `App::reply_to_job` until their later outbox migration. Both paths preserve
-the acceptance-time trusted response context, so no later registry or user
-change can substitute a different response identity.
+Isolated answer completion, control commands, and terminal notices derive
+recipients from the exact immutable accepted job and freeze one semantic outbox
+row in the same transaction as their source-job transition. None starts
+provider IO. The separately claimed executor applies one provider-result policy
+to every response kind. This preserves acceptance-time response authority, so
+no later registry or user change can substitute a different identity.
 
 ## The receiver's own address is not a secret it should hide from its owner
 
@@ -5113,3 +5117,20 @@ open task under this project go quiet?" — a real question, asked in a form
 nobody would type twice. It is now a field: `died_quietly`. It blocks nothing;
 it exists so archiving a project that *stopped* is a decision rather than a way
 of papering over rot.
+
+## Why every receiver-owned reply uses one durable lane
+
+A process-local queue can prove only that work reached another thread. It
+cannot prove provider acknowledgement, and a crash between that handoff and a
+SQLite update loses the distinction. Final answers, unavailable notices, and
+control acknowledgements therefore use the same immutable envelope, exact
+claim tuple, pre-provider fence, and provider-result policy. `/new` and
+`/restart` insert their semantic replies in the same transaction that changes
+conversation and source-job state, so the command boundary and its promised
+reply cannot disagree.
+
+Fallback authority is intentionally frozen and narrow. The pure planner sees
+only alternate destinations authenticated at acceptance, rejects the failed
+provider and attempted recipients, and emits at most one short notice. It never
+reads later users, environment, or configuration. Current single-channel jobs
+usually have no safe alternate and stop with that content-free outcome.

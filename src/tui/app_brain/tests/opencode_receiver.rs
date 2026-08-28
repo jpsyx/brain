@@ -90,7 +90,6 @@ fn authenticated_completion_persists_answer_without_calling_provider() {
     );
 
     app.tick_receiver();
-    crate::server::delivery::wait_for_background_delivery();
 
     assert!(
         !response_path.exists(),
@@ -173,7 +172,6 @@ fn artifact_precedence_persists_exact_body_and_lifecycle_only_waits_without_prov
     write_completed_snapshot(&app, "session-1", producer_completed_at);
 
     app.tick_receiver();
-    crate::server::delivery::wait_for_background_delivery();
 
     let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
     assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
@@ -202,7 +200,6 @@ fn artifact_precedence_persists_exact_body_and_lifecycle_only_waits_without_prov
     write_completed_snapshot(&app, "session-1", 1_300);
 
     app.tick_receiver();
-    crate::server::delivery::wait_for_background_delivery();
 
     assert_eq!(
         db.receiver_job(second.job_id()).unwrap().unwrap().state(),

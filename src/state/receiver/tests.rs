@@ -74,6 +74,13 @@ mod unavailable_notice {
     include!("tests/unavailable_notice.rs");
 }
 
+mod control_delivery {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/control_delivery.rs");
+}
+
 mod reconciliation {
     use super::support::*;
     use super::*;
@@ -113,6 +120,12 @@ mod delivery_policy {
     use super::*;
 
     include!("tests/delivery_policy.rs");
+}
+
+mod delivery_fallback {
+    use super::*;
+
+    include!("tests/delivery_fallback.rs");
 }
 
 mod delivery_store {

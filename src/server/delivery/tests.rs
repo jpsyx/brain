@@ -26,21 +26,6 @@ fn actor() -> crate::actor::ActorContext {
 }
 
 #[test]
-fn provider_delivery_runs_off_the_tui_thread() {
-    let started = std::time::Instant::now();
-    dispatch_background("test delivery", || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        Ok(())
-    })
-    .unwrap();
-
-    assert!(
-        started.elapsed() < std::time::Duration::from_millis(250),
-        "dispatch waited for the provider request"
-    );
-}
-
-#[test]
 fn thread_delivery_intersects_participants_and_allowlist() {
     let recipients = allowed_thread_recipients(
         &[

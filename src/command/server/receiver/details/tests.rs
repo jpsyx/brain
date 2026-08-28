@@ -1,6 +1,7 @@
 use super::{
     ReceiverDetails, ReceiverStatus, WorkspaceReport, listing, machine_block, report_block,
 };
+use crate::state::ReceiverDeliveryCounts;
 use crate::theme::Theme;
 
 const PUBLIC_URL: &str = "https://brain.example.test";
@@ -25,6 +26,38 @@ fn block_of(details: ReceiverDetails) -> String {
         &WorkspaceReport::Details(Box::new(details)),
         Theme::dark(false),
     )
+}
+
+#[test]
+fn delivery_status_rows_are_themed_stable_counts_without_private_content() {
+    let rendered = super::delivery_rows(
+        ReceiverDeliveryCounts::new(1, 2, 3, 4, 5, 6),
+        Theme::dark(true),
+    );
+
+    for phase in [
+        "answer-ready",
+        "delivering",
+        "retrying",
+        "ambiguous",
+        "failed",
+        "done",
+    ] {
+        assert!(rendered.contains(phase), "missing {phase}: {rendered}");
+    }
+    for count in 1..=6 {
+        assert!(
+            rendered.contains(&count.to_string()),
+            "missing count {count}"
+        );
+    }
+    assert!(
+        rendered.contains("\u{1b}["),
+        "delivery rows were not themed"
+    );
+    for private in ["private-sender", "private-answer", "credential-secret"] {
+        assert!(!rendered.contains(private));
+    }
 }
 
 #[test]

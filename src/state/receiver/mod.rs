@@ -1,6 +1,7 @@
 //! Durable receiver job and logical-conversation state.
 
 mod delivery_policy;
+mod fallback;
 mod identity;
 mod job_state;
 mod model;
@@ -14,25 +15,27 @@ mod tests;
 
 pub use delivery_policy::{
     ReceiverDeliveryDecision, ReceiverDeliveryPolicySnapshot, ReceiverProviderCapability,
-    ReceiverProviderResultClass, decide_receiver_delivery, receiver_delivery_retry_is_due,
+    ReceiverProviderResultClass, decide_receiver_delivery,
+    receiver_delivery_replay_window_is_expired, receiver_delivery_retry_is_due,
 };
+pub use fallback::{ReceiverFallbackDestination, ReceiverFallbackPlan, plan_receiver_fallback};
 pub use identity::{EmailLineage, EmailLineageError, ReceiverConversationIdentity};
 pub use job_state::ReceiverJobState;
 pub use model::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverAcceptance, ReceiverAnswerCleanup, ReceiverClaim,
     ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverConversation,
     ReceiverConversationId, ReceiverDeliveryAmbiguity, ReceiverDeliveryApplyOutcome,
-    ReceiverDeliveryAttemptId, ReceiverDeliveryClaim, ReceiverDeliveryEnvelope,
-    ReceiverDeliveryErrorCategory, ReceiverDeliveryId, ReceiverDeliveryRenderError,
-    ReceiverDeliveryRetryMetadata, ReceiverDeliveryState, ReceiverDeliveryStatus,
-    ReceiverEmailEnvelope, ReceiverJob, ReceiverJobId, ReceiverJobToken, ReceiverLaunchFailure,
-    ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverNonterminalObservationPhase,
-    ReceiverObservation, ReceiverObservationSet, ReceiverProviderReference,
-    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure, ReceiverResponseKind,
-    ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
+    ReceiverDeliveryAttemptId, ReceiverDeliveryClaim, ReceiverDeliveryCounts,
+    ReceiverDeliveryEnvelope, ReceiverDeliveryErrorCategory, ReceiverDeliveryId,
+    ReceiverDeliveryRenderError, ReceiverDeliveryRetryMetadata, ReceiverDeliveryState,
+    ReceiverDeliveryStatus, ReceiverEmailEnvelope, ReceiverJob, ReceiverJobId, ReceiverJobToken,
+    ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
+    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
+    ReceiverProviderReference, ReceiverReconciliationAction, ReceiverReconciliationEffect,
+    ReceiverReconciliationReason, ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure,
+    ReceiverResponseKind, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
     ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverSmsEnvelope,
-    ReceiverUnavailableNoticeClaim, render_receiver_delivery,
+    render_receiver_delivery,
 };
 use model::{
     ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,

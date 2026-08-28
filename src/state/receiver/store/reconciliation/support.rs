@@ -289,7 +289,6 @@ pub(super) fn oldest_blocking_candidate(
                      SELECT 1 FROM receiver_deliveries AS delivery
                      WHERE delivery.job_id = receiver_jobs.job_id
                        AND delivery.job_token = receiver_jobs.job_token
-                       AND delivery.response_kind = 'final-answer'
                    ))
                 OR (state = 'retrying' AND attempt_kind = 'recovery'))
          ORDER BY received_at_unix_ms, job_id

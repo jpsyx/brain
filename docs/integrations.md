@@ -885,9 +885,9 @@ Which session to run is decided by the **lock + recency** model in
    `resend_from_email` can neither strip the thread of recipients nor defeat
    the self-echo guard. Isolated answer completion derives and freezes trusted
    recipients in the atomic final-answer outbox transaction; it does not call a
-   provider or the process-local reply worker. Control delivery still passes
-   the exact immutable accepted job through `App::reply_to_job`, which addresses
-   only that job's accepted recipients. Claude, Codex, and OpenCode
+   provider or a process-local reply worker. Control acknowledgements and
+   dropped-job notices are frozen in the same transaction as the conversation
+   boundary and later use the generic durable provider executor. Claude, Codex, and OpenCode
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.
@@ -1131,8 +1131,8 @@ Which session to run is decided by the **lock + recency** model in
    instance IDs, frontend, prior phase, boundary or `none`, and category. The
    state layer returns similarly content-free reconciliation effects for exact
    cleanup, one persisted recovery, or terminal notice intent. The App executes
-   those controller actions through `AgentController` and leases notice handoff
-   through its narrow delivery service. Schema v12 and the App now own atomic
+   controller actions through `AgentController`; terminal notices become semantic
+   outbox rows after exact cleanup authority is released. Schema v12 and the App now own atomic
    answer persistence plus independent outbox claiming, typed provider
    acknowledgement, delivery-only retry, and expired-lease reconciliation.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
@@ -1419,10 +1419,11 @@ One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
 claims, active controllers, and cleanup-pending authority. The one
 `App::tick_receiver` call is the sole
-production consumer. While enabled, it reconciles one oldest blocker and
-executes exact cleanup, attempts one finite terminal-notice handoff, applies
-restart controls, advances any held local run, then claims a due recovery before
-ordinary FIFO work. Disabled intent skips those new effects but the tick still
+production consumer. While enabled, it reconciles delivery state and one oldest
+agent blocker before controls, advances any exact cleanup or held run, claims a
+due recovery before ordinary FIFO work, then reconciles delivery state again.
+The second pass never polls or claims provider work, so it cannot duplicate an
+exact delivery claim. Disabled intent skips those new effects but the tick still
 renews an existing pending claim and manages active completion or cleanup. A
 pending ordinary or recovery claim cannot spawn while disabled; a claimed
 `/new` may still finish its non-spawning durable control boundary. When ready
@@ -1573,25 +1574,18 @@ sender, recipient, prior answer, and `/new` parsing never enter this planner.
 Recovery observation and completion use the ordinary exact lifecycle and
 response transactions with the preserved job identity. A child exit without
 completion becomes the typed recovery Shutdown terminal transition.
-The recovery and unavailable-notice database operations remain App-facing
-methods, but their implementations are isolated in
-`tui/state/services/receiver_recovery.rs` and `receiver_notice.rs`; generic
-session, sync, attachment, and shell services stay outside those modules.
+Recovery operations remain isolated in
+`tui/state/services/receiver_recovery.rs`; generic session, sync, attachment,
+and shell services stay outside that module. The removed schema-v11 notice
+lease columns are migration-only compatibility state.
 
-Terminal notice handoff uses the schema-v11 owner/expiry fields, not the job's
-claim or cleanup fence. One claimant receives only the immutable accepted
-routing frame in memory. SMS queues to the authenticated sender; Email queues
-to the acceptance-time trusted recipients and reply context. Exact job, token,
-terminal state, and writer-owner acknowledgement clears the intent only after
-the bounded local delivery worker accepts it. Queue failure leaves the finite
-lease and intent for retry while later FIFO work remains eligible. This does
-not prove provider delivery. The schema-v12 outbox and pure policy define the
-durable states for final-answer delivery, and exact answer completion now
-commits that outbox before any provider IO. The crash window between local
-queue acceptance and the acknowledgement CAS remains for legacy notice and
-control delivery until later BR-17 tasks route those paths through the outbox;
-final-answer provider claiming and acknowledgement are also later delivery
-work.
+Terminal notices, `/new` and `/restart` acknowledgements, and dropped-job
+notices use the schema-v12 outbox. Their source-job transition and immutable
+provider envelope commit in one immediate transaction. A legacy BR-16 pending
+notice remains behind its exact cleanup fence; same-version repair or the next
+enabled delivery reconciliation converts it to one `unavailable-notice` row
+after that fence clears. Every semantic response kind then uses the same
+delivery claim, provider executor, result policy, retry, and ambiguity rules.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are never rerun as ordinary work; the
@@ -1649,11 +1643,8 @@ rejection or malformed provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
-cannot corrupt the TUI. Legacy notice and control Twilio/Resend calls are
-serialized through a bounded background delivery worker, preserving reply
-order without blocking keyboard input or shell shutdown. Final answers are
-frozen in the durable outbox and do not enter that legacy worker from
-completion. An enabled App tick instead claims them with a finite delivery-only
+cannot corrupt the TUI. Every receiver-owned response is frozen in the durable
+outbox. An enabled App tick claims one with a finite delivery-only
 lease and fresh attempt ID. It reserves bounded executor capacity before the
 exact IO-start CAS, then parses bounded Resend or Twilio success JSON into a
 redacted provider reference. Resend retries use the frozen envelope and stable
@@ -1675,10 +1666,10 @@ directory, and preserves its registration and durable state without recording
 a Spawn retry. Lost ownership permits the same local removals only. The stage
 is idempotent. After an unclean exit, expired `launching`, `launched`,
 `accepted`, and `processing` rows remain unchanged until recovery proves the
-next action. Answer-ready rows no longer participate in agent reconciliation or
-block the next ordinary claim; only delivery recovery owns them. Reconciliation
-requires a `final-answer` delivery row as that proof. Notice, control, and
-fallback-only rows cannot protect an incomplete answer-ready or delivering job.
+next action. Answer-ready rows backed by a semantic outbox row no longer
+participate in agent reconciliation or block the next ordinary claim; only
+delivery recovery owns them. Same-version schema repair terminalizes incomplete
+legacy answer-ready or delivering rows before ordinary runtime dispatch.
 Expired claims with durable pre-spawn proof safely requeue. Expired Resend IO
 claims may replay inside the provider's 24-hour idempotency window, while
 expired Twilio IO claims become terminally ambiguous. Stale worker results lose
@@ -1695,9 +1686,9 @@ arrivals, and rolls only the command's exact logical conversation. `/new` waits
 its FIFO turn, then atomically retires its exact conversation, moves later
 unclaimed work onto a fresh empty conversation, and finishes without launching
 an agent. Neither command enters a PTY or the main panel.
-Both acknowledge their own sender through `reply_to_job`,
-which addresses the job's own recipients rather than whatever reply state is
-live. A dropped job is not the message currently in flight.
+Both freeze one control acknowledgement from the command's acceptance-time
+routing authority in the same transaction as the boundary. Each dropped job
+likewise freezes its own unavailable notice; no live reply state is consulted.
 The idle claim transaction repeats the exact restart check while holding its
 SQLite immediate writer reservation. A restart committed before that boundary
 blocks the ordinary claim; a restart committed afterward cannot retroactively

@@ -39,22 +39,8 @@ impl AppServices {
         expires_at_unix_ms: u64,
     ) {
         self.apply_receiver_delivery_execution_result(now_unix_ms);
-        match self.db.reconcile_expired_receiver_deliveries(now_unix_ms) {
-            Ok(_) => {
-                if self
-                    .receiver_delivery_active
-                    .as_ref()
-                    .is_some_and(|claim| claim.expires_at_unix_ms() <= now_unix_ms)
-                {
-                    self.receiver_delivery_active = None;
-                }
-            }
-            Err(error) => {
-                crate::logging::log(format!(
-                    "receiver delivery reconciliation failed: {error:#}"
-                ));
-                return;
-            }
+        if !self.reconcile_receiver_delivery_state(now_unix_ms) {
+            return;
         }
         if self.receiver_delivery_active.is_some() {
             return;
@@ -120,6 +106,27 @@ impl AppServices {
             return;
         }
         self.receiver_delivery_active = Some(claim);
+    }
+
+    pub(crate) fn reconcile_receiver_delivery_state(&mut self, now_unix_ms: u64) -> bool {
+        match self.db.reconcile_expired_receiver_deliveries(now_unix_ms) {
+            Ok(_) => {
+                if self
+                    .receiver_delivery_active
+                    .as_ref()
+                    .is_some_and(|claim| claim.expires_at_unix_ms() <= now_unix_ms)
+                {
+                    self.receiver_delivery_active = None;
+                }
+            }
+            Err(error) => {
+                crate::logging::log(format!(
+                    "receiver delivery reconciliation failed: {error:#}"
+                ));
+                return false;
+            }
+        }
+        true
     }
 
     fn apply_receiver_delivery_execution_result(&mut self, now_unix_ms: u64) {

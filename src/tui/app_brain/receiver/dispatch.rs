@@ -14,7 +14,6 @@ impl App {
         if receiver_enabled {
             self.tick_receiver_delivery();
             self.reconcile_receiver_job();
-            self.handoff_pending_receiver_notice();
             self.apply_receiver_restarts();
             #[cfg(test)]
             self.receiver.run_after_restart_scan_hook();
@@ -66,6 +65,10 @@ impl App {
                 }
             }
             DurableReceiverRun::Idle => {}
+        }
+        if receiver_enabled {
+            let now = self.receiver_now_unix_ms();
+            self.services.reconcile_receiver_delivery_state(now);
         }
     }
 

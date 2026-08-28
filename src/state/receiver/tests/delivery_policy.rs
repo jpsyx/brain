@@ -217,6 +217,37 @@ fn resend_ambiguity_without_a_first_attempt_time_fails_closed() {
 }
 
 #[test]
+fn resend_retry_replay_window_expires_only_after_exact_24_hour_equality() {
+    let day = 24 * 60 * 60 * 1_000;
+    let first_attempt = 1_000;
+
+    assert!(!receiver_delivery_replay_window_is_expired(
+        ReceiverProviderCapability::Resend,
+        1,
+        Some(first_attempt),
+        first_attempt + day,
+    ));
+    assert!(receiver_delivery_replay_window_is_expired(
+        ReceiverProviderCapability::Resend,
+        1,
+        Some(first_attempt),
+        first_attempt + day + 1,
+    ));
+    assert!(!receiver_delivery_replay_window_is_expired(
+        ReceiverProviderCapability::Twilio,
+        1,
+        Some(first_attempt),
+        u64::MAX,
+    ));
+    assert!(!receiver_delivery_replay_window_is_expired(
+        ReceiverProviderCapability::Resend,
+        0,
+        None,
+        u64::MAX,
+    ));
+}
+
+#[test]
 fn zero_attempts_is_an_invalid_terminal_policy_input() {
     assert_eq!(
         policy(

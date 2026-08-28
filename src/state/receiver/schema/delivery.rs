@@ -66,7 +66,81 @@ pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     cleanup_schema::ensure_table_contract(connection)?;
     reconcile_rows(connection)?;
     ensure_table_contract(connection)?;
+    migrate_legacy_pending_notices(connection)?;
     ensure_managed_indexes(connection)?;
+    Ok(())
+}
+
+fn migrate_legacy_pending_notices(connection: &Connection) -> Result<()> {
+    let pending = {
+        let mut statement = connection.prepare(
+            "SELECT job_id, job_token, inbound_json, response_sender, updated_at_unix_ms
+             FROM receiver_jobs
+             WHERE state = 'failed' AND pending_unavailable_notice = 1
+               AND recovery_cleanup_instance IS NULL
+               AND recovery_cleanup_session_id IS NULL
+             ORDER BY received_at_unix_ms, job_id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (job_id, token, inbound_json, response_sender, observed) in pending {
+        let job_id = crate::state::ReceiverJobId::parse(&job_id)?;
+        let token = crate::state::ReceiverJobToken::parse(&token)?;
+        let inbound = super::super::store::decode_inbound(&inbound_json, response_sender)?;
+        let notice = crate::server::reply::unanswered_notice(
+            super::super::store::response_intent::channel_label(inbound.channel),
+        );
+        let inserted = super::super::store::response_intent::insert(
+            connection,
+            job_id,
+            token,
+            &inbound,
+            crate::state::ReceiverResponseKind::UnavailableNotice,
+            &notice.text,
+            observed,
+        );
+        match inserted {
+            Ok(_) => {
+                connection.execute(
+                    "UPDATE receiver_jobs
+                     SET state = 'answer-ready', pending_unavailable_notice = 0,
+                         claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                         retry_at_unix_ms = NULL, retry_from_state = NULL
+                     WHERE job_id = ?1 AND job_token = ?2 AND state = 'failed'
+                       AND pending_unavailable_notice = 1
+                       AND EXISTS (SELECT 1 FROM receiver_deliveries
+                         WHERE job_id = ?1 AND job_token = ?2
+                           AND response_kind = 'unavailable-notice')",
+                    rusqlite::params![job_id.to_string(), token.to_string()],
+                )?;
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<crate::state::ReceiverDeliveryRenderError>()
+                    .is_some() =>
+            {
+                connection.execute(
+                    "UPDATE receiver_jobs
+                     SET pending_unavailable_notice = 0,
+                         last_error = 'notice-no-authorized-destination'
+                     WHERE job_id = ?1 AND job_token = ?2 AND state = 'failed'
+                       AND pending_unavailable_notice = 1",
+                    rusqlite::params![job_id.to_string(), token.to_string()],
+                )?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
     Ok(())
 }
 
@@ -137,6 +211,7 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
          WHERE state = 'ambiguous' AND ambiguity_reason IS NULL;",
     )?;
     terminalize_invalid_active_envelopes(connection)?;
+    terminalize_missing_final_answer_deliveries(connection)?;
     connection.execute_batch(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -158,6 +233,25 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
              AND delivery.response_kind = 'final-answer'
              AND delivery.state IN ('failed', 'ambiguous')
          );",
+    )?;
+    Ok(())
+}
+
+fn terminalize_missing_final_answer_deliveries(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "UPDATE receiver_jobs
+         SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+             retry_at_unix_ms = NULL, retry_from_state = NULL,
+             last_error = 'delivery-schema-repair-missing'
+         WHERE completed_at_unix_ms IS NOT NULL
+           AND state IN ('answer-ready', 'delivering', 'retrying')
+           AND (state != 'retrying' OR retry_from_state IS NULL)
+           AND NOT EXISTS (
+             SELECT 1 FROM receiver_deliveries AS delivery
+             WHERE delivery.job_id = receiver_jobs.job_id
+               AND delivery.job_token = receiver_jobs.job_token
+               AND delivery.response_kind = 'final-answer'
+           );",
     )?;
     Ok(())
 }

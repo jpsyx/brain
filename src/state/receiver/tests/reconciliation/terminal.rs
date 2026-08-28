@@ -150,7 +150,7 @@ fn incomplete_legacy_completion_states_terminalize_deterministically() {
 }
 
 #[test]
-fn notice_only_delivery_rows_do_not_protect_incomplete_final_answer_states() {
+fn semantic_notice_delivery_rows_leave_their_source_jobs_to_the_delivery_lane() {
     for state in ["answer-ready", "delivering"] {
         let fixture = accepted_run(&format!("notice-only-{state}"));
         fixture
@@ -167,32 +167,37 @@ fn notice_only_delivery_rows_do_not_protect_incomplete_final_answer_states() {
             .expect("load staged job")
             .expect("durable job")
             .token();
-        fixture
-            .db
-            .conn
-            .execute(
-                "INSERT INTO receiver_deliveries
-                   (delivery_id, job_id, job_token, response_kind, envelope_json,
-                    state, attempt_count, created_at_unix_ms, updated_at_unix_ms)
-                 VALUES (?1, ?2, ?3, 'unavailable-notice', '{}', 'ready', 0, 1, 1)",
-                rusqlite::params![
-                    uuid::Uuid::new_v4().to_string(),
-                    fixture.job_id.to_string(),
-                    token.to_string(),
-                ],
+        let notice = crate::server::reply::unanswered_notice("sms");
+        assert!(
+            super::super::store::response_intent::insert(
+                &fixture.db.conn,
+                fixture.job_id,
+                token,
+                &fixture.inbound,
+                ReceiverResponseKind::UnavailableNotice,
+                &notice.text,
+                1,
             )
-            .expect("stage notice-only delivery");
+            .expect("stage semantic notice delivery")
+        );
 
-        let effect = fixture
-            .db
-            .reconcile_next_receiver_job(1_500)
-            .expect("reconcile notice-only legacy state")
-            .expect("incomplete final answer must terminalize");
-
-        assert_eq!(effect.action(), ReceiverReconciliationAction::TerminalFailure);
+        assert!(
+            fixture
+                .db
+                .reconcile_next_receiver_job(1_500)
+                .expect("reconcile semantic notice source")
+                .is_none(),
+            "semantic response authority belongs only to the delivery lane"
+        );
         assert_eq!(
-            effect.reason(),
-            ReceiverReconciliationReason::IncompleteLegacyCompletion
+            fixture
+                .db
+                .receiver_job(fixture.job_id)
+                .expect("load semantic notice source")
+                .expect("semantic notice source")
+                .state()
+                .as_str(),
+            state
         );
     }
 }

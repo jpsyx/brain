@@ -15,14 +15,14 @@ mod delivery;
 mod load;
 mod observation;
 mod reconciliation;
+pub(in crate::state::receiver) mod response_intent;
 mod session;
-mod unavailable_notice;
 
 use load::{load_receiver_conversation, load_receiver_job};
 
 const QUEUED_JOB_LIMIT: i64 = 64;
 
-fn decode_inbound(
+pub(super) fn decode_inbound(
     inbound_json: &str,
     response_sender: Option<String>,
 ) -> Result<crate::server::receiver::InboundJob> {

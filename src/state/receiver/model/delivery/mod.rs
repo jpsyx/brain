@@ -15,6 +15,6 @@ pub use identity::{
     ReceiverDeliveryAttemptId, ReceiverDeliveryId, ReceiverProviderReference, ReceiverResponseKind,
 };
 pub use status::{
-    ReceiverDeliveryAmbiguity, ReceiverDeliveryErrorCategory, ReceiverDeliveryRetryMetadata,
-    ReceiverDeliveryState, ReceiverDeliveryStatus,
+    ReceiverDeliveryAmbiguity, ReceiverDeliveryCounts, ReceiverDeliveryErrorCategory,
+    ReceiverDeliveryRetryMetadata, ReceiverDeliveryState, ReceiverDeliveryStatus,
 };

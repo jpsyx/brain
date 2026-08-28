@@ -89,8 +89,8 @@ impl FreshConflictAppFixture {
             Some("recovery-native-session-unavailable")
         );
         assert!(
-            !terminal.pending_unavailable_notice(),
-            "the valid accepted email notice is handed off in the terminal tick"
+            terminal.pending_unavailable_notice(),
+            "durable notice migration must wait for exact cleanup acknowledgement"
         );
         assert_eq!(
             terminal.recovery_cleanup_instance(),
@@ -122,6 +122,20 @@ impl FreshConflictAppFixture {
         self.app.tick_receiver();
         assert_eq!(registration_count(&self.run), 0);
         assert_eq!(self.session_lock(&self.run.native), None);
+        self.db
+            .reconcile_expired_receiver_deliveries(self.clock.unix_ms())
+            .expect("migrate notice after cleanup acknowledgement");
+        let terminal = self
+            .db
+            .receiver_job(self.run.job_id)
+            .expect("reload fresh-conflict job")
+            .expect("fresh-conflict job after cleanup");
+        assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
+        assert!(!terminal.pending_unavailable_notice());
+        assert_eq!(
+            self.db.receiver_delivery_counts().unwrap().answer_ready(),
+            1
+        );
         let prior = self.prior_session();
         assert_eq!(self.session_lock(&prior), None);
         assert!(

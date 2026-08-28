@@ -138,9 +138,9 @@ fn assert_unique_conversation_mismatch_fails_closed(
     assert_eq!(repaired.0, "failed");
     assert_eq!(
         repaired.1.as_deref(),
-        Some("recovery-native-session-unavailable")
+        Some("notice-no-authorized-destination")
     );
-    assert_eq!(repaired.2, 1);
+    assert_eq!(repaired.2, 0);
     assert_eq!(repaired.3, None);
     assert_eq!(repaired.4, None);
     let unrelated_resources: (i64, Option<i64>) = connection
@@ -266,7 +266,7 @@ fn assert_unprovable_cleanup_fails_closed(damage: UnprovableCleanup) {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .expect("load fail-closed cleanup row");
-    assert_eq!(repaired, ("failed".to_owned(), 1, None, None));
+    assert_eq!(repaired, ("failed".to_owned(), 0, None, None));
     let resources: (i64, i64) = connection
         .query_row(
             "SELECT

@@ -3,7 +3,9 @@ use rusqlite::OptionalExtension as _;
 
 use super::{to_i64, validated_owner};
 use crate::server::receiver::{ControlCommand, InboundJob, RestartPlan, parse_control_command};
-use crate::state::{Db, ReceiverConversationId, ReceiverJobId};
+use crate::state::{
+    Db, ReceiverConversationId, ReceiverJobId, ReceiverJobToken, ReceiverResponseKind,
+};
 
 struct ControlRow {
     conversation_id: ReceiverConversationId,
@@ -31,6 +33,7 @@ impl Db {
             .query_row(
                 "SELECT job.conversation_id, job.received_at_unix_ms, job.inbound_json,
                         job.response_sender,
+                        job.job_token,
                         conversation.user_id, conversation.channel,
                         conversation.conversation_key
                  FROM receiver_jobs AS job
@@ -50,6 +53,7 @@ impl Db {
                         row.get::<_, String>(4)?,
                         row.get::<_, String>(5)?,
                         row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
                     ))
                 },
             )
@@ -59,6 +63,7 @@ impl Db {
             received_at_unix_ms,
             inbound_json,
             response_sender,
+            job_token,
             user_id,
             channel,
             key,
@@ -88,13 +93,36 @@ impl Db {
             control.conversation_id,
             observed,
         )?;
+        let token = ReceiverJobToken::parse(&job_token)?;
+        let acknowledgement = crate::server::reply::new_session_notice(
+            super::response_intent::channel_label(inbound.channel),
+        );
+        anyhow::ensure!(
+            super::response_intent::insert(
+                &transaction,
+                job_id,
+                token,
+                &inbound,
+                ReceiverResponseKind::ControlAcknowledgement,
+                &acknowledgement.text,
+                observed,
+            )?,
+            "receiver new-session acknowledgement already exists"
+        );
         let completed = transaction.execute(
             "UPDATE receiver_jobs
-             SET state = 'done', claim_owner = NULL,
+             SET state = 'answer-ready', claim_owner = NULL,
                  claim_expires_at_unix_ms = NULL, updated_at_unix_ms = ?4
-             WHERE workspace_id = ?1 AND job_id = ?2 AND claim_owner = ?3
+             WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?5
+               AND claim_owner = ?3
                AND claim_expires_at_unix_ms > ?4 AND state = 'claimed'",
-            rusqlite::params![self.workspace_id, job_id.to_string(), owner, observed],
+            rusqlite::params![
+                self.workspace_id,
+                job_id.to_string(),
+                owner,
+                observed,
+                token.to_string(),
+            ],
         )?;
         if completed != 1 {
             return Ok(false);
@@ -115,7 +143,8 @@ impl Db {
         )?;
         let queued = {
             let mut statement = transaction.prepare(
-                "SELECT job.job_id, job.conversation_id, job.received_at_unix_ms,
+                "SELECT job.job_id, job.job_token, job.conversation_id,
+                        job.received_at_unix_ms,
                         job.inbound_json, job.response_sender,
                         conversation.user_id, conversation.channel,
                         conversation.conversation_key
@@ -132,12 +161,13 @@ impl Db {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
                         row.get::<_, String>(6)?,
                         row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
                     ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
@@ -145,6 +175,7 @@ impl Db {
         let restart = queued.into_iter().find_map(
             |(
                 job_id,
+                job_token,
                 conversation_id,
                 received_at,
                 inbound_json,
@@ -157,6 +188,7 @@ impl Db {
                 (parse_control_command(&inbound.prompt) == Some(ControlCommand::Restart)).then_some(
                     (
                         job_id,
+                        job_token,
                         ControlRow {
                             conversation_id: ReceiverConversationId::parse(&conversation_id)
                                 .ok()?,
@@ -170,19 +202,53 @@ impl Db {
                 )
             },
         );
-        let Some((restart_job_id, control, command)) = restart else {
+        let Some((restart_job_id, restart_token, control, command)) = restart else {
             return Ok(None);
         };
         let restart_job_id = ReceiverJobId::parse(&restart_job_id)?;
+        let restart_token = ReceiverJobToken::parse(&restart_token)?;
         let dropped = load_restart_backlog(
             &transaction,
             &self.workspace_id,
             control.received_at_unix_ms,
             restart_job_id,
         )?;
+        for dropped_job in &dropped {
+            let notice = crate::server::reply::unanswered_notice(
+                super::response_intent::channel_label(dropped_job.inbound.channel),
+            );
+            anyhow::ensure!(
+                super::response_intent::insert(
+                    &transaction,
+                    dropped_job.job_id,
+                    dropped_job.token,
+                    &dropped_job.inbound,
+                    ReceiverResponseKind::UnavailableNotice,
+                    &notice.text,
+                    observed,
+                )?,
+                "receiver restart dropped-job notice already exists"
+            );
+        }
+        let acknowledgement = crate::server::reply::restart_notice(
+            super::response_intent::channel_label(command.channel),
+            dropped.len(),
+        );
+        anyhow::ensure!(
+            super::response_intent::insert(
+                &transaction,
+                restart_job_id,
+                restart_token,
+                &command,
+                ReceiverResponseKind::ControlAcknowledgement,
+                &acknowledgement.text,
+                observed,
+            )?,
+            "receiver restart acknowledgement already exists"
+        );
         let dropped_count = transaction.execute(
             "UPDATE receiver_jobs
-             SET state = 'failed', retry_at_unix_ms = NULL,
+             SET state = 'answer-ready', retry_at_unix_ms = NULL,
                  retry_from_state = NULL, last_error = 'dropped-by-restart',
                  claim_owner = NULL, claim_expires_at_unix_ms = NULL,
                  updated_at_unix_ms = ?2
@@ -228,17 +294,31 @@ impl Db {
         )?;
         let completed = transaction.execute(
             "UPDATE receiver_jobs
-             SET state = 'done', updated_at_unix_ms = ?3
-             WHERE workspace_id = ?1 AND job_id = ?2
+             SET state = 'answer-ready', updated_at_unix_ms = ?3
+             WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?4
                AND state = 'queued' AND claim_owner IS NULL",
-            rusqlite::params![self.workspace_id, restart_job_id.to_string(), observed],
+            rusqlite::params![
+                self.workspace_id,
+                restart_job_id.to_string(),
+                observed,
+                restart_token.to_string(),
+            ],
         )?;
         if completed != 1 {
             return Ok(None);
         }
         transaction.commit()?;
-        Ok(Some(RestartPlan { command, dropped }))
+        Ok(Some(RestartPlan {
+            command,
+            dropped: dropped.into_iter().map(|job| job.inbound).collect(),
+        }))
     }
+}
+
+struct RestartBacklogJob {
+    job_id: ReceiverJobId,
+    token: ReceiverJobToken,
+    inbound: InboundJob,
 }
 
 fn load_restart_backlog(
@@ -246,9 +326,9 @@ fn load_restart_backlog(
     workspace_id: &str,
     restart_received_at_unix_ms: i64,
     restart_job_id: ReceiverJobId,
-) -> Result<Vec<InboundJob>> {
+) -> Result<Vec<RestartBacklogJob>> {
     let mut statement = transaction.prepare(
-        "SELECT inbound_json, response_sender FROM receiver_jobs
+        "SELECT job_id, job_token, inbound_json, response_sender FROM receiver_jobs
          WHERE workspace_id = ?1 AND claim_owner IS NULL
            AND (
              received_at_unix_ms < ?2
@@ -270,11 +350,22 @@ fn load_restart_backlog(
                 restart_received_at_unix_ms,
                 restart_job_id.to_string(),
             ],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
         )?
         .map(|row| {
-            let (inbound_json, response_sender) = row?;
-            super::decode_inbound(&inbound_json, response_sender)
+            let (job_id, token, inbound_json, response_sender) = row?;
+            Ok(RestartBacklogJob {
+                job_id: ReceiverJobId::parse(&job_id)?,
+                token: ReceiverJobToken::parse(&token)?,
+                inbound: super::decode_inbound(&inbound_json, response_sender)?,
+            })
         })
         .collect()
 }

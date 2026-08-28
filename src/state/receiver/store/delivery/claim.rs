@@ -3,6 +3,7 @@ use rusqlite::OptionalExtension as _;
 
 use super::super::{to_i64, validated_owner};
 use super::decode::decode_due_delivery;
+use super::reconciliation::terminalize_expired_due_retry;
 use crate::state::{Db, ReceiverDeliveryAttemptId, ReceiverDeliveryClaim};
 
 impl Db {
@@ -24,26 +25,33 @@ impl Db {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        let due = transaction
-            .query_row(
-                "SELECT delivery.delivery_id, delivery.job_id, delivery.job_token,
+        let due = loop {
+            let due = transaction
+                .query_row(
+                    "SELECT delivery.delivery_id, delivery.job_id, delivery.job_token,
                         delivery.envelope_json, delivery.attempt_count,
-                        delivery.first_attempt_at_unix_ms, delivery.state
+                        delivery.first_attempt_at_unix_ms,
+                        delivery.retry_at_unix_ms, delivery.state
                  FROM receiver_deliveries AS delivery
                  JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
                   AND job.workspace_id = ?1 AND job.job_token = delivery.job_token
-                 WHERE delivery.response_kind = 'final-answer'
-                   AND ((delivery.state = 'ready' AND job.state = 'answer-ready')
+                 WHERE ((delivery.state = 'ready' AND job.state = 'answer-ready')
                      OR (delivery.state = 'retrying' AND job.state = 'retrying'
                        AND delivery.retry_at_unix_ms <= ?2))
                  ORDER BY delivery.created_at_unix_ms, delivery.delivery_id
                  LIMIT 1",
-                rusqlite::params![self.workspace_id, now],
-                decode_due_delivery,
-            )
-            .optional()?;
-        let Some(due) = due else {
-            return Ok(None);
+                    rusqlite::params![self.workspace_id, now],
+                    decode_due_delivery,
+                )
+                .optional()?;
+            let Some(due) = due else {
+                transaction.commit()?;
+                return Ok(None);
+            };
+            if terminalize_expired_due_retry(&transaction, &self.workspace_id, &due, now_unix_ms)? {
+                continue;
+            }
+            break due;
         };
         let attempt_id = ReceiverDeliveryAttemptId::new();
         let delivery_changed = transaction.execute(
@@ -105,7 +113,20 @@ impl Db {
         observed_at_unix_ms: u64,
     ) -> Result<bool> {
         let observed = to_i64(observed_at_unix_ms, "receiver delivery IO start")?;
-        Ok(self.conn.execute(
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        if terminalize_expired_claim_before_io(
+            &transaction,
+            &self.workspace_id,
+            claim,
+            observed_at_unix_ms,
+        )? {
+            transaction.commit()?;
+            return Ok(false);
+        }
+        let changed = transaction.execute(
             "UPDATE receiver_deliveries
              SET provider_io_started = 1, attempt_count = attempt_count + 1,
                  first_attempt_at_unix_ms = COALESCE(first_attempt_at_unix_ms, ?8),
@@ -128,7 +149,9 @@ impl Db {
                 observed,
                 self.workspace_id,
             ],
-        )? == 1)
+        )? == 1;
+        transaction.commit()?;
+        Ok(changed)
     }
 
     /// Release an exact reservation only while durable state proves provider IO never began.
@@ -316,4 +339,72 @@ impl Db {
         transaction.commit()?;
         Ok(true)
     }
+}
+
+fn terminalize_expired_claim_before_io(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    claim: &ReceiverDeliveryClaim,
+    observed_at_unix_ms: u64,
+) -> Result<bool> {
+    if !crate::state::receiver_delivery_replay_window_is_expired(
+        claim.provider(),
+        claim.attempt_count().saturating_sub(1),
+        claim.first_attempt_at_unix_ms(),
+        observed_at_unix_ms,
+    ) {
+        return Ok(false);
+    }
+    let observed = to_i64(
+        observed_at_unix_ms,
+        "receiver delivery replay-window expiry",
+    )?;
+    let delivery_changed = transaction.execute(
+        "UPDATE receiver_deliveries
+         SET state = 'ambiguous', attempt_id = NULL, retry_at_unix_ms = NULL,
+             claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+             provider_io_started = 0, provider_reference = NULL,
+             error_category = NULL, ambiguity_reason = 'idempotency-window-expired',
+             updated_at_unix_ms = ?9
+         WHERE delivery_id = ?1 AND job_id = ?2 AND job_token = ?3
+           AND attempt_id = ?4 AND claim_owner = ?5
+           AND claim_expires_at_unix_ms = ?6 AND claim_expires_at_unix_ms > ?7
+           AND state = 'delivering' AND provider_io_started = 0
+           AND attempt_count = ?8 AND EXISTS (SELECT 1 FROM receiver_jobs
+             WHERE workspace_id = ?10 AND job_id = ?2 AND job_token = ?3
+               AND state = 'delivering')",
+        rusqlite::params![
+            claim.delivery_id().to_string(),
+            claim.job_id().to_string(),
+            claim.token().to_string(),
+            claim.attempt_id().to_string(),
+            claim.owner(),
+            to_i64(claim.expires_at_unix_ms(), "receiver delivery claim expiry")?,
+            observed,
+            i64::from(claim.attempt_count().saturating_sub(1)),
+            observed,
+            workspace_id,
+        ],
+    )?;
+    if delivery_changed == 0 {
+        return Ok(false);
+    }
+    let job_changed = transaction.execute(
+        "UPDATE receiver_jobs
+         SET state = 'failed', retry_at_unix_ms = NULL, retry_from_state = NULL,
+             last_error = NULL, updated_at_unix_ms = ?4
+         WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
+           AND state = 'delivering'",
+        rusqlite::params![
+            workspace_id,
+            claim.job_id().to_string(),
+            claim.token().to_string(),
+            observed,
+        ],
+    )?;
+    anyhow::ensure!(
+        job_changed == 1,
+        "receiver delivery replay-window terminalization lost exact job authority"
+    );
+    Ok(true)
 }

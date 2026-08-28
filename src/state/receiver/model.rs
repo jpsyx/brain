@@ -16,15 +16,16 @@ pub use conversation::{
 };
 pub use delivery::{
     ReceiverDeliveryAmbiguity, ReceiverDeliveryApplyOutcome, ReceiverDeliveryAttemptId,
-    ReceiverDeliveryClaim, ReceiverDeliveryEnvelope, ReceiverDeliveryErrorCategory,
-    ReceiverDeliveryId, ReceiverDeliveryRenderError, ReceiverDeliveryRetryMetadata,
-    ReceiverDeliveryState, ReceiverDeliveryStatus, ReceiverEmailEnvelope,
-    ReceiverProviderReference, ReceiverResponseKind, ReceiverSmsEnvelope, render_receiver_delivery,
+    ReceiverDeliveryClaim, ReceiverDeliveryCounts, ReceiverDeliveryEnvelope,
+    ReceiverDeliveryErrorCategory, ReceiverDeliveryId, ReceiverDeliveryRenderError,
+    ReceiverDeliveryRetryMetadata, ReceiverDeliveryState, ReceiverDeliveryStatus,
+    ReceiverEmailEnvelope, ReceiverProviderReference, ReceiverResponseKind, ReceiverSmsEnvelope,
+    render_receiver_delivery,
 };
 pub use effect::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverLaunchFailure, ReceiverLaunchRetryOutcome,
     ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure, ReceiverUnavailableNoticeClaim,
+    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure,
 };
 pub use identity::{
     ReceiverConversationId, ReceiverJobId, ReceiverJobToken, ReceiverSessionAttribution,

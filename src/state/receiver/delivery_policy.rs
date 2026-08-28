@@ -174,3 +174,20 @@ fn retry_decision(
 pub const fn receiver_delivery_retry_is_due(now_unix_ms: u64, retry_at_unix_ms: u64) -> bool {
     now_unix_ms >= retry_at_unix_ms
 }
+
+/// Whether replaying one persisted retry would exceed Resend's exact key lifetime.
+#[must_use]
+pub const fn receiver_delivery_replay_window_is_expired(
+    provider: ReceiverProviderCapability,
+    attempt_count: u32,
+    first_attempt_at_unix_ms: Option<u64>,
+    now_unix_ms: u64,
+) -> bool {
+    if !matches!(provider, ReceiverProviderCapability::Resend) || attempt_count == 0 {
+        return false;
+    }
+    let Some(first_attempt_at_unix_ms) = first_attempt_at_unix_ms else {
+        return false;
+    };
+    now_unix_ms > first_attempt_at_unix_ms.saturating_add(RESEND_IDEMPOTENCY_WINDOW_UNIX_MS)
+}

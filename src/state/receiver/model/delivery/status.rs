@@ -200,3 +200,60 @@ impl std::fmt::Debug for ReceiverDeliveryStatus {
         formatter.write_str("ReceiverDeliveryStatus(<redacted>)")
     }
 }
+
+/// Queue-wide, content-free delivery phase counts for status output.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReceiverDeliveryCounts {
+    answer_ready: usize,
+    delivering: usize,
+    retrying: usize,
+    ambiguous: usize,
+    failed: usize,
+    done: usize,
+}
+
+impl ReceiverDeliveryCounts {
+    #[must_use]
+    pub const fn new(
+        answer_ready: usize,
+        delivering: usize,
+        retrying: usize,
+        ambiguous: usize,
+        failed: usize,
+        done: usize,
+    ) -> Self {
+        Self {
+            answer_ready,
+            delivering,
+            retrying,
+            ambiguous,
+            failed,
+            done,
+        }
+    }
+
+    #[must_use]
+    pub const fn answer_ready(self) -> usize {
+        self.answer_ready
+    }
+    #[must_use]
+    pub const fn delivering(self) -> usize {
+        self.delivering
+    }
+    #[must_use]
+    pub const fn retrying(self) -> usize {
+        self.retrying
+    }
+    #[must_use]
+    pub const fn ambiguous(self) -> usize {
+        self.ambiguous
+    }
+    #[must_use]
+    pub const fn failed(self) -> usize {
+        self.failed
+    }
+    #[must_use]
+    pub const fn done(self) -> usize {
+        self.done
+    }
+}

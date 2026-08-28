@@ -70,7 +70,6 @@ fn full_receiver_model_graph_debug_is_content_free() {
         .claim_next_receiver_run(PRIVATE_OWNER, 1_000, 2_000)
         .expect("claim private receiver run")
         .expect("private receiver run");
-    let notice = ReceiverUnavailableNoticeClaim::new(run.job(), PRIVATE_OWNER.to_owned(), 2_000);
     let native_session = crate::agent::AgentSession::new(PRIVATE_NATIVE_SESSION)
         .expect("private native session");
     let scope = crate::agent::SessionScope::new(
@@ -161,7 +160,6 @@ fn full_receiver_model_graph_debug_is_content_free() {
         ("claim", format!("{:?}", run.claim())),
         ("job", format!("{:?}", run.job())),
         ("conversation", format!("{:?}", run.conversation())),
-        ("notice", format!("{notice:?}")),
         ("attribution", format!("{attribution:?}")),
         ("launch", format!("{launch:?}")),
         ("observation", format!("{observation:?}")),

@@ -57,11 +57,11 @@ fn restart_committed_after_empty_scan_blocks_the_same_tick_ordinary_claim() {
 
     assert_eq!(
         db.receiver_job(older.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Failed
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(
         db.receiver_job(restart.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert!(app.brain.receiver_run_observations().is_empty());
     assert!(transport.launch_specs().is_empty());
@@ -91,6 +91,7 @@ fn thread_job(
     inbound.provider_id = Some(format!("provider-{}", inbound.job_id));
     inbound.authenticated_sender = "member@example.test".to_owned();
     inbound.thread_participants = vec!["member@example.test".to_owned()];
+    inbound.response_email = Some("member@example.test".to_owned());
     let identity = ReceiverConversationIdentity::email(
         app.context.workspace().id(),
         inbound.actor.user_id().clone(),

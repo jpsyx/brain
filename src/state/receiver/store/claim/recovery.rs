@@ -171,7 +171,6 @@ fn oldest_workspace_claim_candidate(
                    SELECT 1 FROM receiver_deliveries AS delivery
                    WHERE delivery.job_id = job.job_id
                      AND delivery.job_token = job.job_token
-                     AND delivery.response_kind = 'final-answer'
                  ))
                )
              ORDER BY job.received_at_unix_ms, job.job_id

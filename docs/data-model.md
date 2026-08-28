@@ -1182,6 +1182,16 @@ without copying attacker-controlled content into the error.
 The public status and every Debug implementation redact envelope, recipient,
 sender, provider reference, and answer content.
 
+`final-answer`, `unavailable-notice`, `control-acknowledgement`, and
+`fallback-notice` use the same state machine. `/new` persists its acknowledgement
+in the exact conversation-roll transaction. `/restart` persists its
+acknowledgement and one unavailable notice for every dropped job in the exact
+queue-cut transaction. Same-version repair and normal delivery reconciliation
+convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
+before clearing the bit. Downgrade maps unfinished semantic deliveries to the
+deterministic `downgrade-no-replay` terminal rather than restoring a
+process-local acknowledgement lease.
+
 The response sender is canonicalized and captured when authenticated ingress
 accepts the job, not when the agent finishes. Human-formatted SMS numbers and
 trimmed, case-normalized email addresses therefore become the same immutable
@@ -1407,7 +1417,7 @@ identifiers after restart. That read-only redrive does not create another notice
 intent and the terminal row does not block later FIFO work. The separate
 recovery-claim seam accepts only that cleanup-acknowledged due row when it is
 also the workspace's globally oldest claimable or blocking row. An
-`answer-ready` or `delivering` job with an exact matching final-answer outbox
+`answer-ready` or `delivering` job with an exact matching semantic outbox
 row belongs to the independent delivery lane and is excluded from this agent
 FIFO blocker scan; an incomplete row without that exact proof still blocks and
 reconciles closed. The claim establishes
@@ -1419,20 +1429,17 @@ registration, spawn, or shutdown failure also become `failed` with a
 content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
 do not block FIFO. The existing launch-retry mutation accepts only ordinary
 attempts.
-The cleanup fence and terminal notice have independent authority. A pending
-notice can be claimed by one non-blank writer only while its dedicated expiry
-is in the future. Claim returns the immutable accepted inbound frame in memory;
-it persists no notice body, derived recipient list, provider payload, or
-credential. Exact acknowledgement requires the same job, token, terminal state,
-and live notice owner, then clears the intent and both lease columns together.
-A failed local queue operation leaves the intent pending and the finite lease
-expires for another claimant. Terminal rows and notice leases never participate
-in ordinary FIFO blocking or the workspace live-job-claim predicate.
+The cleanup fence and terminal notice have independent authority. The legacy
+pending bit is migration input only; repair freezes the notice body and accepted
+routing authority into a semantic delivery row. Exact delivery ownership then
+uses the delivery ID, job, token, attempt, owner, and finite expiry. Terminal
+rows and response-delivery leases never participate in ordinary agent FIFO
+blocking or the workspace live-job-claim predicate.
 The schema-v12 outbox and pure delivery policy define answer-ready and delivery
 recovery. Exact artifact completion now inserts the immutable final-answer row
 and moves its job to `answer-ready` before any provider IO. Later delivery work
 owns only the outbox state machine and cannot re-enter agent execution.
-Each delivery claim has its own owner, finite expiry, and fresh attempt ID.
+Each semantic delivery claim has its own owner, finite expiry, and fresh attempt ID.
 `provider_io_started` is the durable replay boundary: zero can be safely
 released or requeued without consuming an attempt; one requires
 provider-specific ambiguity policy after restart. Typed results commit only

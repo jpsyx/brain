@@ -98,7 +98,7 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
 
     assert_eq!(
         db.receiver_job(command.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let following_job = db.receiver_job(following.job_id()).unwrap().unwrap();
     assert_ne!(following_job.conversation_id(), command.conversation_id());
@@ -219,18 +219,18 @@ fn durable_restart_cuts_prior_backlog_during_active_run_and_preserves_later_fres
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Failed
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(
         db.receiver_job(dropped_other.job_id())
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Failed
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(
         db.receiver_job(restart.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let survivor_job = db.receiver_job(survivor.job_id()).unwrap().unwrap();
     assert_eq!(survivor_job.state(), ReceiverJobState::Queued);

@@ -69,6 +69,47 @@ fn delivery_index_signature(
 }
 
 #[test]
+fn v12_same_version_repair_migrates_legacy_pending_notice_to_the_outbox() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let accepted = db
+        .accept_receiver_job(
+            &receiver_job(Some("legacy-notice-repair"), 100),
+            &ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id()),
+        )
+        .expect("accept legacy notice job");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs
+             SET state = 'failed', pending_unavailable_notice = 1
+             WHERE job_id = ?1",
+            [accepted.job_id().to_string()],
+        )
+        .expect("stage legacy notice bit");
+
+    super::super::schema::up(&db.conn, 12).expect("run same-version repair");
+
+    let repaired: (String, bool, String) = db
+        .conn
+        .query_row(
+            "SELECT job.state, job.pending_unavailable_notice, delivery.response_kind
+             FROM receiver_jobs AS job
+             JOIN receiver_deliveries AS delivery ON delivery.job_id = job.job_id
+             WHERE job.job_id = ?1",
+            [accepted.job_id().to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load migrated legacy notice");
+    assert_eq!(
+        repaired,
+        (
+            "answer-ready".to_owned(),
+            false,
+            "unavailable-notice".to_owned()
+        )
+    );
+}
+
+#[test]
 fn v12_repair_adds_retry_time_before_creating_the_due_index() {
     let db = Db::open_in_memory().expect("receiver state");
     replace_delivery_table(&db.conn, LOOSE_DELIVERY_TABLE_WITHOUT_RETRY_SQL);
@@ -382,5 +423,148 @@ fn v12_down_never_maps_a_blank_acknowledgement_to_done() {
     assert_eq!(
         state,
         ("failed".to_owned(), Some("downgrade-no-replay".to_owned()))
+    );
+}
+
+#[test]
+fn v12_same_version_repair_terminalizes_completed_retry_without_delivery_row() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("state.db");
+    let job_id = {
+        let db = Db::open_path_with_legacy_identity(
+            &path,
+            &receiver_workspace_id().to_string(),
+            receiver_user_id().as_str(),
+        )
+        .expect("receiver state");
+        let accepted = db
+            .accept_receiver_job(
+                &receiver_job(Some("missing-final-answer-row"), 100),
+                &ReceiverConversationIdentity::sms(
+                    receiver_workspace_id(),
+                    receiver_user_id(),
+                ),
+            )
+            .expect("accept receiver job");
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs
+                 SET state = 'retrying', completed_at_unix_ms = 100,
+                     retry_at_unix_ms = NULL, retry_from_state = NULL
+                 WHERE job_id = ?1",
+                [accepted.job_id().to_string()],
+            )
+            .expect("stage completed delivery retry without outbox row");
+        accepted.job_id()
+    };
+
+    let repaired = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("same-version v12 repair");
+    let state: (String, Option<String>) = repaired
+        .conn
+        .query_row(
+            "SELECT state, last_error FROM receiver_jobs WHERE job_id = ?1",
+            [job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load repaired job");
+
+    assert!(
+        state
+            == (
+                "failed".to_owned(),
+                Some("delivery-schema-repair-missing".to_owned())
+            ),
+        "completed delivery retry without its outbox row remained unclaimable"
+    );
+}
+
+#[test]
+fn v12_down_up_terminalizes_completed_retry_when_delivery_table_is_missing() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = temporary.path().join("state.db");
+    let job_id = {
+        let db = Db::open_path_with_legacy_identity(
+            &path,
+            &receiver_workspace_id().to_string(),
+            receiver_user_id().as_str(),
+        )
+        .expect("receiver state");
+        let accepted = db
+            .accept_receiver_job(
+                &receiver_job(Some("missing-final-answer-table"), 100),
+                &ReceiverConversationIdentity::sms(
+                    receiver_workspace_id(),
+                    receiver_user_id(),
+                ),
+            )
+            .expect("accept receiver job");
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs
+                 SET state = 'retrying', completed_at_unix_ms = 100,
+                     retry_at_unix_ms = NULL, retry_from_state = NULL
+                 WHERE job_id = ?1",
+                [accepted.job_id().to_string()],
+            )
+            .expect("stage completed delivery retry");
+        db.conn
+            .execute_batch(
+                "DROP INDEX IF EXISTS receiver_deliveries_due;
+                 DROP INDEX IF EXISTS receiver_deliveries_job_kind;
+                 DROP TABLE receiver_deliveries;",
+            )
+            .expect("remove delivery table before downgrade");
+        accepted.job_id()
+    };
+
+    super::super::schema::down_delivery_path(&path)
+        .expect("downgrade v12 state without delivery table");
+    let downgraded = rusqlite::Connection::open(&path).expect("downgraded state");
+    let version: i64 = downgraded
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("v11 schema version");
+    let v11_state: (String, Option<String>) = downgraded
+        .query_row(
+            "SELECT state, last_error FROM receiver_jobs WHERE job_id = ?1",
+            [job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load downgraded job");
+    assert!(
+        version == 11
+            && v11_state
+                == (
+                    "failed".to_owned(),
+                    Some("downgrade-no-replay".to_owned())
+                ),
+        "downgrade retained an unclaimable completed delivery retry"
+    );
+    drop(downgraded);
+
+    let upgraded = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("upgrade repaired v11 state");
+    let v12_state: (String, i64) = upgraded
+        .conn
+        .query_row(
+            "SELECT job.state,
+                    (SELECT COUNT(*) FROM receiver_deliveries AS delivery
+                     WHERE delivery.job_id = job.job_id)
+             FROM receiver_jobs AS job WHERE job.job_id = ?1",
+            [job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load upgraded terminal job");
+    assert!(
+        v12_state == ("failed".to_owned(), 0),
+        "up migration recreated replay authority for the terminal job"
     );
 }

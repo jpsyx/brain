@@ -224,3 +224,77 @@ fn fresh_app_reconciles_expired_resend_io_before_new_delivery_work() {
     assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Retrying);
     assert_eq!(execution.reservation_count(), 0);
 }
+
+#[test]
+fn fresh_app_terminalizes_due_resend_retry_after_idempotency_window_before_provider_io() {
+    let (temporary, mut app, db, first, _second, _transport) = answer_fixture();
+    publish_valid_completion(&app, "answer survives an offline retry window");
+    app.tick_receiver();
+    let email_envelope = serde_json::json!({
+        "channel": "email",
+        "value": {
+            "sender": "brain@example.test",
+            "recipients": ["member@example.test"],
+            "subject": "Re: Frozen subject",
+            "text": "frozen private answer",
+            "html": "<p>frozen private answer</p>",
+            "in_reply_to": "<message@example.test>",
+            "references": "<message@example.test>",
+            "provider_email_id": "provider-email-id"
+        }
+    })
+    .to_string();
+    let connection = rusqlite::Connection::open(app.context.state_db_path())
+        .expect("open receiver state for retry fixture");
+    connection
+        .execute(
+            "UPDATE receiver_deliveries
+             SET envelope_json = ?2, state = 'retrying', attempt_count = 1,
+                 retry_at_unix_ms = 61_000, first_attempt_at_unix_ms = 1_000,
+                 error_category = 'transport-unavailable'
+             WHERE job_id = ?1",
+            rusqlite::params![first.job_id().to_string(), email_envelope],
+        )
+        .expect("stage due Resend retry");
+    connection
+        .execute(
+            "UPDATE receiver_jobs SET state = 'retrying' WHERE job_id = ?1",
+            [first.job_id().to_string()],
+        )
+        .expect("stage retrying answer job");
+    drop(connection);
+    drop(app);
+
+    let cli = Cli::parse_from(["tasks"]);
+    let mut restarted = test_app(&temporary, &cli, AgentKind::Claude);
+    restarted.receiver.record_intent(true);
+    restarted
+        .services
+        .replace_receiver_sync_runtime(Box::new(ReceiverClock::at_unix_ms(86_401_001)));
+    let execution = ScriptedDeliveryExecution::acknowledged();
+    restarted
+        .services
+        .replace_receiver_delivery_execution(Box::new(execution.clone()));
+
+    restarted.tick_receiver();
+
+    assert_eq!(execution.reservation_count(), 0);
+    assert_eq!(job_state(&db, first.job_id()), ReceiverJobState::Failed);
+    let terminal: (String, Option<String>) =
+        rusqlite::Connection::open(restarted.context.state_db_path())
+            .expect("open receiver state after retry reconciliation")
+            .query_row(
+                "SELECT state, ambiguity_reason FROM receiver_deliveries WHERE job_id = ?1",
+                [first.job_id().to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("load terminalized retry");
+    assert!(
+        terminal
+            == (
+                "ambiguous".to_owned(),
+                Some("idempotency-window-expired".to_owned())
+            ),
+        "expired Resend retry did not terminalize with the stable ambiguity category"
+    );
+}

@@ -182,10 +182,10 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
-| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs` owns the clock-injected pure lease decision; `schema.rs` owns the receiver schema coordinator, `schema/recovery.rs` owns schema-v10 columns, repair, and v10-to-v9 downgrade mapping, `schema/recovery/cleanup.rs` reconstructs cleanup authority only from one exact registration/session match, and `schema/token.rs` owns semantic UUID token reconciliation; `model/delivery/decode.rs` owns serialized-envelope validation; `store.rs` owns acceptance, the separately persisted acceptance-time response sender, and conversation mutations; `store/load.rs` owns typed row decoding; `store/observation.rs` owns exact token, owner, instance, live-session, revision, and lifecycle-deadline commits; `store/completion/{authorization,duplicate,lifecycle,preparation,transaction}.rs` respectively own immutable completion proof, replay validation, lifecycle merging, sendable-versus-terminal preparation, and the atomic transcript, outcome, binding, claim-release, and cleanup-authority write; `store/delivery/{claim,decode,result,reconciliation}.rs` respectively own exact claim and pre-provider release, typed row decoding, result CAS, and expired-lease recovery behind the delivery facade; `store/answer_cleanup.rs` owns durable controller-shutdown fencing, exact session release, and durable artifact acknowledgement after agent ownership ends; `database.rs` owns atomic dead-lock reap plus handoff acknowledgement; `store/reconciliation.rs` owns the immediate oldest-blocker transaction and neutral semantic effects, with focused candidate, cleanup-acknowledgement, and terminal helpers beneath it; `store/claim/live.rs` owns the workspace-wide live-claim exclusion shared by every claim transaction; `store/claim/next.rs` owns ordinary FIFO selection and refuses due recovery attempts; `store/claim/recovery.rs` gates recovery on the globally oldest claimable or blocking row, then claims only an ownerless, cleanup-acknowledged recovery already persisted by reconciliation; `store/claim.rs` owns launch CAS, transitions, and bounded ordinary failures that remain provably pre-spawn; `store/session.rs` owns exact receiver registration, release, and lifecycle binding attribution |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and `schema/delivery.rs` owns v12 outbox repair including legacy-notice conversion; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,reconciliation,status}.rs` own generic exact response claims, typed row decoding, result CAS, expired-lease recovery, and content-free counts; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | `planning.rs` renders a frontend-neutral launch plan with the exact terminal job-token marker from an already-authorized session choice; `session.rs` owns isolated hook identity plus fresh/resume registration guards; `failure.rs` owns pre-spawn controller/session/claim cleanup; `run.rs` distinguishes ordinary claimed, recovery claimed, active, answer-cleanup, and recovery-cleanup local authority; `attachments.rs` owns the bounded background staging worker, exact generation coordinator, and owning batch guard; `app_brain/receiver/dispatch.rs` owns FIFO claim, freshness, durable controls, and cleanup-row polling; `resume.rs` owns binding selection, native-history validation, exact resume registration, and the typed fresh/lost/deferred decision after fresh owner checks; `launch.rs` owns capability checks, fresh registration, receiver-only observation authority, launch planning, and launch preparation; `launch_effects.rs` owns controller spawn, background-tab allocation, and the exact durable `launched` boundary; `ownership.rs` owns fresh-clock exact-owner renewal and pre-spawn retry decisions; `attachment_dispatch.rs` owns nonblocking staging-result decisions; `active.rs` owns exact-claim renewal, exact-tab lifecycle polling, and fresh-time atomic observation commits, while `active/terminal.rs` owns exact terminal authorization and answer commit; `answer_cleanup.rs` owns the durable exact-controller shutdown handoff, independently retryable session release and artifact cleanup, then task reload and final sync; `cleanup.rs` owns exact-instance response, snapshot, and lock removal; `diagnostic.rs` owns the stable content-free observation log shape; `shutdown.rs` owns receiver-first local teardown without replaying `launched` work; `artifact.rs` owns exact token-bound completion correlation while private final text remains separate from lifecycle evidence; `reply.rs` preserves immutable provider delivery. No in-memory or socket consumer remains; `ReceiverRuntime` holds only a narrowly named legacy endpoint lifetime for BR-18 builder compatibility. |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only agent and cleanup authority. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local reply or unavailable-notice handoff remains. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 The delivery schema coordinator now delegates the answer-cleanup table contract
@@ -206,7 +206,7 @@ commit, then `answer_cleanup.rs` retries the ordered private cleanup effects.
 Provider answer delivery is no longer part of terminal App cleanup.
 The enabled App tick advances it independently through
 `tui/state/services/receiver_delivery.rs`: it applies typed results,
-reconciles expired leases, claims the oldest due final answer, reserves bounded
+reconciles expired leases, claims the oldest due semantic response, reserves bounded
 worker capacity, commits `provider_io_started`, and only then publishes curl
 work. Publication is nonblocking; a failed handoff proves the operation never
 started and reverses only that exact IO-start CAS and attempt increment.
@@ -223,17 +223,15 @@ Observation persistence computes its progress and immutable absolute deadlines
 through the pure lifecycle-deadline helper, so SQLite does not carry a second
 clamp decision.
 
-BR-16 Task 4 adds focused live-receiver seams:
+BR-16 Task 4 originally added focused live-receiver seams:
 `app_brain/receiver/recovery.rs` executes neutral reconciliation effects;
 `recovery_launch/{claim,pre_spawn_cleanup,effects}.rs` separates persisted
 recovery selection, retryable pre-spawn cleanup, and post-spawn capability
 transfer; `recovery_launch/effects/{activation,cleanup}.rs` separates exact
-commit and tab activation from shutdown-first cleanup; and `notice.rs` owns the
-finite local notice handoff. The `AppServices` facade similarly isolates
-recovery and unavailable-notice persistence in
-`tui/state/services/{receiver_recovery,receiver_notice}.rs`. In the state layer,
-`store/unavailable_notice.rs` owns the schema-v11 notice lease claim and exact
-acknowledgement; the reconciliation cleanup helper owns the exact
+commit and tab activation from shutdown-first cleanup. BR-17 removes the local
+notice handoff: reconciliation converts the legacy bit to one semantic outbox
+row, and the generic delivery worker owns it thereafter. The reconciliation
+cleanup helper owns the exact
 stale-registration PID proof used only after App reconstruction.
 `store/reconciliation/recovery_registration.rs` derives a recovery Resume
 cleanup fence only from the exact job, token, conversation, actor, channel,
@@ -356,13 +354,12 @@ back Fresh. Lost and deferred ownership are separate typed outcomes and can
 never become Fresh. `tui::receiver::planning` renders that already-authorized
 choice with a UTF-8-safe recovery prompt capped at 47 KiB. The isolated-tab coordinator
 uses these operations from the one recurring `App::tick_receiver` call.
-`app_brain/receiver/dispatch.rs` owns the reconcile, notice, restart, held-run,
+`app_brain/receiver/dispatch.rs` owns delivery reconciliation, restart, held-run,
 recovery-claim, then ordinary-claim tick order;
 `recovery.rs` executes exact local cleanup effects, including the persisted
 stale-PID proof required when a restarted App has no local tab;
 `recovery_launch.rs` owns accepted-work resume validation, exact session claim,
-and launch through the persisted frontend; `notice.rs` owns finite local notice
-handoff and exact acknowledgement;
+and launch through the persisted frontend;
 `resume.rs` owns resume validation and registration; `launch.rs` owns capability
 checks, fresh registration, planning, and launch preparation;
 `launch_effects.rs` owns controller spawn and background insertion; and
@@ -1278,15 +1275,15 @@ samples the observation supplied to the exact-owner retry CAS. Losing or
 expiring the claim therefore permits local resource cleanup but no durable job
 or retry mutation.
 While receiver processing is enabled, the sole receiver tick first reconciles
-the oldest durable blocker and executes its exact cleanup effect. It then
-leases and hands off one pending terminal notice, applies durable `/restart`
-controls, advances the already-held local run, and, if still idle, claims a due
+the oldest durable blocker and executes its exact cleanup effect. It reconciles
+and advances semantic response deliveries, applies durable `/restart` controls,
+rechecks delivery work, advances the already-held local run, and, if still idle, claims a due
 accepted-work recovery before ordinary FIFO work. A restarted App may
 acknowledge an absent cleanup tab only when the exact registration and session
 lock still match and the recorded PID is proved dead. A live matching PID from
 another TUI blocks acknowledgement. A claimed ordinary job passes the
 sync-freshness gate, and `/new` completes before any ordinary agent launch.
-Disabling receiver intent skips reconciliation, notice handoff, restart scans,
+Disabling receiver intent skips reconciliation, delivery work, restart scans,
 and new claims. An already-claimed run continues renewal, freshness, and
 durable control handling, but no ordinary or recovery process may launch until
 intent is enabled again. A genuinely active controller continues completion,
@@ -2136,10 +2133,9 @@ ambiguous recovery policy. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;
-email keeps its markdown. Legacy notice and control replies are handed to the
-bounded background worker in `server/delivery.rs`, keeping network latency off
-the TUI event loop. Final-answer completion freezes the durable outbox and does
-not hand its body to that worker. Receiver bodies are capped at 1 MiB by the
+email keeps its markdown. Final answers, notices, and control acknowledgements
+all enter the semantic durable outbox. The bounded provider executor in
+`server/delivery.rs` keeps network latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
 shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.

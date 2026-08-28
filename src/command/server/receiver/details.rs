@@ -93,6 +93,23 @@ pub(super) fn status_rows(status: ReceiverStatus, theme: Theme) -> String {
     liveness_rows(status, STATUS_LABEL_WIDTH, theme)
 }
 
+/// Redacted durable delivery phases for `brain receiver status`. Pure.
+#[must_use]
+pub(super) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme: Theme) -> String {
+    [
+        ("answer-ready", counts.answer_ready()),
+        ("delivering", counts.delivering()),
+        ("retrying", counts.retrying()),
+        ("ambiguous", counts.ambiguous()),
+        ("failed", counts.failed()),
+        ("done", counts.done()),
+    ]
+    .into_iter()
+    .map(|(phase, count)| format!("{} {}", theme.muted(phase), theme.value(&count.to_string())))
+    .collect::<Vec<_>>()
+    .join("  ")
+}
+
 /// One workspace's receiver block. Pure.
 #[must_use]
 pub(crate) fn report_block(report: &WorkspaceReport, theme: Theme) -> String {

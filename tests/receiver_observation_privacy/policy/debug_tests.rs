@@ -37,10 +37,7 @@ fn content_bearing_receiver_types_cannot_derive_debug() {
         ),
         (
             "src/state/receiver/model/effect.rs",
-            &[
-                "ReceiverReconciliationEffect",
-                "ReceiverUnavailableNoticeClaim",
-            ],
+            &["ReceiverReconciliationEffect"],
         ),
         (
             "src/state/receiver/model/identity.rs",

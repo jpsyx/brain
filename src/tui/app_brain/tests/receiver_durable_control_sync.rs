@@ -34,7 +34,7 @@ fn disabled_pending_new_finishes_its_boundary_without_claiming_following_work() 
 
     assert_eq!(
         db.receiver_job(command.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done,
+        ReceiverJobState::AnswerReady,
         "the already claimed control must finish while intent is disabled"
     );
     let following_job = db.receiver_job(following.job_id()).unwrap().unwrap();
