@@ -1591,10 +1591,11 @@ and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are never rerun as ordinary work; the
 enabled tick executes the schema-v10 recovery policy first.
 BR-15 owns exact accepted/progress observations, and BR-17 now owns atomic
-answer persistence while later tasks add delivery-only retry. BR-18 retains final
-schema/migration reconciliation, durable status and diagnostics, and deletion
-of the legacy endpoint representation; receiver injection, warm-panel reuse,
-activity inference, and the second execution cursor are already absent.
+answer persistence, generic delivery-only retry, durable semantic notices and
+controls, frozen-authority fallback, schema reconciliation, and content-free
+delivery status and diagnostics. BR-18 retains deletion of the legacy endpoint
+representation; receiver injection, warm-panel reuse, activity inference, and
+the second execution cursor are already absent.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.
@@ -1657,6 +1658,12 @@ TCP connection failed before a request could be accepted; other nonzero exits
 remain ambiguous unless a narrower provider response proves otherwise.
 Executor publication is nonblocking; a disconnected start handoff proves the
 operation was never sent and rolls back only the exact attempt increment.
+Every terminal provider result stores a content-free fallback decision. The
+planner receives only the failed provider, attempted recipients, and alternates
+frozen in the delivery row. When it selects one, the source CAS and unique short
+fallback-notice insert share the same immediate transaction. No result path
+consults later user or configuration state, and a fallback-notice result cannot
+plan another fallback.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact

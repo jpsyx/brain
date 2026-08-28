@@ -152,14 +152,12 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
                  last_error = 'downgrade-no-replay', pending_unavailable_notice = 0,
                  unavailable_notice_owner = NULL,
                  unavailable_notice_expires_at_unix_ms = NULL
-             WHERE completed_at_unix_ms IS NOT NULL
-               AND state IN ('answer-ready', 'delivering', 'retrying')
+             WHERE state IN ('answer-ready', 'delivering', 'retrying')
                AND (state != 'retrying' OR retry_from_state IS NULL)
                AND NOT EXISTS (
                  SELECT 1 FROM receiver_deliveries AS delivery
                  WHERE delivery.job_id = receiver_jobs.job_id
                    AND delivery.job_token = receiver_jobs.job_token
-                   AND delivery.response_kind = 'final-answer'
                );",
         )?;
     } else {
@@ -170,8 +168,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
                  last_error = 'downgrade-no-replay', pending_unavailable_notice = 0,
                  unavailable_notice_owner = NULL,
                  unavailable_notice_expires_at_unix_ms = NULL
-             WHERE completed_at_unix_ms IS NOT NULL
-               AND state IN ('answer-ready', 'delivering', 'retrying')
+             WHERE state IN ('answer-ready', 'delivering', 'retrying')
                AND (state != 'retrying' OR retry_from_state IS NULL);",
         )?;
     }

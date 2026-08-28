@@ -4,7 +4,8 @@ const RETRY_DELAYS_UNIX_MS: [u64; 3] = [60_000, 300_000, 1_800_000];
 const RESEND_IDEMPOTENCY_WINDOW_UNIX_MS: u64 = 24 * 60 * 60 * 1_000;
 
 /// External provider replay capability for one immutable envelope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ReceiverProviderCapability {
     Twilio,
     Resend,

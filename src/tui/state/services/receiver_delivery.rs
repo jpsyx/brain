@@ -27,6 +27,17 @@ impl ReceiverDeliveryExecution for UnavailableReceiverDeliveryExecution {
 }
 
 impl AppServices {
+    fn log_receiver_delivery_state(&self, stage: &'static str, changed: usize) {
+        match self.db.receiver_delivery_counts() {
+            Ok(counts) => {
+                crate::logging::log(receiver_delivery_state_diagnostic(stage, changed, counts));
+            }
+            Err(_) => crate::logging::log(format!(
+                "receiver delivery stage={stage} boundary=status-counts category=unavailable"
+            )),
+        }
+    }
+
     pub(crate) fn cancel_receiver_delivery(&mut self) {
         self.receiver_delivery_execution.cancel();
     }
@@ -57,6 +68,7 @@ impl AppServices {
                     return;
                 }
             };
+        self.log_receiver_delivery_state("claim", 1);
         let start = match self
             .receiver_delivery_execution
             .reserve(command.clone(), claim.clone())
@@ -110,7 +122,10 @@ impl AppServices {
 
     pub(crate) fn reconcile_receiver_delivery_state(&mut self, now_unix_ms: u64) -> bool {
         match self.db.reconcile_expired_receiver_deliveries(now_unix_ms) {
-            Ok(_) => {
+            Ok(changed) => {
+                if changed > 0 {
+                    self.log_receiver_delivery_state("reconciliation", changed);
+                }
                 if self
                     .receiver_delivery_active
                     .as_ref()
@@ -149,13 +164,68 @@ impl AppServices {
             .db
             .apply_receiver_delivery_result(&claim, now_unix_ms, result)
         {
-            Ok(ReceiverDeliveryApplyOutcome::Applied | ReceiverDeliveryApplyOutcome::Stale) => {}
+            Ok(ReceiverDeliveryApplyOutcome::Applied) => {
+                self.log_receiver_delivery_state("result", 1);
+            }
+            Ok(ReceiverDeliveryApplyOutcome::Stale) => {}
             Err(error) => {
                 crate::logging::log(format!("receiver delivery result commit failed: {error:#}"));
             }
         }
         if self.receiver_delivery_active.as_ref() == Some(&claim) {
             self.receiver_delivery_active = None;
+        }
+    }
+}
+
+fn receiver_delivery_state_diagnostic(
+    stage: &'static str,
+    changed: usize,
+    counts: crate::state::ReceiverDeliveryCounts,
+) -> String {
+    format!(
+        "receiver delivery stage={stage} changed={changed} phases=answer-ready:{},delivering:{},retrying:{},ambiguous:{},failed:{},done:{} reasons=retry-exhausted:{},permanent-rejection:{},ambiguous-acknowledgement:{},idempotency-window-expired:{},no-safe-fallback:{}",
+        counts.answer_ready(),
+        counts.delivering(),
+        counts.retrying(),
+        counts.ambiguous(),
+        counts.failed(),
+        counts.done(),
+        counts.retry_exhausted(),
+        counts.permanent_rejection(),
+        counts.ambiguous_acknowledgement(),
+        counts.idempotency_window_expired(),
+        counts.no_safe_fallback(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delivery_tick_diagnostic_is_stable_and_content_free() {
+        let counts = crate::state::ReceiverDeliveryCounts::new(1, 2, 3, 4, 5, 6)
+            .with_terminal_reasons(7, 8, 9, 10, 11);
+
+        let diagnostic = receiver_delivery_state_diagnostic("reconciliation", 12, counts);
+
+        assert_eq!(
+            diagnostic,
+            "receiver delivery stage=reconciliation changed=12 phases=answer-ready:1,delivering:2,retrying:3,ambiguous:4,failed:5,done:6 reasons=retry-exhausted:7,permanent-rejection:8,ambiguous-acknowledgement:9,idempotency-window-expired:10,no-safe-fallback:11"
+        );
+        for forbidden in [
+            "private-sender",
+            "private-recipient",
+            "private-answer",
+            "provider-response",
+            "credential-secret",
+            "mutable-instance",
+        ] {
+            assert!(
+                !diagnostic.contains(forbidden),
+                "diagnostic leaked forbidden content"
+            );
         }
     }
 }

@@ -7,7 +7,7 @@ use super::reconciliation::terminalize_expired_due_retry;
 use crate::state::{Db, ReceiverDeliveryAttemptId, ReceiverDeliveryClaim};
 
 impl Db {
-    /// Claim the oldest due final-answer delivery without touching the agent claim lane.
+    /// Claim the oldest due semantic response without touching the agent claim lane.
     pub fn claim_next_receiver_delivery(
         &self,
         owner: &str,
@@ -359,12 +359,14 @@ fn terminalize_expired_claim_before_io(
         observed_at_unix_ms,
         "receiver delivery replay-window expiry",
     )?;
+    let fallback = super::result::terminal_fallback(transaction, claim.delivery_id())?;
     let delivery_changed = transaction.execute(
         "UPDATE receiver_deliveries
          SET state = 'ambiguous', attempt_id = NULL, retry_at_unix_ms = NULL,
              claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              provider_io_started = 0, provider_reference = NULL,
              error_category = NULL, ambiguity_reason = 'idempotency-window-expired',
+             fallback_decision = ?11,
              updated_at_unix_ms = ?9
          WHERE delivery_id = ?1 AND job_id = ?2 AND job_token = ?3
            AND attempt_id = ?4 AND claim_owner = ?5
@@ -384,21 +386,24 @@ fn terminalize_expired_claim_before_io(
             i64::from(claim.attempt_count().saturating_sub(1)),
             observed,
             workspace_id,
+            fallback.decision(),
         ],
     )?;
     if delivery_changed == 0 {
         return Ok(false);
     }
+    fallback.insert_notice(transaction, claim.job_id(), claim.token(), observed)?;
     let job_changed = transaction.execute(
         "UPDATE receiver_jobs
-         SET state = 'failed', retry_at_unix_ms = NULL, retry_from_state = NULL,
-             last_error = NULL, updated_at_unix_ms = ?4
+         SET state = ?4, retry_at_unix_ms = NULL, retry_from_state = NULL,
+             last_error = NULL, updated_at_unix_ms = ?5
          WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
            AND state = 'delivering'",
         rusqlite::params![
             workspace_id,
             claim.job_id().to_string(),
             claim.token().to_string(),
+            fallback.job_state(),
             observed,
         ],
     )?;

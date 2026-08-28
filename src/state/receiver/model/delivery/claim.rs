@@ -1,7 +1,7 @@
 use super::{ReceiverDeliveryAttemptId, ReceiverDeliveryEnvelope, ReceiverDeliveryId};
 use crate::state::{ReceiverJobId, ReceiverJobToken, ReceiverProviderCapability};
 
-/// Exact finite ownership of one immutable final-answer provider attempt.
+/// Exact finite ownership of one immutable semantic-response provider attempt.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ReceiverDeliveryClaim {
     delivery_id: ReceiverDeliveryId,

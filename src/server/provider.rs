@@ -179,10 +179,6 @@ impl CurlRequest {
         command
     }
 
-    pub(super) fn output(self) -> std::io::Result<Output> {
-        self.output_cancellable(&CurlCancellation::new())
-    }
-
     pub(super) fn output_cancellable(
         self,
         cancellation: &CurlCancellation,

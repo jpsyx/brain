@@ -8,6 +8,39 @@ fn answer_ready_fixture() -> super::binding::CompletionFixture {
     fixture
 }
 
+fn seed_generic_response(
+    db: &Db,
+    job_id: ReceiverJobId,
+    response_kind: &str,
+    created_at_unix_ms: u64,
+    envelope: &str,
+) {
+    let token: String = db
+        .conn
+        .query_row(
+            "SELECT job_token FROM receiver_jobs WHERE job_id = ?1",
+            [job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("load semantic response token");
+    db.conn
+        .execute(
+            "INSERT INTO receiver_deliveries
+               (delivery_id, job_id, job_token, response_kind, envelope_json, state,
+                attempt_count, created_at_unix_ms, updated_at_unix_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'ready', 0, ?6, ?6)",
+            rusqlite::params![
+                uuid::Uuid::new_v4().to_string(),
+                job_id.to_string(),
+                token,
+                response_kind,
+                envelope,
+                created_at_unix_ms,
+            ],
+        )
+        .expect("seed generic response");
+}
+
 #[test]
 fn oldest_due_final_answer_claim_is_independent_and_exact() {
     let first = answer_ready_fixture();
@@ -124,6 +157,183 @@ fn oldest_due_final_answer_claim_is_independent_and_exact() {
             .is_none(),
         "delivery jobs never return to the ordinary agent lane"
     );
+}
+
+#[test]
+fn reconciliation_terminalizes_corrupt_oldest_generic_response_before_later_claim() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let mut jobs = Vec::new();
+    for (provider_id, response_kind, created_at) in [
+        ("corrupt-control", "control-acknowledgement", 100),
+        ("later-notice", "unavailable-notice", 200),
+    ] {
+        let inbound = receiver_job(Some(provider_id), created_at);
+        let accepted = db
+            .accept_receiver_job(&inbound, &identity)
+            .expect("accept semantic response job");
+        seed_generic_response(
+            &db,
+            accepted.job_id(),
+            response_kind,
+            created_at,
+            if created_at == 100 {
+                r#"{"channel":"sms","value":{"recipient":"private-recipient","body":"private corrupt body"}}"#
+            } else {
+                r#"{"channel":"sms","value":{"sender":"+12125550100","recipient":"+12125550100","body":"later private notice","long_form_available":false}}"#
+            },
+        );
+        db.conn
+            .execute(
+                "UPDATE receiver_jobs SET state = 'answer-ready' WHERE job_id = ?1",
+                [accepted.job_id().to_string()],
+            )
+            .expect("stage semantic response job");
+        jobs.push(accepted.job_id());
+    }
+
+    assert_eq!(
+        db.reconcile_expired_receiver_deliveries(300)
+            .expect("reconcile corrupt semantic response"),
+        1,
+        "corrupt generic response was not terminalized"
+    );
+    let claim = db
+        .claim_next_receiver_delivery("generic-owner", 300, 30_300)
+        .expect("claim after corrupt generic response")
+        .expect("later valid response remains claimable");
+
+    assert_eq!(claim.job_id(), jobs[1]);
+    let corrupt: (String, Option<String>, String) = db
+        .conn
+        .query_row(
+            "SELECT delivery.state, delivery.error_category, job.state
+             FROM receiver_deliveries AS delivery
+             JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
+             WHERE delivery.job_id = ?1",
+            [jobs[0].to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("load terminal corrupt response");
+    assert_eq!(
+        corrupt,
+        (
+            "failed".to_owned(),
+            Some("invalid-request".to_owned()),
+            "failed".to_owned()
+        )
+    );
+}
+
+#[test]
+fn delivery_status_counts_stable_terminal_reasons_without_content() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let cases = [
+        (
+            "status-retry-exhausted",
+            "failed",
+            Some("retry-exhausted"),
+            None,
+        ),
+        (
+            "status-permanent-rejection",
+            "failed",
+            Some("provider-rejected"),
+            None,
+        ),
+        (
+            "status-ambiguous",
+            "ambiguous",
+            None,
+            Some("provider-acceptance-unknown"),
+        ),
+        (
+            "status-window-expired",
+            "ambiguous",
+            None,
+            Some("idempotency-window-expired"),
+        ),
+    ];
+    for (index, (provider_id, state, error, ambiguity)) in cases.into_iter().enumerate() {
+        let inbound = receiver_job(Some(provider_id), 100 + u64::try_from(index).unwrap());
+        let accepted = db
+            .accept_receiver_job(&inbound, &identity)
+            .expect("accept status fixture");
+        seed_generic_response(
+            &db,
+            accepted.job_id(),
+            "unavailable-notice",
+            100 + u64::try_from(index).unwrap(),
+            r#"{"channel":"sms","value":{"sender":"+12125550100","recipient":"+12125550100","body":"private status body","long_form_available":false}}"#,
+        );
+        db.conn
+            .execute(
+                "UPDATE receiver_deliveries
+                 SET state = ?2, error_category = ?3, ambiguity_reason = ?4,
+                     fallback_decision = 'no-safe-fallback'
+                 WHERE job_id = ?1",
+                rusqlite::params![accepted.job_id().to_string(), state, error, ambiguity],
+            )
+            .expect("stage terminal status row");
+    }
+
+    let counts = db.receiver_delivery_counts().expect("delivery status counts");
+
+    assert_eq!(counts.retry_exhausted(), 1);
+    assert_eq!(counts.permanent_rejection(), 1);
+    assert_eq!(counts.ambiguous_acknowledgement(), 1);
+    assert_eq!(counts.idempotency_window_expired(), 1);
+    assert_eq!(counts.no_safe_fallback(), 4);
+    let debug = format!("{counts:?}");
+    for forbidden in [
+        "private status body",
+        "+12125550100",
+        "status-permanent-rejection",
+    ] {
+        assert!(
+            !debug.contains(forbidden),
+            "status counts leaked forbidden content"
+        );
+    }
+}
+
+#[test]
+fn delivery_status_read_only_handles_pre_delivery_schema_without_mutation() {
+    let temporary = tempfile::tempdir().expect("temporary state directory");
+    let missing = temporary.path().join("missing.db");
+    let missing_counts = Db::receiver_delivery_counts_read_only(&missing)
+        .expect("missing read-only status is empty");
+    assert_eq!(missing_counts, crate::state::ReceiverDeliveryCounts::default());
+    assert!(!missing.exists(), "read-only status created missing state");
+
+    let legacy = temporary.path().join("legacy.db");
+    let connection = rusqlite::Connection::open(&legacy).expect("legacy status database");
+    connection
+        .execute_batch(
+            "CREATE TABLE receiver_deliveries(state TEXT NOT NULL);
+             INSERT INTO receiver_deliveries VALUES ('failed');
+             PRAGMA user_version = 11;",
+        )
+        .expect("stage pre-delivery status shape");
+    drop(connection);
+
+    let counts = Db::receiver_delivery_counts_read_only(&legacy)
+        .expect("read legacy status without repair");
+    assert_eq!(counts.failed(), 1);
+    assert_eq!(counts.no_safe_fallback(), 0);
+    let unchanged = rusqlite::Connection::open(&legacy).expect("inspect legacy status database");
+    let version: i64 = unchanged
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("legacy version");
+    let columns: i64 = unchanged
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('receiver_deliveries')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("legacy delivery columns");
+    assert_eq!((version, columns), (11, 1));
 }
 
 #[test]

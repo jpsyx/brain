@@ -1661,10 +1661,14 @@ Twilio HTTP 5xx is terminal ambiguity because retrying could duplicate an SMS.
 Curl proxy-resolution, host-resolution, and TCP-connect exits 5, 6, and 7 are
 safe pre-provider retries for either provider; timeout and neighboring generic
 process failures remain conservative.
-Legacy notices and controls still use their existing background path. BR-18
-still owns final schema migration/reconciliation, durable phase reporting, and
-removal of the narrowly retained legacy job-socket lifetime representation; it no longer needs to
-remove a parallel injection, warm-panel, or in-memory execution path.
+The same tick reconciles malformed or missing semantic-response authority before
+claiming the oldest due row. It records only content-free phase and stable
+terminal-reason counts (`retry-exhausted`, `permanent-rejection`,
+`ambiguous-acknowledgement`, `idempotency-window-expired`, and
+`no-safe-fallback`). `brain receiver status` reads and themes those counts
+without creating a database or running a migration. BR-18 retains only the
+narrow legacy job-socket lifetime representation; it no longer owns notice,
+control, delivery-status, or outbox reconciliation work.
 
 ### Durable receiver model foundation
 
@@ -1783,7 +1787,11 @@ Fallback selection is pure and fail-closed. It considers only alternate
 destinations frozen at acceptance, excludes the failed provider and attempted
 recipients, and chooses at most one short safe notice. Current single-channel
 jobs freeze no alternate authority, so they stop rather than consulting later
-user or machine configuration.
+user or machine configuration. Every terminal outcome persists either
+`fallback-planned` or `no-safe-fallback`. A planned notice is inserted in the
+same exact transaction as the source terminal transition, remains durable
+across restart and concurrent result delivery, and cannot create another
+fallback notice if its own provider attempt fails.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only
@@ -1907,7 +1915,9 @@ cannot be read reports `unavailable` with its repair command instead of taking
 the whole listing down, and a shared process that cannot be asked reports
 `live state unavailable` rather than claiming the server is stopped. Selected
 `receiver status` also prints content-free counts for `answer-ready`,
-`delivering`, `retrying`, `ambiguous`, `failed`, and `done`. These rows never
+`delivering`, `retrying`, `ambiguous`, `failed`, and `done`, followed by stable
+terminal-reason counts for retry exhaustion, permanent rejection, ambiguous
+acknowledgement, idempotency-window expiry, and no safe fallback. These rows never
 include sender, recipient, answer, envelope, transcript, provider response, or
 credential material. The listing prints the receiver's own published addresses; it never prints a
 provider credential.

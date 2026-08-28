@@ -75,10 +75,10 @@ impl std::fmt::Debug for ReceiverDeliveryEnvelope {
 /// Frozen SMS sender, destination, and rendered body.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReceiverSmsEnvelope {
-    pub(super) sender: String,
-    pub(super) recipient: String,
-    pub(super) body: String,
-    pub(super) long_form_available: bool,
+    pub(in crate::state::receiver) sender: String,
+    pub(in crate::state::receiver) recipient: String,
+    pub(in crate::state::receiver) body: String,
+    pub(in crate::state::receiver) long_form_available: bool,
 }
 
 impl<'de> Deserialize<'de> for ReceiverSmsEnvelope {
@@ -122,14 +122,14 @@ impl std::fmt::Debug for ReceiverSmsEnvelope {
 /// Frozen email sender, destinations, body alternatives, and provider lineage.
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReceiverEmailEnvelope {
-    pub(super) sender: String,
-    pub(super) recipients: Vec<String>,
-    pub(super) subject: String,
-    pub(super) text: String,
-    pub(super) html: String,
-    pub(super) in_reply_to: Option<String>,
-    pub(super) references: Option<String>,
-    pub(super) provider_email_id: Option<String>,
+    pub(in crate::state::receiver) sender: String,
+    pub(in crate::state::receiver) recipients: Vec<String>,
+    pub(in crate::state::receiver) subject: String,
+    pub(in crate::state::receiver) text: String,
+    pub(in crate::state::receiver) html: String,
+    pub(in crate::state::receiver) in_reply_to: Option<String>,
+    pub(in crate::state::receiver) references: Option<String>,
+    pub(in crate::state::receiver) provider_email_id: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for ReceiverEmailEnvelope {

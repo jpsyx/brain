@@ -28,6 +28,17 @@ impl Db {
 }
 
 fn receiver_delivery_counts(connection: &Connection) -> Result<ReceiverDeliveryCounts> {
+    let table_exists: bool = connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'receiver_deliveries'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    if !table_exists {
+        return Ok(ReceiverDeliveryCounts::default());
+    }
     let mut counts = [0usize; 6];
     let mut statement =
         connection.prepare("SELECT state, COUNT(*) FROM receiver_deliveries GROUP BY state")?;
@@ -45,7 +56,57 @@ fn receiver_delivery_counts(connection: &Connection) -> Result<ReceiverDeliveryC
             _ => {}
         }
     }
-    Ok(ReceiverDeliveryCounts::new(
+    let phases = ReceiverDeliveryCounts::new(
         counts[0], counts[1], counts[2], counts[3], counts[4], counts[5],
-    ))
+    );
+    let has_reason_columns: bool = connection.query_row(
+        "SELECT
+           EXISTS(SELECT 1 FROM pragma_table_info('receiver_deliveries')
+                  WHERE name = 'error_category')
+           AND EXISTS(SELECT 1 FROM pragma_table_info('receiver_deliveries')
+                      WHERE name = 'ambiguity_reason')
+           AND EXISTS(SELECT 1 FROM pragma_table_info('receiver_deliveries')
+                      WHERE name = 'fallback_decision')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_reason_columns {
+        return Ok(phases);
+    }
+    let reasons: (usize, usize, usize, usize, usize) = connection.query_row(
+        "SELECT
+           COUNT(*) FILTER (
+             WHERE state = 'failed' AND error_category = 'retry-exhausted'
+           ),
+           COUNT(*) FILTER (
+             WHERE state = 'failed' AND error_category IN (
+               'authorization', 'credentials', 'invalid-request', 'provider-rejected'
+             )
+           ),
+           COUNT(*) FILTER (
+             WHERE state = 'ambiguous' AND ambiguity_reason IN (
+               'provider-acceptance-unknown', 'provider-acknowledgement-malformed',
+               'result-commit-unknown'
+             )
+           ),
+           COUNT(*) FILTER (
+             WHERE (state = 'ambiguous'
+                    AND ambiguity_reason = 'idempotency-window-expired')
+                OR (state = 'failed'
+                    AND error_category = 'idempotency-window-expired')
+           ),
+           COUNT(*) FILTER (WHERE fallback_decision = 'no-safe-fallback')
+         FROM receiver_deliveries",
+        [],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        },
+    )?;
+    Ok(phases.with_terminal_reasons(reasons.0, reasons.1, reasons.2, reasons.3, reasons.4))
 }

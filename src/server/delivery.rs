@@ -33,7 +33,7 @@ pub(crate) enum ReceiverDeliveryExecutionPoll {
     Disconnected,
 }
 
-/// Injectable provider execution boundary used by the final-answer coordinator.
+/// Injectable provider execution boundary used by the semantic-response coordinator.
 pub(crate) trait ReceiverDeliveryExecution: Send {
     fn reserve(
         &mut self,
@@ -59,7 +59,7 @@ pub(crate) struct SystemReceiverDeliveryExecution {
 impl SystemReceiverDeliveryExecution {
     pub(crate) fn new() -> std::io::Result<Self> {
         Ok(Self {
-            executor: BoundedDeliveryExecutor::new(1, "brain-final-answer-delivery")?,
+            executor: BoundedDeliveryExecutor::new(1, "brain-receiver-delivery")?,
             cancellation: super::provider::CurlCancellation::default(),
         })
     }
@@ -175,62 +175,6 @@ pub fn trusted_response_recipients(
         .collect()
 }
 
-/// Send a final SMS through Twilio. The credentials are read only when a
-/// remote job completes, never from the portable brain config.
-pub fn send_sms(
-    command: &crate::workspace::CommandContext,
-    to: &str,
-    body: &str,
-) -> anyhow::Result<()> {
-    let account = super::provider::get(command, "twilio_account_sid")
-        .ok_or_else(|| anyhow::anyhow!("TWILIO_ACCOUNT_SID is not configured"))?;
-    let token = super::provider::get(command, "twilio_auth_token")
-        .ok_or_else(|| anyhow::anyhow!("TWILIO_AUTH_TOKEN is not configured"))?;
-    let from = super::provider::get(command, "twilio_from_number")
-        .ok_or_else(|| anyhow::anyhow!("TWILIO_FROM_NUMBER is not configured"))?;
-    let endpoint = format!("https://api.twilio.com/2010-04-01/Accounts/{account}/Messages.json");
-    let output = super::provider::CurlRequest::new()
-        .flag("silent")
-        .flag("show-error")
-        .flag("fail")
-        .option("connect-timeout", "10")
-        .option("max-time", "30")
-        .option("user", &format!("{account}:{token}"))
-        .option("request", "POST")
-        .option("url", &endpoint)
-        .option("data-urlencode", &format!("To={to}"))
-        .option("data-urlencode", &format!("From={from}"))
-        .option("data-urlencode", &format!("Body={body}"))
-        .output()?;
-    anyhow::ensure!(output.status.success(), "Twilio rejected the outbound SMS");
-    Ok(())
-}
-
-/// Send a threaded email through Resend. The caller has already applied the
-/// participant/allowlist intersection before invoking this function.
-pub fn send_email(
-    command: &crate::workspace::CommandContext,
-    to: &[String],
-    subject: &str,
-    text: &str,
-    html: &str,
-    reply: Option<&crate::server::receiver::EmailReplyContext>,
-) -> anyhow::Result<()> {
-    let key = super::provider::get(command, "resend_sending_api_key")
-        .ok_or_else(|| anyhow::anyhow!("resend_sending_api_key is not configured"))?;
-    let from = super::provider::get(command, "resend_from_email")
-        .ok_or_else(|| anyhow::anyhow!("RESEND_FROM_EMAIL is not configured"))?;
-    let payload = email_payload(
-        &from,
-        to,
-        subject,
-        text,
-        html,
-        reply.and_then(|context| context.message_id.as_deref()),
-    );
-    send_email_payload(&key, &payload)
-}
-
 #[must_use]
 pub fn reply_subject(reply: Option<&crate::server::receiver::EmailReplyContext>) -> String {
     let Some(subject) = reply
@@ -272,26 +216,6 @@ pub fn email_payload(
         });
     }
     payload
-}
-
-fn send_email_payload(key: &str, payload: &serde_json::Value) -> anyhow::Result<()> {
-    let output = super::provider::CurlRequest::new()
-        .flag("silent")
-        .flag("show-error")
-        .flag("fail")
-        .option("connect-timeout", "10")
-        .option("max-time", "30")
-        .option("request", "POST")
-        .option("url", "https://api.resend.com/emails")
-        .option("header", &format!("Authorization: Bearer {key}"))
-        .option("header", "Content-Type: application/json")
-        .option("data", &payload.to_string())
-        .output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "Resend rejected the outbound email"
-    );
-    Ok(())
 }
 
 #[cfg(test)]

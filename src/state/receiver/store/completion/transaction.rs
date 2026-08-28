@@ -148,8 +148,8 @@ pub(super) fn complete(
         "INSERT INTO receiver_deliveries
            (delivery_id, job_id, job_token, response_kind, envelope_json,
             completion_evidence_json, state, attempt_count, error_category,
-            created_at_unix_ms, updated_at_unix_ms)
-         VALUES (?1, ?2, ?3, 'final-answer', ?4, ?5, ?6, 0, ?7, ?8, ?8)",
+            fallback_decision, created_at_unix_ms, updated_at_unix_ms)
+         VALUES (?1, ?2, ?3, 'final-answer', ?4, ?5, ?6, 0, ?7, ?8, ?9, ?9)",
         rusqlite::params![
             delivery_id.to_string(),
             request.job_id.to_string(),
@@ -158,6 +158,7 @@ pub(super) fn complete(
             completion_evidence_json,
             prepared.state(),
             prepared.error_category(),
+            (prepared.state() == "failed").then_some("no-safe-fallback"),
             merged.completed,
         ],
     )?;

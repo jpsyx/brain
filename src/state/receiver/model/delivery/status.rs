@@ -210,6 +210,11 @@ pub struct ReceiverDeliveryCounts {
     ambiguous: usize,
     failed: usize,
     done: usize,
+    retry_exhausted: usize,
+    permanent_rejection: usize,
+    ambiguous_acknowledgement: usize,
+    idempotency_window_expired: usize,
+    no_safe_fallback: usize,
 }
 
 impl ReceiverDeliveryCounts {
@@ -229,7 +234,29 @@ impl ReceiverDeliveryCounts {
             ambiguous,
             failed,
             done,
+            retry_exhausted: 0,
+            permanent_rejection: 0,
+            ambiguous_acknowledgement: 0,
+            idempotency_window_expired: 0,
+            no_safe_fallback: 0,
         }
+    }
+
+    #[must_use]
+    pub const fn with_terminal_reasons(
+        mut self,
+        retry_exhausted: usize,
+        permanent_rejection: usize,
+        ambiguous_acknowledgement: usize,
+        idempotency_window_expired: usize,
+        no_safe_fallback: usize,
+    ) -> Self {
+        self.retry_exhausted = retry_exhausted;
+        self.permanent_rejection = permanent_rejection;
+        self.ambiguous_acknowledgement = ambiguous_acknowledgement;
+        self.idempotency_window_expired = idempotency_window_expired;
+        self.no_safe_fallback = no_safe_fallback;
+        self
     }
 
     #[must_use]
@@ -255,5 +282,25 @@ impl ReceiverDeliveryCounts {
     #[must_use]
     pub const fn done(self) -> usize {
         self.done
+    }
+    #[must_use]
+    pub const fn retry_exhausted(self) -> usize {
+        self.retry_exhausted
+    }
+    #[must_use]
+    pub const fn permanent_rejection(self) -> usize {
+        self.permanent_rejection
+    }
+    #[must_use]
+    pub const fn ambiguous_acknowledgement(self) -> usize {
+        self.ambiguous_acknowledgement
+    }
+    #[must_use]
+    pub const fn idempotency_window_expired(self) -> usize {
+        self.idempotency_window_expired
+    }
+    #[must_use]
+    pub const fn no_safe_fallback(self) -> usize {
+        self.no_safe_fallback
     }
 }

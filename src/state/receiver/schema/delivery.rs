@@ -8,7 +8,8 @@ pub(crate) use downgrade::down_path;
 #[cfg(test)]
 pub(in crate::state::receiver) use downgrade::down_path_with_busy_observer;
 
-const CURRENT_DELIVERY_CONTRACT: &str = "state = 'delivering' OR provider_io_started = 0";
+const CURRENT_DELIVERY_CONTRACT: &str =
+    "state NOT IN ('failed', 'ambiguous') OR fallback_decision IS NOT NULL";
 
 const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliveries (
            delivery_id                 TEXT PRIMARY KEY,
@@ -19,6 +20,7 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
            )),
            envelope_json               TEXT NOT NULL,
            completion_evidence_json    TEXT,
+           frozen_fallbacks_json       TEXT NOT NULL DEFAULT '[]',
            state                       TEXT NOT NULL CHECK (state IN (
              'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'
            )),
@@ -39,6 +41,9 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
              'provider-acceptance-unknown', 'provider-acknowledgement-malformed',
              'result-commit-unknown', 'idempotency-window-expired'
            )),
+           fallback_decision           TEXT CHECK (fallback_decision IN (
+             'fallback-planned', 'no-safe-fallback'
+           )),
            created_at_unix_ms          INTEGER NOT NULL,
            updated_at_unix_ms          INTEGER NOT NULL,
            UNIQUE (job_id, response_kind),
@@ -54,7 +59,8 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
            CHECK (state != 'acknowledged' OR (
              provider_reference IS NOT NULL AND length(trim(provider_reference)) > 0
            )),
-           CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL)
+           CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL),
+           CHECK (state NOT IN ('failed', 'ambiguous') OR fallback_decision IS NOT NULL)
          );";
 
 pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
@@ -163,6 +169,7 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
     for (column, definition) in [
         ("attempt_id", "TEXT"),
         ("completion_evidence_json", "TEXT"),
+        ("frozen_fallbacks_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("retry_at_unix_ms", "INTEGER"),
         ("claim_owner", "TEXT"),
         ("claim_expires_at_unix_ms", "INTEGER"),
@@ -171,6 +178,7 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
         ("provider_reference", "TEXT"),
         ("error_category", "TEXT"),
         ("ambiguity_reason", "TEXT"),
+        ("fallback_decision", "TEXT"),
     ] {
         if !has_delivery_column(connection, column)? {
             connection.execute_batch(&format!(
@@ -182,11 +190,13 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
 }
 
 fn reconcile_rows(connection: &Connection) -> Result<()> {
+    normalize_frozen_fallbacks(connection)?;
     connection.execute_batch(
         "UPDATE receiver_deliveries
          SET state = 'ambiguous', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_at_unix_ms = NULL, ambiguity_reason = 'result-commit-unknown',
-             error_category = NULL, provider_io_started = 0
+             error_category = NULL, provider_io_started = 0,
+             fallback_decision = COALESCE(fallback_decision, 'no-safe-fallback')
          WHERE (claim_owner IS NULL) != (claim_expires_at_unix_ms IS NULL)
             OR (state = 'delivering' AND (
               attempt_id IS NULL OR claim_owner IS NULL
@@ -199,19 +209,24 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
          SET retry_at_unix_ms = NULL
          WHERE state != 'retrying';
          UPDATE receiver_deliveries
-         SET state = 'failed', error_category = 'invalid-request'
+         SET state = 'failed', error_category = 'invalid-request',
+             fallback_decision = COALESCE(fallback_decision, 'no-safe-fallback')
          WHERE state = 'retrying' AND retry_at_unix_ms IS NULL;
          UPDATE receiver_deliveries
          SET state = 'ambiguous', provider_reference = NULL,
-             ambiguity_reason = 'provider-acknowledgement-malformed'
+             ambiguity_reason = 'provider-acknowledgement-malformed',
+             fallback_decision = COALESCE(fallback_decision, 'no-safe-fallback')
          WHERE state = 'acknowledged'
            AND (provider_reference IS NULL OR length(trim(provider_reference)) = 0);
          UPDATE receiver_deliveries
          SET ambiguity_reason = 'result-commit-unknown'
-         WHERE state = 'ambiguous' AND ambiguity_reason IS NULL;",
+         WHERE state = 'ambiguous' AND ambiguity_reason IS NULL;
+         UPDATE receiver_deliveries
+         SET fallback_decision = 'no-safe-fallback'
+         WHERE state IN ('failed', 'ambiguous') AND fallback_decision IS NULL;",
     )?;
     terminalize_invalid_active_envelopes(connection)?;
-    terminalize_missing_final_answer_deliveries(connection)?;
+    terminalize_missing_semantic_response_deliveries(connection)?;
     connection.execute_batch(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -222,7 +237,6 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
                FROM receiver_deliveries AS delivery
                WHERE delivery.job_id = receiver_jobs.job_id
                  AND delivery.job_token = receiver_jobs.job_token
-                 AND delivery.response_kind = 'final-answer'
                  AND delivery.state IN ('failed', 'ambiguous')
                LIMIT 1
              ), updated_at_unix_ms))
@@ -230,27 +244,62 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
            SELECT 1 FROM receiver_deliveries AS delivery
            WHERE delivery.job_id = receiver_jobs.job_id
              AND delivery.job_token = receiver_jobs.job_token
-             AND delivery.response_kind = 'final-answer'
              AND delivery.state IN ('failed', 'ambiguous')
+             AND NOT EXISTS (
+               SELECT 1 FROM receiver_deliveries AS active
+               WHERE active.job_id = receiver_jobs.job_id
+                 AND active.job_token = receiver_jobs.job_token
+                 AND ((receiver_jobs.state = 'answer-ready' AND active.state = 'ready')
+                   OR (receiver_jobs.state = 'delivering' AND active.state = 'delivering')
+                   OR (receiver_jobs.state = 'retrying' AND active.state = 'retrying'))
+             )
          );",
     )?;
     Ok(())
 }
 
-fn terminalize_missing_final_answer_deliveries(connection: &Connection) -> Result<()> {
+fn normalize_frozen_fallbacks(connection: &Connection) -> Result<()> {
+    let invalid = {
+        let mut statement = connection
+            .prepare("SELECT delivery_id, frozen_fallbacks_json FROM receiver_deliveries")?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(delivery_id, frozen)| {
+                serde_json::from_str::<Vec<crate::state::ReceiverFallbackDestination>>(&frozen)
+                    .is_err()
+                    .then_some(delivery_id)
+            })
+            .collect::<Vec<_>>()
+    };
+    for delivery_id in invalid {
+        connection.execute(
+            "UPDATE receiver_deliveries SET frozen_fallbacks_json = '[]'
+             WHERE delivery_id = ?1",
+            [delivery_id],
+        )?;
+    }
+    Ok(())
+}
+
+fn terminalize_missing_semantic_response_deliveries(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_at_unix_ms = NULL, retry_from_state = NULL,
              last_error = 'delivery-schema-repair-missing'
-         WHERE completed_at_unix_ms IS NOT NULL
-           AND state IN ('answer-ready', 'delivering', 'retrying')
+         WHERE state IN ('answer-ready', 'delivering', 'retrying')
            AND (state != 'retrying' OR retry_from_state IS NULL)
            AND NOT EXISTS (
              SELECT 1 FROM receiver_deliveries AS delivery
              WHERE delivery.job_id = receiver_jobs.job_id
                AND delivery.job_token = receiver_jobs.job_token
-               AND delivery.response_kind = 'final-answer'
+               AND ((receiver_jobs.state = 'answer-ready' AND delivery.state = 'ready')
+                 OR (receiver_jobs.state = 'delivering' AND delivery.state = 'delivering')
+                 OR (receiver_jobs.state = 'retrying' AND delivery.state = 'retrying'))
            );",
     )?;
     Ok(())
@@ -260,8 +309,7 @@ fn terminalize_invalid_active_envelopes(connection: &Connection) -> Result<()> {
     let invalid = {
         let mut statement = connection.prepare(
             "SELECT delivery_id, envelope_json FROM receiver_deliveries
-             WHERE response_kind = 'final-answer'
-               AND state IN ('ready', 'delivering', 'retrying')",
+             WHERE state IN ('ready', 'delivering', 'retrying')",
         )?;
         statement
             .query_map([], |row| {
@@ -282,9 +330,9 @@ fn terminalize_invalid_active_envelopes(connection: &Connection) -> Result<()> {
              SET state = 'failed', retry_at_unix_ms = NULL,
                  claim_owner = NULL, claim_expires_at_unix_ms = NULL,
                  provider_io_started = 0, provider_reference = NULL,
-                 error_category = 'invalid-request', ambiguity_reason = NULL
+                 error_category = 'invalid-request', ambiguity_reason = NULL,
+                 fallback_decision = 'no-safe-fallback'
              WHERE delivery_id = ?1
-               AND response_kind = 'final-answer'
                AND state IN ('ready', 'delivering', 'retrying')",
             [delivery_id],
         )?;
@@ -310,15 +358,17 @@ fn ensure_table_contract(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "INSERT INTO receiver_deliveries
            (delivery_id, job_id, job_token, response_kind, envelope_json,
-            completion_evidence_json, state,
+            completion_evidence_json, frozen_fallbacks_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
             claim_expires_at_unix_ms, provider_io_started, first_attempt_at_unix_ms, provider_reference,
-            error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms)
+            error_category, ambiguity_reason, fallback_decision,
+            created_at_unix_ms, updated_at_unix_ms)
          SELECT delivery_id, job_id, job_token, response_kind, envelope_json,
-            completion_evidence_json, state,
+            completion_evidence_json, frozen_fallbacks_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
             claim_expires_at_unix_ms, provider_io_started, first_attempt_at_unix_ms, provider_reference,
-            error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms
+            error_category, ambiguity_reason, fallback_decision,
+            created_at_unix_ms, updated_at_unix_ms
          FROM receiver_deliveries_v12_rebuild;
          DROP TABLE receiver_deliveries_v12_rebuild;",
     )?;

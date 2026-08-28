@@ -3163,7 +3163,7 @@ definitely-not-accepted branch. Resend ambiguity schedules a retry only when
 that retry deadline, not merely the current clock, remains inside the 24-hour
 window. Any malformed frozen recipient rejects the whole response intent, and
 persisted envelopes validate normalized destinations and static lineage without
-echoing their content. The final-answer lane now claims the oldest due outbox
+echoing their content. The semantic-response lane now claims the oldest due outbox
 row independently, reserves bounded executor capacity before committing the
 durable IO-start fact, and applies typed results through an exact live-lease
 CAS. Start publication is a bounded nonblocking handoff from the event loop. If
@@ -3171,8 +3171,8 @@ that handoff reports a disconnected worker, the operation provably never ran,
 so an exact rollback restores the prior attempt state instead of inventing a
 lost-result ambiguity. A proved pre-spawn interruption safely requeues without
 consuming an attempt. A crash after IO uses the same Resend replay or Twilio ambiguity
-decision as an in-process lost result. Legacy notices and controls remain on
-their prior path until their separate cutover.
+decision as an in-process lost result. Notices, controls, and fallback notices
+use this same lane and exact provider-result boundary.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a
@@ -5133,4 +5133,9 @@ Fallback authority is intentionally frozen and narrow. The pure planner sees
 only alternate destinations authenticated at acceptance, rejects the failed
 provider and attempted recipients, and emits at most one short notice. It never
 reads later users, environment, or configuration. Current single-channel jobs
-usually have no safe alternate and stop with that content-free outcome.
+usually have no safe alternate and stop with that content-free outcome. Every
+terminal result stores its decision in the source row. If an alternate exists,
+the source transition and one unique `fallback-notice` insert commit atomically;
+fallback-notice failure is fenced from recursion. Reconciliation and final
+pre-provider-IO expiry call the same planner, so restart and timing boundaries
+cannot acquire new authority.

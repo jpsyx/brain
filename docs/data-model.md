@@ -1161,7 +1161,10 @@ response kind, which keeps a final answer distinct from a later safe fallback
 or notice. `envelope_json` freezes the acceptance-time outbound sender and
 authorized SMS destination and shaped body, or the outbound sender, email
 recipient set, subject, text, HTML, provider lineage, `In-Reply-To`, and
-`References`. The sender is non-secret routing identity; account identifiers,
+`References`. `frozen_fallbacks_json` contains only acceptance-time
+authenticated alternate destinations. `fallback_decision` is NULL while a row
+is active and becomes the content-free `fallback-planned` or
+`no-safe-fallback` fact on every failed or ambiguous terminal row. The sender is non-secret routing identity; account identifiers,
 API keys, and authentication tokens remain live machine-local configuration
 and are never stored. Stable
 final-answer completion also freezes a private `completion_evidence_json`
@@ -1180,7 +1183,9 @@ authorized set. Loading a serialized envelope validates its channel shape,
 normalized destination set, SMS limit, and static email lineage invariants
 without copying attacker-controlled content into the error.
 The public status and every Debug implementation redact envelope, recipient,
-sender, provider reference, and answer content.
+sender, provider reference, and answer content. Status groups terminal rows into
+stable content-free reason categories and remains read-only when the database or
+newer delivery columns do not exist.
 
 `final-answer`, `unavailable-notice`, `control-acknowledgement`, and
 `fallback-notice` use the same state machine. `/new` persists its acknowledgement
@@ -1190,7 +1195,11 @@ queue-cut transaction. Same-version repair and normal delivery reconciliation
 convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
 before clearing the bit. Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
-process-local acknowledgement lease.
+process-local acknowledgement lease. Missing rows and missing tables receive
+the same non-replayable mapping for every semantic response kind. Same-version
+repair adds fallback columns, supplies `[]` authority to older rows, records
+`no-safe-fallback` for older terminal rows, preserves valid generic rows, and
+terminalizes malformed active rows before later due work is claimed.
 
 The response sender is canonicalized and captured when authenticated ingress
 accepts the job, not when the agent finishes. Human-formatted SMS numbers and

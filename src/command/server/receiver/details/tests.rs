@@ -31,7 +31,7 @@ fn block_of(details: ReceiverDetails) -> String {
 #[test]
 fn delivery_status_rows_are_themed_stable_counts_without_private_content() {
     let rendered = super::delivery_rows(
-        ReceiverDeliveryCounts::new(1, 2, 3, 4, 5, 6),
+        ReceiverDeliveryCounts::new(1, 2, 3, 4, 5, 6).with_terminal_reasons(7, 8, 9, 10, 11),
         Theme::dark(true),
     );
 
@@ -49,6 +49,21 @@ fn delivery_status_rows_are_themed_stable_counts_without_private_content() {
         assert!(
             rendered.contains(&count.to_string()),
             "missing count {count}"
+        );
+    }
+    for reason in [
+        "retry-exhausted",
+        "permanent-rejection",
+        "ambiguous-acknowledgement",
+        "idempotency-window-expired",
+        "no-safe-fallback",
+    ] {
+        assert!(rendered.contains(reason), "missing {reason}: {rendered}");
+    }
+    for count in 7..=11 {
+        assert!(
+            rendered.contains(&count.to_string()),
+            "missing terminal count {count}"
         );
     }
     assert!(

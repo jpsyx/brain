@@ -96,7 +96,7 @@ pub(super) fn status_rows(status: ReceiverStatus, theme: Theme) -> String {
 /// Redacted durable delivery phases for `brain receiver status`. Pure.
 #[must_use]
 pub(super) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme: Theme) -> String {
-    [
+    let phases = [
         ("answer-ready", counts.answer_ready()),
         ("delivering", counts.delivering()),
         ("retrying", counts.retrying()),
@@ -107,7 +107,31 @@ pub(super) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme:
     .into_iter()
     .map(|(phase, count)| format!("{} {}", theme.muted(phase), theme.value(&count.to_string())))
     .collect::<Vec<_>>()
-    .join("  ")
+    .join("  ");
+    let reasons = [
+        ("retry-exhausted", counts.retry_exhausted()),
+        ("permanent-rejection", counts.permanent_rejection()),
+        (
+            "ambiguous-acknowledgement",
+            counts.ambiguous_acknowledgement(),
+        ),
+        (
+            "idempotency-window-expired",
+            counts.idempotency_window_expired(),
+        ),
+        ("no-safe-fallback", counts.no_safe_fallback()),
+    ]
+    .into_iter()
+    .map(|(reason, count)| {
+        format!(
+            "{} {}",
+            theme.muted(reason),
+            theme.value(&count.to_string())
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("  ");
+    format!("{phases}\n{reasons}")
 }
 
 /// One workspace's receiver block. Pure.

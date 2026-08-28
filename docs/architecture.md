@@ -483,9 +483,13 @@ duplicate semantic rows prevent safe uniqueness repair. Blank acknowledged
 provider references become explicit ambiguity. Same-version repair also
 rebuilds the earlier v12 table contract whose `delivering` check required a
 first-attempt timestamp before the later IO-start boundary could set it.
-Malformed active final-answer envelopes, including envelopes written before
+Malformed active semantic-response envelopes, including envelopes written before
 the outbound sender was frozen, are preserved but terminalized together with
-their matching job so they cannot re-enter agent execution. Downgrade first validates every
+their matching job so they cannot re-enter agent execution or block a later
+valid response. Missing outbox rows or tables terminalize every delivery-lane
+job kind during same-version repair and downgrade. Repair also adds the frozen
+fallback authority and explicit terminal-decision columns, defaults old terminal
+rows to `no-safe-fallback`, and retains valid generic response rows. Downgrade first validates every
 required v11 conversation, job, recovery, notice, and registration column under
 an immediate writer. It then refuses any cleanup without durable confirmed-exit
 handoff, validates every exact unreleased registration/session, removes only
@@ -2140,9 +2144,12 @@ shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.
 The schema-v12 outbox, frozen renderer, provider-specific retry policy, atomic
-App answer transaction, and separately claimed final-answer worker now exist
-behind `state::receiver`. Later BR-17 work owns only the remaining legacy notice
-and control cutover.
+App answer/control/notice transactions, and separately claimed semantic-response
+worker live behind `state::receiver`. Terminal result, reconciliation, and
+pre-provider-IO expiry use one pure frozen-authority fallback decision and one
+exact transaction. Each delivery tick records content-free phase and stable
+terminal-reason diagnostics; read-only status renders those counts without
+creating or migrating state.
 Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful

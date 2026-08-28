@@ -69,5 +69,10 @@ fn dead_lock_reaping_does_not_acknowledge_a_replacement_session_owner() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("load replacement and cleanup fence");
-    assert_eq!(state, (0, 99, "replacement-instance".to_owned()));
+    assert_eq!(state.0, 0);
+    assert_eq!(state.1, 99);
+    assert!(
+        state.2 == "replacement-instance",
+        "replacement session owner changed"
+    );
 }

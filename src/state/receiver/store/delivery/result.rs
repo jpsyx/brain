@@ -6,8 +6,9 @@ use super::decode::{provider_for, sql_decode_error};
 use crate::state::{
     Db, ReceiverDeliveryApplyOutcome, ReceiverDeliveryAttemptId, ReceiverDeliveryClaim,
     ReceiverDeliveryDecision, ReceiverDeliveryEnvelope, ReceiverDeliveryId,
-    ReceiverDeliveryPolicySnapshot, ReceiverJobId, ReceiverJobToken, ReceiverProviderResultClass,
-    decide_receiver_delivery,
+    ReceiverDeliveryPolicySnapshot, ReceiverFallbackPlan, ReceiverJobId, ReceiverJobToken,
+    ReceiverProviderResultClass, ReceiverResponseKind, decide_receiver_delivery,
+    plan_receiver_fallback,
 };
 
 impl Db {
@@ -108,7 +109,15 @@ pub(super) fn apply_decision(
     observed_at_unix_ms: u64,
 ) -> Result<()> {
     let observed = to_i64(observed_at_unix_ms, "receiver delivery result time")?;
-    let (delivery_state, job_state, retry_at, provider_reference, error_category, ambiguity) =
+    let fallback = matches!(
+        decision,
+        ReceiverDeliveryDecision::TerminalFailure(_)
+            | ReceiverDeliveryDecision::TerminalAmbiguous(_)
+    )
+    .then(|| terminal_fallback(transaction, delivery_id))
+    .transpose()?;
+    let fallback_decision = fallback.as_ref().map(TerminalFallback::decision);
+    let (delivery_state, mut job_state, retry_at, provider_reference, error_category, ambiguity) =
         match decision {
             ReceiverDeliveryDecision::Acknowledged(reference) => (
                 "acknowledged",
@@ -149,12 +158,16 @@ pub(super) fn apply_decision(
                 Some(reason.as_str()),
             ),
         };
+    if let Some(fallback) = &fallback {
+        job_state = fallback.job_state();
+    }
     let delivery_changed = transaction.execute(
         "UPDATE receiver_deliveries
          SET state = ?8, retry_at_unix_ms = ?9, claim_owner = NULL,
              claim_expires_at_unix_ms = NULL, provider_io_started = 0,
              provider_reference = ?10, error_category = ?11,
-             ambiguity_reason = ?12, updated_at_unix_ms = ?13
+             ambiguity_reason = ?12, fallback_decision = ?13,
+             updated_at_unix_ms = ?14
          WHERE delivery_id = ?1 AND job_id = ?2 AND job_token = ?3
            AND (?4 IS NULL OR attempt_id = ?4) AND (?5 IS NULL OR claim_owner = ?5)
            AND state = 'delivering' AND EXISTS (SELECT 1 FROM receiver_jobs
@@ -173,9 +186,13 @@ pub(super) fn apply_decision(
             provider_reference,
             error_category,
             ambiguity,
+            fallback_decision,
             observed,
         ],
     )?;
+    if let Some(fallback) = &fallback {
+        fallback.insert_notice(transaction, job_id, token, observed)?;
+    }
     let job_changed = transaction.execute(
         "UPDATE receiver_jobs SET state = ?4, retry_at_unix_ms = NULL,
              retry_from_state = NULL, last_error = NULL, updated_at_unix_ms = ?5
@@ -194,4 +211,97 @@ pub(super) fn apply_decision(
         "receiver delivery result compare-and-swap lost authority"
     );
     Ok(())
+}
+
+pub(super) struct TerminalFallback {
+    decision: &'static str,
+    plan: Option<ReceiverFallbackPlan>,
+}
+
+impl TerminalFallback {
+    pub(super) const fn decision(&self) -> &'static str {
+        self.decision
+    }
+
+    pub(super) const fn job_state(&self) -> &'static str {
+        if self.plan.is_some() {
+            "answer-ready"
+        } else {
+            "failed"
+        }
+    }
+
+    pub(super) fn insert_notice(
+        &self,
+        transaction: &rusqlite::Transaction<'_>,
+        job_id: ReceiverJobId,
+        token: ReceiverJobToken,
+        observed_at_unix_ms: i64,
+    ) -> Result<()> {
+        let Some(plan) = &self.plan else {
+            return Ok(());
+        };
+        let envelope = crate::state::receiver::fallback::render_receiver_fallback(plan);
+        let envelope_json = serde_json::to_string(&envelope)
+            .context("serialize frozen receiver fallback notice")?;
+        let inserted = transaction.execute(
+            "INSERT INTO receiver_deliveries
+               (delivery_id, job_id, job_token, response_kind, envelope_json,
+                state, attempt_count, created_at_unix_ms, updated_at_unix_ms)
+             VALUES (?1, ?2, ?3, 'fallback-notice', ?4, 'ready', 0, ?5, ?5)",
+            rusqlite::params![
+                ReceiverDeliveryId::new().to_string(),
+                job_id.to_string(),
+                token.to_string(),
+                envelope_json,
+                observed_at_unix_ms,
+            ],
+        )?;
+        anyhow::ensure!(
+            inserted == 1,
+            "receiver fallback notice insert lost authority"
+        );
+        Ok(())
+    }
+}
+
+pub(super) fn terminal_fallback(
+    transaction: &rusqlite::Transaction<'_>,
+    delivery_id: ReceiverDeliveryId,
+) -> Result<TerminalFallback> {
+    let (response_kind, envelope_json, frozen_json): (String, String, String) = transaction
+        .query_row(
+            "SELECT response_kind, envelope_json, frozen_fallbacks_json
+             FROM receiver_deliveries WHERE delivery_id = ?1",
+            [delivery_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+    let response_kind = ReceiverResponseKind::parse(&response_kind)
+        .context("decode terminal receiver response kind")?;
+    if response_kind == ReceiverResponseKind::FallbackNotice {
+        return Ok(TerminalFallback {
+            decision: "no-safe-fallback",
+            plan: None,
+        });
+    }
+    let envelope: ReceiverDeliveryEnvelope =
+        serde_json::from_str(&envelope_json).context("decode terminal receiver envelope")?;
+    let frozen =
+        serde_json::from_str::<Vec<crate::state::ReceiverFallbackDestination>>(&frozen_json)
+            .context("decode frozen receiver fallback authority")?;
+    let attempted = match &envelope {
+        ReceiverDeliveryEnvelope::Sms { value } => vec![value.recipient()],
+        ReceiverDeliveryEnvelope::Email { value } => {
+            value.recipients().iter().map(String::as_str).collect()
+        }
+    };
+    let plan = plan_receiver_fallback(provider_for(&envelope), &attempted, &frozen);
+    Ok(TerminalFallback {
+        decision: if plan.is_some() {
+            "fallback-planned"
+        } else {
+            "no-safe-fallback"
+        },
+        plan,
+    })
 }

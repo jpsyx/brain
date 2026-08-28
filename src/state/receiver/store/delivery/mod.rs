@@ -1,4 +1,4 @@
-//! Durable final-answer delivery store facade.
+//! Durable semantic-response delivery store facade.
 
 mod claim;
 mod decode;

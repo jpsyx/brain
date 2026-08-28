@@ -74,7 +74,7 @@ impl App {
 
     fn tick_receiver_delivery(&mut self) {
         let now = self.receiver_now_unix_ms();
-        let owner = format!("{}:final-answer-delivery", self.brain.instance());
+        let owner = format!("{}:response-delivery", self.brain.instance());
         self.services.tick_receiver_delivery(
             self.context.command(),
             &owner,

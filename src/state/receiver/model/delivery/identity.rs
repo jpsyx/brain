@@ -128,4 +128,15 @@ impl ReceiverResponseKind {
             Self::FallbackNotice => "fallback-notice",
         }
     }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "final-answer" => Some(Self::FinalAnswer),
+            "unavailable-notice" => Some(Self::UnavailableNotice),
+            "control-acknowledgement" => Some(Self::ControlAcknowledgement),
+            "fallback-notice" => Some(Self::FallbackNotice),
+            _ => None,
+        }
+    }
 }
