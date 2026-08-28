@@ -15,11 +15,11 @@ pub use conversation::{
     ReceiverConversation, ReceiverSessionBinding, ReceiverSessionBindingError, ReceiverSessionPlan,
 };
 pub use delivery::{
-    ReceiverDeliveryAmbiguity, ReceiverDeliveryAttemptId, ReceiverDeliveryEnvelope,
-    ReceiverDeliveryErrorCategory, ReceiverDeliveryId, ReceiverDeliveryRenderError,
-    ReceiverDeliveryRetryMetadata, ReceiverDeliveryState, ReceiverDeliveryStatus,
-    ReceiverEmailEnvelope, ReceiverProviderReference, ReceiverResponseKind, ReceiverSmsEnvelope,
-    render_receiver_delivery,
+    ReceiverDeliveryAmbiguity, ReceiverDeliveryApplyOutcome, ReceiverDeliveryAttemptId,
+    ReceiverDeliveryClaim, ReceiverDeliveryEnvelope, ReceiverDeliveryErrorCategory,
+    ReceiverDeliveryId, ReceiverDeliveryRenderError, ReceiverDeliveryRetryMetadata,
+    ReceiverDeliveryState, ReceiverDeliveryStatus, ReceiverEmailEnvelope,
+    ReceiverProviderReference, ReceiverResponseKind, ReceiverSmsEnvelope, render_receiver_delivery,
 };
 pub use effect::{
     MAX_RECEIVER_LAUNCH_ATTEMPTS, ReceiverLaunchFailure, ReceiverLaunchRetryOutcome,

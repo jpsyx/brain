@@ -1133,8 +1133,8 @@ Which session to run is decided by the **lock + recency** model in
    cleanup, one persisted recovery, or terminal notice intent. The App executes
    those controller actions through `AgentController` and leases notice handoff
    through its narrow delivery service. Schema v12 and the App now own atomic
-   answer persistence. Later BR-17 tasks own outbox claiming, provider
-   acknowledgement, and delivery-only retry wiring.
+   answer persistence plus independent outbox claiming, typed provider
+   acknowledgement, delivery-only retry, and expired-lease reconciliation.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1632,7 +1632,12 @@ standard input rather than process arguments. Provider output is captured so it
 cannot corrupt the TUI. Legacy notice and control Twilio/Resend calls are
 serialized through a bounded background delivery worker, preserving reply
 order without blocking keyboard input or shell shutdown. Final answers are
-frozen in the durable outbox and do not enter that worker from completion.
+frozen in the durable outbox and do not enter that legacy worker from
+completion. An enabled App tick instead claims them with a finite delivery-only
+lease and fresh attempt ID. It reserves bounded executor capacity before the
+exact IO-start CAS, then parses bounded Resend or Twilio success JSON into a
+redacted provider reference. Resend retries use the frozen envelope and stable
+delivery-ID idempotency key; Twilio uncertainty is terminal.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact
@@ -1646,6 +1651,11 @@ next action. Answer-ready rows no longer participate in agent reconciliation or
 block the next ordinary claim; only delivery recovery owns them. Reconciliation
 requires a `final-answer` delivery row as that proof. Notice, control, and
 fallback-only rows cannot protect an incomplete answer-ready or delivering job.
+Expired claims with durable pre-spawn proof safely requeue. Expired Resend IO
+claims may replay inside the provider's 24-hour idempotency window, while
+expired Twilio IO claims become terminally ambiguous. Stale worker results lose
+the exact workspace/job/token/delivery/attempt/owner/live-lease CAS and are
+ignored.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in

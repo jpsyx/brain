@@ -11,6 +11,7 @@ mod answer_cleanup;
 mod claim;
 mod completion;
 mod control;
+mod delivery;
 mod load;
 mod observation;
 mod reconciliation;

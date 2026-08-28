@@ -11,6 +11,7 @@ use crate::tui::receiver::attachments::{ReceiverAttachmentCoordinator, ReceiverA
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
+mod receiver_delivery;
 mod receiver_notice;
 mod receiver_recovery;
 
@@ -32,6 +33,8 @@ pub(crate) struct AppServices {
     receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
+    receiver_delivery_execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    receiver_delivery_active: Option<crate::state::ReceiverDeliveryClaim>,
     receiver_notice_delivery: Box<dyn ReceiverNoticeDelivery>,
     #[cfg(test)]
     receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
@@ -44,6 +47,20 @@ pub(crate) struct ReceiverObservationApplyOutcome {
 
 impl AppServices {
     pub(crate) fn new(init: AppServicesInit) -> Self {
+        #[cfg(not(test))]
+        let receiver_delivery_execution: Box<
+            dyn crate::server::delivery::ReceiverDeliveryExecution,
+        > = match crate::server::delivery::SystemReceiverDeliveryExecution::new() {
+            Ok(execution) => Box::new(execution),
+            Err(error) => {
+                crate::logging::log(format!("receiver delivery worker start failed: {error}"));
+                Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution)
+            }
+        };
+        #[cfg(test)]
+        let receiver_delivery_execution: Box<
+            dyn crate::server::delivery::ReceiverDeliveryExecution,
+        > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution);
         Self {
             agenda_runner: init.agenda_runner,
             open_runner: init.open_runner,
@@ -51,6 +68,8 @@ impl AppServices {
             receiver_intent_refresher: init.receiver_intent_refresher,
             receiver_sync_runtime: init.receiver_sync_runtime,
             receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
+            receiver_delivery_execution,
+            receiver_delivery_active: None,
             receiver_notice_delivery: Box::new(SystemReceiverNoticeDelivery),
             #[cfg(test)]
             receiver_recovery_commit_visible_error: std::cell::Cell::new(false),
@@ -396,6 +415,15 @@ impl AppServices {
         runtime: Box<dyn ReceiverAttachmentRuntime>,
     ) {
         self.receiver_attachment_coordinator.replace(runtime);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_receiver_delivery_execution(
+        &mut self,
+        execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    ) {
+        self.receiver_delivery_execution = execution;
+        self.receiver_delivery_active = None;
     }
 
     #[cfg(test)]

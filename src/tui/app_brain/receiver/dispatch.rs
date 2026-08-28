@@ -4,6 +4,7 @@ use crate::tui::App;
 use crate::tui::receiver::{ClaimedReceiverRun, DurableReceiverRun, ReceiverRemoteSession};
 
 pub(super) const CLAIM_LIFETIME_MS: u64 = 30_000;
+const DELIVERY_CLAIM_LIFETIME_MS: u64 = 60_000;
 pub(super) const RETRY_DELAY_MS: u64 = 5_000;
 
 impl App {
@@ -11,6 +12,7 @@ impl App {
     pub(crate) fn tick_receiver(&mut self) {
         let receiver_enabled = self.receiver.is_enabled();
         if receiver_enabled {
+            self.tick_receiver_delivery();
             self.reconcile_receiver_job();
             self.handoff_pending_receiver_notice();
             self.apply_receiver_restarts();
@@ -65,6 +67,17 @@ impl App {
             }
             DurableReceiverRun::Idle => {}
         }
+    }
+
+    fn tick_receiver_delivery(&mut self) {
+        let now = self.receiver_now_unix_ms();
+        let owner = format!("{}:final-answer-delivery", self.brain.instance());
+        self.services.tick_receiver_delivery(
+            self.context.command(),
+            &owner,
+            now,
+            now.saturating_add(DELIVERY_CLAIM_LIFETIME_MS),
+        );
     }
 
     pub(super) fn claim_receiver_run(&mut self) {

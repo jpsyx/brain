@@ -195,6 +195,12 @@ completion's identity.
 artifact snapshot; `active/terminal.rs` performs exact authorization and answer
 commit, then `answer_cleanup.rs` retries the ordered private cleanup effects.
 Provider answer delivery is no longer part of terminal App cleanup.
+The enabled App tick advances it independently through
+`tui/state/services/receiver_delivery.rs`: it applies typed results,
+reconciles expired leases, claims the oldest due final answer, reserves bounded
+worker capacity, commits `provider_io_started`, and only then publishes curl
+work. `server/delivery/{executor,provider_attempt}.rs` keeps provider IO off the
+event loop, bounds response capture, and returns content-free result classes.
 
 The durable receiver model is split beneath the thin `model.rs` coordinator:
 `model/{identity,conversation,observation,job,claim,effect}.rs` separately own
@@ -2114,10 +2120,10 @@ not hand its body to that worker. Receiver bodies are capped at 1 MiB by the
 shared parser, and the shared fixed worker set prevents one slow provider call
 from blocking every route. The final orderly lease stops the process
 immediately; final crashed-lease cleanup follows the lifecycle TTL.
-The schema-v12 outbox, frozen renderer, provider-specific retry policy, and
-atomic App answer transaction now exist behind `state::receiver`. Later BR-17
-tasks own provider claims, acknowledgement, retry, and the remaining legacy
-reply migration.
+The schema-v12 outbox, frozen renderer, provider-specific retry policy, atomic
+App answer transaction, and separately claimed final-answer worker now exist
+behind `state::receiver`. Later BR-17 work owns only the remaining legacy notice
+and control cutover.
 Orderly shell teardown runs the receiver-specific stage before generic agent
 controller shutdown. It cancels, reaps, and joins attachment work and may record
 an exact Planning retry only for work that has not spawned. For a successful

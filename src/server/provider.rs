@@ -242,7 +242,7 @@ impl CurlRequest {
     }
 
     #[cfg(test)]
-    fn config(&self) -> &str {
+    pub(super) fn config(&self) -> &str {
         &self.config
     }
 }

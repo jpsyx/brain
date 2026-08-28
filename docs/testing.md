@@ -1219,9 +1219,14 @@ duplicate uniqueness failure, nonblank provider acknowledgements,
 privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
 both directions. The startup migration registry pins 0.85.0 directly after
-0.84.22. Atomic answer-ready runtime tests now cover exact transcript, binding,
-outbox, cleanup-fence, and claim-release behavior. Provider claim, IO result,
-and retry execution remain later BR-17 work.
+0.84.22. Atomic answer-ready runtime tests cover exact transcript, binding,
+outbox, cleanup-fence, and claim-release behavior. Delivery tests add concurrent
+oldest-due claim equality, exact stale and duplicate result rejection, retry
+schedule and exhaustion policy, safe pre-spawn release, Resend and Twilio
+restart outcomes, immutable envelope/evidence/transcript preservation, bounded
+response parsing, exact provider identifiers, byte-identical Resend replay,
+queue saturation, cancellation, lost results, fresh-App reconciliation, and
+independent next-job progress without sleeps or network.
 `tests/module_structure.rs` now includes the delivery envelope, identity,
 status, policy, and schema modules in its production-size guard.
 

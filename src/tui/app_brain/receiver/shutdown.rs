@@ -12,6 +12,7 @@ use super::diagnostic::receiver_observation_diagnostic;
 
 impl App {
     pub(crate) fn shutdown_receiver_runtime(&mut self) {
+        self.services.cancel_receiver_delivery();
         let answer_cleanup_attempts = self.receiver.answer_controller_cleanup_count();
         for _ in 0..answer_cleanup_attempts {
             self.continue_oldest_receiver_answer_controller_cleanup();

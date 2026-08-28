@@ -1636,12 +1636,11 @@ only opaque job and instance IDs, frontend, prior phase, observed boundary or
 without terminal evidence never replays the prompt. Each enabled receiver tick
 now reconciles stalled work before restart controls, executes exact cleanup,
 hands off one pending terminal notice, and claims a due same-session recovery
-before later ordinary FIFO work. BR-17 still owns durable answer and
-delivery-only recovery.
-Provider replies currently use the
-exact acceptance-time channel and recipient context on a bounded background
-worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
-failure is not yet a durable delivery-only retry. BR-18 still owns final schema
+before later ordinary FIFO work. Final-answer delivery now uses a separate
+oldest-due claim and bounded provider worker. Acknowledged provider references
+finish the job, safe failures schedule bounded retries, and provider-specific
+ambiguity becomes either an exact Resend replay or terminal failure. Legacy
+notices and controls still use their existing background path. BR-18 still owns final schema
 migration/reconciliation, durable phase reporting, and removal of the narrowly
 retained legacy job-socket lifetime representation; it no longer needs to
 remove a parallel injection, warm-panel, or in-memory execution path.

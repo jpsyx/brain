@@ -3125,9 +3125,13 @@ definitely-not-accepted branch. Resend ambiguity schedules a retry only when
 that retry deadline, not merely the current clock, remains inside the 24-hour
 window. Any malformed frozen recipient rejects the whole response intent, and
 persisted envelopes validate normalized destinations and static lineage without
-echoing their content. The first BR-17 slice landed the renderer, policy,
-schema repair, and downgrade contract; atomic answer recording is now wired.
-Later tasks add delivery claims, provider results, and restart reconciliation.
+echoing their content. The final-answer lane now claims the oldest due outbox
+row independently, reserves bounded executor capacity before committing the
+durable IO-start fact, and applies typed results through an exact live-lease
+CAS. A proved pre-spawn interruption safely requeues without consuming an
+attempt. A crash after IO uses the same Resend replay or Twilio ambiguity
+decision as an in-process lost result. Legacy notices and controls remain on
+their prior path until their separate cutover.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a

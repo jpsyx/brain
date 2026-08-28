@@ -74,6 +74,7 @@ mod receiver_durable_cleanup;
 mod receiver_durable_control_race;
 mod receiver_durable_control_sync;
 mod receiver_durable_controls;
+mod receiver_durable_delivery;
 mod receiver_durable_diagnostics;
 mod receiver_durable_future_completion;
 mod receiver_durable_launch;

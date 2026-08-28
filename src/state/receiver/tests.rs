@@ -115,6 +115,12 @@ mod delivery_policy {
     include!("tests/delivery_policy.rs");
 }
 
+mod delivery_store {
+    use super::*;
+
+    include!("tests/delivery_store.rs");
+}
+
 mod schema {
     use super::support::*;
     use super::*;

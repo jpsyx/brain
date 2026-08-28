@@ -1112,6 +1112,7 @@ receiver_deliveries(
   retry_at_unix_ms            INTEGER,
   claim_owner                 TEXT,
   claim_expires_at_unix_ms    INTEGER,
+  provider_io_started         INTEGER NOT NULL, -- 0 | 1
   first_attempt_at_unix_ms    INTEGER,
   provider_reference          TEXT,
   error_category              TEXT,
@@ -1398,6 +1399,12 @@ The schema-v12 outbox and pure delivery policy define answer-ready and delivery
 recovery. Exact artifact completion now inserts the immutable final-answer row
 and moves its job to `answer-ready` before any provider IO. Later delivery work
 owns only the outbox state machine and cannot re-enter agent execution.
+Each delivery claim has its own owner, finite expiry, and fresh attempt ID.
+`provider_io_started` is the durable replay boundary: zero can be safely
+released or requeued without consuming an attempt; one requires
+provider-specific ambiguity policy after restart. Typed results commit only
+through the exact live delivery tuple. Acknowledgement stores only the provider
+reference, while retries retain the immutable envelope and completion evidence.
 Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.

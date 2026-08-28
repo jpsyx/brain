@@ -1,5 +1,115 @@
 //! Provider delivery decisions and narrow recipient authorization.
 
+mod executor;
+mod provider_attempt;
+
+#[cfg(not(test))]
+use executor::DeliveryExecutorPermit;
+pub(crate) use executor::{BoundedDeliveryExecutor, DeliveryExecutorPoll};
+#[cfg(not(test))]
+use provider_attempt::deliver_receiver_claim;
+#[cfg(test)]
+use provider_attempt::{
+    PROVIDER_RESPONSE_LIMIT, classify_provider_http_response, classify_provider_process_output,
+    resend_request_for_test,
+};
+pub(crate) use provider_attempt::{
+    ReceiverProviderProcessFailure, classify_provider_process_failure,
+};
+
+/// Publication handle for work already admitted by the bounded provider executor.
+pub(crate) trait ReceiverDeliveryStart: Send {
+    fn start(self: Box<Self>) -> anyhow::Result<()>;
+}
+
+/// Nonblocking provider result returned to the application event loop.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverDeliveryExecutionPoll {
+    Pending,
+    Ready {
+        claim: Box<crate::state::ReceiverDeliveryClaim>,
+        result: crate::state::ReceiverProviderResultClass,
+    },
+    Disconnected,
+}
+
+/// Injectable provider execution boundary used by the final-answer coordinator.
+pub(crate) trait ReceiverDeliveryExecution: Send {
+    fn reserve(
+        &mut self,
+        command: crate::workspace::CommandContext,
+        claim: crate::state::ReceiverDeliveryClaim,
+    ) -> Result<Box<dyn ReceiverDeliveryStart>, Box<crate::state::ReceiverDeliveryClaim>>;
+
+    fn poll(&self) -> ReceiverDeliveryExecutionPoll;
+
+    fn cancel(&mut self);
+}
+
+#[cfg(not(test))]
+pub(crate) struct SystemReceiverDeliveryExecution {
+    executor: BoundedDeliveryExecutor<
+        crate::state::ReceiverDeliveryClaim,
+        crate::state::ReceiverProviderResultClass,
+    >,
+    cancellation: super::provider::CurlCancellation,
+}
+
+#[cfg(not(test))]
+impl SystemReceiverDeliveryExecution {
+    pub(crate) fn new() -> std::io::Result<Self> {
+        Ok(Self {
+            executor: BoundedDeliveryExecutor::new(1, "brain-final-answer-delivery")?,
+            cancellation: super::provider::CurlCancellation::default(),
+        })
+    }
+}
+
+#[cfg(not(test))]
+struct SystemReceiverDeliveryStart(DeliveryExecutorPermit);
+
+#[cfg(not(test))]
+impl ReceiverDeliveryStart for SystemReceiverDeliveryStart {
+    fn start(self: Box<Self>) -> anyhow::Result<()> {
+        self.0
+            .start()
+            .map_err(|_| anyhow::anyhow!("provider delivery worker disconnected before start"))
+    }
+}
+
+#[cfg(not(test))]
+impl ReceiverDeliveryExecution for SystemReceiverDeliveryExecution {
+    fn reserve(
+        &mut self,
+        command: crate::workspace::CommandContext,
+        claim: crate::state::ReceiverDeliveryClaim,
+    ) -> Result<Box<dyn ReceiverDeliveryStart>, Box<crate::state::ReceiverDeliveryClaim>> {
+        let operation_claim = claim.clone();
+        let cancellation = self.cancellation.clone();
+        self.executor
+            .reserve(claim, move || {
+                deliver_receiver_claim(&command, &operation_claim, &cancellation)
+            })
+            .map(|permit| Box::new(SystemReceiverDeliveryStart(permit)) as Box<_>)
+            .map_err(|full| Box::new(full.into_input()))
+    }
+
+    fn poll(&self) -> ReceiverDeliveryExecutionPoll {
+        match self.executor.poll() {
+            DeliveryExecutorPoll::Pending => ReceiverDeliveryExecutionPoll::Pending,
+            DeliveryExecutorPoll::Ready(result) => ReceiverDeliveryExecutionPoll::Ready {
+                claim: Box::new(result.input),
+                result: result.output,
+            },
+            DeliveryExecutorPoll::Disconnected => ReceiverDeliveryExecutionPoll::Disconnected,
+        }
+    }
+
+    fn cancel(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+
 type DeliveryJob = Box<dyn FnOnce() + Send>;
 
 static DELIVERY_DISPATCHER: std::sync::LazyLock<

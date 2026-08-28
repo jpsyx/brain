@@ -26,6 +26,8 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
            retry_at_unix_ms             INTEGER,
            claim_owner                 TEXT,
            claim_expires_at_unix_ms    INTEGER,
+           provider_io_started         INTEGER NOT NULL DEFAULT 0
+             CHECK (provider_io_started IN (0, 1)),
            first_attempt_at_unix_ms    INTEGER,
            provider_reference          TEXT,
            error_category              TEXT CHECK (error_category IN (
@@ -43,8 +45,9 @@ const CREATE_DELIVERY_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliver
            CHECK (state = 'delivering' OR claim_owner IS NULL),
            CHECK (state != 'delivering' OR (
              attempt_id IS NOT NULL AND claim_owner IS NOT NULL
-             AND first_attempt_at_unix_ms IS NOT NULL
            )),
+           CHECK (state = 'delivering' OR provider_io_started = 0),
+           CHECK (provider_io_started = 0 OR first_attempt_at_unix_ms IS NOT NULL),
            CHECK (state = 'retrying' OR retry_at_unix_ms IS NULL),
            CHECK (state != 'retrying' OR retry_at_unix_ms IS NOT NULL),
            CHECK (state != 'acknowledged' OR (
@@ -209,6 +212,7 @@ fn ensure_optional_columns(connection: &Connection) -> Result<()> {
         ("retry_at_unix_ms", "INTEGER"),
         ("claim_owner", "TEXT"),
         ("claim_expires_at_unix_ms", "INTEGER"),
+        ("provider_io_started", "INTEGER NOT NULL DEFAULT 0"),
         ("first_attempt_at_unix_ms", "INTEGER"),
         ("provider_reference", "TEXT"),
         ("error_category", "TEXT"),
@@ -228,14 +232,14 @@ fn reconcile_rows(connection: &Connection) -> Result<()> {
         "UPDATE receiver_deliveries
          SET state = 'ambiguous', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_at_unix_ms = NULL, ambiguity_reason = 'result-commit-unknown',
-             error_category = NULL
+             error_category = NULL, provider_io_started = 0
          WHERE (claim_owner IS NULL) != (claim_expires_at_unix_ms IS NULL)
             OR (state = 'delivering' AND (
               attempt_id IS NULL OR claim_owner IS NULL
-              OR first_attempt_at_unix_ms IS NULL
             ));
          UPDATE receiver_deliveries
          SET claim_owner = NULL, claim_expires_at_unix_ms = NULL
+             , provider_io_started = 0
          WHERE state != 'delivering';
          UPDATE receiver_deliveries
          SET retry_at_unix_ms = NULL
@@ -275,12 +279,12 @@ fn ensure_table_contract(connection: &Connection) -> Result<()> {
            (delivery_id, job_id, job_token, response_kind, envelope_json,
             completion_evidence_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
-            claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
+            claim_expires_at_unix_ms, provider_io_started, first_attempt_at_unix_ms, provider_reference,
             error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms)
          SELECT delivery_id, job_id, job_token, response_kind, envelope_json,
             completion_evidence_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
-            claim_expires_at_unix_ms, first_attempt_at_unix_ms, provider_reference,
+            claim_expires_at_unix_ms, provider_io_started, first_attempt_at_unix_ms, provider_reference,
             error_category, ambiguity_reason, created_at_unix_ms, updated_at_unix_ms
          FROM receiver_deliveries_v12_rebuild;
          DROP TABLE receiver_deliveries_v12_rebuild;",
