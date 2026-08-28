@@ -182,16 +182,18 @@ rule applies across the large runtime families:
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
-| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and `schema/delivery.rs` owns v12 outbox repair including legacy-notice conversion; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,reconciliation,status}.rs` own generic exact response claims, typed row decoding, result CAS, expired-lease recovery, and content-free counts; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
+| Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and the thin `schema/delivery.rs` coordinator delegates v12 contract, repair, legacy-notice, fallback-success, index, cleanup, and downgrade work to focused modules under `schema/delivery/`; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,reconciliation,status}.rs` own generic exact response claims, typed row decoding, result CAS, expired-lease recovery, and content-free counts; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
 | TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only agent and cleanup authority. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local reply or unavailable-notice handoff remains. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
-The delivery schema coordinator now delegates the answer-cleanup table contract
-to `state/receiver/schema/delivery/cleanup_schema.rs`. Recovery claim discovery
-shares reconciliation's exact final-answer exclusion, so jobs proved to be in
-the independent delivery lane do not block later agent recovery work.
+The delivery schema coordinator delegates table contracts, row repair, legacy
+notice conversion, acknowledged-fallback restoration, managed indexes, cleanup,
+and downgrade to the focused modules under
+`state/receiver/schema/delivery/`. Recovery claim discovery shares
+reconciliation's exact semantic-response exclusion, so jobs proved to be in the
+independent delivery lane do not block later agent recovery work.
 
 BR-17 extends those receiver seams without adding another runtime queue.
 `state/receiver/transcript.rs` renders deterministic portable turns, while
@@ -496,8 +498,12 @@ handoff, validates every exact unreleased registration/session, removes only
 the named response, observation, and observation-lock files, and releases the
 exact registrations and locks. Artifact failure rolls back database changes so
 the automatic installer downgrade can retry without losing cleanup authority.
-Only after that drain does it map nonblank provider acknowledgements to done and
-every other delivery to a non-replayable terminal job, preserves conversation
+An acknowledged fallback plus its same-job terminal source with a durable
+`fallback-planned` decision restores the job to done during repair and downgrade;
+that stored relation, rather than row ordering, prevents a successful fallback
+from being demoted or resent. Only after that drain does downgrade map other
+nonblank provider acknowledgements to done and every other delivery to a
+non-replayable terminal job, preserves conversation
 transcripts, and only then removes the cleanup table and outbox. It rebuilds
 `receiver_jobs` from the canonical v11 DDL inside the same transaction, copying
 only retained v11 columns and recreating its checks, uniqueness, foreign key,
@@ -1825,9 +1831,9 @@ observation split, the pending unavailable-notice intent, and the exact
 superseded instance/session cleanup fence; schema v11 added the independent
 finite unavailable-notice writer lease; schema v12 added immutable response
 envelopes, exact delivery attempts, finite delivery claims, provider result
-classification, and retry or ambiguity state. The model and policy are active
-state-layer contracts, while provider IO and App completion continue through
-the existing path until later BR-17 wiring.
+classification, and retry or ambiguity state. The state contracts, nonblocking
+provider executor, and App tick consumer are active for every semantic response
+kind.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 

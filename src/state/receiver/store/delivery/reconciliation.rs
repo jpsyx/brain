@@ -181,7 +181,7 @@ fn migrate_legacy_unavailable_notices(
         let message = crate::server::reply::unanswered_notice(
             super::super::response_intent::channel_label(inbound.channel),
         );
-        if super::super::response_intent::insert(
+        let inserted = super::super::response_intent::insert(
             transaction,
             job_id,
             token,
@@ -189,25 +189,32 @@ fn migrate_legacy_unavailable_notices(
             crate::state::ReceiverResponseKind::UnavailableNotice,
             &message.text,
             observed_at_unix_ms,
-        )
-        .is_err()
-        {
-            transaction.execute(
-                "UPDATE receiver_jobs
-                 SET pending_unavailable_notice = 0,
-                     last_error = 'notice-no-authorized-destination',
-                     updated_at_unix_ms = ?4
-                 WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
-                   AND state = 'failed' AND pending_unavailable_notice = 1",
-                rusqlite::params![
-                    workspace_id,
-                    job_id.to_string(),
-                    token.to_string(),
-                    observed_at_unix_ms
-                ],
-            )?;
-            migrated = migrated.saturating_add(1);
-            continue;
+        );
+        match inserted {
+            Ok(_) => {}
+            Err(error)
+                if error
+                    .downcast_ref::<crate::state::ReceiverDeliveryRenderError>()
+                    .is_some() =>
+            {
+                transaction.execute(
+                    "UPDATE receiver_jobs
+                     SET pending_unavailable_notice = 0,
+                         last_error = 'notice-no-authorized-destination',
+                         updated_at_unix_ms = ?4
+                     WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
+                       AND state = 'failed' AND pending_unavailable_notice = 1",
+                    rusqlite::params![
+                        workspace_id,
+                        job_id.to_string(),
+                        token.to_string(),
+                        observed_at_unix_ms
+                    ],
+                )?;
+                migrated = migrated.saturating_add(1);
+                continue;
+            }
+            Err(error) => return Err(error),
         }
         let changed = transaction.execute(
             "UPDATE receiver_jobs

@@ -1777,6 +1777,8 @@ renewed so re-enable continues the same FIFO work.
 Terminal notice intent uses the schema-v12 durable response lane. Same-version
 repair and enabled-tick reconciliation convert a legacy BR-16 pending bit into
 one immutable `unavailable-notice` envelope and clear the obsolete local lease.
+A storage failure preserves the pending source transaction for an exact later
+retry; only a deterministic authorization or render failure clears the bit.
 `/new` and `/restart` acknowledgements, plus one notice for every dropped job,
 commit atomically with their source-job and conversation changes. Final answers,
 notices, and acknowledgements share exact claims, provider-result policy, retry
@@ -1791,7 +1793,10 @@ user or machine configuration. Every terminal outcome persists either
 `fallback-planned` or `no-safe-fallback`. A planned notice is inserted in the
 same exact transaction as the source terminal transition, remains durable
 across restart and concurrent result delivery, and cannot create another
-fallback notice if its own provider attempt fails.
+fallback notice if its own provider attempt fails. Once that notice is
+acknowledged, its durable relation to the terminal source keeps the job done
+through reopen, repeated repair, downgrade, and later re-upgrade without a
+resend.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only

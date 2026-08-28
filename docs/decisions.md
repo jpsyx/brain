@@ -5139,3 +5139,12 @@ the source transition and one unique `fallback-notice` insert commit atomically;
 fallback-notice failure is fenced from recursion. Reconciliation and final
 pre-provider-IO expiry call the same planner, so restart and timing boundaries
 cannot acquire new authority.
+An acknowledged fallback row and its same-job failed or ambiguous source with a
+stored `fallback-planned` decision are the durable success relation. Repair and
+downgrade use that relation, never delivery ordering, to keep the job done and
+prevent another send.
+
+Legacy pending-notice conversion has the same error boundary as same-version
+repair. Only the typed deterministic render or authorization error may clear the
+pending bit and record `notice-no-authorized-destination`; storage failures abort
+the transaction so the exact source can retry without notice loss.

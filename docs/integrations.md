@@ -1319,7 +1319,7 @@ destinations, rendered bodies, email lineage, and content-free provider-attempt
 metadata. Credentials remain in the machine-local provider adapter.
 Same-version repair rebuilds the earlier v12 check contract before a claim can
 enter `delivering`, preserves every row, and terminalizes malformed or
-pre-frozen-sender final answers together with their matching job.
+pre-frozen-sender semantic responses together with their matching job.
 Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
 Authenticated ingress fills it with the canonical receiving identity actually
@@ -1331,9 +1331,11 @@ rows terminalize without rereading environment.
 Reconciliation terminalizes interrupted or malformed delivery leases without
 replay. Its down
 path reserves an immediate writer before schema inspection, verifies the v11
-conversation, job, recovery, notice, and registration shape, maps only an
-acknowledged row with a nonblank provider reference to done, and maps every
-other row to a non-replayable failed job. Repair adds optional columns before
+conversation, job, recovery, notice, and registration shape, preserves done for
+an acknowledged fallback whose same-job terminal source records
+`fallback-planned`, maps other acknowledged rows with nonblank provider
+references to done, and maps every other row to a non-replayable failed job.
+Repair adds optional columns before
 managed indexes, rebuilds stale index signatures, fails closed on duplicate
 semantic responses, converts blank acknowledgements to explicit ambiguity,
 retains conversation transcripts, and drops the outbox last on downgrade.
@@ -1584,7 +1586,10 @@ notices use the schema-v12 outbox. Their source-job transition and immutable
 provider envelope commit in one immediate transaction. A legacy BR-16 pending
 notice remains behind its exact cleanup fence; same-version repair or the next
 enabled delivery reconciliation converts it to one `unavailable-notice` row
-after that fence clears. Every semantic response kind then uses the same
+after that fence clears. A deterministic render or authorization failure records
+the content-free no-destination outcome; any SQLite or storage failure rolls
+back the transaction with the pending bit intact for exact retry. Every semantic
+response kind then uses the same
 delivery claim, provider executor, result policy, retry, and ambiguity rules.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the

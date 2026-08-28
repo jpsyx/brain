@@ -160,6 +160,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
                    AND delivery.job_token = receiver_jobs.job_token
                );",
         )?;
+        super::fallback_success::restore_acknowledged_jobs(&transaction)?;
     } else {
         transaction.execute_batch(
             "UPDATE receiver_jobs

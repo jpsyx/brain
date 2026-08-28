@@ -1108,6 +1108,7 @@ receiver_deliveries(
   response_kind               TEXT NOT NULL,
   envelope_json               TEXT NOT NULL,
   completion_evidence_json    TEXT,
+  frozen_fallbacks_json       TEXT NOT NULL,
   state                       TEXT NOT NULL,
   attempt_id                  TEXT,
   attempt_count               INTEGER NOT NULL,
@@ -1119,6 +1120,7 @@ receiver_deliveries(
   provider_reference          TEXT,
   error_category              TEXT,
   ambiguity_reason            TEXT,
+  fallback_decision           TEXT,
   created_at_unix_ms          INTEGER NOT NULL,
   updated_at_unix_ms          INTEGER NOT NULL,
   UNIQUE(job_id, response_kind)
@@ -1193,13 +1195,19 @@ in the exact conversation-roll transaction. `/restart` persists its
 acknowledgement and one unavailable notice for every dropped job in the exact
 queue-cut transaction. Same-version repair and normal delivery reconciliation
 convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
-before clearing the bit. Downgrade maps unfinished semantic deliveries to the
+before clearing the bit. A deterministic render or authorization failure clears
+the bit with `notice-no-authorized-destination`; a SQLite or storage failure
+rolls back the whole conversion and leaves the source pending for exact retry.
+Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
 process-local acknowledgement lease. Missing rows and missing tables receive
 the same non-replayable mapping for every semantic response kind. Same-version
 repair adds fallback columns, supplies `[]` authority to older rows, records
 `no-safe-fallback` for older terminal rows, preserves valid generic rows, and
-terminalizes malformed active rows before later due work is claimed.
+terminalizes malformed active rows before later due work is claimed. A valid
+acknowledged fallback and its same-job terminal source with
+`fallback_decision = 'fallback-planned'` form the durable success relation that
+keeps the job done through repeated repair and v12 downgrade.
 
 The response sender is canonicalized and captured when authenticated ingress
 accepts the job, not when the agent finishes. Human-formatted SMS numbers and

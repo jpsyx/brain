@@ -572,3 +572,19 @@ fn receiver_recovery_model_and_schema_use_cohesive_modules() {
         );
     }
 }
+
+#[test]
+fn receiver_delivery_schema_root_stays_thin() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source = std::fs::read_to_string(root.join("src/state/receiver/schema/delivery.rs"))
+        .expect("receiver delivery schema root");
+    let nonblank_lines = source
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+
+    assert!(
+        nonblank_lines <= 80,
+        "receiver delivery schema root has {nonblank_lines} nonblank lines"
+    );
+}

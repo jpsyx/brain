@@ -126,6 +126,7 @@ mod delivery_fallback {
     use super::*;
 
     include!("tests/delivery_fallback.rs");
+    include!("tests/delivery_fallback_success.rs");
 }
 
 mod delivery_store {

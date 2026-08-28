@@ -1258,7 +1258,10 @@ all-kind missing-row/table and valid-generic repair/down mapping, same-version
 fallback-column repair, terminal-result rollback on fallback insert failure,
 restart/concurrent at-most-once fallback creation, recursion fencing, read-only
 legacy/no-file status, stable terminal-reason counts, and content-free tick
-diagnostics.
+diagnostics. The second review fix adds an insert-only SQLite trigger proving
+runtime legacy-notice rollback and exact retry, acknowledged-fallback repair and
+down/up durability with stale-result rejection, and a structural guard that
+keeps the delivery schema coordinator thin.
 The composed HTTP-to-state suite accepts a human-formatted SMS receiver and a
 whitespace-padded email receiver, then proves authentication persists the
 canonical sender and completion advances transcript, outbox, cleanup, and job
