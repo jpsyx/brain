@@ -117,9 +117,10 @@ impl AgentTransport for RecordingTransport {
         self.alive
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.recording.record(ControllerEvent::Shutdown);
         self.alive = false;
+        Ok(())
     }
 
     fn scroll_up(&mut self, rows: usize) {
@@ -214,10 +215,12 @@ impl AgentTransport for ObservedTransport {
         self.recording.0.lock().expect("transport recording").alive
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         let mut state = self.recording.0.lock().expect("transport recording");
         state.shutdowns += 1;
         state.alive = false;
+        drop(state);
+        Ok(())
     }
 }
 
@@ -244,8 +247,9 @@ impl AgentTransport for LaunchRecordingTransport {
         self.alive
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.alive = false;
+        Ok(())
     }
 }
 
@@ -319,5 +323,7 @@ impl AgentTransport for FailingSpawnTransport {
         false
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }

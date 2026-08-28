@@ -129,9 +129,12 @@ durable job, and launches a new PTY and frontend-neutral `AgentController` in
 that background tab even while the main panel is busy. Later arrivals remain
 durable until the active run reaches a valid exact completion. Answer commit
 releases agent ownership at `answer-ready`; cleanup shuts down only that
-controller. Exact session release and private artifact removal stay fenced
-until that shutdown is durably acknowledged or restart proves the exact Brain
-instance stale. Those two cleanup effects retry independently, then task reload
+controller and waits for the transport to confirm that exact child exited.
+Exact session release and private artifact removal stay fenced until that
+confirmation is durably acknowledged. If the origin dies, authoritative
+startup lock reaping atomically records the same handoff before it unlocks the
+exact session; PID equality or reuse is never takeover proof. Those two cleanup
+effects retry independently, then task reload
 and sync finish the handoff while leaving the active view, tab, and focus
 unchanged. Cleanup retries do not block a later job. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without

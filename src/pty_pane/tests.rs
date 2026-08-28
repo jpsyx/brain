@@ -219,8 +219,8 @@ fn dormant_transport_has_inert_lifecycle_and_rejects_input() {
         AgentTransport::send(&mut pty, InputSequence::bytes(b"ignored")),
         Err(AgentError::Transport("PTY child is not running".to_owned()))
     );
-    AgentTransport::shutdown(&mut pty);
-    AgentTransport::shutdown(&mut pty);
+    AgentTransport::shutdown(&mut pty).expect("dormant shutdown");
+    AgentTransport::shutdown(&mut pty).expect("repeated dormant shutdown");
     assert!(!AgentTransport::is_alive(&pty));
 }
 
@@ -248,7 +248,7 @@ fn transport_rejects_a_second_spawn_while_the_child_is_alive() {
             "cannot replace a running PTY child".to_owned()
         ))
     );
-    AgentTransport::shutdown(&mut pty);
+    AgentTransport::shutdown(&mut pty).expect("confirmed shutdown");
     wait_until_stopped(&pty);
 }
 
@@ -274,8 +274,7 @@ fn shutdown_stops_the_child_and_rejects_later_input() {
     let mut pty = PtyPane::new(5, 80);
     AgentTransport::spawn(&mut pty, &spec("sleep 30", Path::new("."))).expect("spawn child");
 
-    AgentTransport::shutdown(&mut pty);
-    wait_until_stopped(&pty);
+    AgentTransport::shutdown(&mut pty).expect("confirmed shutdown");
     assert_eq!(
         AgentTransport::send(&mut pty, InputSequence::bytes(b"too late")),
         Err(AgentError::Transport("PTY child is not running".to_owned()))

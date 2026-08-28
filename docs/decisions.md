@@ -3064,11 +3064,11 @@ Agent ownership ends at `answer-ready`, so post-commit cleanup must not retain o
 recreate a claim that would block the next job. Instead, the row preserves the
 exact session registration and private artifact identity. It is initially
 fenced: no App may release the session or remove artifacts until the originating
-exact Brain instance durably acknowledges successful controller shutdown.
-Restart takeover requires the same session to have been unlocked by startup
-dead-lock reaping, or durable evidence that its PID is now attached to a
-different Brain instance. This distinguishes process incarnations instead of
-trusting bare PID liveness.
+exact Brain instance waits for and durably acknowledges confirmed exit of its
+exact child. A kill request alone is not proof. Restart takeover requires
+authoritative dead-lock reaping to persist the same acknowledgement atomically
+before it unlocks that exact session. PID equality, inequality, and reuse are
+never handoff proof; a remaining lock makes cleanup wait.
 
 Session release and artifact removal have independent success flags. Brain
 attempts both after the controller fence opens, and artifact removal may finish
@@ -3077,6 +3077,16 @@ for both flags. The row is removed only after those remaining effects succeed.
 A later tick or fresh App can finish them without re-entering agent execution.
 Sync launch is intentionally at-least-once across a crash after launch but
 before row deletion; duplicate sync is safer than discarding cleanup authority.
+Cleanup authority is keyed by exact job, not Brain instance. Multiple pending
+rows for one instance are therefore independent, and an earlier artifact retry
+cannot make a later answer transaction fail or re-block FIFO.
+
+The schema-v12 down migration must discharge this authority rather than erase
+it. It refuses unacknowledged rows, validates exact unreleased sessions, removes
+only each instance's three private artifacts, and then exact-unlocks and removes
+registrations before dropping the v12 tables. A filesystem failure leaves v12
+and its database authority intact; retry treats already removed exact files as
+success.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

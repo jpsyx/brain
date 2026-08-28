@@ -391,14 +391,21 @@ first move is a failing test that reproduces it, *then* the fix.
   `answer-ready` or `delivering` jobs as final-answer proof. App boundary tests
   cover crashes before and after commit, the two-App window between answer
   commit and originating controller shutdown, exact origin acknowledgement,
-  dead-owner takeover after lock reaping, PID-reuse-equivalent Brain-instance
-  mismatch, durable session-release and artifact-cleanup retries, sync-start
+  end-to-end dead-owner takeover after atomic lock-reap acknowledgement,
+  same-PID main-session and stale-PID takeover denial, multiple same-instance
+  cleanup rows with a later answer commit, durable session-release and artifact-cleanup retries, sync-start
   failures, durable answers, and next-job release. They prove that controller
   shutdown opens the cleanup fence, session and artifact flags progress
-  independently, and task reload plus sync wait for both. A fresh App resumes
+  independently, and task reload plus sync wait for both. Agent-controller
+  contract tests cover kill failure, a child still running after the bound, and
+  confirmed exit without timing sleeps; only confirmed exit opens the durable
+  fence. A fresh App resumes
   only an eligible cleanup without reclaiming agent work. Schema tests cover
-  same-version cleanup-table and shutdown-ack column repair, content and
-  credential exclusion, and v12 downgrade removal. That matrix
+  same-version cleanup-table, legacy instance-unique-index and shutdown-ack
+  column repair, content and credential exclusion, and v12 downgrade cleanup.
+  Down tests prove unacknowledged refusal, exact session and private-artifact
+  discharge, and filesystem failure with intact authority plus idempotent
+  retry. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a

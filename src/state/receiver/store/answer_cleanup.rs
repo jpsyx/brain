@@ -394,46 +394,22 @@ fn controller_handoff_is_eligible(
     workspace_id: &str,
     cleanup: &ReceiverAnswerCleanup,
 ) -> Result<bool> {
-    if cleanup.controller_shutdown_acknowledged() {
-        return Ok(true);
-    }
-    let state = connection
+    Ok(connection
         .query_row(
-            "SELECT session.locked_pid,
-                    EXISTS(
-                      SELECT 1 FROM brain_sessions AS replacement
-                      WHERE replacement.locked_pid = session.locked_pid
-                        AND replacement.brain_instance_id != session.brain_instance_id
-                    )
-             FROM receiver_answer_cleanups AS cleanup
-             JOIN receiver_session_registrations AS registration
-               ON registration.workspace_id = cleanup.workspace_id
-              AND registration.conversation_id = cleanup.conversation_id
-              AND registration.agent_kind = cleanup.agent_kind
-              AND registration.actor_id = cleanup.actor_id
-              AND registration.channel = cleanup.channel
-              AND registration.brain_instance_id = cleanup.brain_instance_id
-              AND registration.registered_session_id = cleanup.registered_session_id
-              AND registration.actual_session_id = cleanup.actual_session_id
-             JOIN brain_sessions AS session
-               ON session.workspace_id = registration.workspace_id
-              AND session.agent_kind = registration.agent_kind
-              AND session.actor_id = registration.actor_id
-              AND session.channel = registration.channel
-              AND session.brain_instance_id = registration.brain_instance_id
-              AND session.agent_session_id = registration.actual_session_id
-             WHERE cleanup.workspace_id = ?1 AND cleanup.job_id = ?2
-               AND cleanup.job_token = ?3 AND cleanup.brain_instance_id = ?4",
+            "SELECT controller_shutdown_acknowledged
+             FROM receiver_answer_cleanups
+             WHERE workspace_id = ?1 AND job_id = ?2
+               AND job_token = ?3 AND brain_instance_id = ?4",
             rusqlite::params![
                 workspace_id,
                 cleanup.job_id().to_string(),
                 cleanup.token().to_string(),
                 cleanup.instance(),
             ],
-            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, bool>(1)?)),
+            |row| row.get::<_, bool>(0),
         )
-        .optional()?;
-    Ok(matches!(state, Some((None, _) | (Some(_), true))))
+        .optional()?
+        .unwrap_or(false))
 }
 
 fn parse_frontend(value: &str) -> Result<crate::agent::AgentKind> {

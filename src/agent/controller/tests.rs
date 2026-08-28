@@ -410,6 +410,56 @@ fn shutdown_stops_the_transport_even_when_frontend_availability_fails() {
 }
 
 #[test]
+fn shutdown_reports_a_transport_kill_failure_and_remains_retryable() {
+    let (mut controller, recording) = controller_with_shutdown_outcome(ShutdownOutcome::KillFailed);
+
+    assert_eq!(
+        controller.shutdown(),
+        Err(AgentError::Transport(
+            "PTY child termination failed".to_owned()
+        ))
+    );
+    assert_eq!(
+        controller.shutdown(),
+        Err(AgentError::Transport(
+            "PTY child termination failed".to_owned()
+        ))
+    );
+    assert_eq!(recording.events(), vec![Event::Shutdown, Event::Shutdown]);
+}
+
+#[test]
+fn shutdown_reports_a_child_that_remains_running_and_remains_retryable() {
+    let (mut controller, recording) =
+        controller_with_shutdown_outcome(ShutdownOutcome::StillRunning);
+
+    assert_eq!(
+        controller.shutdown(),
+        Err(AgentError::Transport(
+            "PTY child remained running after termination".to_owned()
+        ))
+    );
+    assert_eq!(
+        controller.shutdown(),
+        Err(AgentError::Transport(
+            "PTY child remained running after termination".to_owned()
+        ))
+    );
+    assert_eq!(recording.events(), vec![Event::Shutdown, Event::Shutdown]);
+}
+
+#[test]
+fn shutdown_is_idempotent_only_after_the_transport_confirms_exit() {
+    let (mut controller, recording) =
+        controller_with_shutdown_outcome(ShutdownOutcome::ConfirmedExit);
+
+    controller.shutdown().expect("confirmed child exit");
+    controller.shutdown().expect("already confirmed child exit");
+
+    assert_eq!(recording.events(), vec![Event::Shutdown]);
+}
+
+#[test]
 fn queueing_rejects_empty_text_before_calling_the_frontend_or_transport() {
     let (mut controller, recording, _, _) = controller();
 

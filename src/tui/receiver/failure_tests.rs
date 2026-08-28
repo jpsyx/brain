@@ -138,8 +138,9 @@ impl AgentTransport for ShutdownTransport {
         false
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         *self.0.lock().expect("shutdown count") += 1;
+        Ok(())
     }
 }
 

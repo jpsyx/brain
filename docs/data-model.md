@@ -1136,8 +1136,7 @@ receiver_answer_cleanups(
   session_released        INTEGER NOT NULL,  -- 0 | 1
   artifacts_removed       INTEGER NOT NULL,  -- 0 | 1
   created_at_unix_ms      INTEGER NOT NULL,
-  updated_at_unix_ms      INTEGER NOT NULL,
-  UNIQUE(workspace_id, brain_instance_id)
+  updated_at_unix_ms      INTEGER NOT NULL
 )
 
 receiver_session_registrations(
@@ -1195,17 +1194,22 @@ machine-local `receiver_answer_cleanups` row with the exact job, token,
 conversation, instance, frontend, actor/channel, and registered plus actual
 session identity. It contains no message, recipient, provider payload, or
 credential. A durable controller-shutdown acknowledgement fences the row until
-the originating exact Brain instance has stopped its controller. A different
-App may take over only after startup dead-lock reaping unlocks that exact
-session, or durable lock evidence shows that the PID now belongs to a different
-Brain instance. Independent flags acknowledge exact session release and private
+the originating exact Brain instance has confirmed that its exact child exited.
+A different App may take over only after authoritative startup dead-lock
+reaping atomically persists that acknowledgement before unlocking the exact
+dead session. PID equality, inequality, or reuse is not takeover proof, and a
+remaining exact lock keeps cleanup waiting. Independent flags acknowledge exact session release and private
 artifact removal. Artifact removal may succeed while session release is still
 pending; neither flag authorizes the other. The row is not an agent claim and
-does not participate in FIFO blocking, so a later job may launch while cleanup
-retries. Brain deletes it only after both flags, task reload, and any configured
-sync launch succeed, so recurring ticks can finish cleanup without re-entering
-agent work.
-The schema-v12 down path removes this machine-local table before the outbox.
+does not participate in FIFO blocking. Its job primary key permits multiple
+pending rows for one Brain instance, so a later answer can commit and launch
+while earlier cleanup retries. Brain deletes each row only after both flags,
+task reload, and any configured sync launch succeed, so recurring ticks can
+finish cleanup without re-entering agent work. The schema-v12 down path first
+requires the durable handoff proof, removes the three exact private artifacts,
+and discharges the exact registration and session lock. A file failure retains
+schema v12 and its cleanup authority for an idempotent retry; only a successful
+drain removes the machine-local cleanup table and outbox.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the

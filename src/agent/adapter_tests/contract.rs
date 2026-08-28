@@ -30,7 +30,9 @@ impl AgentTransport for ObservationTransport {
         true
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }
 
 struct FrontendContract {

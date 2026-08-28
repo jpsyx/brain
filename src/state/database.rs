@@ -228,9 +228,10 @@ impl Db {
     /// Release locks held by dead brain shells so their sessions become
     /// resumable again. Best-effort; called on startup before `pick_resume`.
     pub fn reap_dead_locks(&self) -> Result<()> {
-        let locked: Vec<(String, String, String, String, String, i64)> = {
+        let locked: Vec<(String, String, String, String, String, String, i64)> = {
             let mut stmt = self.conn.prepare(
-                "SELECT agent_kind, agent_session_id, workspace_id, actor_id, channel, locked_pid
+                "SELECT agent_kind, agent_session_id, brain_instance_id,
+                        workspace_id, actor_id, channel, locked_pid
                  FROM brain_sessions
                  WHERE locked_pid IS NOT NULL",
             )?;
@@ -242,20 +243,61 @@ impl Db {
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             })?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        for (agent_kind, id, workspace_id, actor_id, channel, pid) in locked {
-            if !(self.pid_alive)(i32::try_from(pid).unwrap_or(0)) {
-                self.conn.execute(
-                    "UPDATE brain_sessions SET locked_pid = NULL
-                     WHERE agent_kind = ?1 AND agent_session_id = ?2
-                       AND workspace_id = ?3 AND actor_id = ?4 AND channel = ?5",
-                    rusqlite::params![agent_kind, id, workspace_id, actor_id, channel],
-                )?;
-            }
+        let dead = locked
+            .into_iter()
+            .filter(|(_, _, _, _, _, _, pid)| !(self.pid_alive)(i32::try_from(*pid).unwrap_or(0)))
+            .collect::<Vec<_>>();
+        if dead.is_empty() {
+            return Ok(());
         }
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        for (agent_kind, id, instance, workspace_id, actor_id, channel, pid) in dead {
+            transaction.execute(
+                "UPDATE receiver_answer_cleanups AS cleanup
+                 SET controller_shutdown_acknowledged = 1
+                 WHERE cleanup.workspace_id = ?4
+                   AND cleanup.brain_instance_id = ?3
+                   AND cleanup.agent_kind = ?1 AND cleanup.actor_id = ?5
+                   AND cleanup.channel = ?6 AND cleanup.actual_session_id = ?2
+                   AND cleanup.controller_shutdown_acknowledged = 0
+                   AND EXISTS (
+                     SELECT 1 FROM receiver_session_registrations AS registration
+                     WHERE registration.workspace_id = cleanup.workspace_id
+                       AND registration.conversation_id = cleanup.conversation_id
+                       AND registration.agent_kind = cleanup.agent_kind
+                       AND registration.actor_id = cleanup.actor_id
+                       AND registration.channel = cleanup.channel
+                       AND registration.brain_instance_id = cleanup.brain_instance_id
+                       AND registration.registered_session_id = cleanup.registered_session_id
+                       AND registration.actual_session_id = cleanup.actual_session_id
+                   )",
+                rusqlite::params![agent_kind, id, instance, workspace_id, actor_id, channel],
+            )?;
+            transaction.execute(
+                "UPDATE brain_sessions SET locked_pid = NULL
+                 WHERE agent_kind = ?1 AND agent_session_id = ?2
+                   AND brain_instance_id = ?3 AND workspace_id = ?4
+                   AND actor_id = ?5 AND channel = ?6 AND locked_pid = ?7",
+                rusqlite::params![
+                    agent_kind,
+                    id,
+                    instance,
+                    workspace_id,
+                    actor_id,
+                    channel,
+                    pid
+                ],
+            )?;
+        }
+        transaction.commit()?;
         Ok(())
     }
 

@@ -69,8 +69,7 @@ const CREATE_ANSWER_CLEANUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_a
            session_released        INTEGER NOT NULL DEFAULT 0 CHECK (session_released IN (0, 1)),
            artifacts_removed       INTEGER NOT NULL DEFAULT 0 CHECK (artifacts_removed IN (0, 1)),
            created_at_unix_ms      INTEGER NOT NULL,
-           updated_at_unix_ms      INTEGER NOT NULL,
-           UNIQUE (workspace_id, brain_instance_id)
+           updated_at_unix_ms      INTEGER NOT NULL
          );";
 
 pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
@@ -79,9 +78,53 @@ pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     ensure_optional_columns(connection)?;
     ensure_answer_cleanup_optional_columns(connection)?;
     ensure_answer_cleanup_columns(connection)?;
+    ensure_answer_cleanup_table_contract(connection)?;
     reconcile_rows(connection)?;
     ensure_table_contract(connection)?;
     ensure_managed_indexes(connection)?;
+    Ok(())
+}
+
+fn ensure_answer_cleanup_table_contract(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare(
+        "SELECT name FROM pragma_index_list('receiver_answer_cleanups')
+         WHERE \"unique\" = 1",
+    )?;
+    let indexes = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_legacy_instance_unique = indexes.into_iter().try_fold(false, |found, index| {
+        if found {
+            return Ok::<bool, anyhow::Error>(true);
+        }
+        let mut columns =
+            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?;
+        let columns = columns
+            .query_map([index], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(columns == ["workspace_id", "brain_instance_id"])
+    })?;
+    if !has_legacy_instance_unique {
+        return Ok(());
+    }
+    connection.execute_batch(
+        "ALTER TABLE receiver_answer_cleanups
+           RENAME TO receiver_answer_cleanups_v12_rebuild;",
+    )?;
+    connection.execute_batch(CREATE_ANSWER_CLEANUP_TABLE)?;
+    connection.execute_batch(
+        "INSERT INTO receiver_answer_cleanups
+           (job_id, job_token, workspace_id, conversation_id, brain_instance_id,
+            agent_kind, actor_id, channel, registered_session_id, actual_session_id,
+            controller_shutdown_acknowledged, session_released, artifacts_removed,
+            created_at_unix_ms, updated_at_unix_ms)
+         SELECT job_id, job_token, workspace_id, conversation_id, brain_instance_id,
+                agent_kind, actor_id, channel, registered_session_id, actual_session_id,
+                controller_shutdown_acknowledged, session_released, artifacts_removed,
+                created_at_unix_ms, updated_at_unix_ms
+         FROM receiver_answer_cleanups_v12_rebuild;
+         DROP TABLE receiver_answer_cleanups_v12_rebuild;",
+    )?;
     Ok(())
 }
 

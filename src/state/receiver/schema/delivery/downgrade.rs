@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use rusqlite::Connection;
 
 use super::super::{DELIVERY_PREVIOUS_VERSION, VERSION};
@@ -69,6 +69,19 @@ const REQUIRED_REGISTRATION_COLUMNS: &[&str] = &[
     "actual_session_id",
 ];
 
+struct CleanupObligation {
+    workspace_id: String,
+    conversation_id: String,
+    instance: String,
+    agent_kind: String,
+    actor_id: String,
+    channel: String,
+    registered_session_id: String,
+    actual_session_id: String,
+    controller_shutdown_acknowledged: bool,
+    session_released: bool,
+}
+
 pub(crate) fn down_path(path: &std::path::Path) -> Result<()> {
     down_path_inner(path, None)
 }
@@ -100,6 +113,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
         return Ok(());
     }
     validate_previous_schema(&transaction)?;
+    drain_answer_cleanups(&transaction, path)?;
     if table_exists(&transaction, "receiver_deliveries")? {
         transaction.execute_batch(
             "UPDATE receiver_jobs
@@ -142,6 +156,170 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
     )?;
     transaction.pragma_update(None, "user_version", DELIVERY_PREVIOUS_VERSION)?;
     transaction.commit()?;
+    Ok(())
+}
+
+fn drain_answer_cleanups(connection: &Connection, state_path: &std::path::Path) -> Result<()> {
+    if !table_exists(connection, "receiver_answer_cleanups")? {
+        bail!("receiver v12 schema is missing answer cleanup authority");
+    }
+    let cleanups = load_cleanup_obligations(connection)?;
+    for cleanup in &cleanups {
+        if !cleanup.controller_shutdown_acknowledged {
+            bail!("receiver answer cleanup lacks confirmed controller shutdown");
+        }
+        validate_artifact_instance(&cleanup.instance)?;
+        if !cleanup.session_released && !exact_session_registration_exists(connection, cleanup)? {
+            bail!("receiver answer cleanup lacks its exact session authority");
+        }
+    }
+    let cache_dir = state_path
+        .parent()
+        .context("receiver state path has no workspace cache directory")?;
+    for cleanup in &cleanups {
+        remove_cleanup_artifacts(cache_dir, &cleanup.instance)?;
+    }
+    for cleanup in &cleanups {
+        if cleanup.session_released {
+            continue;
+        }
+        connection.execute(
+            "UPDATE brain_sessions
+             SET locked_pid = NULL
+             WHERE workspace_id = ?1 AND agent_kind = ?2 AND actor_id = ?3
+               AND channel = ?4 AND brain_instance_id = ?5
+               AND agent_session_id = ?6",
+            rusqlite::params![
+                cleanup.workspace_id,
+                cleanup.agent_kind,
+                cleanup.actor_id,
+                cleanup.channel,
+                cleanup.instance,
+                cleanup.actual_session_id,
+            ],
+        )?;
+        let deleted = connection.execute(
+            "DELETE FROM receiver_session_registrations
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+               AND agent_kind = ?3 AND actor_id = ?4 AND channel = ?5
+               AND brain_instance_id = ?6 AND registered_session_id = ?7
+               AND actual_session_id = ?8",
+            rusqlite::params![
+                cleanup.workspace_id,
+                cleanup.conversation_id,
+                cleanup.agent_kind,
+                cleanup.actor_id,
+                cleanup.channel,
+                cleanup.instance,
+                cleanup.registered_session_id,
+                cleanup.actual_session_id,
+            ],
+        )?;
+        if deleted != 1 {
+            bail!("receiver answer cleanup exact session changed during downgrade");
+        }
+    }
+    connection.execute("DELETE FROM receiver_answer_cleanups", [])?;
+    Ok(())
+}
+
+fn load_cleanup_obligations(connection: &Connection) -> Result<Vec<CleanupObligation>> {
+    let mut statement = connection.prepare(
+        "SELECT workspace_id, conversation_id, brain_instance_id, agent_kind,
+                actor_id, channel, registered_session_id, actual_session_id,
+                controller_shutdown_acknowledged, session_released
+         FROM receiver_answer_cleanups
+         ORDER BY created_at_unix_ms, job_id",
+    )?;
+    let cleanups = statement
+        .query_map([], |row| {
+            Ok(CleanupObligation {
+                workspace_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                instance: row.get(2)?,
+                agent_kind: row.get(3)?,
+                actor_id: row.get(4)?,
+                channel: row.get(5)?,
+                registered_session_id: row.get(6)?,
+                actual_session_id: row.get(7)?,
+                controller_shutdown_acknowledged: row.get(8)?,
+                session_released: row.get(9)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(cleanups)
+}
+
+fn exact_session_registration_exists(
+    connection: &Connection,
+    cleanup: &CleanupObligation,
+) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM receiver_session_registrations AS registration
+           JOIN brain_sessions AS session
+             ON session.workspace_id = registration.workspace_id
+            AND session.agent_kind = registration.agent_kind
+            AND session.actor_id = registration.actor_id
+            AND session.channel = registration.channel
+            AND session.brain_instance_id = registration.brain_instance_id
+            AND session.agent_session_id = registration.actual_session_id
+           WHERE registration.workspace_id = ?1
+             AND registration.conversation_id = ?2
+             AND registration.agent_kind = ?3
+             AND registration.actor_id = ?4
+             AND registration.channel = ?5
+             AND registration.brain_instance_id = ?6
+             AND registration.registered_session_id = ?7
+             AND registration.actual_session_id = ?8
+         )",
+        rusqlite::params![
+            cleanup.workspace_id,
+            cleanup.conversation_id,
+            cleanup.agent_kind,
+            cleanup.actor_id,
+            cleanup.channel,
+            cleanup.instance,
+            cleanup.registered_session_id,
+            cleanup.actual_session_id,
+        ],
+        |row| row.get(0),
+    )?)
+}
+
+fn validate_artifact_instance(instance: &str) -> Result<()> {
+    if instance.is_empty()
+        || instance.len() > 128
+        || !instance
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        bail!("receiver answer cleanup has an unsafe artifact identity");
+    }
+    Ok(())
+}
+
+fn remove_cleanup_artifacts(cache_dir: &std::path::Path, instance: &str) -> Result<()> {
+    let response = cache_dir.join("responses").join(format!("{instance}.json"));
+    let observation = cache_dir
+        .join("receiver-observations")
+        .join(format!("{instance}.json"));
+    for artifact in [
+        response,
+        observation.clone(),
+        observation.with_extension("json.lock"),
+    ] {
+        match std::fs::remove_file(&artifact) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("remove receiver cleanup artifact {}", artifact.display())
+                });
+            }
+        }
+    }
     Ok(())
 }
 

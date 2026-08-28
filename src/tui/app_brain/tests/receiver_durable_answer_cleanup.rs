@@ -281,20 +281,20 @@ fn registration_count(app: &App) -> i64 {
 }
 
 #[derive(Clone)]
-struct CompletionSyncRuntime {
+pub(super) struct CompletionSyncRuntime {
     pushes: Arc<Mutex<usize>>,
     starts: bool,
 }
 
 impl CompletionSyncRuntime {
-    fn new(starts: bool) -> Self {
+    pub(super) fn new(starts: bool) -> Self {
         Self {
             pushes: Arc::new(Mutex::new(0)),
             starts,
         }
     }
 
-    fn pushes(&self) -> usize {
+    pub(super) fn pushes(&self) -> usize {
         *self.pushes.lock().expect("sync push count")
     }
 }

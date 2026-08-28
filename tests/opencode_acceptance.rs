@@ -71,7 +71,7 @@ impl AgentTransport for ProcessTransport {
         self.child.is_some()
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         if let Some(mut child) = self.child.take() {
             drop(child.stdin.take());
             child
@@ -79,6 +79,7 @@ impl AgentTransport for ProcessTransport {
                 .expect("fake OpenCode exits after stdin closes");
             self.shutdowns += 1;
         }
+        Ok(())
     }
 }
 

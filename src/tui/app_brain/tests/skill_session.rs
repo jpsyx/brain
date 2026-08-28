@@ -72,11 +72,12 @@ impl AgentTransport for CompletionSignalLaunchProbe {
         true
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.observation
             .lock()
             .expect("exhausted launch observation")
             .shutdowns += 1;
+        Ok(())
     }
 }
 

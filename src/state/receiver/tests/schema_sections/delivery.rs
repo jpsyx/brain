@@ -159,6 +159,37 @@ fn v12_repair_adds_the_controller_shutdown_acknowledgement_to_an_older_cleanup_t
 }
 
 #[test]
+fn v12_repair_removes_the_legacy_cleanup_instance_unique_index() {
+    let db = Db::open_in_memory().expect("receiver state");
+    db.conn
+        .execute_batch(
+            "CREATE UNIQUE INDEX legacy_cleanup_instance_unique
+               ON receiver_answer_cleanups(workspace_id, brain_instance_id);",
+        )
+        .expect("stage an explicitly named legacy cleanup uniqueness");
+
+    super::super::schema::up(&db.conn, 12).expect("repair cleanup uniqueness");
+
+    let unique_instance_indexes: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*)
+             FROM pragma_index_list('receiver_answer_cleanups') AS indexes
+             WHERE indexes.\"unique\" = 1
+               AND (
+                 SELECT group_concat(name, ',')
+                 FROM (
+                   SELECT name FROM pragma_index_info(indexes.name) ORDER BY seqno
+                 )
+               ) = 'workspace_id,brain_instance_id'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("legacy cleanup uniqueness count");
+    assert_eq!(unique_instance_indexes, 0);
+}
+
+#[test]
 fn one_job_can_have_one_row_per_semantic_response_kind() {
     let db = Db::open_in_memory().expect("receiver state");
     let accepted = db

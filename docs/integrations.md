@@ -1109,14 +1109,18 @@ Which session to run is decided by the **lock + recency** model in
    Only an artifact without lifecycle completion evidence uses that same fresh
    post-validation App time as its durable completion fallback.
    Lifecycle-only completion delivers nothing. After answer commit, Brain shuts
-   down the exact controller and durably acknowledges that exact-instance
-   handoff before another App may proceed. Session release and exact-instance
+   down the exact controller, waits for the PTY waiter to confirm that exact
+   child exited, and durably acknowledges that exact-instance handoff before
+   another App may proceed. A failed kill or bounded exit-confirmation timeout
+   leaves the fence closed and retries shutdown. Session release and exact-instance
    file removal then retry independently, so private artifacts may be gone while
    session release is still pending. Task reload and the configured sync push
    wait for both flags. Controller, session, and artifact progress stays in the
    machine-local cleanup row until every remaining step succeeds. Startup
-   dead-lock reaping or same-PID/different-instance evidence permits a fresh App
-   to retry it without restoring agent ownership or blocking later jobs. Answer cleanup,
+   dead-lock reaping may permit a fresh App to retry only by atomically recording
+   the handoff acknowledgement before it unlocks the exact dead session. A
+   remaining lock, including one whose PID equals the new process, denies
+   takeover. Answer cleanup,
    child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
@@ -1438,8 +1442,9 @@ turn. Replay never depends on the conversation's later transcript tail or
 binding. Lifecycle completion alone may advance nonterminal facts,
 but it cannot close the run. Neither process spawn nor screen activity is
 completion evidence. Post-commit cleanup first shuts down the controller,
-closes only the matching receiver tab, and durably opens the exact-incarnation
-fence. Session release and exact-instance file removal then progress
+waits for confirmed exit of its exact child, closes only the matching receiver
+tab, and durably opens the exact-instance fence. Session release and
+exact-instance file removal then progress
 independently without changing the active view or focus. A cleanup-only local
 runtime retries controller shutdown. The machine-local
 `receiver_answer_cleanups` row retains the exact registration and artifact
@@ -1448,7 +1453,9 @@ launch wait until both flags succeed. Startup
 and later ticks can therefore retry cleanup without reclaiming agent work or
 blocking the next job. Cleanup or sync failure cannot undo the answer or
 relaunch agent work; a crash after sync launch but before row deletion may
-repeat the same push. Pre-spawn store ambiguity is not ownership loss.
+repeat the same push. Multiple per-job cleanup rows may coexist for one Brain
+instance, so an earlier artifact retry cannot prevent a later answer commit or
+re-block FIFO. Pre-spawn store ambiguity is not ownership loss.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
 later fallible step. The local spawned capability owns the controller plus
 exact job, token, claim owner, instance, registered/native session, scope,
