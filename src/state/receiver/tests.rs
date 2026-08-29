@@ -3,6 +3,17 @@ use crate::state::Db;
 
 mod support;
 
+fn assert_receiver_lifecycle_records(actual: &[String], expected: &[&str]) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "unexpected receiver lifecycle record count"
+    );
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!(actual == expected, "unexpected receiver lifecycle record");
+    }
+}
+
 mod identity {
     use super::support::*;
     use super::*;
@@ -101,6 +112,20 @@ mod privacy {
     use super::*;
 
     include!("tests/privacy.rs");
+}
+
+mod work_summary {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/work_summary.rs");
+}
+
+mod lifecycle_logging {
+    use super::support::*;
+    use super::*;
+
+    include!("tests/lifecycle_logging.rs");
 }
 
 mod delivery_model {

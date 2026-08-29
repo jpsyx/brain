@@ -179,6 +179,20 @@ pub(super) fn commit_loaded_claim(
     let conversation =
         load_receiver_conversation(&transaction, workspace_id, job.conversation_id())?
             .ok_or_else(|| anyhow::anyhow!("{action} receiver conversation disappeared"))?;
+    let queue_depth: usize = transaction.query_row(
+        "SELECT COUNT(*) FROM receiver_jobs
+         WHERE workspace_id = ?1 AND (
+           state IN ('queued', 'claimed', 'launching', 'launched', 'accepted', 'processing')
+           OR (state = 'retrying' AND retry_from_state IN (
+             'claimed', 'launching', 'accepted', 'processing'
+           ))
+         )",
+        [workspace_id],
+        |row| row.get(0),
+    )?;
     transaction.commit()?;
+    crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::claim(
+        queue_depth,
+    ));
     Ok(Some(ReceiverRunClaim::new(claim, job, conversation)))
 }

@@ -223,5 +223,8 @@ pub(super) fn complete(
         return Ok(None);
     }
     transaction.commit()?;
+    db.log_receiver_summary(|summary| {
+        crate::logging::ReceiverLifecycleEvent::answer_ready(summary.cleanup_gated_responses())
+    });
     Ok(Some(ReceiverCompletionOutcome::recorded(delivery_id)))
 }

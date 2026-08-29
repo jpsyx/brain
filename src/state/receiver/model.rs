@@ -8,6 +8,7 @@ mod effect;
 mod identity;
 mod job;
 mod observation;
+mod work_summary;
 
 pub use answer_cleanup::ReceiverAnswerCleanup;
 pub use claim::{ReceiverAcceptance, ReceiverClaim, ReceiverRunClaim};
@@ -39,3 +40,4 @@ pub use observation::{
     ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverLaunchObservation,
     ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
 };
+pub use work_summary::{ReceiverWorkPhase, ReceiverWorkSummary};

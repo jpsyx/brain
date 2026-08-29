@@ -155,4 +155,65 @@ fn receiver_status_without_a_public_url_names_the_variable_instead_of_a_url() {
         "{status}"
     );
     assert!(!status.contains("/sms"), "{status}");
+    assert!(status.contains("Durable work"), "{status}");
+    assert!(status.contains("unavailable"), "{status}");
+    assert!(!status.contains("Agent queue    0"), "{status}");
+}
+
+#[test]
+fn receiver_status_reads_the_redacted_durable_snapshot_without_content() {
+    let machine = Machine::new();
+    let workspace_id = machine.workspace_id("brain");
+    let state_db = machine.state_db("brain");
+    drop(
+        brain::state::Db::open_path_with_legacy_identity(
+            &state_db,
+            &workspace_id.to_string(),
+            "pablo",
+        )
+        .expect("create migrated receiver state"),
+    );
+    let connection = rusqlite::Connection::open(&state_db).expect("open receiver fixture");
+    connection
+        .execute_batch(&format!(
+            "INSERT INTO receiver_conversations
+               (conversation_id, workspace_id, user_id, channel, conversation_key,
+                transcript_markdown, created_at_unix_ms, updated_at_unix_ms)
+             VALUES ('private-conversation', '{workspace_id}', 'private-actor', 'sms',
+                     'private-lineage', 'private transcript', 100, 100);
+             INSERT INTO receiver_jobs
+               (job_id, job_token, workspace_id, conversation_id, channel, inbound_json,
+                response_sender, state, received_at_unix_ms, updated_at_unix_ms,
+                recovery_count)
+             VALUES ('private-job', 'private-token', '{workspace_id}',
+                     'private-conversation', 'sms', 'private prompt', 'private sender',
+                     'processing', 100, 100, 1);"
+        ))
+        .expect("seed durable work");
+    drop(connection);
+
+    let status = machine.ok(&["receiver", "status"]);
+
+    assert!(status.contains("Agent queue    1"), "{status}");
+    assert!(status.contains("Oldest phase   processing"), "{status}");
+    assert!(status.contains("Recovery       1/1"), "{status}");
+    let workspace_id = workspace_id.to_string();
+    let state_db = state_db.display().to_string();
+    for private in [
+        "private-conversation",
+        "private-actor",
+        "private-lineage",
+        "private transcript",
+        "private-job",
+        "private-token",
+        "private prompt",
+        "private sender",
+        &workspace_id,
+        &state_db,
+    ] {
+        assert!(
+            !status.contains(private),
+            "status leaked {private}: {status}"
+        );
+    }
 }

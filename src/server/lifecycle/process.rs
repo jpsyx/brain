@@ -399,5 +399,34 @@ fn append_log(paths: &ServerPaths, message: &str) {
     }
 }
 
+/// Append one already-redacted event to the stream viewed by `brain server logs`.
+#[cfg(not(test))]
+pub(crate) fn append_event_log(message: &str) {
+    append_event_log_to(&ServerPaths::default(), message);
+}
+
+fn append_event_log_to(paths: &ServerPaths, message: &str) {
+    append_log(paths, message);
+}
+
 #[cfg(test)]
 mod retry_tests;
+
+#[cfg(test)]
+mod event_log_tests {
+    use super::*;
+
+    #[test]
+    fn receiver_events_append_to_the_exact_stream_server_logs_reads() {
+        let temporary = tempfile::tempdir().expect("server log directory");
+        let paths = ServerPaths::from_directory(temporary.path().to_owned());
+        let event = "receiver lifecycle event=claim phase=claimed queue_depth=2";
+
+        append_event_log_to(&paths, event);
+
+        let contents = fs::read_to_string(paths.log()).expect("read server log stream");
+        assert!(contents.contains(event), "{contents}");
+        assert!(!contents.contains("private-workspace"));
+        assert!(!contents.contains("private-prompt"));
+    }
+}

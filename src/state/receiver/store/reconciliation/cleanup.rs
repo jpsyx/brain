@@ -190,6 +190,7 @@ impl Db {
         {
             return Ok(false);
         }
+        let mut cleanup_promoted = false;
         if candidate.state == ReceiverJobState::Failed {
             let promoted = transaction.execute(
                 "UPDATE receiver_deliveries
@@ -200,6 +201,7 @@ impl Db {
                 rusqlite::params![job_id.to_string(), token.to_string(), now],
             )?;
             if promoted == 1 {
+                cleanup_promoted = true;
                 let changed = transaction.execute(
                     "UPDATE receiver_jobs
                      SET state = 'answer-ready', updated_at_unix_ms = ?4
@@ -221,6 +223,13 @@ impl Db {
             }
         }
         transaction.commit()?;
+        if cleanup_promoted {
+            self.log_receiver_summary(|summary| {
+                crate::logging::ReceiverLifecycleEvent::cleanup_promotion(
+                    summary.cleanup_gated_responses(),
+                )
+            });
+        }
         Ok(true)
     }
 }

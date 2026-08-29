@@ -140,6 +140,13 @@ impl Db {
             return Ok(ReceiverRecoveryCleanupOutcome::Changed);
         }
         transaction.commit()?;
+        self.log_receiver_summary(|summary| {
+            crate::logging::ReceiverLifecycleEvent::terminal(
+                crate::logging::ReceiverLifecyclePhase::Failed,
+                summary.agent_queue_depth(),
+                super::terminal::lifecycle_reason(ReceiverReconciliationReason::RecoveryShutdown),
+            )
+        });
         Ok(ReceiverRecoveryCleanupOutcome::Exact(cleanup_effect(
             &job,
             ReceiverReconciliationReason::RecoveryShutdown,

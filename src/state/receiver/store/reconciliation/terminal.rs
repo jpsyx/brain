@@ -204,7 +204,18 @@ fn terminalize_with_cleanup(
             now,
         )?;
     }
+    let queue_depth = agent_queue_depth(&transaction, workspace_id)?;
     transaction.commit()?;
+    let phase = if terminal_state == "answer-ready" {
+        crate::logging::ReceiverLifecyclePhase::AnswerReady
+    } else {
+        crate::logging::ReceiverLifecyclePhase::Failed
+    };
+    crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::terminal(
+        phase,
+        queue_depth,
+        lifecycle_reason(reason),
+    ));
     Ok(Some(ReceiverReconciliationEffect::new(
         ReceiverReconciliationAction::TerminalFailure,
         reason,
@@ -268,7 +279,13 @@ pub(super) fn terminalize_launched_recovery(
     {
         return Ok(None);
     }
+    let queue_depth = agent_queue_depth(&transaction, workspace_id)?;
     transaction.commit()?;
+    crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::terminal(
+        crate::logging::ReceiverLifecyclePhase::Failed,
+        queue_depth,
+        lifecycle_reason(reason),
+    ));
     Ok(Some(ReceiverReconciliationEffect::new(
         ReceiverReconciliationAction::TerminalFailure,
         reason,
@@ -277,6 +294,51 @@ pub(super) fn terminalize_launched_recovery(
         Some(instance.to_owned()),
         Some(session_id.to_owned()),
     )))
+}
+
+fn agent_queue_depth(transaction: &rusqlite::Transaction<'_>, workspace_id: &str) -> Result<usize> {
+    transaction
+        .query_row(
+            "SELECT COUNT(*) FROM receiver_jobs
+         WHERE workspace_id = ?1 AND (
+           state IN ('queued', 'claimed', 'launching', 'launched', 'accepted', 'processing')
+           OR (state = 'retrying' AND retry_from_state IN (
+             'claimed', 'launching', 'accepted', 'processing'
+           ))
+         )",
+            [workspace_id],
+            |row| row.get(0),
+        )
+        .map_err(Into::into)
+}
+
+pub(super) const fn lifecycle_reason(
+    reason: ReceiverReconciliationReason,
+) -> crate::logging::ReceiverLifecycleReason {
+    use crate::logging::ReceiverLifecycleReason as Lifecycle;
+    match reason {
+        ReceiverReconciliationReason::PreAcceptanceTimeout => Lifecycle::PreAcceptanceTimeout,
+        ReceiverReconciliationReason::PreAcceptanceExhausted => Lifecycle::PreAcceptanceExhausted,
+        ReceiverReconciliationReason::AcceptedStall => Lifecycle::AcceptedStall,
+        ReceiverReconciliationReason::AbsoluteWorkExpired => Lifecycle::AbsoluteWorkExpired,
+        ReceiverReconciliationReason::RecoveryExpired => Lifecycle::RecoveryExpired,
+        ReceiverReconciliationReason::RecoveryExhausted => Lifecycle::RecoveryExhausted,
+        ReceiverReconciliationReason::RecoveryPlanningFailed => Lifecycle::RecoveryPlanningFailed,
+        ReceiverReconciliationReason::RecoveryRegistrationFailed => {
+            Lifecycle::RecoveryRegistrationFailed
+        }
+        ReceiverReconciliationReason::RecoverySpawnFailed => Lifecycle::RecoverySpawnFailed,
+        ReceiverReconciliationReason::RecoveryShutdown => Lifecycle::RecoveryShutdown,
+        ReceiverReconciliationReason::NativeSessionUnavailable => {
+            Lifecycle::NativeSessionUnavailable
+        }
+        ReceiverReconciliationReason::IncompleteLegacyCompletion => {
+            Lifecycle::IncompleteLegacyCompletion
+        }
+        ReceiverReconciliationReason::NoticeNoAuthorizedDestination => {
+            Lifecycle::NoticeNoAuthorizedDestination
+        }
+    }
 }
 
 pub(super) fn insert_unavailable_notice(

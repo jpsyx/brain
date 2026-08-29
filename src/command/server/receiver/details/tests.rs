@@ -1,7 +1,10 @@
 use super::{
-    ReceiverDetails, ReceiverStatus, WorkspaceReport, listing, machine_block, report_block,
+    ReceiverDetails, ReceiverStatus, ReceiverWorkState, WorkspaceReport, listing, machine_block,
+    receiver_status_flash, report_block, work_rows,
 };
-use crate::state::ReceiverDeliveryCounts;
+use crate::state::{
+    MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverDeliveryCounts, ReceiverWorkPhase, ReceiverWorkSummary,
+};
 use crate::theme::Theme;
 
 const PUBLIC_URL: &str = "https://brain.example.test";
@@ -16,9 +19,21 @@ fn configured() -> ReceiverDetails {
             server_running: true,
             accepting: true,
         }),
+        work: ReceiverWorkState::Unavailable,
         email: Some("brain@example.test".to_owned()),
         phone: Some("+12125550100".to_owned()),
     }
+}
+
+fn work_summary() -> ReceiverWorkSummary {
+    ReceiverWorkSummary::new_for_test(
+        3,
+        Some(ReceiverWorkPhase::Processing),
+        Some(1),
+        MAX_RECEIVER_RECOVERY_ATTEMPTS,
+        1,
+        ReceiverDeliveryCounts::new(4, 5, 6, 7, 8, 9).with_terminal_reasons(10, 11, 12, 13, 14),
+    )
 }
 
 fn block_of(details: ReceiverDetails) -> String {
@@ -76,12 +91,65 @@ fn delivery_status_rows_are_themed_stable_counts_without_private_content() {
 }
 
 #[test]
+fn durable_work_rows_render_all_finite_fields_in_deterministic_plain_output() {
+    let rendered = work_rows(
+        &ReceiverWorkState::Available(work_summary()),
+        Theme::dark(false),
+    );
+
+    assert_eq!(
+        rendered,
+        "Agent queue    3\nOldest phase   processing\nRecovery       1/1\nCleanup gated  1\nanswer-ready 4  delivering 5  retrying 6  ambiguous 7  failed 8  done 9\nretry-exhausted 10  permanent-rejection 11  ambiguous-acknowledgement 12  idempotency-window-expired 13  no-safe-fallback 14"
+    );
+}
+
+#[test]
+fn durable_work_rows_are_themed_and_unavailable_state_never_invents_zeroes() {
+    let themed = work_rows(
+        &ReceiverWorkState::Available(work_summary()),
+        Theme::dark(true),
+    );
+    let unavailable = work_rows(&ReceiverWorkState::Unavailable, Theme::dark(false));
+
+    assert!(themed.contains("\u{1b}["), "work rows were not themed");
+    assert_eq!(unavailable, "Durable work   unavailable");
+    assert!(!unavailable.contains('0'));
+}
+
+#[test]
+fn palette_status_uses_the_same_durable_summary_decisions_without_private_content() {
+    let rendered = receiver_status_flash(
+        ReceiverStatus {
+            enabled: true,
+            tui_live: true,
+            server_running: true,
+            accepting: true,
+        },
+        &ReceiverWorkState::Available(work_summary()),
+        Theme::dark(false),
+    );
+
+    assert_eq!(
+        rendered,
+        "receiver enabled; TUI live; server running; accepting yes; agent queue 3; oldest processing; recovery 1/1; cleanup gated 1; delivery ready 4 delivering 5 retrying 6 ambiguous 7 failed 8 done 9"
+    );
+    for private in ["private-prompt", "private-answer", "private-actor"] {
+        assert!(!rendered.contains(private));
+    }
+}
+
+#[test]
 fn a_configured_workspace_reports_the_addresses_that_route_to_it() {
-    let block = block_of(configured());
+    let block = block_of(ReceiverDetails {
+        work: ReceiverWorkState::Available(work_summary()),
+        ..configured()
+    });
 
     assert!(block.starts_with("Receiver details  family"), "{block}");
     assert!(block.contains("Receiver"), "{block}");
     assert!(block.contains("Accepting"), "{block}");
+    assert!(block.contains("Agent queue"), "{block}");
+    assert!(block.contains("Oldest phase"), "{block}");
     // The whole point of the listing: the addresses inbound senders use,
     // which are also what selects this workspace over any other.
     assert!(block.contains("Email"), "{block}");

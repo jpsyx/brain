@@ -210,6 +210,14 @@ impl Db {
                     return Ok(None);
                 }
                 transaction.commit()?;
+                self.log_receiver_summary(|summary| {
+                    crate::logging::ReceiverLifecycleEvent::recovery(
+                        crate::logging::ReceiverLifecyclePhase::Retrying,
+                        summary.recovery_attempt().unwrap_or(0),
+                        summary.recovery_limit(),
+                        crate::logging::ReceiverLifecycleReason::AcceptedStall,
+                    )
+                });
                 Ok(Some(ReceiverReconciliationEffect::new(
                     ReceiverReconciliationAction::ScheduleRecovery,
                     ReceiverReconciliationReason::AcceptedStall,

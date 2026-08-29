@@ -61,7 +61,7 @@ impl Db {
             receiver_acceptance_expires_at(observation.authorized_at_unix_ms),
             "receiver acceptance expiry",
         )?;
-        Ok(self.conn.execute(
+        let changed = self.conn.execute(
             "UPDATE receiver_jobs
              SET state = 'launched', launched_at_unix_ms = ?6,
                  observation_instance = ?4, observation_session_id = ?5,
@@ -85,7 +85,16 @@ impl Db {
                     crate::state::ReceiverAttemptKind::Recovery => "recovery",
                 },
             ],
-        )? == 1)
+        )? == 1;
+        if changed {
+            self.log_receiver_summary(|summary| {
+                crate::logging::ReceiverLifecycleEvent::launch(
+                    summary.recovery_attempt().unwrap_or(0),
+                    summary.recovery_limit(),
+                )
+            });
+        }
+        Ok(changed)
     }
 
     /// Apply one newer token-matched receiver observation without inventing prior facts.
@@ -321,6 +330,13 @@ impl Db {
         )?;
         if changed == 1 {
             transaction.commit()?;
+            crate::logging::log_receiver_lifecycle(
+                crate::logging::ReceiverLifecycleEvent::observation(if next == "accepted" {
+                    crate::logging::ReceiverLifecyclePhase::Accepted
+                } else {
+                    crate::logging::ReceiverLifecyclePhase::Processing
+                }),
+            );
         }
         Ok(changed == 1)
     }

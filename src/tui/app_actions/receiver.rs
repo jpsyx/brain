@@ -56,21 +56,14 @@ impl App {
         match crate::command::server::read_receiver_status(self.context.command()) {
             Ok(status) => {
                 self.receiver.record_intent(status.enabled);
-                self.status.set_flash(FlashKind::Info(format!(
-                    "receiver {}; TUI {}; server {}; accepting {}",
-                    if status.enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    },
-                    if status.tui_live { "live" } else { "not live" },
-                    if status.server_running {
-                        "running"
-                    } else {
-                        "not running"
-                    },
-                    if status.accepting { "yes" } else { "no" }
-                )));
+                let work = crate::command::server::read_work_state(self.context.command());
+                self.status.set_flash(FlashKind::Info(
+                    crate::command::server::receiver_status_flash(
+                        status,
+                        &work,
+                        crate::theme::Theme::dark(false),
+                    ),
+                ));
             }
             Err(error) => {
                 self.status.set_flash(FlashKind::Error(format!(

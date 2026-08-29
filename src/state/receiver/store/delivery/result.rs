@@ -11,6 +11,10 @@ use crate::state::{
     plan_receiver_fallback,
 };
 
+mod lifecycle;
+
+pub(super) use lifecycle::DeliveryLifecycle;
+
 impl Db {
     pub fn apply_receiver_delivery_result(
         &self,
@@ -34,7 +38,7 @@ impl Db {
             now_unix_ms: observed_at_unix_ms,
             result,
         });
-        apply_decision(
+        let lifecycle = apply_decision(
             &transaction,
             &self.workspace_id,
             claim.delivery_id(),
@@ -46,6 +50,7 @@ impl Db {
             observed_at_unix_ms,
         )?;
         transaction.commit()?;
+        lifecycle.log(self);
         Ok(ReceiverDeliveryApplyOutcome::Applied)
     }
 
@@ -107,7 +112,7 @@ impl Db {
             now_unix_ms: observed_at_unix_ms,
             result,
         });
-        apply_decision(
+        let lifecycle = apply_decision(
             &transaction,
             &self.workspace_id,
             claim.delivery_id(),
@@ -119,6 +124,7 @@ impl Db {
             observed_at_unix_ms,
         )?;
         transaction.commit()?;
+        lifecycle.log(self);
         Ok(ReceiverDeliveryApplyOutcome::Applied)
     }
 }
@@ -219,7 +225,7 @@ pub(super) fn apply_decision(
     owner: Option<&str>,
     decision: ReceiverDeliveryDecision,
     observed_at_unix_ms: u64,
-) -> Result<()> {
+) -> Result<DeliveryLifecycle> {
     let observed = to_i64(observed_at_unix_ms, "receiver delivery result time")?;
     let fallback = matches!(
         decision,
@@ -229,6 +235,7 @@ pub(super) fn apply_decision(
     .then(|| terminal_fallback(transaction, delivery_id))
     .transpose()?;
     let fallback_decision = fallback.as_ref().map(TerminalFallback::decision);
+    let lifecycle_reason = lifecycle::reason(&decision);
     let (delivery_state, mut job_state, retry_at, provider_reference, error_category, ambiguity) =
         match decision {
             ReceiverDeliveryDecision::Acknowledged(reference) => (
@@ -322,7 +329,11 @@ pub(super) fn apply_decision(
         delivery_changed == 1 && job_changed == 1,
         "receiver delivery result compare-and-swap lost authority"
     );
-    Ok(())
+    Ok(DeliveryLifecycle::new(
+        delivery_state,
+        job_state,
+        lifecycle_reason,
+    ))
 }
 
 pub(super) struct TerminalFallback {

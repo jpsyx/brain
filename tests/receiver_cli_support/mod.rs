@@ -4,6 +4,7 @@
 //! never starts a server, which is the point: these commands answer before
 //! ingress is ever live.
 
+use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
@@ -73,5 +74,26 @@ impl Machine {
             .as_str()
             .expect("ingress id")
             .to_owned()
+    }
+
+    #[allow(dead_code)]
+    pub fn workspace_id(&self, workspace: &str) -> brain::workspace::WorkspaceId {
+        let registry: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(self.config_home.path().join("brain/env.json"))
+                .expect("read machine registry"),
+        )
+        .expect("registry JSON");
+        brain::workspace::WorkspaceId::parse(
+            registry["workspaces"][workspace]["workspace_id"]
+                .as_str()
+                .expect("workspace ID"),
+        )
+        .expect("valid workspace ID")
+    }
+
+    #[allow(dead_code)]
+    pub fn state_db(&self, workspace: &str) -> PathBuf {
+        brain::workspace::WorkspacePaths::new(self.home.path(), self.workspace_id(workspace))
+            .state_db()
     }
 }

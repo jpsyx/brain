@@ -219,9 +219,12 @@ and reverses only that exact IO-start CAS and attempt increment.
 loop, bounds response capture, and returns content-free result classes.
 
 The durable receiver model is split beneath the thin `model.rs` coordinator:
-`model/{identity,conversation,observation,job,claim,effect}.rs` separately own
-opaque identity, continuity, lifecycle evidence, persisted rows, claims, and
-typed effects. The schema coordinator delegates schema-v11 notice repair and
+`model/{identity,conversation,observation,job,claim,effect,work_summary}.rs`
+separately own opaque identity, continuity, lifecycle evidence, persisted rows,
+claims, typed effects, and the content-free status snapshot. Its store uses one
+deferred read transaction and one aggregate query over finite state, count,
+attempt, and ordering columns. It never decodes inbound, transcript, answer,
+envelope, recipient, provider-body, credential, root, or path data. The schema coordinator delegates schema-v11 notice repair and
 downgrade to `schema/notice.rs`, the older adjacent downgrade steps to
 `schema/downgrade.rs`, and recovery-specific repair to `schema/recovery.rs`.
 Observation persistence computes its progress and immutable absolute deadlines
@@ -350,7 +353,14 @@ resumes only the remaining step before FIFO advances. The response remains
 Provider acknowledgement is independent and cannot invalidate cleanup authority. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
 The state layer separately leases a pending terminal notice to one finite writer
-without reusing claim or cleanup ownership.
+without reusing claim or cleanup ownership. Every durable receiver boundary
+publishes a typed, content-free lifecycle event only after its transaction
+commits. Ingress, claim, launch, acceptance, progress, recovery, answer
+readiness, cleanup promotion, delivery result, and terminal advancement share
+finite event, phase, ordinal, count, and reason fields. The logger cannot accept
+actor, workspace, job, prompt, answer, envelope, provider body, credential,
+root, or filesystem path fields. These events append to the same machine-wide
+infrastructure stream read by `brain server logs`.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error
@@ -436,8 +446,9 @@ on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
 provider planning plus portable-user mapping, `receiver/url.rs` owns the webhook
 URLs, `receiver/identity.rs` owns the configured per-channel address behind
 `receiver email` / `receiver phone`, and `receiver/details.rs` owns the bare
-`brain receiver` listing (including the shared intent-and-liveness rows
-`receiver status` prints). The listing builds a read-only context per registered
+`brain receiver` listing. Its `details/work.rs` child owns the shared redacted
+durable-work formatter used by the listing, `receiver status`, and the TUI
+receiver-status action. The listing builds a read-only context per registered
 record through `workspace::peer_context`, the same helper `workspace list` uses,
 so one unreadable peer degrades to a themed note instead of failing the run. Its `setup/transaction.rs` owns
 bounded rollback orchestration across the selected machine record, portable

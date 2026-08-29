@@ -1393,6 +1393,24 @@ Repair adds optional columns before
 managed indexes, rebuilds stale index signatures, fails closed on duplicate
 semantic responses, converts blank acknowledgements to explicit ambiguity,
 retains conversation transcripts, and drops the outbox last on downgrade.
+
+Receiver diagnostics have one frontend-neutral durable boundary. A read-only
+deferred SQLite snapshot aggregates finite job and delivery state, counts, the
+oldest active phase, recovery ordinal and limit, and cleanup-gated responses.
+It does not deserialize any inbound, transcript, answer, completion evidence,
+delivery envelope, recipient, sender, provider response, credential, root, or
+database path. Bare `brain receiver`, `brain receiver status`, and the TUI
+receiver-status action consume the same summary and formatting decisions;
+missing peer state remains explicitly unavailable.
+
+Committed receiver transitions publish typed lifecycle lines to the ordinary
+diagnostic logger and the machine-wide server log viewed by `brain server logs`.
+The append happens after the corresponding durable commit at ingress, claim,
+launch, acceptance or progress, recovery, answer readiness, cleanup promotion,
+delivery result, and terminal advancement. Only finite event names, phases,
+recovery ordinals, queue or cleanup counts, delivery phases, and stable reason
+codes cross that boundary. The event type has no identity, content, or path
+field, so all three registered frontends share the same redacted contract.
 After draining private cleanup authority, the downgrade also removes the v12
 `receiver_jobs.response_sender` column and both v12-only tables while retaining
 the exact schema-v11 job rows and column order. It records `user_version = 11`

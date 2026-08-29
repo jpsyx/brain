@@ -6,18 +6,26 @@ fn missing_exact_native_session_terminalizes_without_an_unacknowledgeable_cleanu
         .conn
         .execute("DELETE FROM receiver_session_registrations", [])
         .expect("remove exact session registration");
-    let effect = fixture
-        .db
-        .reconcile_next_receiver_job(301_400)
-        .expect("reconcile missing native session")
-        .expect("terminal effect");
-    assert_eq!(effect.action(), ReceiverReconciliationAction::TerminalFailure);
-    assert_eq!(
-        effect.reason(),
-        ReceiverReconciliationReason::NativeSessionUnavailable
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        let effect = fixture
+            .db
+            .reconcile_next_receiver_job(301_400)
+            .expect("reconcile missing native session")
+            .expect("terminal effect");
+        assert_eq!(effect.action(), ReceiverReconciliationAction::TerminalFailure);
+        assert_eq!(
+            effect.reason(),
+            ReceiverReconciliationReason::NativeSessionUnavailable
+        );
+        assert_eq!(effect.cleanup_instance(), None);
+        assert_eq!(effect.cleanup_session_id(), None);
+    });
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=terminal-advancement phase=answer-ready queue_depth=0 reason=native-session-unavailable"
+        ],
     );
-    assert_eq!(effect.cleanup_instance(), None);
-    assert_eq!(effect.cleanup_session_id(), None);
     let terminal = fixture
         .db
         .receiver_job(fixture.job_id)

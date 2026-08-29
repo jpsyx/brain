@@ -1,7 +1,10 @@
+#[cfg(test)]
 use std::path::Path;
 
 use anyhow::Result;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
+#[cfg(test)]
+use rusqlite::OpenFlags;
 
 use crate::state::{Db, ReceiverDeliveryCounts};
 
@@ -12,6 +15,7 @@ impl Db {
     }
 
     /// Read delivery diagnostics without creating or migrating receiver state.
+    #[cfg(test)]
     pub(crate) fn receiver_delivery_counts_read_only(
         path: &Path,
     ) -> Result<ReceiverDeliveryCounts> {

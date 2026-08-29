@@ -48,6 +48,7 @@ impl Db {
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
+        let mut lifecycle = Vec::new();
         for delivery in &expired {
             if delivery.provider_io_started {
                 let decision = decide_receiver_delivery(ReceiverDeliveryPolicySnapshot {
@@ -59,7 +60,7 @@ impl Db {
                         ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
                     ),
                 });
-                apply_decision(
+                lifecycle.push(apply_decision(
                     &transaction,
                     &self.workspace_id,
                     delivery.delivery_id,
@@ -69,12 +70,15 @@ impl Db {
                     Some(&delivery.owner),
                     decision,
                     now_unix_ms,
-                )?;
+                )?);
             } else {
                 requeue_pre_spawn(&transaction, &self.workspace_id, delivery, now_unix_ms)?;
             }
         }
         transaction.commit()?;
+        for event in lifecycle {
+            event.log(self);
+        }
         Ok(structurally_invalid
             .saturating_add(invalid)
             .saturating_add(terminalized)

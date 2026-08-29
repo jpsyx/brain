@@ -485,13 +485,22 @@ fn restart_reconciliation_distinguishes_pre_spawn_and_twilio_io() {
         .mark_receiver_delivery_io_started(&ambiguous_claim, 4_100)
         .expect("mark provider IO"));
 
-    assert!(
-        ambiguous
-            .db
-            .reconcile_expired_receiver_deliveries(5_000)
-            .expect("reconcile provider IO")
-            == 1,
-        "provider reconciliation count was wrong"
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            ambiguous
+                .db
+                .reconcile_expired_receiver_deliveries(5_000)
+                .expect("reconcile provider IO")
+                == 1,
+            "provider reconciliation count was wrong"
+        );
+    });
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=delivery-result delivery_phase=ambiguous reason=provider-acceptance-unknown",
+            "receiver lifecycle event=terminal-advancement phase=failed queue_depth=0 reason=provider-acceptance-unknown",
+        ],
     );
     let row: (String, String) = ambiguous
         .db

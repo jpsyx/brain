@@ -18,3 +18,4 @@ pub(crate) use receiver::write_workspace_artifact as write_agent_workspace_artif
 pub(crate) use receiver::{
     ReceiverActionOutcome, ReceiverIntentRefresher, apply_receiver_action_with,
 };
+pub(crate) use receiver::{read_work_state, receiver_status_flash};

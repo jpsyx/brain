@@ -1683,8 +1683,12 @@ The same tick reconciles malformed or missing semantic-response authority before
 claiming the oldest due row. It records only content-free phase and stable
 terminal-reason counts (`retry-exhausted`, `permanent-rejection`,
 `ambiguous-acknowledgement`, `idempotency-window-expired`, and
-`no-safe-fallback`). `brain receiver status` reads and themes those counts
-without creating a database or running a migration. BR-18 removes the final
+`no-safe-fallback`). `brain receiver status`, bare `brain receiver`, and the TUI
+receiver-status action read and theme the same durable snapshot without creating
+a database or running a migration. The snapshot also reports agent queue depth,
+the oldest active finite phase, the active recovery ordinal and limit, and the
+cleanup-gated response count. Missing, unreadable, or not-yet-created peer state
+is shown as `unavailable`, never as invented zero work. BR-18 removes the final
 legacy endpoint lifetime representation; receiver liveness and routing use only
 the elected server lease.
 
@@ -1940,7 +1944,9 @@ the listing spans every workspace. A workspace whose record
 cannot be read reports `unavailable` with its repair command instead of taking
 the whole listing down, and a shared process that cannot be asked reports
 `live state unavailable` rather than claiming the server is stopped. Selected
-`receiver status` also prints content-free counts for `answer-ready`,
+`receiver status`, bare `brain receiver`, and the TUI status action use one
+content-free durable-work formatter. It reports agent queue depth, oldest active
+phase, recovery ordinal and limit, cleanup-gated responses, and counts for `answer-ready`,
 `delivering`, `retrying`, `ambiguous`, `failed`, and `done`, followed by stable
 terminal-reason counts for retry exhaustion, permanent rejection, ambiguous
 acknowledgement, idempotency-window expiry, and no safe fallback. These rows never
@@ -1986,8 +1992,12 @@ process, but already committed jobs survive for the later durable consumer.
 - `brain server status` reports process reachability and the live TUI lease
   count only, or says that no process is running. It neither elects a starter
   nor exposes workspace message data and needs no selected workspace.
-- `brain server logs` prints the machine-wide infrastructure log, or says that
-  no log exists. It is likewise read-only and workspace-independent.
+- `brain server logs` prints the machine-wide infrastructure log, including
+  post-commit receiver lifecycle records, or says that no log exists. Receiver
+  records use only finite event names, phases, ordinals, counts, delivery state,
+  and stable reason codes. They never include actor, workspace, job, prompt,
+  answer, envelope, recipient, provider body, credential, root, or path values.
+  The command is read-only and workspace-independent.
 - `brain server run --generation <uuid> --port <p>` is the hidden blocking
   loop used only by an elected starter. A matching token must already own
 `election.lock`; direct or tokenless startup is rejected.

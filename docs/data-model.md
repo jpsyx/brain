@@ -1199,6 +1199,23 @@ sender, provider reference, and answer content. Status groups terminal rows into
 stable content-free reason categories and remains read-only when the database or
 newer delivery columns do not exist.
 
+`ReceiverWorkSummary` is a transient frontend-neutral projection, not a new
+table. One deferred read transaction executes one aggregate query over finite
+job and delivery states, counts, recovery attempts, and the ordering columns
+needed to select the oldest active row. It returns agent queue depth, oldest
+active phase, recovery attempt and fixed limit, cleanup-gated response count,
+and `ReceiverDeliveryCounts`. Unknown finite states fail the read as malformed;
+an absent database or required table returns unavailable. No content-bearing
+column is selected or decoded, and the read-only path neither creates nor
+migrates state.
+
+Lifecycle diagnostics are another typed projection of committed state. Their
+schema is limited to a finite event name, optional finite agent or delivery
+phase, queue or cleanup count, recovery ordinal and limit, and stable reason
+code. The model deliberately has no actor, workspace, job, token, session,
+prompt, transcript, answer, envelope, recipient, sender, provider body,
+credential, root, or path field.
+
 Same-version reconciliation compares the normalized full canonical CREATE TABLE
 contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected
 clauses. Any drift in state, lease, provider-IO, foreign-key, uniqueness, or

@@ -5303,3 +5303,18 @@ schema inspection, maps gated rows back to exact v12 pending state, retains all
 representable ready or terminal delivery rows, and rebuilds the canonical v12
 tables. This makes both directions idempotent and keeps a crash on one side of
 the representation boundary, never between two independent authorities.
+
+## Why receiver observability is a typed post-commit projection
+
+Receiver status must explain durable work without turning private receiver
+payloads into a diagnostic API. Brain therefore derives one `ReceiverWorkSummary`
+inside a read-only SQLite snapshot using only finite state, count, attempt, and
+oldest-row ordering columns. All status surfaces consume the same summary and
+formatter. An absent or unreadable peer database is unavailable, not zero.
+
+Lifecycle logs follow the same boundary. Each record is constructed from a
+finite typed event that has no identity, content, or path field, and is emitted
+only after the transaction it describes commits. This keeps rolled-back work
+out of diagnostics, prevents IDs from becoming actor or workspace side
+channels, and lets `brain server logs` remain the faithful viewer of the
+machine-wide infrastructure stream without decoding durable payloads.

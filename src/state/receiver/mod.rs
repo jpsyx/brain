@@ -34,8 +34,8 @@ pub use model::{
     ReceiverProviderReference, ReceiverReconciliationAction, ReceiverReconciliationEffect,
     ReceiverReconciliationReason, ReceiverRecoveryCleanupOutcome, ReceiverRecoveryFailure,
     ReceiverResponseKind, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverSmsEnvelope,
-    render_receiver_delivery,
+    ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverSmsEnvelope, ReceiverWorkPhase,
+    ReceiverWorkSummary, render_receiver_delivery,
 };
 use model::{
     ReceiverObservationMetadata, ReceiverRecoveryMetadata, ReceiverRetryMetadata,

@@ -86,16 +86,22 @@ fn terminal_cleanup_survives_restart_redrives_and_acknowledges_exactly() {
             .expect("reject wrong terminal cleanup acknowledgement")
     );
     assert_cleanup_pending(&redrive_store, job_id, conversation_id, true);
-    assert!(
-        redrive_store
-            .acknowledge_receiver_recovery_cleanup(
-                job_id,
-                token,
-                "ordinary-instance",
-                "native-session",
-                601_403,
-            )
-            .expect("acknowledge exact terminal cleanup")
+    let cleanup_records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            redrive_store
+                .acknowledge_receiver_recovery_cleanup(
+                    job_id,
+                    token,
+                    "ordinary-instance",
+                    "native-session",
+                    601_403,
+                )
+                .expect("acknowledge exact terminal cleanup")
+        );
+    });
+    assert_receiver_lifecycle_records(
+        &cleanup_records,
+        &["receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=0"],
     );
     assert_cleanup_pending(&redrive_store, job_id, conversation_id, false);
     assert!(

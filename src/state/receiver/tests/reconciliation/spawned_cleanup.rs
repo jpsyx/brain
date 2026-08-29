@@ -97,17 +97,29 @@ fn spawned_cleanup_terminalizes_after_claim_expiry_with_typed_exact_outcomes() {
             fixture.registration.scope(),
         )
         .expect("register unrelated receiver session");
-    let first = fixture
-        .db
-        .establish_receiver_spawned_recovery_cleanup(
-            fixture.job_id,
-            fixture.token,
-            "recovery-owner",
-            &fixture.registration,
-            42,
-            331_403,
-        )
-        .expect("terminalize expired spawned recovery");
+    let mut first = None;
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        first = Some(
+            fixture
+                .db
+                .establish_receiver_spawned_recovery_cleanup(
+                    fixture.job_id,
+                    fixture.token,
+                    "recovery-owner",
+                    &fixture.registration,
+                    42,
+                    331_403,
+                )
+                .expect("terminalize expired spawned recovery"),
+        );
+    });
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=terminal-advancement phase=failed queue_depth=1 reason=recovery-shutdown"
+        ],
+    );
+    let first = first.expect("captured recovery cleanup outcome");
     let ReceiverRecoveryCleanupOutcome::Exact(effect) = first else {
         panic!("expired exact recovery was classified as changed");
     };
