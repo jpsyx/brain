@@ -51,7 +51,7 @@ fn assert_pre_spawn_reconstruction(phase: RestartPhase) {
 
     drop(db);
     drop(origin);
-    let mut restarted = reconstructed_app(&temporary, &clock);
+    let (mut restarted, _transport) = reconstructed_app(&temporary, &clock);
     let reopened = Db::open(restarted.context.workspace()).expect("reconstructed state DB");
 
     drive_first_then_follower(
@@ -79,7 +79,8 @@ fn assert_post_spawn_reconstruction(phase: RestartPhase) {
         .services
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
     let db = Db::open(origin.context.workspace()).expect("origin state DB");
-    let first = accept_email_job(&origin, &db, "matrix first", 100);
+    let private_inbound = "private post-spawn inbound must not replay";
+    let first = accept_email_job(&origin, &db, private_inbound, 100);
     let later = accept_email_job(&origin, &db, "matrix later", 200);
     origin
         .brain
@@ -154,7 +155,7 @@ fn assert_post_spawn_reconstruction(phase: RestartPhase) {
 
     drop(db);
     drop(origin);
-    let mut restarted = reconstructed_app(&temporary, &clock);
+    let (mut restarted, transport) = reconstructed_app(&temporary, &clock);
     let reopened = Db::open(restarted.context.workspace()).expect("reconstructed state DB");
 
     drive_first_then_follower(
@@ -165,6 +166,7 @@ fn assert_post_spawn_reconstruction(phase: RestartPhase) {
         later.job_id(),
     );
     assert_resumed_or_terminalized(&restarted, &reopened, first.job_id(), phase);
+    assert_post_spawn_no_replay(&transport, private_inbound, token, &native_session, phase);
     assert_ne!(
         job_state(&reopened, later.job_id()),
         ReceiverJobState::Queued,
@@ -177,7 +179,8 @@ fn assert_terminal_reconstruction(phase: RestartPhase) {
     let cli = Cli::parse_from(["tasks"]);
     let origin = test_app(&temporary, &cli, AgentKind::Claude);
     let db = Db::open(origin.context.workspace()).expect("origin state DB");
-    let first = accept_email_job(&origin, &db, "matrix terminal", 100);
+    let private_inbound = "private terminal inbound must not replay";
+    let first = accept_email_job(&origin, &db, private_inbound, 100);
     let (expected, state) = match phase {
         RestartPhase::Failed => (ReceiverJobState::Failed, "failed"),
         RestartPhase::Done => (ReceiverJobState::Done, "done"),
@@ -192,16 +195,25 @@ fn assert_terminal_reconstruction(phase: RestartPhase) {
             rusqlite::params![state, first.job_id().to_string()],
         )
         .expect("seed terminal phase");
-    let later = accept_email_job(&origin, &db, "matrix later", 200);
     drop(db);
     drop(origin);
 
     let clock = ReceiverClock::at_unix_ms(20_000);
-    let mut restarted = reconstructed_app(&temporary, &clock);
+    let (mut restarted, transport) = reconstructed_app(&temporary, &clock);
     let reopened = Db::open(restarted.context.workspace()).expect("reconstructed state DB");
     restarted.tick_receiver();
 
-    assert_eq!(job_state(&reopened, first.job_id()), expected, "{phase:?}");
+    assert!(
+        job_state(&reopened, first.job_id()) == expected,
+        "{phase:?} fresh App changed the terminal state"
+    );
+    assert!(
+        transport.launch_specs().is_empty(),
+        "{phase:?} fresh App launched terminal receiver work"
+    );
+
+    let later = accept_email_job(&restarted, &reopened, "matrix later", 200);
+    restarted.tick_receiver();
     assert_ne!(
         job_state(&reopened, later.job_id()),
         ReceiverJobState::Queued,
@@ -214,19 +226,32 @@ fn assert_terminal_reconstruction(phase: RestartPhase) {
             .is_some_and(|run| run.claim.job().id() == later.job_id()),
         "{phase:?} reconstructed the wrong run"
     );
+    let specifications = transport.launch_specs();
+    assert!(
+        specifications.len() == 1,
+        "{phase:?} fresh App launched more than the FIFO follower"
+    );
+    assert!(
+        !specifications[0].command.contains(private_inbound),
+        "{phase:?} fresh App replayed terminal inbound content"
+    );
 }
 
-fn reconstructed_app(temporary: &tempfile::TempDir, clock: &ReceiverClock) -> App {
+fn reconstructed_app(
+    temporary: &tempfile::TempDir,
+    clock: &ReceiverClock,
+) -> (App, TransportRecording) {
     let cli = Cli::parse_from(["tasks"]);
     let mut restarted = test_app(temporary, &cli, AgentKind::Claude);
     restarted.receiver.record_intent(true);
     restarted
         .services
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let transport = TransportRecording::default();
     restarted
         .brain
-        .replace_receiver_transport(TransportRecording::default().transport());
-    restarted
+        .replace_receiver_transport(transport.transport());
+    (restarted, transport)
 }
 
 fn drive_first_then_follower(
@@ -286,4 +311,43 @@ fn assert_resumed_or_terminalized(
         ),
         "{phase:?} reconstruction neither resumed safely nor terminalized explicitly: {state:?}"
     );
+}
+
+fn assert_post_spawn_no_replay(
+    transport: &TransportRecording,
+    private_inbound: &str,
+    token: crate::state::ReceiverJobToken,
+    native_session: &AgentSession,
+    phase: RestartPhase,
+) {
+    let specifications = transport.launch_specs();
+    assert!(
+        specifications
+            .iter()
+            .all(|specification| !specification.command.contains(private_inbound)),
+        "{phase:?} fresh App replayed the durable inbound turn"
+    );
+    let token = token.to_string();
+    let recovery_commands: Vec<_> = specifications
+        .iter()
+        .filter(|specification| specification.command.contains(&token))
+        .collect();
+    match phase {
+        RestartPhase::Launched => assert!(
+            recovery_commands.is_empty(),
+            "launched reconstruction did not terminalize before the FIFO follower"
+        ),
+        RestartPhase::Accepted | RestartPhase::Processing => {
+            assert!(
+                recovery_commands.len() == 1,
+                "{phase:?} reconstruction did not launch exactly one durable recovery"
+            );
+            let command = &recovery_commands[0].command;
+            assert!(
+                command.contains("--resume") && command.contains(native_session.as_str()),
+                "{phase:?} reconstruction did not resume the exact durable native session"
+            );
+        }
+        _ => unreachable!("post-spawn replay assertion received another phase"),
+    }
 }

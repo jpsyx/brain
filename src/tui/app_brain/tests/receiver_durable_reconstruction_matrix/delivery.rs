@@ -72,7 +72,7 @@ fn assert_cleanup_gated_reconstruction() {
     let clock = fixture.clock.clone();
     drop(fixture);
 
-    let (mut restarted, reopened) = reconstructed_delivery_app(&temporary, &clock);
+    let (mut restarted, reopened, _delivery) = reconstructed_delivery_app(&temporary, &clock);
     drive_delivery_until_follower(&mut restarted, &reopened, &clock, later.job_id());
 
     assert_ne!(delivery_state(&restarted, first.job_id()), "cleanup-gated");
@@ -93,7 +93,7 @@ fn assert_answer_ready_reconstruction() {
     drop(db);
     drop(origin);
 
-    let (mut restarted, reopened) = reconstructed_delivery_app(&temporary, &clock);
+    let (mut restarted, reopened, delivery) = reconstructed_delivery_app(&temporary, &clock);
     drive_delivery_until_follower(&mut restarted, &reopened, &clock, later.job_id());
     restarted.tick_receiver();
     restarted.tick_receiver();
@@ -105,6 +105,10 @@ fn assert_answer_ready_reconstruction() {
     assert!(
         delivery_state(&restarted, first.job_id()) == "acknowledged",
         "fresh App did not durably acknowledge the answer-ready response"
+    );
+    assert!(
+        delivery.reservation_count() == 1 && delivery.start_count() == 1,
+        "fresh App did not perform exactly one answer-ready provider attempt"
     );
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::AnswerReady);
 }
@@ -128,12 +132,16 @@ fn assert_delivering_reconstruction() {
     drop(db);
     drop(origin);
 
-    let (mut restarted, reopened) = reconstructed_delivery_app(&temporary, &clock);
+    let (mut restarted, reopened, delivery) = reconstructed_delivery_app(&temporary, &clock);
     drive_delivery_until_follower(&mut restarted, &reopened, &clock, later.job_id());
 
     assert!(
         job_state(&reopened, first.job_id()) == ReceiverJobState::Retrying,
         "fresh App did not reconcile the departed delivery worker"
+    );
+    assert!(
+        delivery.reservation_count() == 0 && delivery.start_count() == 0,
+        "fresh App replayed expired provider IO before durable retry authority"
     );
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::Delivering);
 }
@@ -167,13 +175,17 @@ fn assert_retrying_reconstruction() {
     drop(db);
     drop(origin);
 
-    let (mut restarted, reopened) = reconstructed_delivery_app(&temporary, &clock);
+    let (mut restarted, reopened, delivery) = reconstructed_delivery_app(&temporary, &clock);
     drive_delivery_until_follower(&mut restarted, &reopened, &clock, later.job_id());
     restarted.tick_receiver();
 
     assert!(
         job_state(&reopened, first.job_id()) == ReceiverJobState::Done,
         "fresh App did not finish the durable provider retry"
+    );
+    assert!(
+        delivery.reservation_count() == 1 && delivery.start_count() == 1,
+        "fresh App did not perform exactly one due provider retry"
     );
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::Retrying);
 }
@@ -201,7 +213,7 @@ fn assert_acknowledged_reconstruction() {
     drop(db);
     drop(origin);
 
-    let (mut restarted, reopened) = reconstructed_delivery_app(&temporary, &clock);
+    let (mut restarted, reopened, delivery) = reconstructed_delivery_app(&temporary, &clock);
     restarted.tick_receiver();
 
     assert!(
@@ -211,6 +223,10 @@ fn assert_acknowledged_reconstruction() {
     assert!(
         delivery_state(&restarted, first.job_id()) == "acknowledged",
         "fresh App changed durable provider acknowledgement"
+    );
+    assert!(
+        delivery.reservation_count() == 0 && delivery.start_count() == 0,
+        "fresh App replayed acknowledged provider delivery"
     );
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::Acknowledged);
 }
@@ -232,21 +248,25 @@ fn active_answer(
     (app, db, first)
 }
 
-fn reconstructed_delivery_app(temporary: &tempfile::TempDir, clock: &ReceiverClock) -> (App, Db) {
+fn reconstructed_delivery_app(
+    temporary: &tempfile::TempDir,
+    clock: &ReceiverClock,
+) -> (App, Db, ScriptedDeliveryExecution) {
     let cli = Cli::parse_from(["tasks"]);
     let mut restarted = test_app(temporary, &cli, AgentKind::Claude);
     restarted.receiver.record_intent(true);
     restarted
         .services
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let delivery = ScriptedDeliveryExecution::acknowledged();
     restarted
         .services
-        .replace_receiver_delivery_execution(Box::new(ScriptedDeliveryExecution::acknowledged()));
+        .replace_receiver_delivery_execution(Box::new(delivery.clone()));
     restarted
         .brain
         .replace_receiver_transport(TransportRecording::default().transport());
     let db = Db::open(restarted.context.workspace()).expect("reconstructed state DB");
-    (restarted, db)
+    (restarted, db, delivery)
 }
 
 fn drive_delivery_until_follower(
