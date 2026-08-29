@@ -4,62 +4,21 @@ use std::path::Path;
 
 #[cfg(unix)]
 mod quarantine;
+#[cfg(all(test, unix))]
+mod test_seam;
 
 #[cfg(unix)]
 use quarantine::{
     blocked_cleanup_marker_exists, create_quarantine, fail_closed, mark_cleanup_blocked,
     recover_bound_quarantines, remove_empty_quarantine,
 };
-
 #[cfg(all(test, unix))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SecureRemoveTestBoundary {
-    OpenBeforeEntryStat,
-    EntryIdentityVerifiedBeforeRename,
-    QuarantineRenameBeforeVerification,
-    QuarantineIdentityVerified,
-    RenameMissingBeforeAbsenceCheck,
-}
-
+pub(crate) use test_seam::{
+    SecureRemoveTestBoundary, with_secure_remove_test_hook,
+    with_unsupported_recovery_nofollow_chmod,
+};
 #[cfg(all(test, unix))]
-type SecureRemoveTestHook = Box<dyn FnMut(SecureRemoveTestBoundary, &Path)>;
-
-#[cfg(all(test, unix))]
-thread_local! {
-    static SECURE_REMOVE_TEST_HOOK: std::cell::RefCell<Option<SecureRemoveTestHook>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(all(test, unix))]
-pub(crate) fn with_secure_remove_test_hook<T>(
-    hook: impl FnMut(SecureRemoveTestBoundary, &Path) + 'static,
-    operation: impl FnOnce() -> T,
-) -> T {
-    struct HookGuard;
-
-    impl Drop for HookGuard {
-        fn drop(&mut self) {
-            SECURE_REMOVE_TEST_HOOK.with(|installed| {
-                installed.replace(None);
-            });
-        }
-    }
-
-    SECURE_REMOVE_TEST_HOOK.with(|installed| {
-        assert!(installed.replace(Some(Box::new(hook))).is_none());
-    });
-    let _guard = HookGuard;
-    operation()
-}
-
-#[cfg(all(test, unix))]
-fn observe_test_boundary(boundary: SecureRemoveTestBoundary, relative: &Path) {
-    SECURE_REMOVE_TEST_HOOK.with(|installed| {
-        if let Some(hook) = installed.borrow_mut().as_mut() {
-            hook(boundary, relative);
-        }
-    });
-}
+use test_seam::{observe_test_boundary, recovery_nofollow_chmod_unsupported};
 
 #[cfg(all(not(test), unix))]
 fn observe_test_boundary(_relative: &Path) {}
@@ -71,7 +30,7 @@ use std::os::fd::RawFd;
 use nix::{
     errno::Errno,
     fcntl::{AtFlags, OFlag, open, openat, renameat},
-    sys::stat::{Mode, SFlag, fchmod, fstat, fstatat},
+    sys::stat::{Mode, SFlag, fstat, fstatat},
     unistd::{UnlinkatFlags, close, unlinkat},
 };
 
@@ -276,10 +235,6 @@ fn remove_regular_at(
         fail_closed(parent, name, &quarantine)?;
         return Err(identity_changed());
     }
-    if let Err(error) = fchmod(quarantine.descriptor.raw(), Mode::empty()) {
-        fail_closed(parent, name, &quarantine)?;
-        return Err(io_error(error));
-    }
     #[cfg(test)]
     observe_test_boundary(
         SecureRemoveTestBoundary::QuarantineIdentityVerified,
@@ -298,9 +253,23 @@ fn remove_regular_at(
             return Err(error);
         }
     }
-    if let Err(error) = fchmod(quarantine.descriptor.raw(), Mode::from_bits_truncate(0o700)) {
+    let final_entry = match fstatat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) => entry,
+        Err(error) => {
+            fail_closed(parent, name, &quarantine)?;
+            return Err(io_error(error));
+        }
+    };
+    if final_entry.st_dev != moved.st_dev
+        || final_entry.st_ino != moved.st_ino
+        || !SFlag::from_bits_truncate(final_entry.st_mode).contains(SFlag::S_IFREG)
+    {
         fail_closed(parent, name, &quarantine)?;
-        return Err(io_error(error));
+        return Err(identity_changed());
     }
     match unlinkat(
         Some(quarantine.descriptor.raw()),

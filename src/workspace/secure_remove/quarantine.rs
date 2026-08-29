@@ -12,6 +12,8 @@ use nix::{
     unistd::{UnlinkatFlags, dup, unlinkat},
 };
 
+#[cfg(test)]
+use super::recovery_nofollow_chmod_unsupported;
 use super::{
     OwnedDescriptor, exact_name_is_absent, file_flags, identity_changed, io_error,
     open_directory_at,
@@ -37,7 +39,17 @@ pub(super) fn create_quarantine(
             Mode::from_bits_truncate(0o700),
         ) {
             Ok(()) => match open_directory_at(parent, &name) {
-                Ok(descriptor) => return Ok(Quarantine { name, descriptor }),
+                Ok(descriptor) => {
+                    if let Err(error) = fchmod(descriptor.raw(), Mode::from_bits_truncate(0o700)) {
+                        let _ = unlinkat(
+                            Some(parent.raw()),
+                            Path::new(&name),
+                            UnlinkatFlags::RemoveDir,
+                        );
+                        return Err(io_error(error));
+                    }
+                    return Ok(Quarantine { name, descriptor });
+                }
                 Err(error) => {
                     let _ = unlinkat(
                         Some(parent.raw()),
@@ -135,19 +147,23 @@ fn recover_one(
         mark_cleanup_blocked(parent, target)?;
         return Err(identity_changed());
     }
-    fchmodat(
-        Some(parent.raw()),
-        Path::new(name),
-        Mode::from_bits_truncate(0o700),
-        FchmodatFlags::NoFollowSymlink,
-    )
-    .map_err(io_error)?;
-    let descriptor = open_directory_at(parent, name)?;
+    let descriptor = match open_directory_at(parent, name) {
+        Ok(descriptor) => descriptor,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            if let Err(error) = restore_legacy_quarantine_mode(parent, name) {
+                mark_cleanup_blocked(parent, target)?;
+                return Err(error);
+            }
+            open_directory_at(parent, name)?
+        }
+        Err(error) => return Err(error),
+    };
     let opened = fstat(descriptor.raw()).map_err(io_error)?;
     if opened.st_dev != entry.st_dev || opened.st_ino != entry.st_ino {
         mark_cleanup_blocked(parent, target)?;
         return Err(identity_changed());
     }
+    fchmod(descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
     let quarantine = Quarantine {
         name: name.to_os_string(),
         descriptor,
@@ -191,12 +207,28 @@ fn recover_one(
         fail_closed(parent, target, &quarantine)?;
         return Err(identity_changed());
     }
-    fchmod(quarantine.descriptor.raw(), Mode::empty()).map_err(io_error)?;
     if !exact_name_is_absent(parent, target)? {
         fail_closed(parent, target, &quarantine)?;
         return Err(identity_changed());
     }
-    fchmod(quarantine.descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
+    let final_entry = match fstatat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) => entry,
+        Err(error) => {
+            fail_closed(parent, target, &quarantine)?;
+            return Err(io_error(error));
+        }
+    };
+    if final_entry.st_dev != held.st_dev
+        || final_entry.st_ino != held.st_ino
+        || !SFlag::from_bits_truncate(final_entry.st_mode).contains(SFlag::S_IFREG)
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
     unlinkat(
         Some(quarantine.descriptor.raw()),
         Path::new("artifact"),
@@ -205,6 +237,23 @@ fn recover_one(
     .map_err(io_error)?;
     remove_empty_quarantine(parent, &quarantine)?;
     Ok(true)
+}
+
+fn restore_legacy_quarantine_mode(
+    parent: &OwnedDescriptor,
+    name: &std::ffi::OsStr,
+) -> std::io::Result<()> {
+    #[cfg(test)]
+    if recovery_nofollow_chmod_unsupported() {
+        return Err(io_error(Errno::EOPNOTSUPP));
+    }
+    fchmodat(
+        Some(parent.raw()),
+        Path::new(name),
+        Mode::from_bits_truncate(0o700),
+        FchmodatFlags::NoFollowSymlink,
+    )
+    .map_err(io_error)
 }
 
 pub(super) fn remove_empty_quarantine(
@@ -226,9 +275,8 @@ pub(super) fn remove_empty_quarantine(
 pub(super) fn fail_closed(
     parent: &OwnedDescriptor,
     target: &std::ffi::OsStr,
-    quarantine: &Quarantine,
+    _quarantine: &Quarantine,
 ) -> std::io::Result<()> {
-    fchmod(quarantine.descriptor.raw(), Mode::empty()).map_err(io_error)?;
     mark_cleanup_blocked(parent, target)
 }
 

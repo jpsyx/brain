@@ -6,7 +6,7 @@ use super::receiver_durable_support::publish_valid_completion;
 use super::*;
 
 #[cfg(unix)]
-fn quarantine_contains_inode(parent: &std::path::Path, inode: u64) -> bool {
+pub(super) fn quarantine_contains_inode(parent: &std::path::Path, inode: u64) -> bool {
     use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
     std::fs::read_dir(parent)
@@ -364,7 +364,7 @@ fn runtime_answer_cleanup_persistently_blocks_a_replacement_after_rename_reports
     );
 }
 
-fn cleanup_authority_exists(app: &App, job_id: crate::state::ReceiverJobId) -> bool {
+pub(super) fn cleanup_authority_exists(app: &App, job_id: crate::state::ReceiverJobId) -> bool {
     rusqlite::Connection::open(app.context.state_db_path())
         .expect("open receiver state for cleanup authority")
         .query_row(

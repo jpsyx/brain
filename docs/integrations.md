@@ -1511,12 +1511,16 @@ descriptors, opens the exact regular leaf, and atomically renames that leaf into
 a private quarantine below the held parent. Its name combines a UUIDv5 tag of
 the raw leaf bytes with a fresh UUIDv4 nonce, so restart can rediscover the
 artifact without persisting or exposing the raw leaf. Brain opens and verifies
-the moved entry against the original descriptor, hardens the quarantine
-directory to mode `000` across the last observable boundary, and unlinks only
-that verified quarantine entry. Before ordinary removal, a retry duplicates
-the held parent descriptor and completely scans that descriptor for matching
-quarantines. It recovers at most eight sorted matches; a malformed match, a
-ninth match, or any match remaining after the recovery rescan fails closed.
+the moved entry against the original descriptor and keeps the quarantine at
+owner-private mode `0700`, which remains restart-openable without path-based
+no-follow chmod support. Before ordinary removal, a retry duplicates the held
+parent descriptor and completely scans that descriptor for matching
+quarantines. It recovers at most eight sorted matches, opens each directory
+no-follow, compares that descriptor with the parent-relative identity and
+owner, and applies any needed mode correction through the verified descriptor.
+A malformed match, a ninth match, or any match remaining after the recovery
+rescan fails closed. A final no-follow inode check immediately before unlink
+rejects an observable replacement of the quarantine entry.
 A replacement at the original leaf is never unlinked. Any identity mismatch,
 original-name reappearance (including after `renameat` reports `ENOENT`), or
 ambiguous recovery leaves the quarantine intact, installs a mode-`000` per-leaf

@@ -1307,8 +1307,13 @@ prove no outside deletion, retained runtime authority or failed downgrade with
 schema v12 intact, and successful exact cleanup after restoration. The
 deterministic cleanup hooks also replace the original leaf after quarantine
 identity verification, remove it after open before the entry stat, interrupt
-before and after quarantine mode hardening, and reintroduce the original after
-a missing rename. They prove the replacement is never unlinked, interrupted
+before quarantine verification and after identity verification, and
+reintroduce the original after a missing rename. A portability seam makes the
+legacy no-follow path chmod return `EOPNOTSUPP`; a quarantine created by the
+current mode-`0700` design still recovers after a real App restart. A final
+race hook replaces the quarantine's artifact after identity verification and
+proves the immediate pre-unlink inode check retains both private data and
+cleanup authority. These cases prove the original-name replacement is never unlinked, interrupted
 artifacts are rediscovered after restart, runtime and downgrade retain authority until every
 matching artifact is gone, unsafe retries remain persistently blocked, and
 exact-name absence is idempotent. Malformed matching quarantine names and more

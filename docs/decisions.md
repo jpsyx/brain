@@ -3139,10 +3139,16 @@ with the parent-relative no-follow identity, and require a regular file. The
 leaf is atomically moved into a private quarantine below the held parent. The
 name carries a UUIDv5 tag of the raw leaf bytes and a UUIDv4 nonce, which is
 collision-resistant without disclosing the leaf and is rediscoverable after a
-crash. The moved entry is opened and verified again, then protected by mode
-`000` until the final descriptor-relative unlink. A retry duplicates the held
-parent descriptor, scans every entry, and recovers up to eight sorted
-matching quarantines before returning success. Malformed matching names, a
+crash. The moved entry is opened and verified again, and its directory remains
+owner-private mode `0700` so every quarantine this version creates is
+restart-openable on generic Unix without `fchmodat(AT_SYMLINK_NOFOLLOW)`.
+A retry duplicates the held parent descriptor, scans every entry, opens each
+match no-follow, validates its descriptor identity and ownership, and performs
+mode correction only through that verified descriptor. A legacy mode-`000`
+quarantine may attempt the older path operation; lack of platform support
+installs the blocker and fails closed instead of dropping authority. Recovery
+handles up to eight sorted matching quarantines before returning success.
+Malformed matching names, a
 ninth match, a nonempty recovery rescan, original-name reappearance (including
 after `renameat` reports `ENOENT`), or either identity differing installs a
 per-leaf blocked marker and fails closed. This keeps substitution at any
@@ -3150,6 +3156,15 @@ ancestor or the exact leaf from deleting an outside or replacement response or
 observation artifact. Failure preserves runtime cleanup authority, or aborts
 downgrade while schema v12 remains intact. Exact-name absence is the only
 idempotent `ENOENT` case, and success means no matching quarantine remains.
+
+Mode `0700`, the atomic rename, and the collision-resistant random quarantine
+name isolate private data from other users and from accidental or ordinary path
+replacement. Unix cannot defend this directory from a malicious process with
+the same UID: that process owns the directory and can chmod or modify it, so
+Brain does not claim absolute same-UID race immunity. Brain does perform a
+final descriptor-relative inode check and fails closed on any substitution
+observable before unlink; the durable cleanup row remains the authority for a
+later safe retry.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

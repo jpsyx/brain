@@ -2269,9 +2269,12 @@ sibling so the two projects share a stack:
   iterates its held parent descriptor, so a swapped parent path cannot redirect
   discovery. The directory iterator rewinds the shared stream after every
   complete scan, so the required recovery rescan also starts from the first
-  entry. Stable `std` does not expose that Unix directory stream or a
-  cancellable Unix-domain `connect`; enabling the existing crate's `dir`
-  feature avoids unsafe code and adds no dependency.
+  entry. Quarantine recovery opens owner-private directories no-follow before
+  changing their mode through the verified descriptor; it does not depend on
+  path-based no-follow chmod support for artifacts created by this version.
+  Stable `std` does not expose that Unix directory stream or a cancellable
+  Unix-domain `connect`; enabling the existing crate's `dir` feature avoids
+  unsafe code and adds no dependency.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can
