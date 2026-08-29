@@ -5309,7 +5309,8 @@ the representation boundary, never between two independent authorities.
 Receiver status must explain durable work without turning private receiver
 payloads into a diagnostic API. Brain therefore derives one `ReceiverWorkSummary`
 inside a read-only SQLite snapshot using only finite state, count, attempt, and
-oldest-row ordering columns. All status surfaces consume the same summary and
+oldest-row ordering columns. Delivery counts join through jobs in the selected
+workspace, so foreign rows cannot affect that projection. All status surfaces consume the same summary and
 formatter. An absent or unreadable peer database is unavailable, not zero.
 
 Lifecycle logs follow the same boundary. Each record is constructed from a
@@ -5323,4 +5324,6 @@ including acceptance plus progress, answer readiness, and delivery
 terminalization. A secondary summary read enriches but does not authorize the
 record: failure is rendered explicitly as unavailable. Recovery ordinal display
 is separately gated by the oldest row's finite `attempt_kind`, so ordinary work
-cannot look like recovery zero.
+cannot look like recovery zero. Unknown durable delivery or job states are
+rejected at lifecycle construction; treating an unrecognized state as failed
+would invent a transition the database never committed.

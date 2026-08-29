@@ -1204,7 +1204,9 @@ table. One deferred read transaction executes one aggregate query over finite
 job and delivery states, counts, recovery attempts, and the ordering columns
 needed to select the oldest active row. It returns agent queue depth, oldest
 active phase, recovery attempt and fixed limit, cleanup-gated response count,
-and `ReceiverDeliveryCounts`. Unknown finite states fail the read as malformed;
+and `ReceiverDeliveryCounts`. Delivery rows are joined to `receiver_jobs` and
+filtered by the selected workspace UUID before counting. Unknown finite states
+fail the read as malformed;
 an absent database or required table returns unavailable. No content-bearing
 column is selected or decoded, and the read-only path neither creates nor
 migrates state. The oldest row's `attempt_kind` is the authority for recovery:
@@ -1218,8 +1220,11 @@ code. The model deliberately has no actor, workspace, job, token, session,
 prompt, transcript, answer, envelope, recipient, sender, provider body,
 credential, root, or path field.
 After a successful commit, summary-derived counts may be unavailable because a
-different malformed finite row prevents aggregation. That condition is encoded
+different malformed finite row in the selected workspace prevents aggregation. That condition is encoded
 as `unavailable` enrichment and never suppresses the transition record itself.
+The delivery lifecycle mapper is finite too: every accepted delivery and job
+state is named explicitly, and an unknown value returns an error rather than
+falling through to `failed` or to no terminal fact.
 
 Same-version reconciliation compares the normalized full canonical CREATE TABLE
 contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected

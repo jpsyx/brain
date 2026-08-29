@@ -9,26 +9,30 @@ pub(in crate::state::receiver::store::delivery) struct DeliveryLifecycle {
 }
 
 impl DeliveryLifecycle {
-    pub(in crate::state::receiver::store::delivery) const fn new(
+    pub(in crate::state::receiver::store::delivery) fn new(
         delivery_state: &str,
         job_state: &str,
         reason: crate::logging::ReceiverLifecycleReason,
-    ) -> Self {
-        Self {
-            delivery_phase: match delivery_state.as_bytes() {
-                b"acknowledged" => crate::logging::ReceiverDeliveryPhase::Acknowledged,
-                b"retrying" => crate::logging::ReceiverDeliveryPhase::Retrying,
-                b"ambiguous" => crate::logging::ReceiverDeliveryPhase::Ambiguous,
-                _ => crate::logging::ReceiverDeliveryPhase::Failed,
-            },
+    ) -> anyhow::Result<Self> {
+        let delivery_phase = match delivery_state {
+            "acknowledged" => crate::logging::ReceiverDeliveryPhase::Acknowledged,
+            "retrying" => crate::logging::ReceiverDeliveryPhase::Retrying,
+            "ambiguous" => crate::logging::ReceiverDeliveryPhase::Ambiguous,
+            "failed" => crate::logging::ReceiverDeliveryPhase::Failed,
+            _ => anyhow::bail!("unknown receiver delivery lifecycle state"),
+        };
+        let terminal_phase = match job_state {
+            "answer-ready" => Some(crate::logging::ReceiverLifecyclePhase::AnswerReady),
+            "done" => Some(crate::logging::ReceiverLifecyclePhase::Done),
+            "failed" => Some(crate::logging::ReceiverLifecyclePhase::Failed),
+            "retrying" => None,
+            _ => anyhow::bail!("unknown receiver job lifecycle state"),
+        };
+        Ok(Self {
+            delivery_phase,
             reason,
-            terminal_phase: match job_state.as_bytes() {
-                b"answer-ready" => Some(crate::logging::ReceiverLifecyclePhase::AnswerReady),
-                b"done" => Some(crate::logging::ReceiverLifecyclePhase::Done),
-                b"failed" => Some(crate::logging::ReceiverLifecyclePhase::Failed),
-                _ => None,
-            },
-        }
+            terminal_phase,
+        })
     }
 
     pub(in crate::state::receiver::store::delivery) fn log(self, db: &Db) {
@@ -109,5 +113,24 @@ const fn ambiguity_reason(
         ReceiverDeliveryAmbiguity::IdempotencyWindowExpired => {
             crate::logging::ReceiverLifecycleReason::IdempotencyWindowExpired
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_durable_states_are_rejected_instead_of_fabricating_lifecycle_facts() {
+        let reason = crate::logging::ReceiverLifecycleReason::InvalidRequest;
+
+        assert!(
+            DeliveryLifecycle::new("unknown-delivery", "failed", reason).is_err(),
+            "unknown delivery state was accepted"
+        );
+        assert!(
+            DeliveryLifecycle::new("failed", "unknown-job", reason).is_err(),
+            "unknown job state was accepted"
+        );
     }
 }

@@ -426,5 +426,5 @@ fn terminalize_expired_claim_before_io(
         "ambiguous",
         fallback.job_state(),
         crate::logging::ReceiverLifecycleReason::IdempotencyWindowExpired,
-    )))
+    )?))
 }

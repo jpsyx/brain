@@ -1397,6 +1397,9 @@ retains conversation transcripts, and drops the outbox last on downgrade.
 Receiver diagnostics have one frontend-neutral durable boundary. A read-only
 deferred SQLite snapshot aggregates finite job and delivery state, counts, the
 oldest active phase, recovery ordinal and limit, and cleanup-gated responses.
+Delivery rows enter that aggregation only through a matching job in the
+selected workspace. Unknown job or delivery lifecycle values fail closed at
+their typed boundary instead of being mapped to a terminal state.
 It does not deserialize any inbound, transcript, answer, completion evidence,
 delivery envelope, recipient, sender, provider response, credential, root, or
 database path. Bare `brain receiver`, `brain receiver status`, and the TUI
@@ -1416,6 +1419,9 @@ control acknowledgements emit answer readiness; malformed semantic responses
 and expired delivery retries emit both delivery-result and terminal-advancement
 records. Callers retain those finite facts until commit, and a failed secondary
 summary read degrades only the count or recovery enrichment to `unavailable`.
+The compiled integration path drives a real committed transition and then reads
+the same record through `brain server logs`, covering both the writer and its
+user-facing reader.
 After draining private cleanup authority, the downgrade also removes the v12
 `receiver_jobs.response_sender` column and both v12-only tables while retaining
 the exact schema-v11 job rows and column order. It records `user_version = 11`

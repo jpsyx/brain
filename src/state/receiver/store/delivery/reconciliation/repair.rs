@@ -69,7 +69,7 @@ pub(super) fn terminalize_invalid_semantic_responses(
             "receiver invalid semantic response compare-and-swap lost authority"
         );
     }
-    Ok(invalid
+    invalid
         .into_iter()
         .map(|_| {
             super::super::result::DeliveryLifecycle::new(
@@ -78,5 +78,5 @@ pub(super) fn terminalize_invalid_semantic_responses(
                 crate::logging::ReceiverLifecycleReason::InvalidRequest,
             )
         })
-        .collect())
+        .collect()
 }

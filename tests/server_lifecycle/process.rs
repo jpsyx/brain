@@ -12,6 +12,85 @@ use std::time::{Duration, Instant};
 
 use super::support::{LiveTui, PROCESS_FIXTURE_PERMITS, RunningServer, wait_for};
 
+const TRANSITION_HELPER_HOME: &str = "BRAIN_TEST_TRANSITION_HELPER_HOME";
+const TRANSITION_HELPER_DB: &str = "BRAIN_TEST_TRANSITION_HELPER_DB";
+
+#[test]
+fn durable_transition_is_visible_through_compiled_server_logs() {
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    std::fs::create_dir_all(paths.directory()).expect("create server stream directory");
+    let state_db = home.path().join("transition-state.db");
+    let helper = Command::new(std::env::current_exe().expect("current integration test binary"))
+        .args(["--exact", "process::compiled_durable_transition_helper"])
+        .env("HOME", home.path())
+        .env(TRANSITION_HELPER_HOME, home.path())
+        .env(TRANSITION_HELPER_DB, &state_db)
+        .output()
+        .expect("run compiled transition helper");
+    assert!(helper.status.success(), "compiled transition helper failed");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_brain"))
+        .args(["server", "logs"])
+        .env("HOME", home.path())
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run compiled server logs command");
+    assert!(
+        output.status.success(),
+        "compiled server logs command failed"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("server logs UTF-8");
+
+    assert!(
+        stdout.contains("receiver lifecycle event=ingress phase=queued queue_depth=1"),
+        "server logs omitted the committed ingress transition"
+    );
+}
+
+#[test]
+fn compiled_durable_transition_helper() {
+    let Some(_home) = std::env::var_os(TRANSITION_HELPER_HOME) else {
+        return;
+    };
+    let state_db = std::env::var_os(TRANSITION_HELPER_DB).expect("transition helper state DB");
+    let workspace_id = brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b")
+        .expect("workspace ID");
+    let user_id = brain::users::UserId::parse("test-user").expect("user ID");
+    let actor: brain::actor::ActorContext = serde_json::from_value(serde_json::json!({
+        "user_id": user_id.as_str(),
+        "display_name": "Test user",
+        "channel": "sms"
+    }))
+    .expect("actor context");
+    let job = brain::server::receiver::InboundJob {
+        job_id: uuid::Uuid::new_v4(),
+        workspace_id,
+        actor,
+        channel: brain::server::receiver::Channel::Sms,
+        authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+12125550100".to_owned(),
+        prompt: "Transition fixture".to_owned(),
+        attachments: Vec::new(),
+        received_at_unix_ms: 100,
+        provider_id: Some("transition-fixture".to_owned()),
+        thread_participants: vec!["+12125550100".to_owned()],
+        response_email: None,
+        allowed_response_recipients: Vec::new(),
+        email_reply: None,
+    };
+    let db = brain::state::Db::open_path_with_legacy_identity(
+        std::path::Path::new(&state_db),
+        &workspace_id.to_string(),
+        user_id.as_str(),
+    )
+    .expect("transition helper state");
+    let identity = brain::state::ReceiverConversationIdentity::sms(workspace_id, user_id);
+
+    db.accept_receiver_job(&job, &identity)
+        .expect("commit ingress transition");
+}
+
 #[test]
 fn connect_or_elect_reuses_an_existing_generation() {
     let mut server = RunningServer::start();

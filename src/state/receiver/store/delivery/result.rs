@@ -329,11 +329,7 @@ pub(super) fn apply_decision(
         delivery_changed == 1 && job_changed == 1,
         "receiver delivery result compare-and-swap lost authority"
     );
-    Ok(DeliveryLifecycle::new(
-        delivery_state,
-        job_state,
-        lifecycle_reason,
-    ))
+    DeliveryLifecycle::new(delivery_state, job_state, lifecycle_reason)
 }
 
 pub(super) struct TerminalFallback {

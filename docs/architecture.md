@@ -223,7 +223,9 @@ The durable receiver model is split beneath the thin `model.rs` coordinator:
 separately own opaque identity, continuity, lifecycle evidence, persisted rows,
 claims, typed effects, and the content-free status snapshot. Its store uses one
 deferred read transaction and one aggregate query over finite state, count,
-attempt, and ordering columns. It never decodes inbound, transcript, answer,
+attempt, and ordering columns. Delivery aggregation joins through the selected
+workspace's jobs, so a foreign row in the same database cannot change that
+workspace's status. It never decodes inbound, transcript, answer,
 envelope, recipient, provider-body, credential, root, or path data. The schema coordinator delegates schema-v11 notice repair and
 downgrade to `schema/notice.rs`, the older adjacent downgrade steps to
 `schema/downgrade.rs`, and recovery-specific repair to `schema/recovery.rs`.
@@ -364,7 +366,9 @@ infrastructure stream read by `brain server logs`. A transaction that crosses
 more than one boundary retains each finite event fact through commit and emits
 each record afterward. Summary-derived counts are optional enrichment: when the
 post-commit read fails, the core transition is still emitted with an explicit
-`unavailable` metric.
+`unavailable` metric. Delivery lifecycle construction accepts only known
+durable delivery and job states; an unknown persisted value is an error rather
+than an invented failed transition.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error

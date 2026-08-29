@@ -120,7 +120,7 @@ pub(in super::super) fn terminalize_expired_due_retry(
         "ambiguous",
         fallback.job_state(),
         crate::logging::ReceiverLifecycleReason::IdempotencyWindowExpired,
-    )))
+    )?))
 }
 
 pub(super) fn requeue_pre_spawn(

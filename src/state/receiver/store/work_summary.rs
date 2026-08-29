@@ -182,6 +182,12 @@ const SUMMARY_SQL: &str = "WITH
     SELECT state, recovery_count, attempt_kind FROM agent_work
     ORDER BY received_at_unix_ms, job_id LIMIT 1
   ),
+  selected_delivery AS (
+    SELECT delivery.*
+    FROM receiver_deliveries AS delivery
+    INNER JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
+    WHERE job.workspace_id = ?1
+  ),
   delivery AS (
     SELECT
       COUNT(*) FILTER (WHERE state = 'cleanup-gated') AS cleanup_gated,
@@ -210,7 +216,7 @@ const SUMMARY_SQL: &str = "WITH
            OR (state = 'failed' AND error_category = 'idempotency-window-expired')
       ) AS idempotency_window_expired,
       COUNT(*) FILTER (WHERE fallback_decision = 'no-safe-fallback') AS no_safe_fallback
-    FROM receiver_deliveries
+    FROM selected_delivery
   )
 SELECT
   (SELECT COUNT(*) FROM agent_work),
@@ -232,7 +238,7 @@ SELECT
     'queued', 'claimed', 'launching', 'launched', 'accepted', 'processing',
     'answer-ready', 'delivering', 'retrying', 'failed', 'done'
   )),
-  (SELECT COUNT(*) FROM receiver_deliveries WHERE state NOT IN (
+  (SELECT COUNT(*) FROM selected_delivery WHERE state NOT IN (
     'cleanup-gated', 'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'
   ))
 FROM delivery";

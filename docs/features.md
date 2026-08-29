@@ -1688,7 +1688,9 @@ receiver-status action read and theme the same durable snapshot without creating
 a database or running a migration. The snapshot also reports agent queue depth,
 the oldest active finite phase, the active recovery ordinal and limit, and the
 cleanup-gated response count. Missing, unreadable, or not-yet-created peer state
-is shown as `unavailable`, never as invented zero work. BR-18 removes the final
+is shown as `unavailable`, never as invented zero work. Delivery counts join
+through jobs in the selected workspace, so foreign rows cannot inflate or
+invalidate them. BR-18 removes the final
 legacy endpoint lifetime representation; receiver liveness and routing use only
 the elected server lease. A recovery ordinal appears only while the oldest work
 is an active recovery attempt; ordinary work is shown as not active.
@@ -2000,6 +2002,8 @@ process, but already committed jobs survive for the later durable consumer.
   records use only finite event names, phases, ordinals, counts, delivery state,
   and stable reason codes. They never include actor, workspace, job, prompt,
   answer, envelope, recipient, provider body, credential, root, or path values.
+  An unknown durable lifecycle state is rejected instead of being reported as
+  failed.
   The command is read-only and workspace-independent.
 - `brain server run --generation <uuid> --port <p>` is the hidden blocking
   loop used only by an elected starter. A matching token must already own

@@ -184,3 +184,45 @@ fn read_only_work_summary_preserves_database_bytes_and_returns_available_state()
     assert_eq!(summary.agent_queue_depth(), 1);
     assert_eq!(std::fs::read(&path).expect("database after read"), before);
 }
+
+#[test]
+fn work_summary_scopes_delivery_aggregation_to_the_selected_workspace() {
+    let temporary = tempfile::tempdir().expect("state directory");
+    let path = temporary.path().join("state.db");
+    let selected = open_file_db(&path);
+    let foreign_workspace =
+        crate::workspace::WorkspaceId::parse("7b7a8415-4b4e-42ca-9215-cf039cb63d11")
+            .expect("foreign workspace ID");
+    let foreign = Db::open_path_with_legacy_identity(
+        &path,
+        &foreign_workspace.to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("foreign workspace state");
+    let selected_identity =
+        ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let selected_job = selected
+        .accept_receiver_job(&receiver_job(Some("selected"), 100), &selected_identity)
+        .expect("accept selected work");
+    seed_delivery(&selected, selected_job.job_id(), "ready");
+
+    let foreign_identity =
+        ReceiverConversationIdentity::sms(foreign_workspace, receiver_user_id());
+    let foreign_job = foreign
+        .accept_receiver_job(
+            &receiver_job_for(
+                foreign_workspace,
+                crate::server::receiver::Channel::Sms,
+                Some("foreign"),
+                200,
+            ),
+            &foreign_identity,
+        )
+        .expect("accept foreign work");
+    seed_delivery(&foreign, foreign_job.job_id(), "retrying");
+
+    let summary = selected.receiver_work_summary().expect("selected summary");
+
+    assert_eq!(summary.delivery_counts().answer_ready(), 1);
+    assert_eq!(summary.delivery_counts().retrying(), 0);
+}
