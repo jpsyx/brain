@@ -346,7 +346,11 @@ fn durable_dispatch_downloads_authenticated_media_before_agent_launch() {
             .command
             .contains(&local_path.display().to_string())
     );
-    assert_eq!(attachments.messages(), vec![inbound]);
+    let messages = attachments.messages();
+    assert!(
+        messages.len() == 1 && inbound_job_proof(&messages[0]) == inbound_job_proof(&inbound),
+        "attachment runtime did not receive the exact authenticated message"
+    );
     assert_eq!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
@@ -428,12 +432,20 @@ fn receiver_freshness_finishes_before_attachment_refresh_and_background_launch()
     sync.finish_pull();
     app.tick_receiver();
 
-    assert_eq!(attachments.messages(), vec![inbound.clone()]);
+    let messages = attachments.messages();
+    assert!(
+        messages.len() == 1 && inbound_job_proof(&messages[0]) == inbound_job_proof(&inbound),
+        "attachment runtime did not retain the exact authenticated message"
+    );
     assert!(transport.launch_specs().is_empty());
 
     app.tick_receiver();
 
-    assert_eq!(attachments.messages(), vec![inbound]);
+    let messages = attachments.messages();
+    assert!(
+        messages.len() == 1 && inbound_job_proof(&messages[0]) == inbound_job_proof(&inbound),
+        "attachment runtime changed the authenticated message"
+    );
     let specifications = transport.launch_specs();
     assert_eq!(specifications.len(), 1);
     assert!(
@@ -449,4 +461,16 @@ fn receiver_freshness_finishes_before_attachment_refresh_and_background_launch()
         ),
         before
     );
+}
+
+fn inbound_job_proof(message: &InboundJob) -> (usize, [u8; 32], usize, [u8; 32]) {
+    use sha2::Digest as _;
+
+    let serialized = serde_json::to_vec(message).expect("serialize inbound proof");
+    (
+        serialized.len(),
+        sha2::Sha256::digest(&serialized).into(),
+        message.response_sender.len(),
+        sha2::Sha256::digest(message.response_sender.as_bytes()).into(),
+    )
 }

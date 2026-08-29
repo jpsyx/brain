@@ -100,6 +100,23 @@ fn task_three_private_assertion_policy_rejects_raw_values_but_allows_safe_proofs
         "let has_private_sender = sender; assert_eq!(has_private_sender, expected);",
         "let is_private_prompt = prompt; assert!(condition, \"private: {is_private_prompt}\");",
         "debug_assert_eq!(envelope.has_private_sender(), expected);",
+        "assert!(condition, \"private: {alias}\", alias = sender);",
+        concat!(
+            "let alias; if condition { alias = sender; } ",
+            "assert_eq!(alias, expected);"
+        ),
+        "match sender { alias => assert_eq!(alias, expected) };",
+        "for alias in sender { assert_ne!(alias, expected); }",
+        concat!(
+            "let (first, Envelope { sender: second, .. }) = (sender, envelope); ",
+            "assert_eq!(second, expected);"
+        ),
+        "fixture.value = sender; assert_eq!(fixture.value, expected);",
+        "fixture[0] = prompt; assert_eq!(fixture[0], expected);",
+        "assert_eq!(sender.is_private_value(), expected);",
+        "assert_eq!(prompt.has_private_value(), expected);",
+        "dbg!(sender);",
+        concat!("format_args!(\"private: {", "sender:?}\");"),
     ]
     .into_iter()
     .enumerate()
@@ -159,6 +176,9 @@ fn future_task_three_delivery_tests_are_discovered_for_private_assertion_audit()
         "src/tui/app_brain/receiver/tests/future.rs",
         "src/tui/receiver/tests/provider_future.rs",
         "src/tui/state/services/receiver/tests/future.rs",
+        "src/tui/app_brain/tests/future/receiver/delivery.rs",
+        "src/tui/app_brain/tests/future/provider/delivery.rs",
+        "src/tui/app_brain/tests/future/app/delivery.rs",
     ] {
         let path = temporary.path().join(relative);
         std::fs::create_dir_all(path.parent().expect("fixture parent")).expect("fixture directory");
@@ -257,6 +277,16 @@ fn future_task_three_delivery_tests_are_discovered_for_private_assertion_audit()
             .any(|path| path.ends_with("services/receiver/tests/future.rs")),
         "future App receiver service test was not audited"
     );
+    for suffix in [
+        "app_brain/tests/future/receiver/delivery.rs",
+        "app_brain/tests/future/provider/delivery.rs",
+        "app_brain/tests/future/app/delivery.rs",
+    ] {
+        assert!(
+            discovered.iter().any(|path| path.ends_with(suffix)),
+            "future nested receiver/provider/App test was not audited"
+        );
+    }
     assert!(
         discovered
             .iter()
@@ -299,10 +329,31 @@ fn discover_task_three_privacy_tests(root: &Path) -> Vec<PathBuf> {
             || relative.starts_with("src/tui/app_brain/receiver")
             || relative.starts_with("src/tui/receiver")
             || relative_text.starts_with("src/tui/state/services/receiver")
+            || nested_receiver_privacy_test(relative)
     });
     candidates.sort();
     candidates.dedup();
     candidates
+}
+
+fn nested_receiver_privacy_test(relative: &Path) -> bool {
+    let components = relative
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    let Some(tests) = components
+        .iter()
+        .position(|component| *component == "tests")
+    else {
+        return false;
+    };
+    components[tests + 1..components.len().saturating_sub(1)]
+        .iter()
+        .any(|component| {
+            matches!(*component, "receiver" | "provider" | "app")
+                || component.starts_with("receiver_")
+                || component.starts_with("provider_")
+        })
 }
 
 #[test]

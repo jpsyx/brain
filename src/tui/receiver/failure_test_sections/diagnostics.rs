@@ -44,11 +44,10 @@ fn rollback_preserves_the_controller_shutdown_diagnostic_after_cleanup_and_durab
     })
     .expect_err("surface controller shutdown diagnostic");
 
-    assert_eq!(
-        error.downcast_ref::<AgentError>(),
-        Some(&AgentError::Frontend(
-            "receiver shutdown probe failed".to_owned()
-        ))
+    assert!(
+        receiver_shutdown_diagnostic_proof(&error)
+            == private_text_proof("receiver shutdown probe failed"),
+        "controller shutdown diagnostic category changed"
     );
     assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
     assert!(
@@ -66,6 +65,19 @@ fn rollback_preserves_the_controller_shutdown_diagnostic_after_cleanup_and_durab
         retry.job().last_error(),
         Some(ReceiverLaunchFailure::Planning.as_str())
     );
+}
+
+fn receiver_shutdown_diagnostic_proof(error: &anyhow::Error) -> (usize, [u8; 32]) {
+    let Some(AgentError::Frontend(message)) = error.downcast_ref::<AgentError>() else {
+        return private_text_proof("");
+    };
+    private_text_proof(message)
+}
+
+fn private_text_proof(value: &str) -> (usize, [u8; 32]) {
+    use sha2::Digest as _;
+
+    (value.len(), sha2::Sha256::digest(value.as_bytes()).into())
 }
 
 #[test]

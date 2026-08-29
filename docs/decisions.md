@@ -3109,7 +3109,10 @@ cannot make a later answer transaction fail or re-block FIFO. Fresh-App
 discovery orders eligible rows by last attempt, creation time, and job ID. An
 incomplete row is durably moved behind the current eligible set before the next
 pass. This rotates persistent session, artifact, reload, and sync failures
-without weakening exact handoff authority or discarding cleanup progress.
+without weakening exact handoff authority or discarding cleanup progress. A
+saturated `i64::MAX` ordering timestamp cannot move forward, so Brain atomically
+shifts same-workspace peer timestamps down and retains the failed row at the
+maximum. The secondary creation-time and job-ID order remains stable.
 
 The schema-v12 down migration must discharge this authority rather than erase
 it. It refuses unacknowledged rows, validates exact unreleased sessions, removes
@@ -3180,8 +3183,13 @@ use this same lane and exact provider-result boundary.
 Provider-worker construction failure is treated as a bounded delivery result,
 not as a pre-attempt release. The unavailable executor retains one exact claim
 and publishes a typed definitely-not-accepted transport result on its next
-poll. The normal policy records the attempt and retry deadline, preventing a
-fresh event-loop tick from claiming and releasing the same row indefinitely.
+poll. That attempt is explicitly no-IO: it never sets `provider_io_started`, and
+its separate exact CAS records the bounded attempt and retry deadline. A delayed
+poll, lease expiry, or failed result commit therefore cannot turn local worker
+construction into Twilio ambiguity. By contrast, a real provider
+acknowledgement followed by a failed durable result commit retains the IO marker;
+expiry and reopen then use the provider-specific Resend replay or Twilio
+ambiguity decision. Neither recovery path re-enters agent work.
 
 Webhook verification and provider deduplication remain independent ingress
 concerns. HMAC comparisons are constant-time, Resend timestamps have a

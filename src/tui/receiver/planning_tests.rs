@@ -43,7 +43,6 @@ enum BindingKind {
 }
 
 struct PlanningCase {
-    name: &'static str,
     binding: BindingKind,
     transcript: &'static str,
     expects_resume: bool,
@@ -284,19 +283,16 @@ fn accepted_recovery_plan_is_resume_only_bounded_and_contains_no_private_job_mat
 fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_frontend() {
     let cases = [
         PlanningCase {
-            name: "matching resumable binding",
             binding: BindingKind::Matching,
             transcript: "old portable context",
             expects_resume: true,
         },
         PlanningCase {
-            name: "fresh fallback selected after frontend change",
             binding: BindingKind::OtherFrontend,
             transcript: "old portable context",
             expects_resume: false,
         },
         PlanningCase {
-            name: "empty transcript",
             binding: BindingKind::Absent,
             transcript: "",
             expects_resume: false,
@@ -314,14 +310,12 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
             );
 
             if case.expects_resume {
-                assert_eq!(
-                    plan.session_plan(),
-                    &SessionPlan::resume(
-                        AgentSession::new("native-session").expect("native session")
-                    ),
-                    "{} for {}",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.session_plan()
+                        == &SessionPlan::resume(
+                            AgentSession::new("native-session").expect("native session")
+                        ),
+                    "resume planning selected the wrong session plan"
                 );
                 assert!(
                     plan.initial_prompt()
@@ -332,31 +326,22 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
                     "resume prompt did not omit portable transcript context"
                 );
             } else {
-                assert_eq!(
-                    plan.session_plan(),
-                    &SessionPlan::fresh(fresh_session()),
-                    "{} for {}",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.session_plan() == &SessionPlan::fresh(fresh_session()),
+                    "fresh planning selected the wrong session plan"
                 );
                 assert!(
                     plan.initial_prompt()
                         .contains("## Current authenticated message"),
-                    "{} for {} must use recovery prompt separation",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must use recovery prompt separation",
                 );
                 assert!(
                     plan.initial_prompt().contains(TASK_CAPTURE_POLICY),
-                    "{} for {} must retain the shared task-capture policy",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must retain the shared task-capture policy",
                 );
                 assert!(
                     plan.initial_prompt().contains(CURRENT_PROMPT),
-                    "{} for {} must retain the current job",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must retain the current job",
                 );
             }
         }

@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 mod syntax;
+mod taint;
 
 use syntax::{
     identifiers, is_identifier_character, macro_bodies, mask_non_code, matching_delimiter,
@@ -41,19 +42,30 @@ pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
             }
         }
     }
+    for macro_name in ["dbg!", "format_args!"] {
+        for body in macro_bodies(&masked, macro_name) {
+            let private = private_identifiers_at(&masked, body.start);
+            let arguments = top_level_arguments(&masked[body.clone()]);
+            if diagnostics_expose_private(source, &masked, body, &arguments, &private) {
+                violations += 1;
+            }
+        }
+    }
     violations
 }
 
 fn private_identifiers_at(masked: &str, offset: usize) -> BTreeSet<String> {
-    let mut private = identifiers(masked)
+    let private = identifiers(masked)
         .filter(|identifier| identifier_is_private(identifier))
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
     let scope_start = enclosing_function_body_start(masked, offset).unwrap_or(0);
     let scope = &masked[scope_start..offset];
+    let analysis_scope = scope_before_open_macro(scope);
+    let mut private = taint::inferred_private_identifiers(analysis_scope, &private);
     loop {
         let before = private.len();
-        for statement in scope.split(';') {
+        for statement in analysis_scope.split(';') {
             let Some((left, right)) = assignment(statement) else {
                 continue;
             };
@@ -64,10 +76,31 @@ fn private_identifiers_at(masked: &str, offset: usize) -> BTreeSet<String> {
                 private.insert(alias.to_owned());
             }
         }
+        taint::propagate_control_flow_aliases(analysis_scope, &mut private);
         if private.len() == before {
             return private;
         }
     }
+}
+
+fn scope_before_open_macro(scope: &str) -> &str {
+    let trimmed = scope.trim_end();
+    let Some(opening) = trimmed.chars().next_back() else {
+        return scope;
+    };
+    if !matches!(opening, '(' | '[' | '{') {
+        return scope;
+    }
+    let before_opening = trimmed[..trimmed.len() - opening.len_utf8()].trim_end();
+    let Some(bang) = before_opening.strip_suffix('!') else {
+        return scope;
+    };
+    let macro_start = bang
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !is_identifier_character(*character))
+        .map_or(0, |(index, character)| index + character.len_utf8());
+    &bang[..macro_start]
 }
 
 fn assignment_aliases(left: &str) -> Vec<&str> {
@@ -233,7 +266,10 @@ fn has_top_level_boolean_operator(source: &str) -> bool {
             b')' | b']' | b'}' => {
                 delimiters.pop();
             }
-            b'=' | b'!' | b'<' | b'>' if delimiters.is_empty() => return true,
+            b'=' if delimiters.is_empty() && bytes.get(index + 1) == Some(&b'=') => return true,
+            b'!' | b'<' | b'>' if delimiters.is_empty() && bytes.get(index + 1) == Some(&b'=') => {
+                return true;
+            }
             b'&' if delimiters.is_empty() && bytes.get(index + 1) == Some(&b'&') => return true,
             b'|' if delimiters.is_empty() && bytes.get(index + 1) == Some(&b'|') => return true,
             _ => {}
@@ -343,4 +379,23 @@ fn format_placeholder_exposes_private(source: &str, private: &BTreeSet<String>) 
         cursor = end + 1;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_assignment_alias_is_private_at_assertion() {
+        let source = "let alias; if condition { alias = sender; } assert_eq!(alias, expected);";
+        let masked = mask_non_code(source);
+        let offset = masked.find("assert_eq!").expect("assertion offset");
+        let private = private_identifiers_at(&masked, offset);
+
+        assert!(private.contains("alias"), "nested alias was not private");
+        assert!(
+            private_whole_value_assertion_violations(source) > 0,
+            "nested assertion was not rejected"
+        );
+    }
 }

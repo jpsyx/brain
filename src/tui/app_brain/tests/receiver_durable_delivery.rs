@@ -68,6 +68,10 @@ struct ScriptedDeliveryStart {
 }
 
 impl ReceiverDeliveryStart for ScriptedDeliveryStart {
+    fn attempt_kind(&self) -> crate::server::delivery::ReceiverDeliveryAttemptKind {
+        crate::server::delivery::ReceiverDeliveryAttemptKind::ProviderIo
+    }
+
     fn start(self: Box<Self>) -> anyhow::Result<()> {
         if self.publication_fails {
             anyhow::bail!("scripted worker disconnected before publication");
@@ -110,6 +114,7 @@ impl ReceiverDeliveryExecution for ScriptedDeliveryExecution {
                 ReceiverDeliveryExecutionPoll::Ready {
                     claim: Box::new(claim),
                     result,
+                    attempt_kind: crate::server::delivery::ReceiverDeliveryAttemptKind::ProviderIo,
                 }
             })
     }

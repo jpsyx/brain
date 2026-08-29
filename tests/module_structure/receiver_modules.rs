@@ -18,6 +18,7 @@ fn discover_receiver_production_modules(root: &Path) -> Vec<std::path::PathBuf> 
                 || text.starts_with("src/server/delivery/")
                 || text == "src/server/delivery.rs"
                 || text.starts_with("src/tui/state/services/receiver_")
+                || text == "src/tui/state/services.rs"
                 || text.starts_with("src/tui/app_brain/receiver/")
                 || text == "src/tui/app_brain/receiver.rs")
     });
@@ -58,6 +59,7 @@ fn receiver_module_guard_discovers_nested_br17_production_modules() {
         "src/server/delivery/future.rs",
         "src/tui/state/services/receiver_delivery_future.rs",
         "src/tui/state/services/receiver_recovery.rs",
+        "src/tui/state/services.rs",
         "src/tui/app_brain/receiver.rs",
         "src/tui/app_brain/receiver/answer_cleanup.rs",
         "src/state/receiver/tests/unrelated.rs",
@@ -104,6 +106,12 @@ fn receiver_module_guard_discovers_nested_br17_production_modules() {
             .iter()
             .any(|path| path.ends_with("services/receiver_recovery.rs")),
         "App recovery coordinator was not discovered"
+    );
+    assert!(
+        discovered
+            .iter()
+            .any(|path| path.ends_with("tui/state/services.rs")),
+        "App services coordinator root was not discovered"
     );
     assert!(
         discovered

@@ -1289,8 +1289,10 @@ or mixed with a length proof, while content-free count identifiers remain
 valid. Every audited assertion uses a fixed-message boolean, digest, length,
 count, or field-presence proof instead. The assertion scanner also covers
 `debug_assert` variants, destructuring and adversarial neutral aliases,
-interpolation, and misleading `is` or `has` names. Discovery includes future
-receiver, provider, and App test paths without a name-only safe allowlist.
+named format arguments, nested and field or index assignment, match and for
+bindings, interpolation and debug macros, and misleading `is` or `has` names.
+Discovery evaluates full relative paths, including future nested receiver,
+provider, and App test paths, without a name-only safe allowlist.
 `tests/module_structure.rs` recursively
 discovers receiver state, provider-delivery, App services, and composed App
 production modules

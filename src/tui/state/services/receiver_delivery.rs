@@ -1,8 +1,8 @@
 use super::AppServices;
 
 use crate::server::delivery::{
-    ReceiverDeliveryExecution, ReceiverDeliveryExecutionPoll, ReceiverProviderProcessFailure,
-    classify_provider_process_failure,
+    ReceiverDeliveryAttemptKind, ReceiverDeliveryExecution, ReceiverDeliveryExecutionPoll,
+    ReceiverProviderProcessFailure, classify_provider_process_failure,
 };
 use crate::state::{ReceiverDeliveryApplyOutcome, ReceiverDeliveryClaim};
 use crate::workspace::CommandContext;
@@ -18,6 +18,10 @@ struct UnavailableReceiverDeliveryStart {
 }
 
 impl crate::server::delivery::ReceiverDeliveryStart for UnavailableReceiverDeliveryStart {
+    fn attempt_kind(&self) -> ReceiverDeliveryAttemptKind {
+        ReceiverDeliveryAttemptKind::NoProviderIo
+    }
+
     fn start(self: Box<Self>) -> anyhow::Result<()> {
         let mut completed = self
             .completed
@@ -54,6 +58,7 @@ impl ReceiverDeliveryExecution for UnavailableReceiverDeliveryExecution {
             result: crate::state::ReceiverProviderResultClass::DefinitelyNotAccepted(
                 crate::state::ReceiverDeliveryErrorCategory::TransportUnavailable,
             ),
+            attempt_kind: ReceiverDeliveryAttemptKind::NoProviderIo,
         }
     }
 
@@ -120,27 +125,35 @@ impl AppServices {
                 return;
             }
         };
-        match self
-            .db
-            .mark_receiver_delivery_io_started(&claim, now_unix_ms)
-        {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(error) => {
-                crate::logging::log(format!(
-                    "receiver delivery IO-start commit failed: {error:#}"
-                ));
-                return;
+        let attempt_kind = start.attempt_kind();
+        if attempt_kind == ReceiverDeliveryAttemptKind::ProviderIo {
+            match self
+                .db
+                .mark_receiver_delivery_io_started(&claim, now_unix_ms)
+            {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => {
+                    crate::logging::log(format!(
+                        "receiver delivery IO-start commit failed: {error:#}"
+                    ));
+                    return;
+                }
             }
         }
         if let Err(error) = start.start() {
             crate::logging::log(format!(
                 "receiver delivery worker publication failed: {error:#}"
             ));
-            match self
-                .db
-                .release_receiver_delivery_after_failed_publication(&claim, now_unix_ms)
-            {
+            let release = match attempt_kind {
+                ReceiverDeliveryAttemptKind::ProviderIo => self
+                    .db
+                    .release_receiver_delivery_after_failed_publication(&claim, now_unix_ms),
+                ReceiverDeliveryAttemptKind::NoProviderIo => self
+                    .db
+                    .release_receiver_delivery_before_io(&claim, now_unix_ms),
+            };
+            match release {
                 Ok(true) => {}
                 Ok(false) => crate::logging::log(
                     "receiver delivery publication release lost exact authority",
@@ -179,9 +192,13 @@ impl AppServices {
     }
 
     fn apply_receiver_delivery_execution_result(&mut self, now_unix_ms: u64) {
-        let (claim, result) = match self.receiver_delivery_execution.poll() {
+        let (claim, result, attempt_kind) = match self.receiver_delivery_execution.poll() {
             ReceiverDeliveryExecutionPoll::Pending => return,
-            ReceiverDeliveryExecutionPoll::Ready { claim, result } => (*claim, result),
+            ReceiverDeliveryExecutionPoll::Ready {
+                claim,
+                result,
+                attempt_kind,
+            } => (*claim, result, attempt_kind),
             ReceiverDeliveryExecutionPoll::Disconnected => {
                 let Some(claim) = self.receiver_delivery_active.take() else {
                     return;
@@ -191,13 +208,20 @@ impl AppServices {
                     classify_provider_process_failure(
                         ReceiverProviderProcessFailure::LostResultChannel,
                     ),
+                    ReceiverDeliveryAttemptKind::ProviderIo,
                 )
             }
         };
-        match self
-            .db
-            .apply_receiver_delivery_result(&claim, now_unix_ms, result)
-        {
+        let applied = match attempt_kind {
+            ReceiverDeliveryAttemptKind::ProviderIo => {
+                self.db
+                    .apply_receiver_delivery_result(&claim, now_unix_ms, result)
+            }
+            ReceiverDeliveryAttemptKind::NoProviderIo => self
+                .db
+                .apply_receiver_delivery_result_before_io(&claim, now_unix_ms, result),
+        };
+        match applied {
             Ok(ReceiverDeliveryApplyOutcome::Applied) => {
                 self.log_receiver_delivery_state("result", 1);
             }

@@ -106,9 +106,18 @@ fn artifact_and_lifecycle_completion_persist_the_exact_session_for_the_next_mess
         );
         let command = &transport.launch_specs()[0].command;
         match kind {
-            AgentKind::Claude => assert!(command.contains("--resume"), "{command}"),
-            AgentKind::Codex => assert!(command.contains("resume"), "{command}"),
-            AgentKind::OpenCode => assert!(command.contains("--session"), "{command}"),
+            AgentKind::Claude => assert!(
+                command.contains("--resume"),
+                "Claude continuity command omitted its resume selector"
+            ),
+            AgentKind::Codex => assert!(
+                command.contains("resume"),
+                "Codex continuity command omitted its resume selector"
+            ),
+            AgentKind::OpenCode => assert!(
+                command.contains("--session"),
+                "OpenCode continuity command omitted its session selector"
+            ),
         }
     }
 }

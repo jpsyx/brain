@@ -19,7 +19,15 @@ pub(crate) use provider_attempt::{
 
 /// Publication handle for work already admitted by the bounded provider executor.
 pub(crate) trait ReceiverDeliveryStart: Send {
+    fn attempt_kind(&self) -> ReceiverDeliveryAttemptKind;
+
     fn start(self: Box<Self>) -> anyhow::Result<()>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverDeliveryAttemptKind {
+    ProviderIo,
+    NoProviderIo,
 }
 
 /// Nonblocking provider result returned to the application event loop.
@@ -29,6 +37,7 @@ pub(crate) enum ReceiverDeliveryExecutionPoll {
     Ready {
         claim: Box<crate::state::ReceiverDeliveryClaim>,
         result: crate::state::ReceiverProviderResultClass,
+        attempt_kind: ReceiverDeliveryAttemptKind,
     },
     Disconnected,
 }
@@ -70,6 +79,10 @@ struct SystemReceiverDeliveryStart(DeliveryExecutorPermit);
 
 #[cfg(not(test))]
 impl ReceiverDeliveryStart for SystemReceiverDeliveryStart {
+    fn attempt_kind(&self) -> ReceiverDeliveryAttemptKind {
+        ReceiverDeliveryAttemptKind::ProviderIo
+    }
+
     fn start(self: Box<Self>) -> anyhow::Result<()> {
         self.0
             .start()
@@ -100,6 +113,7 @@ impl ReceiverDeliveryExecution for SystemReceiverDeliveryExecution {
             DeliveryExecutorPoll::Ready(result) => ReceiverDeliveryExecutionPoll::Ready {
                 claim: Box::new(result.input),
                 result: result.output,
+                attempt_kind: ReceiverDeliveryAttemptKind::ProviderIo,
             },
             DeliveryExecutorPoll::Disconnected => ReceiverDeliveryExecutionPoll::Disconnected,
         }

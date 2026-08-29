@@ -144,7 +144,9 @@ holds the next completed controller in its exact tab. Cleanup retries do not
 block a later job. A fresh App applies the same fairness to durable cleanup
 rows: an incomplete oldest row moves behind its eligible peers before another
 pass, so its persistent session, artifact, reload, or sync failure cannot
-starve a later answer's exact cleanup. Only a proved
+starve a later answer's exact cleanup. Timestamp saturation shifts only the
+workspace's peer ordering timestamps in the same transaction, so the failed row
+still moves last at `i64::MAX`. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without
   exact completion preserves the fenced post-spawn job for BR-16.
 

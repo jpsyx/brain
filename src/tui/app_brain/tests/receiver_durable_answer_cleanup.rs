@@ -126,7 +126,7 @@ fn artifact_cleanup_failure_is_retried_by_a_fresh_app_before_final_sync() {
 }
 
 #[test]
-fn fresh_app_rotates_a_persistently_failing_cleanup_behind_a_later_row() {
+fn fresh_app_rotates_a_persistently_failing_cleanup_at_timestamp_saturation() {
     let (temporary, mut app, _db, first, second, _transport) = answer_fixture();
     let first_artifact = publish_valid_completion(&app, "first private cleanup answer");
     app.receiver
@@ -155,6 +155,13 @@ fn fresh_app_rotates_a_persistently_failing_cleanup_behind_a_later_row() {
     assert!(second_artifact.exists());
     assert!(answer_cleanup_flags(&app, first.job_id()).is_some());
     assert!(answer_cleanup_flags(&app, second.job_id()).is_some());
+    rusqlite::Connection::open(app.context.state_db_path())
+        .expect("open receiver state for saturated cleanup ordering")
+        .execute(
+            "UPDATE receiver_answer_cleanups SET updated_at_unix_ms = ?1",
+            [i64::MAX],
+        )
+        .expect("saturate cleanup ordering timestamps");
     drop(app);
 
     let cli = Cli::parse_from(["tasks"]);

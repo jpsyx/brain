@@ -90,7 +90,7 @@ fn run_opencode_stage(app: &App, session: &AgentSession, path: &Path, stage: Pro
         .env("TEST_RECEIVER_STAGE", stage)
         .output()
         .expect("run OpenCode producer harness");
-    assert_process_succeeded("OpenCode producer harness", &output);
+    assert_process_succeeded(&output);
 }
 
 pub(super) fn run_stop_hook(app: &App, kind: AgentKind, session: &AgentSession, path: &Path) {
@@ -141,7 +141,7 @@ pub(super) fn run_stop_hook(app: &App, kind: AgentKind, session: &AgentSession, 
         .write_all(payload.to_string().as_bytes())
         .expect("write stop payload");
     let output = child.wait_with_output().expect("wait for stop hook");
-    assert_process_succeeded("stop hook", &output);
+    assert_process_succeeded(&output);
 }
 
 fn run_bridge(app: &App, kind: AgentKind, path: &Path, payload: &serde_json::Value) {
@@ -166,7 +166,7 @@ fn run_bridge(app: &App, kind: AgentKind, path: &Path, payload: &serde_json::Val
     let output = child
         .wait_with_output()
         .expect("wait for observation bridge");
-    assert_process_succeeded("observation bridge", &output);
+    assert_process_succeeded(&output);
 }
 
 fn acceptance_payload(app: &App, kind: AgentKind, session: &AgentSession) -> serde_json::Value {
@@ -219,12 +219,10 @@ pub(super) fn snapshot_timestamp(snapshot: &serde_json::Value, field: &str) -> u
     snapshot[field].as_u64().expect("snapshot timestamp")
 }
 
-fn assert_process_succeeded(name: &str, output: &Output) {
+fn assert_process_succeeded(output: &Output) {
     assert!(
         output.status.success(),
-        "{name} failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
+        "receiver observation producer process failed"
     );
 }
 

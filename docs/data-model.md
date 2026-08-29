@@ -1268,7 +1268,11 @@ pending rows for one Brain instance, so a later answer can commit and launch
 while earlier cleanup retries. Eligible cleanup rows are ordered by
 `updated_at_unix_ms`, then `created_at_unix_ms` and job ID. When a pass cannot
 finish a row, Brain advances that row's update time past the current eligible
-set, preserving its exact flags and authority while making a later row next.
+set, preserving its exact flags and authority while making a later row next. If
+the workspace ordering clock is already saturated at `i64::MAX`, one immediate
+transaction shifts peer timestamps down before leaving the failed row at the
+maximum. Stable creation-time and job-ID tie breakers remain unchanged, so
+timestamp saturation cannot starve a peer.
 Brain deletes each row only after both flags,
 task reload, and any configured sync launch succeed, so recurring ticks can
 finish cleanup without re-entering agent work. The schema-v12 down path first
@@ -1466,10 +1470,15 @@ and moves its job to `answer-ready` before any provider IO. Later delivery work
 owns only the outbox state machine and cannot re-enter agent execution.
 Each semantic delivery claim has its own owner, finite expiry, and fresh attempt ID.
 `provider_io_started` is the durable replay boundary: zero can be safely
-released or requeued without consuming an attempt; one requires
+released or requeued without consuming an attempt, except that a typed local
+worker-construction failure consumes the bounded retry attempt through a
+separate no-IO CAS while keeping the marker zero. A marker of one requires
 provider-specific ambiguity policy after restart. Typed results commit only
-through the exact live delivery tuple. Acknowledgement stores only the provider
-reference, while retries retain the immutable envelope and completion evidence.
+through the exact live delivery tuple. If provider acknowledgement is received
+but its result commit fails, the marker remains one so expiry and reopen select
+safe Resend replay or conservative Twilio ambiguity. Acknowledgement stores only
+the provider reference, while retries retain the immutable envelope and
+completion evidence.
 Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.

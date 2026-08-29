@@ -1127,7 +1127,9 @@ Which session to run is decided by the **lock + recency** model in
    `updated_at_unix_ms`, then creation time and job ID. Any incomplete row has
    its update time advanced behind the current eligible set before the next
    pass, preserving exact authority while preventing one row-specific failure
-   from starving later cleanup. Answer cleanup,
+   from starving later cleanup. At `i64::MAX`, the same immediate transaction
+   shifts peer update times down and keeps the failed row last, preserving the
+   creation-time and job-ID tie breakers. Answer cleanup,
    child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
@@ -1141,8 +1143,11 @@ Which session to run is decided by the **lock + recency** model in
    acknowledgement, delivery-only retry, and expired-lease reconciliation. A
    missing provider worker is represented by a single reserved claim that
    publishes a typed definitely-not-accepted transport result on its next
-   bounded poll. It therefore consumes the normal retry budget and cannot form
-   an immediate claim-release loop.
+   bounded poll. This no-IO path never sets `provider_io_started`; its separate
+   exact result CAS consumes the normal retry budget and cannot form an immediate
+   claim-release loop. A provider acknowledgement whose durable result commit is
+   lost retains the IO marker, so lease expiry and reopen use Resend replay or
+   Twilio ambiguity without returning to agent work.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.

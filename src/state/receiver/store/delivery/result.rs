@@ -48,6 +48,114 @@ impl Db {
         transaction.commit()?;
         Ok(ReceiverDeliveryApplyOutcome::Applied)
     }
+
+    pub fn apply_receiver_delivery_result_before_io(
+        &self,
+        claim: &ReceiverDeliveryClaim,
+        observed_at_unix_ms: u64,
+        result: ReceiverProviderResultClass,
+    ) -> Result<ReceiverDeliveryApplyOutcome> {
+        anyhow::ensure!(
+            matches!(
+                result,
+                ReceiverProviderResultClass::DefinitelyNotAccepted(_)
+            ),
+            "a no-IO receiver delivery result must be definitely not accepted"
+        );
+        let observed = to_i64(observed_at_unix_ms, "receiver delivery no-IO result time")?;
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let durable =
+            exact_live_attempt_before_io(&transaction, &self.workspace_id, claim, observed)?;
+        let Some((attempt_count, first_attempt_at_unix_ms, envelope)) = durable else {
+            return Ok(ReceiverDeliveryApplyOutcome::Stale);
+        };
+        let attempt_count = attempt_count.saturating_add(1);
+        let first_attempt_at_unix_ms = first_attempt_at_unix_ms.or(Some(observed_at_unix_ms));
+        let changed = transaction.execute(
+            "UPDATE receiver_deliveries
+             SET attempt_count = ?8, first_attempt_at_unix_ms = ?9,
+                 updated_at_unix_ms = ?10
+             WHERE delivery_id = ?1 AND job_id = ?2 AND job_token = ?3
+               AND attempt_id = ?4 AND claim_owner = ?5
+               AND claim_expires_at_unix_ms = ?6 AND claim_expires_at_unix_ms > ?7
+               AND state = 'delivering' AND provider_io_started = 0",
+            rusqlite::params![
+                claim.delivery_id().to_string(),
+                claim.job_id().to_string(),
+                claim.token().to_string(),
+                claim.attempt_id().to_string(),
+                claim.owner(),
+                to_i64(claim.expires_at_unix_ms(), "receiver delivery claim expiry")?,
+                observed,
+                i64::from(attempt_count),
+                first_attempt_at_unix_ms
+                    .map(|value| to_i64(value, "receiver delivery first attempt"))
+                    .transpose()?,
+                observed,
+            ],
+        )?;
+        if changed != 1 {
+            return Ok(ReceiverDeliveryApplyOutcome::Stale);
+        }
+        let decision = decide_receiver_delivery(ReceiverDeliveryPolicySnapshot {
+            provider: provider_for(&envelope),
+            attempt_count,
+            first_attempt_at_unix_ms,
+            now_unix_ms: observed_at_unix_ms,
+            result,
+        });
+        apply_decision(
+            &transaction,
+            &self.workspace_id,
+            claim.delivery_id(),
+            claim.job_id(),
+            claim.token(),
+            Some(claim.attempt_id()),
+            Some(claim.owner()),
+            decision,
+            observed_at_unix_ms,
+        )?;
+        transaction.commit()?;
+        Ok(ReceiverDeliveryApplyOutcome::Applied)
+    }
+}
+
+fn exact_live_attempt_before_io(
+    transaction: &rusqlite::Transaction<'_>,
+    workspace_id: &str,
+    claim: &ReceiverDeliveryClaim,
+    observed: i64,
+) -> Result<Option<(u32, Option<u64>, ReceiverDeliveryEnvelope)>> {
+    transaction
+        .query_row(
+            "SELECT delivery.attempt_count, delivery.first_attempt_at_unix_ms,
+                    delivery.envelope_json
+             FROM receiver_deliveries AS delivery
+             JOIN receiver_jobs AS job ON job.job_id = delivery.job_id
+              AND job.workspace_id = ?1 AND job.job_token = delivery.job_token
+             WHERE delivery.delivery_id = ?2 AND delivery.job_id = ?3
+               AND delivery.job_token = ?4 AND delivery.attempt_id = ?5
+               AND delivery.claim_owner = ?6 AND delivery.claim_expires_at_unix_ms = ?7
+               AND delivery.claim_expires_at_unix_ms > ?8
+               AND delivery.state = 'delivering' AND delivery.provider_io_started = 0
+               AND job.state = 'delivering'",
+            rusqlite::params![
+                workspace_id,
+                claim.delivery_id().to_string(),
+                claim.job_id().to_string(),
+                claim.token().to_string(),
+                claim.attempt_id().to_string(),
+                claim.owner(),
+                to_i64(claim.expires_at_unix_ms(), "receiver delivery claim expiry")?,
+                observed,
+            ],
+            decode_live_attempt,
+        )
+        .optional()
+        .context("load exact receiver delivery attempt before provider IO")
 }
 
 fn exact_live_attempt(
@@ -79,21 +187,25 @@ fn exact_live_attempt(
                 to_i64(claim.expires_at_unix_ms(), "receiver delivery claim expiry")?,
                 observed,
             ],
-            |row| {
-                let attempt_count = u32::try_from(row.get::<_, i64>(0)?)
-                    .map_err(|error| sql_decode_error(0, error))?;
-                let first_attempt = row
-                    .get::<_, Option<i64>>(1)?
-                    .map(u64::try_from)
-                    .transpose()
-                    .map_err(|error| sql_decode_error(1, error))?;
-                let envelope = serde_json::from_str(&row.get::<_, String>(2)?)
-                    .map_err(|error| sql_decode_error(2, error))?;
-                Ok((attempt_count, first_attempt, envelope))
-            },
+            decode_live_attempt,
         )
         .optional()
         .context("load exact receiver delivery attempt")
+}
+
+fn decode_live_attempt(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<(u32, Option<u64>, ReceiverDeliveryEnvelope)> {
+    let attempt_count =
+        u32::try_from(row.get::<_, i64>(0)?).map_err(|error| sql_decode_error(0, error))?;
+    let first_attempt = row
+        .get::<_, Option<i64>>(1)?
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|error| sql_decode_error(1, error))?;
+    let envelope = serde_json::from_str(&row.get::<_, String>(2)?)
+        .map_err(|error| sql_decode_error(2, error))?;
+    Ok((attempt_count, first_attempt, envelope))
 }
 
 #[allow(clippy::too_many_arguments)]

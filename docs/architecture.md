@@ -209,9 +209,12 @@ Provider answer delivery is no longer part of terminal App cleanup.
 The enabled App tick advances it independently through
 `tui/state/services/receiver_delivery.rs`: it applies typed results,
 reconciles expired leases, claims the oldest due semantic response, reserves bounded
-worker capacity, commits `provider_io_started`, and only then publishes curl
-work. Publication is nonblocking; a failed handoff proves the operation never
-started and reverses only that exact IO-start CAS and attempt increment.
+worker capacity, and distinguishes provider attempts from local construction
+failure. A provider attempt commits `provider_io_started` before it publishes
+curl work. A local construction failure keeps that boundary at zero and commits
+one typed definitely-not-accepted result through a separate exact CAS. Provider
+publication is nonblocking; a failed handoff proves the operation never started
+and reverses only that exact IO-start CAS and attempt increment.
 `server/delivery/{executor,provider_attempt}.rs` keeps provider IO off the event
 loop, bounds response capture, and returns content-free result classes.
 
