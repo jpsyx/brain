@@ -230,7 +230,10 @@ fn orderly_shell_shutdown_cancels_claimed_staging_and_records_one_planning_retry
 
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_count(), 1);
+    assert!(
+        job.retry_count() == 1,
+        "shutdown recorded the wrong retry count"
+    );
     assert!(
         job.retry_at_unix_ms() == Some(clock.unix_ms() + 5_000),
         "shutdown retry time changed"

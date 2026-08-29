@@ -96,7 +96,10 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         recovered.attempt_kind() == ReceiverAttemptKind::Recovery,
         "frontend recovery used the wrong attempt kind"
     );
-    assert_eq!(recovered.recovery_count(), 1, "{kind:?}");
+    assert!(
+        recovered.recovery_count() == 1,
+        "frontend recovery recorded the wrong recovery count for {kind:?}"
+    );
     let recovery = app.receiver.active_durable_run().expect("active recovery");
     assert_ne!(
         recovery.attribution.instance(),

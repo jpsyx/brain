@@ -100,7 +100,10 @@ fn oldest_due_final_answer_claim_is_independent_and_exact() {
     assert!(claim.token() == first.token, "claim selected the wrong token");
     assert!(claim.owner() == "delivery-owner", "claim selected the wrong owner");
     assert!(claim.expires_at_unix_ms() == 32_000, "claim expiry was wrong");
-    assert_eq!(claim.attempt_count(), 1);
+    assert!(
+        claim.attempt_count() == 1,
+        "first delivery claim had the wrong attempt count"
+    );
     assert!(
         claim.provider() == ReceiverProviderCapability::Twilio,
         "claim selected the wrong provider"
@@ -541,7 +544,10 @@ fn saturated_pre_spawn_claim_is_released_without_recording_an_attempt() {
         replay.attempt_id() != claim.attempt_id(),
         "released delivery reused an attempt identifier"
     );
-    assert_eq!(replay.attempt_count(), 1);
+    assert!(
+        replay.attempt_count() == 1,
+        "released delivery claim had the wrong attempt count"
+    );
 }
 
 #[test]

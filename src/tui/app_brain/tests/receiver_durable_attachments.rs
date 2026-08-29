@@ -93,7 +93,10 @@ fn attachment_refresh_failure_retries_without_launch_or_private_error_persistenc
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_count(), 1);
+    assert!(
+        job.retry_count() == 1,
+        "staging failure recorded the wrong retry count"
+    );
     assert!(
         job.last_error() == Some("launch-planning"),
         "attachment staging recorded the wrong error category"
@@ -280,7 +283,10 @@ fn durable_dispatch_retries_without_staging_an_unbounded_attachment_batch() {
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_count(), 1);
+    assert!(
+        job.retry_count() == 1,
+        "attachment worker recorded the wrong retry count"
+    );
     assert!(
         job.last_error() == Some("launch-planning"),
         "attachment worker recorded the wrong error category"

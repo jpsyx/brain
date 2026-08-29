@@ -256,7 +256,10 @@ fn resend_replay_uses_the_exact_delivery_key_and_byte_identical_payload() {
 
     assert!(first == replay, "Resend replay request changed");
     assert!(first.has_exact_delivery_key());
-    assert_eq!(first.idempotency_header_count(), 1);
+    assert!(
+        first.idempotency_header_count() == 1,
+        "Resend replay request had the wrong idempotency header count"
+    );
     assert!(first.uses_frozen_sender());
     assert!(first.has_one_authorization_header());
     assert!(

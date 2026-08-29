@@ -166,7 +166,10 @@ fn completed_staging_uses_fresh_time_and_discards_an_expired_claim() {
         .expect("load receiver job")
         .expect("receiver job");
     assert_eq!(job.state(), ReceiverJobState::Claimed);
-    assert_eq!(job.retry_count(), 0);
+    assert!(
+        job.retry_count() == 0,
+        "cancelled staging changed the durable retry count"
+    );
 }
 
 #[test]

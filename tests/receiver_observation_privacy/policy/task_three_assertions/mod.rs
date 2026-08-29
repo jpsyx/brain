@@ -9,8 +9,19 @@ use syntax::{
 };
 
 pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
+    private_whole_value_assertion_violation_offsets(source).len()
+}
+
+pub(super) fn private_whole_value_assertion_violation_lines(source: &str) -> Vec<usize> {
+    private_whole_value_assertion_violation_offsets(source)
+        .into_iter()
+        .map(|offset| source[..offset].lines().count())
+        .collect()
+}
+
+fn private_whole_value_assertion_violation_offsets(source: &str) -> Vec<usize> {
     let masked = mask_non_code(source);
-    let mut violations = 0;
+    let mut violations = Vec::new();
     for macro_name in [
         "assert_eq!",
         "assert_ne!",
@@ -18,51 +29,66 @@ pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
         "debug_assert_ne!",
     ] {
         for body in macro_bodies(&masked, macro_name) {
-            let private = private_identifiers_at(&masked, body.start);
+            let private = private_identifiers_at(source, &masked, body.start);
             let arguments = top_level_arguments(&masked[body.clone()]);
+            let body_start = body.start;
             for argument in arguments.iter().take(2) {
                 let absolute = body.start + argument.start..body.start + argument.end;
                 if expression_exposes_private(&masked[absolute.clone()], &private)
                     || format_placeholder_exposes_private(&source[absolute.clone()], &private)
                 {
-                    violations += 1;
+                    violations.push(absolute.start);
                 }
             }
             if diagnostics_expose_private(source, &masked, body, &arguments[2..], &private) {
-                violations += 1;
+                violations.push(
+                    arguments
+                        .get(2)
+                        .map_or(body_start, |argument| body_start + argument.start),
+                );
             }
         }
     }
     for macro_name in ["assert!", "debug_assert!"] {
         for body in macro_bodies(&masked, macro_name) {
-            let private = private_identifiers_at(&masked, body.start);
+            let private = private_identifiers_at(source, &masked, body.start);
             let arguments = top_level_arguments(&masked[body.clone()]);
+            let body_start = body.start;
             if diagnostics_expose_private(source, &masked, body, &arguments[1..], &private) {
-                violations += 1;
+                violations.push(
+                    arguments
+                        .get(1)
+                        .map_or(body_start, |argument| body_start + argument.start),
+                );
             }
         }
     }
     for macro_name in ["dbg!", "format_args!"] {
         for body in macro_bodies(&masked, macro_name) {
-            let private = private_identifiers_at(&masked, body.start);
+            let private = private_identifiers_at(source, &masked, body.start);
             let arguments = top_level_arguments(&masked[body.clone()]);
+            let body_start = body.start;
             if diagnostics_expose_private(source, &masked, body, &arguments, &private) {
-                violations += 1;
+                violations.push(
+                    arguments
+                        .first()
+                        .map_or(body_start, |argument| body_start + argument.start),
+                );
             }
         }
     }
     violations
 }
 
-fn private_identifiers_at(masked: &str, offset: usize) -> BTreeSet<String> {
+fn private_identifiers_at(source: &str, masked: &str, offset: usize) -> BTreeSet<String> {
     let private = identifiers(masked)
         .filter(|identifier| identifier_is_private(identifier))
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
     let scope_start = enclosing_function_body_start(masked, offset).unwrap_or(0);
-    let scope = &masked[scope_start..offset];
-    let analysis_scope = scope_before_open_macro(scope);
-    let mut private = taint::inferred_private_identifiers(analysis_scope, &private);
+    let source_scope = scope_before_open_macro(&source[scope_start..offset]);
+    let analysis_scope = scope_before_open_macro(&masked[scope_start..offset]);
+    let mut private = taint::inferred_private_identifiers(source_scope, analysis_scope, &private);
     loop {
         let before = private.len();
         for statement in analysis_scope.split(';') {
@@ -178,49 +204,27 @@ fn assignment(statement: &str) -> Option<(&str, &str)> {
 
 fn identifier_is_private(identifier: &str) -> bool {
     let components = identifier.split('_').collect::<Vec<_>>();
-    let content_free = components.last().is_some_and(|component| {
+    components.iter().any(|component| {
         matches!(
             *component,
-            "count"
-                | "len"
-                | "length"
-                | "size"
-                | "proof"
-                | "digest"
-                | "hash"
-                | "index"
-                | "present"
-                | "exists"
-                | "valid"
-                | "empty"
-                | "state"
-                | "status"
-                | "kind"
-                | "category"
+            "private"
+                | "prompt"
+                | "answer"
+                | "inbound"
+                | "transcript"
+                | "envelope"
+                | "evidence"
+                | "payload"
+                | "sender"
+                | "recipient"
+                | "recipients"
+                | "address"
+                | "body"
+                | "text"
+                | "html"
+                | "reference"
         )
-    });
-    !content_free
-        && components.iter().any(|component| {
-            matches!(
-                *component,
-                "private"
-                    | "prompt"
-                    | "answer"
-                    | "inbound"
-                    | "transcript"
-                    | "envelope"
-                    | "evidence"
-                    | "payload"
-                    | "sender"
-                    | "recipient"
-                    | "recipients"
-                    | "address"
-                    | "body"
-                    | "text"
-                    | "html"
-                    | "reference"
-            )
-        })
+    })
 }
 
 fn expression_exposes_private(expression: &str, private: &BTreeSet<String>) -> bool {
@@ -287,16 +291,19 @@ fn is_exact_content_proof_call(source: &str) -> bool {
     let Some(close) = matching_delimiter(source, open, '(', ')') else {
         return false;
     };
-    close + 1 == source.len()
-        && matches!(
-            name,
-            "private_text_proof"
-                | "private_bytes_proof"
-                | "sha256_proof"
-                | "classify_provider_http_response"
-                | "classify_provider_process_failure"
-                | "classify_provider_process_output"
-        )
+    close + 1 == source.len() && is_exact_content_proof_function(name)
+}
+
+fn is_exact_content_proof_function(name: &str) -> bool {
+    matches!(
+        name,
+        "private_text_proof"
+            | "private_bytes_proof"
+            | "sha256_proof"
+            | "classify_provider_http_response"
+            | "classify_provider_process_failure"
+            | "classify_provider_process_output"
+    )
 }
 
 fn ends_with_content_free_method(source: &str) -> bool {
@@ -315,11 +322,11 @@ fn ends_with_content_free_method(source: &str) -> bool {
     let Some(dot) = prefix.rfind('.') else {
         return false;
     };
+    let receiver = prefix[..dot].trim();
     let method = prefix[dot + 1..].trim();
     matches!(
         method,
         "len"
-            | "count"
             | "is_empty"
             | "is_some"
             | "is_none"
@@ -336,10 +343,26 @@ fn ends_with_content_free_method(source: &str) -> bool {
             | "error_category"
             | "response_kind"
             | "has_provider_reference"
-    ) || method.ends_with("_count")
-        || method.ends_with("_len")
-        || method.ends_with("_length")
-        || method.starts_with("uses_")
+    ) || method == "count" && is_iterator_projection(receiver)
+}
+
+fn is_iterator_projection(source: &str) -> bool {
+    let Ok(syn::Expr::MethodCall(call)) = syn::parse_str::<syn::Expr>(source) else {
+        return false;
+    };
+    matches!(
+        call.method.to_string().as_str(),
+        "bytes"
+            | "chars"
+            | "into_iter"
+            | "iter"
+            | "iter_mut"
+            | "lines"
+            | "matches"
+            | "split"
+            | "split_ascii_whitespace"
+            | "split_whitespace"
+    )
 }
 
 fn diagnostics_expose_private(
@@ -390,7 +413,7 @@ mod tests {
         let source = "let alias; if condition { alias = sender; } assert_eq!(alias, expected);";
         let masked = mask_non_code(source);
         let offset = masked.find("assert_eq!").expect("assertion offset");
-        let private = private_identifiers_at(&masked, offset);
+        let private = private_identifiers_at(source, &masked, offset);
 
         assert!(private.contains("alias"), "nested alias was not private");
         assert!(

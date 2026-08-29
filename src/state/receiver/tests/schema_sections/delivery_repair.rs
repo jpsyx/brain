@@ -806,9 +806,8 @@ fn v12_down_up_terminalizes_every_semantic_retry_when_delivery_table_is_missing(
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("load downgraded semantic response job");
-        assert_eq!(
-            state,
-            ("failed".to_owned(), Some("downgrade-no-replay".to_owned())),
+        assert!(
+            state == ("failed".to_owned(), Some("downgrade-no-replay".to_owned())),
             "downgrade retained an unclaimable semantic response retry"
         );
     }
@@ -832,7 +831,10 @@ fn v12_down_up_terminalizes_every_semantic_retry_when_delivery_table_is_missing(
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("load re-upgraded semantic response job");
-        assert_eq!(state, ("failed".to_owned(), 0));
+        assert!(
+            state == ("failed".to_owned(), 0),
+            "re-upgrade restored an unclaimable semantic response retry"
+        );
     }
 }
 

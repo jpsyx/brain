@@ -8,12 +8,16 @@ mod debug_tests;
 mod diagnostics;
 #[path = "policy/literals.rs"]
 mod literals;
+#[path = "policy/task_three_adversarial.rs"]
+mod task_three_adversarial;
 #[path = "policy/task_three_assertions/mod.rs"]
 mod task_three_assertions;
 
 use diagnostics::privacy_diagnostic_violations;
 use literals::source_privacy_violations;
-use task_three_assertions::private_whole_value_assertion_violations;
+use task_three_assertions::{
+    private_whole_value_assertion_violation_lines, private_whole_value_assertion_violations,
+};
 
 #[test]
 fn privacy_failure_messages_cannot_interpolate_private_surfaces() {
@@ -42,20 +46,38 @@ fn cumulative_task_three_tests_never_print_private_whole_values_on_failure() {
         sources.len() >= 12,
         "Task 3 private assertion discovery unexpectedly narrowed"
     );
-    let mut first_failing_case = None;
+    let mut failing_cases = Vec::new();
     let mut total_violations = 0;
     for (case_index, path) in sources.into_iter().enumerate() {
         let source = std::fs::read_to_string(&path).expect("receiver delivery privacy source");
-        let violations = private_whole_value_assertion_violations(&source);
-        if violations > 0 {
-            first_failing_case.get_or_insert(case_index);
-            total_violations += violations;
+        let violation_lines = private_whole_value_assertion_violation_lines(&source);
+        if !violation_lines.is_empty() {
+            total_violations += violation_lines.len();
+            failing_cases.push((
+                case_index,
+                path.strip_prefix(root)
+                    .expect("receiver delivery test below repository root")
+                    .to_string_lossy()
+                    .into_owned(),
+                violation_lines,
+            ));
         }
     }
+    let failing_summary = failing_cases
+        .iter()
+        .map(|(case_index, path, lines)| {
+            let lines = lines
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{case_index}:{path}:{lines}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     assert!(
         total_violations == 0,
-        "receiver delivery tests contain {total_violations} private whole-value diagnostics; first case index {}",
-        first_failing_case.unwrap_or(0)
+        "receiver delivery tests contain {total_violations} private whole-value diagnostics at {failing_summary}"
     );
 }
 
@@ -131,7 +153,7 @@ fn task_three_private_assertion_policy_rejects_raw_values_but_allows_safe_proofs
         "assert_eq!(transcript.matches(heading).count(), 1);",
         "assert!(email.sender() == canonical_sender);",
         "assert!(answer.len() == expected_len);",
-        "assert_eq!(envelope_count, 1);",
+        "assert!(envelope_count == 1);",
         "assert_eq!((sender.len(), payload.len()), (1, 2));",
         "assert!(receiving_address == expected, \"fixed routing assertion\");",
         concat!(
@@ -347,13 +369,12 @@ fn nested_receiver_privacy_test(relative: &Path) -> bool {
     else {
         return false;
     };
-    components[tests + 1..components.len().saturating_sub(1)]
-        .iter()
-        .any(|component| {
-            matches!(*component, "receiver" | "provider" | "app")
-                || component.starts_with("receiver_")
-                || component.starts_with("provider_")
-        })
+    components[tests + 1..].iter().any(|component| {
+        matches!(*component, "receiver" | "provider" | "app")
+            || component.starts_with("receiver_")
+            || component.starts_with("provider_")
+            || component.starts_with("app_")
+    })
 }
 
 #[test]

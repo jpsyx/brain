@@ -1291,8 +1291,12 @@ count, or field-presence proof instead. The assertion scanner also covers
 `debug_assert` variants, destructuring and adversarial neutral aliases,
 named format arguments, nested and field or index assignment, match and for
 bindings, interpolation and debug macros, and misleading `is` or `has` names.
-Discovery evaluates full relative paths, including future nested receiver,
-provider, and App test paths, without a name-only safe allowlist.
+It balances the source prefix before an assertion so syntax-tree value flow
+still covers an open block and every later match arm. Custom count, length, or
+use-named methods remain private unless the surrounding expression is an
+independent structural proof. Discovery evaluates full relative paths,
+including the filename of future nested receiver, provider, and App test paths,
+without a name-only safe allowlist.
 `tests/module_structure.rs` recursively
 discovers receiver state, provider-delivery, App services, and composed App
 production modules

@@ -4,10 +4,14 @@ use syn::visit::{self, Visit};
 
 pub(super) fn inferred_private_identifiers(
     source: &str,
+    masked: &str,
     initial: &BTreeSet<String>,
 ) -> BTreeSet<String> {
-    let parsed = syn::parse_file(source)
-        .or_else(|_| syn::parse_file(&format!("fn privacy_fixture() {{ {source} }}")));
+    let Some(completed) = complete_prefix(source, masked) else {
+        return initial.clone();
+    };
+    let parsed = syn::parse_file(&completed)
+        .or_else(|_| syn::parse_file(&format!("fn privacy_fixture() {{ {completed} }}")));
     let Ok(file) = parsed else {
         return initial.clone();
     };
@@ -25,6 +29,31 @@ pub(super) fn inferred_private_identifiers(
             return private;
         }
     }
+}
+
+fn complete_prefix(source: &str, masked: &str) -> Option<String> {
+    if source.len() != masked.len() {
+        return None;
+    }
+    let mut closing = Vec::new();
+    for character in masked.chars() {
+        let expected_close = match character {
+            '(' => Some(')'),
+            '[' => Some(']'),
+            '{' => Some('}'),
+            _ => None,
+        };
+        if let Some(expected_close) = expected_close {
+            closing.push(expected_close);
+        } else if matches!(character, ')' | ']' | '}') && closing.pop() != Some(character) {
+            return None;
+        }
+    }
+    let mut completed = String::with_capacity(source.len() + closing.len() + 2);
+    completed.push_str(source);
+    completed.push_str("()");
+    completed.extend(closing.into_iter().rev());
+    Some(completed)
 }
 
 pub(super) fn propagate_control_flow_aliases(scope: &str, private: &mut BTreeSet<String>) {
@@ -138,12 +167,28 @@ impl<'ast> Visit<'ast> for AliasVisitor<'_> {
 }
 
 fn expression_contains_private(expression: &syn::Expr, private: &BTreeSet<String>) -> bool {
+    if is_exact_content_proof_call(expression) {
+        return false;
+    }
     let mut visitor = PrivatePathVisitor {
         private,
         found: false,
     };
     visitor.visit_expr(expression);
     visitor.found
+}
+
+fn is_exact_content_proof_call(expression: &syn::Expr) -> bool {
+    let syn::Expr::Call(call) = expression else {
+        return false;
+    };
+    let syn::Expr::Path(function) = call.func.as_ref() else {
+        return false;
+    };
+    function
+        .path
+        .get_ident()
+        .is_some_and(|identifier| super::is_exact_content_proof_function(&identifier.to_string()))
 }
 
 struct PrivatePathVisitor<'a> {
@@ -235,8 +280,8 @@ mod tests {
     #[test]
     fn nested_assignment_propagates_private_binding() {
         let initial = BTreeSet::from(["sender".to_owned()]);
-        let inferred =
-            inferred_private_identifiers("let alias; if condition { alias = sender; }", &initial);
+        let source = "let alias; if condition { alias = sender; }";
+        let inferred = inferred_private_identifiers(source, source, &initial);
 
         assert!(
             inferred.contains("alias"),
