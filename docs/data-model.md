@@ -1189,6 +1189,19 @@ sender, provider reference, and answer content. Status groups terminal rows into
 stable content-free reason categories and remains read-only when the database or
 newer delivery columns do not exist.
 
+Same-version reconciliation compares the normalized full canonical CREATE TABLE
+contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected
+clauses. Any drift in state, lease, provider-IO, foreign-key, uniqueness, or
+other table invariants rebuilds the complete table transactionally. Before any
+claim or reconciliation row is decoded into unsigned or typed fields, a raw
+SQLite-value pass validates delivery and attempt identities, response kind,
+state, counts, retry and lease times, provider-IO state, and terminal reasons.
+An exact malformed row is terminalized as `invalid-request`, clears every claim
+and retry authority, and receives a deterministic replacement delivery ID when
+needed. An orphan whose job, token, or response kind cannot be recovered is
+removed. Both outcomes let later valid FIFO work advance. Read-only status does
+not invoke this repair.
+
 `final-answer`, `unavailable-notice`, `control-acknowledgement`, and
 `fallback-notice` use the same state machine. `/new` persists its acknowledgement
 in the exact conversation-roll transaction. `/restart` persists its
@@ -1223,6 +1236,13 @@ not silently accept a display name or case variant. An email answer with no
 trusted accepted recipient atomically advances
 the transcript and cleanup authority but records a failed `authorization`
 outcome that cannot be claimed for provider delivery.
+An accepted job whose frozen SMS recipient, email recipient, provider email ID,
+or optional message ID is malformed receives the same atomic transcript and
+cleanup commit with a terminal `invalid-request` delivery and failed job. This
+includes Resend lineage with `message_id: Some("")`. Duplicate completion after
+restart matches the immutable completion proof and returns the existing outcome,
+so completed agent work is never run again. Serialization and SQLite failures
+remain transactional errors and do not become input failures.
 
 The pure delivery policy permits one initial provider attempt followed by
 delays of one, five, and 30 minutes only for transport failures proved not
@@ -1285,6 +1305,14 @@ jobs table and retained job data before it records schema version 11.
 Same-version repair reconstructs the shutdown acknowledgement only for a
 pre-fence row whose `session_released` flag already proves its session authority
 was discharged. It does not invent acknowledgement for an untouched row.
+
+Runtime and downgrade artifact removal are descriptor-bound. Brain opens the
+raw authorized absolute cache-parent path from the filesystem root, then opens
+the cache root, every relative ancestor, and the target without following
+symlinks; verifies the held target is the same regular file named by the parent
+descriptor; and unlinks through that descriptor. A symlinked ancestor or
+replaced target deletes nothing outside the cache. Runtime retains cleanup
+authority for retry, while downgrade fails and retains schema v12.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the

@@ -75,11 +75,16 @@ pub(super) fn prepare(
                 category: ReceiverDeliveryErrorCategory::Authorization,
             })
         }
-        Err(ReceiverDeliveryRenderError::InvalidOutboundSender) => Ok(PreparedDelivery::Terminal {
+        Err(
+            ReceiverDeliveryRenderError::InvalidOutboundSender
+            | ReceiverDeliveryRenderError::InvalidAcceptedEmailRecipient
+            | ReceiverDeliveryRenderError::InvalidAcceptedEmailProviderId
+            | ReceiverDeliveryRenderError::InvalidAcceptedEmailMessageId
+            | ReceiverDeliveryRenderError::InvalidAcceptedSmsRecipient,
+        ) => Ok(PreparedDelivery::Terminal {
             envelope_json: INVALID_REQUEST_TERMINAL_JSON,
             category: ReceiverDeliveryErrorCategory::InvalidRequest,
         }),
-        Err(error) => Err(error.into()),
     }
 }
 

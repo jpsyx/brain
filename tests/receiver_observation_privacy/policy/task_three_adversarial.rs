@@ -1,5 +1,5 @@
-use super::discover_task_three_privacy_tests;
 use super::task_three_assertions::private_whole_value_assertion_violations;
+use super::task_three_policy::{discover_task_three_privacy_tests, task_three_test_violations};
 
 #[test]
 fn open_block_assignment_is_private_at_the_inner_assertion() {
@@ -99,5 +99,38 @@ fn nested_app_filename_is_discovered_for_private_assertion_audit() {
     assert!(
         discovered.iter().any(|path| path.ends_with(relative)),
         "nested App filename was not audited"
+    );
+}
+
+#[test]
+fn nested_receiver_provider_and_app_tests_reject_private_output_macros() {
+    let temporary = tempfile::tempdir().expect("temporary repository");
+    for (relative, source) in [
+        (
+            "src/tui/app_brain/tests/future/receiver/delivery.rs",
+            "fn fixture(sender: &str) { panic!(\"private sender: {sender}\"); }\n",
+        ),
+        (
+            "src/tui/app_brain/tests/future/provider/delivery.rs",
+            "fn fixture(prompt: &str) { println!(\"{}\", prompt); }\n",
+        ),
+        (
+            "src/tui/app_brain/tests/future/app/delivery.rs",
+            concat!(
+                "fn fixture(payload: &str) { eprintln!(\"payload: {",
+                "payload:?}\"); }\n"
+            ),
+        ),
+    ] {
+        let path = temporary.path().join(relative);
+        std::fs::create_dir_all(path.parent().expect("fixture parent")).expect("fixture directory");
+        std::fs::write(path, source).expect("fixture source");
+    }
+
+    let violations = task_three_test_violations(temporary.path());
+
+    assert!(
+        violations.len() == 3,
+        "private output macros escaped the dynamically discovered audit"
     );
 }

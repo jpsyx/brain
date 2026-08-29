@@ -35,11 +35,6 @@ pub(crate) struct AppServices {
     receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
 }
 
-pub(crate) struct ReceiverObservationApplyOutcome {
-    pub(crate) changed: bool,
-    pub(crate) completed: bool,
-}
-
 impl AppServices {
     pub(crate) fn new(init: AppServicesInit) -> Self {
         #[cfg(not(test))]
@@ -237,7 +232,7 @@ impl AppServices {
         registration: &crate::state::ReceiverSessionAttribution,
         result: &crate::agent::AgentObservationResult,
         authorized_at_unix_ms: u64,
-    ) -> Result<ReceiverObservationApplyOutcome> {
+    ) -> Result<bool> {
         let observation = crate::state::ReceiverObservationSet::nonterminal_from_agent_observation(
             token,
             registration,
@@ -251,10 +246,7 @@ impl AppServices {
             }
             None => false,
         };
-        Ok(ReceiverObservationApplyOutcome {
-            changed,
-            completed: false,
-        })
+        Ok(changed)
     }
 
     pub(crate) fn receiver_observation_set(

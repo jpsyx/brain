@@ -76,6 +76,7 @@ mod receiver_durable_attachment_worker;
 mod receiver_durable_attachments;
 mod receiver_durable_binding_completion;
 mod receiver_durable_cleanup;
+mod receiver_durable_cleanup_security;
 mod receiver_durable_control_race;
 mod receiver_durable_control_sync;
 mod receiver_durable_controls;

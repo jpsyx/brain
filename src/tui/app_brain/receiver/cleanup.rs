@@ -11,23 +11,13 @@ impl App {
         &self,
         instance: &str,
     ) -> std::io::Result<()> {
-        let response = self
-            .context
-            .workspace()
-            .paths()
-            .responses_dir()
-            .join(format!("{instance}.json"));
-        let observation = self.receiver_observation_path(instance);
-        for path in [
-            &response,
-            &observation,
-            &observation.with_extension("json.lock"),
+        let cache_dir = self.context.workspace().paths().cache_dir();
+        for relative in [
+            std::path::PathBuf::from(format!("responses/{instance}.json")),
+            std::path::PathBuf::from(format!("receiver-observations/{instance}.json")),
+            std::path::PathBuf::from(format!("receiver-observations/{instance}.json.lock")),
         ] {
-            match std::fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
+            crate::workspace::remove_regular_file_beneath(cache_dir, &relative)?;
         }
         Ok(())
     }

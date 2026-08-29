@@ -1,9 +1,6 @@
 use anyhow::{Result, bail};
 use rusqlite::Connection;
 
-const CURRENT_CONTRACT: &str =
-    "state NOT IN ('failed', 'ambiguous') OR fallback_decision IS NOT NULL";
-
 const CREATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliveries (
            delivery_id                 TEXT PRIMARY KEY,
            job_id                      TEXT NOT NULL REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
@@ -101,13 +98,7 @@ pub(super) fn ensure_optional_columns(connection: &Connection) -> Result<()> {
 }
 
 pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
-    let sql: String = connection.query_row(
-        "SELECT sql FROM sqlite_master
-         WHERE type = 'table' AND name = 'receiver_deliveries'",
-        [],
-        |row| row.get(0),
-    )?;
-    if sql.contains(CURRENT_CONTRACT) {
+    if table_contract_matches(connection, "receiver_deliveries", CREATE_TABLE)? {
         return Ok(());
     }
     super::indexes::reject_duplicate_semantic_responses(connection)?;
@@ -133,6 +124,28 @@ pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
          DROP TABLE receiver_deliveries_v12_rebuild;",
     )?;
     Ok(())
+}
+
+pub(super) fn table_contract_matches(
+    connection: &Connection,
+    table: &str,
+    canonical_create: &str,
+) -> Result<bool> {
+    let stored: String = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table],
+        |row| row.get(0),
+    )?;
+    let canonical = canonical_create.replacen("CREATE TABLE IF NOT EXISTS", "CREATE TABLE", 1);
+    Ok(normalize_contract_sql(&stored) == normalize_contract_sql(&canonical))
+}
+
+fn normalize_contract_sql(sql: &str) -> String {
+    sql.trim()
+        .trim_end_matches(';')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn has_column(connection: &Connection, name: &str) -> Result<bool> {

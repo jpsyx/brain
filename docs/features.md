@@ -1628,6 +1628,11 @@ Invalid legacy sender shapes terminalize atomically.
 If an email job has no trusted accepted recipient, the same
 transaction advances transcript and cleanup authority but persists an
 unclaimable terminal authorization outcome instead of leaving the run active.
+Malformed acceptance-time recipient or email reply lineage, including a blank
+optional Resend message ID, likewise commits a terminal `invalid-request`
+outcome. It releases the agent lane, survives restart and duplicate replay, and
+never reruns the completed answer. Store and serialization errors still roll
+back for retry.
 An identical duplicate returns
 the existing delivery without another transcript turn or outbox row only when
 the persisted completion proof exactly matches the original job, token,
@@ -1644,7 +1649,12 @@ fresh App retries it without
 restoring agent ownership or blocking the next job. Artifact completion, child exit,
 lost ownership, and orderly shutdown remove only the exact instance's response,
 observation snapshot, and observation lock while preserving durable facts and
-unrelated instance files. Poll diagnostics use one content-free shape containing
+unrelated instance files. Every runtime and downgrade removal opens the raw
+authorized absolute path from the filesystem root, walks held no-follow
+directory descriptors through the cache root and every descendant, and unlinks
+through the exact parent descriptor. A symlinked ancestor deletes no outside
+file and leaves durable cleanup or downgrade authority available for retry.
+Poll diagnostics use one content-free shape containing
 only opaque job and instance IDs, frontend, prior phase, observed boundary or
 `none`, and a stable category. Child exit or orderly shutdown after `launched`
 without terminal evidence never replays the prompt. Each enabled receiver tick

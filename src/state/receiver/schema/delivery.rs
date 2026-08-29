@@ -8,10 +8,12 @@ mod fallback_success;
 mod indexes;
 mod legacy_notice;
 mod repair;
+mod structural_repair;
 
 pub(crate) use downgrade::down_path;
 #[cfg(test)]
 pub(in crate::state::receiver) use downgrade::down_path_with_busy_observer;
+pub(in crate::state::receiver) use structural_repair::repair_structurally_malformed_deliveries;
 
 pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     contract::create_table(connection)?;

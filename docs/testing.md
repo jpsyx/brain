@@ -1223,21 +1223,31 @@ serialized-envelope validation, every provider-result branch, one/five/30-minute
 retry delays, permanent-category terminalization, attempt exhaustion, deadline
 equality, the scheduled Resend 24-hour boundary, and terminal Twilio ambiguity.
 Its schema suite covers v12 create and repair, one row per job and semantic
-response kind, optional-column ordering, stale managed-index rebuilding,
+response kind, optional-column ordering, full normalized canonical-table
+fingerprints, stale managed-index rebuilding,
 duplicate uniqueness failure, nonblank provider acknowledgements,
 privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
 transcript retention, malformed lease repair, and immediate-writer ordering in
 both directions. The down-up round trip proves the exact schema-v11 job column
 order and data survive while `response_sender` and both v12-only tables are
-removed before version 11 is recorded. Mutated-schema cases remove checks,
-provider uniqueness, the conversation foreign key, and each managed index, then
-prove downgrade reconstructs their exact old-reader behavior. Malformed source
+removed before version 11 is recorded. Mutated-schema cases retain an older
+checked clause or managed index while independently removing or changing state,
+lease, provider-IO, foreign-key, uniqueness, and cleanup invariants, then prove
+same-version rebuild, idempotent reopen, and down-up compatibility. They also
+remove checks, provider uniqueness, the conversation foreign key, and each
+managed index to prove downgrade reconstructs exact old-reader behavior. Malformed source
 rows prove the database transition rolls back without a v11 stamp. It reconstructs the exact pre-Task-3 v12 table from commit
 `0473434`, preserves its envelope, then proves claim, IO start,
 acknowledgement, and final job completion. Repair tests also prove that a
 malformed active semantic response, including a pre-frozen-sender final answer
 or corrupt oldest generic row, terminalizes its matching job and cannot block a
 later valid delivery.
+Raw-value corruption cases cover malformed delivery and attempt IDs, response
+kind and state, negative counts and retry/lease/created/updated times, lease
+pairing, provider-IO, and terminal reason fields before typed decoding. Oldest
+ready and due-retry fixtures prove deterministic terminal repair, read-only
+status before reconciliation, later FIFO advancement, and idempotent startup
+reopen.
 The startup migration registry pins 0.85.0 directly after
 0.84.22. Atomic answer-ready runtime tests cover exact transcript, binding,
 outbox, cleanup-fence, and claim-release behavior. Delivery tests add concurrent
@@ -1281,7 +1291,17 @@ decode, repair, and completion. The composed App suite deletes sender configurat
 and proves the answer still commits with the frozen identity. The composed state suite
 proves that missing trusted email recipients atomically produce a terminal
 authorization outcome, advance transcript and cleanup authority, survive reopen
-replay, and never enter the provider claim lane. The receiver privacy policy
+replay, and never enter the provider claim lane. Completion tests also drive
+invalid accepted SMS recipients, email recipients, provider email IDs, and
+blank optional Resend message IDs through the real transaction. They become
+durable terminal `invalid-request` outcomes, survive restart and duplicate
+replay without another transcript or delivery, and release later FIFO work.
+Injected store failures remain rollback errors. Runtime and downgrade cleanup
+tests substitute symlinks for both response and receiver-observation ancestors,
+and the shared helper also substitutes an ancestor above the cache root. They
+prove no outside deletion, retained runtime authority or failed downgrade with
+schema v12 intact, and successful exact cleanup after restoration. The
+receiver privacy policy
 recursively discovers authenticated HTTP, provider, state, App, and App-service
 Task 3 suites. Its identifier-aware assertion scan tracks local aliases and
 rejects raw values hidden in tuples, Debug formatting, implicit format capture,
@@ -1291,6 +1311,9 @@ count, or field-presence proof instead. The assertion scanner also covers
 `debug_assert` variants, destructuring and adversarial neutral aliases,
 named format arguments, nested and field or index assignment, match and for
 bindings, interpolation and debug macros, and misleading `is` or `has` names.
+The same dynamic scan rejects private values in `panic!`, `println!`, and
+`eprintln!` in future nested receiver, provider, and App delivery files while
+allowing content-free fixed diagnostics.
 It balances the source prefix before an assertion so syntax-tree value flow
 still covers an open block and every later match arm. No method name or
 projection-chain shape is treated as a content-free proof. A method call on a
@@ -1306,15 +1329,20 @@ and nested comments, then excludes test-only attributed items, fields, and
 variants, including stacked and composed `cfg` predicates. It resumes counting
 later production after generic angle-delimited commas, ordinary commas,
 semicolons, and braced targets. The structural suites are split into cohesive
-lexer, discovery, accounting, policy, and syntax modules. The delivery cleanup table contract stays
-in its focused schema module.
+lexer, discovery, accounting, policy, and syntax modules. The formerly
+1,086-line completion suite is a thin include root with answer-record,
+terminal-outcome, replay/FIFO, cleanup, and transaction-integrity modules.
+Guards cap every part at 400 lines and keep the privacy policy split. They also
+reject the former always-false completed flag and unreachable observation-only
+answerless cleanup branch. The delivery cleanup table contract stays in its
+focused schema module.
 
 ## Test layout
 
 | Location | Scope |
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
-| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard recursively discovers model, schema, completion-store, and delivery-store modules, excludes exact inline `#[cfg(test)]` items from the production budget, and resumes counting later production. It also applies the bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
+| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard recursively discovers model, schema, completion-store, and delivery-store modules, excludes exact inline `#[cfg(test)]` items from the production budget, and resumes counting later production. It also bounds the split completion and privacy suites, keeps the completion root thin, rejects the obsolete answerless completion branch, and applies the production bound to the producer-matrix and native-cleanup fixture modules. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |

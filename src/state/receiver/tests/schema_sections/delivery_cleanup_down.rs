@@ -6,6 +6,15 @@ struct DeliveryCleanupDownFixture {
     observation_lock: std::path::PathBuf,
 }
 
+fn canonical_temporary_state_path(
+    temporary: &tempfile::TempDir,
+    relative: &str,
+) -> std::path::PathBuf {
+    std::fs::canonicalize(temporary.path())
+        .expect("canonical temporary directory")
+        .join(relative)
+}
+
 fn stage_delivery_cleanup_down(path: &std::path::Path, acknowledge: bool) -> DeliveryCleanupDownFixture {
     let fixture = super::binding::completion_fixture_in(
         Db::open_path_with_legacy_identity(
@@ -135,7 +144,7 @@ fn repair_pre_fence_delivery_cleanup(
 #[test]
 fn v12_down_refuses_to_drop_unacknowledged_cleanup_authority() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, false);
 
     let error = super::super::schema::down_delivery_path(&path)
@@ -151,7 +160,7 @@ fn v12_down_refuses_to_drop_unacknowledged_cleanup_authority() {
 #[test]
 fn v12_down_finishes_a_repaired_pre_fence_cleanup_with_released_session_authority() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, false);
     repair_pre_fence_delivery_cleanup(&path, &staged, true);
 
@@ -167,7 +176,7 @@ fn v12_down_finishes_a_repaired_pre_fence_cleanup_with_released_session_authorit
 #[test]
 fn v12_down_keeps_a_repaired_untouched_pre_fence_cleanup_fenced() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, false);
     repair_pre_fence_delivery_cleanup(&path, &staged, false);
 
@@ -183,7 +192,7 @@ fn v12_down_keeps_a_repaired_untouched_pre_fence_cleanup_fenced() {
 #[test]
 fn v12_down_disposes_exact_session_and_private_artifacts_before_schema_loss() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, true);
 
     super::super::schema::down_delivery_path(&path).expect("drain and downgrade delivery state");
@@ -206,7 +215,7 @@ fn v12_down_disposes_exact_session_and_private_artifacts_before_schema_loss() {
 #[test]
 fn v12_down_filesystem_failure_retains_authority_and_retries_idempotently() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, true);
     std::fs::remove_file(&staged.response).expect("replace response artifact");
     std::fs::create_dir(&staged.response).expect("stage undeletable response path");
@@ -228,7 +237,7 @@ fn v12_down_filesystem_failure_retains_authority_and_retries_idempotently() {
 #[test]
 fn v12_down_does_not_let_a_finished_cleanup_delete_a_later_exact_registration() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let path = temporary.path().join("state.db");
+    let path = canonical_temporary_state_path(&temporary, "state.db");
     let staged = stage_delivery_cleanup_down(&path, true);
     {
         let db = Db::open_path_with_legacy_identity(

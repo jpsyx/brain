@@ -77,6 +77,20 @@ fn private_whole_value_assertion_violation_offsets(source: &str) -> Vec<usize> {
             }
         }
     }
+    for macro_name in ["panic!", "println!", "eprintln!"] {
+        for body in macro_bodies(&masked, macro_name) {
+            let private = private_identifiers_at(source, &masked, body.start);
+            let arguments = top_level_arguments(&masked[body.clone()]);
+            let body_start = body.start;
+            if diagnostics_expose_private(source, &masked, body, &arguments, &private) {
+                violations.push(
+                    arguments
+                        .first()
+                        .map_or(body_start, |argument| body_start + argument.start),
+                );
+            }
+        }
+    }
     violations
 }
 

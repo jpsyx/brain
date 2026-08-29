@@ -327,24 +327,13 @@ fn validate_artifact_instance(instance: &str) -> Result<()> {
 }
 
 fn remove_cleanup_artifacts(cache_dir: &std::path::Path, instance: &str) -> Result<()> {
-    let response = cache_dir.join("responses").join(format!("{instance}.json"));
-    let observation = cache_dir
-        .join("receiver-observations")
-        .join(format!("{instance}.json"));
-    for artifact in [
-        response,
-        observation.clone(),
-        observation.with_extension("json.lock"),
+    for relative in [
+        std::path::PathBuf::from(format!("responses/{instance}.json")),
+        std::path::PathBuf::from(format!("receiver-observations/{instance}.json")),
+        std::path::PathBuf::from(format!("receiver-observations/{instance}.json.lock")),
     ] {
-        match std::fs::remove_file(&artifact) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("remove receiver cleanup artifact {}", artifact.display())
-                });
-            }
-        }
+        crate::workspace::remove_regular_file_beneath(cache_dir, &relative)
+            .context("remove exact receiver cleanup artifact")?;
     }
     Ok(())
 }

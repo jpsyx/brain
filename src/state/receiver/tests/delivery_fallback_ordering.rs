@@ -284,7 +284,9 @@ fn assert_reversed_fallback_audit(
 fn reversed_fallback_rows_restore_done_on_reopen_and_repeated_repair_for_every_source_kind() {
     for source_kind in RestoredFallbackSourceKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary state directory");
-        let path = temporary.path().join("state.db");
+        let path = std::fs::canonicalize(temporary.path())
+            .expect("canonical temporary state directory")
+            .join("state.db");
         let workspace = super::support::receiver_workspace_id().to_string();
         let actor = super::support::receiver_user_id();
         let fixture = reversed_fallback_fixture(
@@ -317,7 +319,9 @@ fn reversed_fallback_rows_restore_done_on_reopen_and_repeated_repair_for_every_s
 fn reversed_fallback_rows_restore_done_across_down_and_reupgrade_for_every_source_kind() {
     for source_kind in RestoredFallbackSourceKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary state directory");
-        let path = temporary.path().join("state.db");
+        let path = std::fs::canonicalize(temporary.path())
+            .expect("canonical temporary state directory")
+            .join("state.db");
         let workspace = super::support::receiver_workspace_id().to_string();
         let actor = super::support::receiver_user_id();
         let fixture = reversed_fallback_fixture(

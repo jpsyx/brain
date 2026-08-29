@@ -2,6 +2,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 pub(super) fn reconcile_rows(connection: &Connection) -> Result<()> {
+    super::structural_repair::repair_structurally_malformed_deliveries(connection)?;
     normalize_frozen_fallbacks(connection)?;
     connection.execute_batch(
         "UPDATE receiver_deliveries

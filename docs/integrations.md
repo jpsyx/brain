@@ -2195,6 +2195,10 @@ brain-root lookup.
   that proves the artifact-validated session remains locked and completed,
   appends the transcript, inserts the final-answer outbox and cleanup rows,
   moves the live launch to `answer-ready`, and releases agent ownership.
+  Accepted malformed recipient or provider email lineage instead commits the
+  same durable boundary as a terminal `invalid-request` outcome, so restart
+  replay cannot rerun completed agent work. Provider serialization and SQLite
+  failures remain rollback errors.
   Rollback retains the active run and artifact for a later tick; cleanup begins
   only after that transaction commits and provider delivery remains a later
   outbox operation.

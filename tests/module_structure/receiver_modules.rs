@@ -173,3 +173,75 @@ fn receiver_delivery_schema_root_stays_thin() {
         "receiver delivery schema root has {nonblank_lines} nonblank lines"
     );
 }
+
+#[test]
+fn receiver_completion_and_privacy_suites_stay_cohesive() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let completion_root = root.join("src/state/receiver/tests/completion_answer.rs");
+    let completion_source =
+        std::fs::read_to_string(&completion_root).expect("receiver completion test root");
+    assert!(
+        completion_source
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count()
+            <= 10,
+        "receiver completion test root is no longer thin"
+    );
+    let completion_parts =
+        rust_modules_below(&root.join("src/state/receiver/tests/completion_answer"));
+    assert!(
+        completion_parts.len() >= 5,
+        "receiver completion behavior modules unexpectedly narrowed"
+    );
+    for path in completion_parts {
+        let lines = std::fs::read_to_string(&path)
+            .expect("receiver completion behavior module")
+            .lines()
+            .count();
+        assert!(
+            lines <= 400,
+            "{} has {lines} test lines",
+            path.strip_prefix(root)
+                .expect("repository test module")
+                .display()
+        );
+    }
+
+    for relative in [
+        "tests/receiver_observation_privacy/policy.rs",
+        "tests/receiver_observation_privacy/policy/task_three_policy.rs",
+    ] {
+        let lines = std::fs::read_to_string(root.join(relative))
+            .expect("receiver privacy policy module")
+            .lines()
+            .count();
+        assert!(lines <= 400, "{relative} has {lines} test lines");
+    }
+}
+
+#[test]
+fn nonterminal_receiver_observation_has_no_answerless_completion_path() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let services = std::fs::read_to_string(root.join("src/tui/state/services.rs"))
+        .expect("App services source");
+    let active = std::fs::read_to_string(root.join("src/tui/app_brain/receiver/active.rs"))
+        .expect("active receiver source");
+    let terminal =
+        std::fs::read_to_string(root.join("src/tui/app_brain/receiver/active/terminal.rs"))
+            .expect("receiver terminal source");
+
+    assert!(
+        !services.contains("pub(crate) completed: bool") && !services.contains("completed: false"),
+        "nonterminal observation still exposes an always-false completion flag"
+    );
+    assert!(
+        !active.contains("outcome.completed")
+            && !active.contains("finish_observation_only_receiver_run"),
+        "active receiver still branches into answerless completion"
+    );
+    assert!(
+        !terminal.contains("finish_observation_only_receiver_run"),
+        "terminal receiver still contains unreachable answerless cleanup"
+    );
+}

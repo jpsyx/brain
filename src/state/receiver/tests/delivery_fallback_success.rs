@@ -164,7 +164,9 @@ fn assert_acknowledged_fallback_audit(db: &Db, job_id: ReceiverJobId) {
 #[test]
 fn acknowledged_fallback_remains_done_across_reopen_and_repeated_repair() {
     let temporary = tempfile::tempdir().expect("temporary state directory");
-    let path = temporary.path().join("state.db");
+    let path = std::fs::canonicalize(temporary.path())
+        .expect("canonical temporary state directory")
+        .join("state.db");
     let workspace = super::support::receiver_workspace_id().to_string();
     let actor = super::support::receiver_user_id();
     let fixture = acknowledged_fallback_fixture(
@@ -194,7 +196,9 @@ fn acknowledged_fallback_remains_done_across_reopen_and_repeated_repair() {
 #[test]
 fn acknowledged_fallback_remains_done_across_v12_down_v11_reopen_and_reupgrade() {
     let temporary = tempfile::tempdir().expect("temporary state directory");
-    let path = temporary.path().join("state.db");
+    let path = std::fs::canonicalize(temporary.path())
+        .expect("canonical temporary state directory")
+        .join("state.db");
     let workspace = super::support::receiver_workspace_id().to_string();
     let actor = super::support::receiver_user_id();
     let fixture = acknowledged_fallback_fixture(

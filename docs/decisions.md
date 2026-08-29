@@ -3131,6 +3131,15 @@ Same-version repair uses only already durable evidence. A legacy cleanup whose
 the newer shutdown fence, so repair sets its acknowledgement and permits finish
 or downgrade. A legacy row with `session_released` zero remains fenced.
 
+Cleanup path authorization is not a path-string check. Runtime and downgrade
+open the raw authorized absolute cache-parent path from the filesystem root,
+then walk the cache root and every descendant through no-follow directory
+descriptors. They open the target without following it, compare the held target
+with the parent-relative no-follow identity, require a regular file, and unlink
+through the held parent descriptor. This keeps substitution at any ancestor
+from deleting an outside response or observation artifact. Failure preserves
+runtime cleanup authority, or aborts downgrade while schema v12 remains intact.
+
 ## Freeze provider payloads before IO and classify ambiguity by provider
 
 Schema v12 establishes one durable delivery row per job and semantic response
@@ -3152,6 +3161,24 @@ reject case and display variants as well as malformed values that normalization
 would otherwise leave unchanged.
 This content-bearing outbox is deliberately separate from content-free public
 status and diagnostics.
+
+The schema version is not sufficient proof that this outbox is structurally
+current. Same-version startup fingerprints the normalized complete canonical
+SQL for both v12 tables and transactionally rebuilds either table for any
+contract drift. A raw-value repair runs before typed claim and reconciliation
+decoders. Recoverable malformed identities, states, and unsigned times become a
+deterministic terminal `invalid-request` outcome; unrecoverable orphan identity
+rows are removed. This follows the existing fail-closed corruption policy and
+prevents an oldest corrupt row from starving a later valid response while
+leaving read-only status mutation-free.
+
+Accepted recipient and provider lineage are immutable input, not an internal
+store failure. If completion finds a malformed accepted SMS recipient, email
+recipient, provider email ID, or optional message ID, the answer transaction
+persists a terminal `invalid-request` delivery, failed job, transcript turn,
+completion proof, and cleanup authority together. Exact replay returns that
+same outcome, which releases FIFO without rerunning completed agent work.
+Serialization and database failures still roll the transaction back for retry.
 
 Retry safety depends on provider capability, not a generic transport error.
 Resend can repeat the same delivery ID as its idempotency key through the exact

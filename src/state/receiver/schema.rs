@@ -11,6 +11,8 @@ mod recovery;
 mod token;
 use token::populate_job_tokens;
 
+pub(in crate::state::receiver) use delivery::repair_structurally_malformed_deliveries;
+
 pub(super) const VERSION: i32 = 12;
 pub(super) const DELIVERY_PREVIOUS_VERSION: i32 = 11;
 pub(super) const RECOVERY_VERSION: i32 = 10;

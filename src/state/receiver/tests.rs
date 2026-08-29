@@ -36,6 +36,7 @@ mod completion_answer {
     use super::*;
 
     include!("tests/completion_answer.rs");
+    include!("tests/completion_invalid_lineage.rs");
     include!("tests/completion_reaper.rs");
 }
 
@@ -135,6 +136,7 @@ mod delivery_store {
     use super::*;
 
     include!("tests/delivery_store.rs");
+    include!("tests/delivery_corruption.rs");
 }
 
 mod schema {
@@ -146,6 +148,8 @@ mod schema {
     include!("tests/schema_sections/downgrade.rs");
     include!("tests/schema_sections/delivery.rs");
     include!("tests/schema_sections/delivery_cleanup_down.rs");
+    include!("tests/schema_sections/delivery_cleanup_security.rs");
+    include!("tests/schema_sections/delivery_contract_repair.rs");
     include!("tests/schema_sections/delivery_downgrade_v11.rs");
     include!("tests/schema_sections/delivery_repair.rs");
     include!("tests/schema_sections/delivery_writer.rs");

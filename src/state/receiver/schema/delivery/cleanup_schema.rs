@@ -83,25 +83,12 @@ pub(super) fn ensure_columns(connection: &Connection) -> Result<()> {
 }
 
 pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
-    let mut statement = connection.prepare(
-        "SELECT name FROM pragma_index_list('receiver_answer_cleanups')
-         WHERE \"unique\" = 1",
+    let table_matches = super::contract::table_contract_matches(
+        connection,
+        "receiver_answer_cleanups",
+        CREATE_TABLE,
     )?;
-    let indexes = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let has_legacy_instance_unique = indexes.into_iter().try_fold(false, |found, index| {
-        if found {
-            return Ok::<bool, anyhow::Error>(true);
-        }
-        let mut columns =
-            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?;
-        let columns = columns
-            .query_map([index], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(columns == ["workspace_id", "brain_instance_id"])
-    })?;
-    if !has_legacy_instance_unique {
+    if table_matches && !has_legacy_instance_unique(connection)? {
         return Ok(());
     }
     connection.execute_batch(
@@ -125,4 +112,25 @@ pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
          DROP TABLE receiver_answer_cleanups_v12_rebuild;",
     )?;
     Ok(())
+}
+
+fn has_legacy_instance_unique(connection: &Connection) -> Result<bool> {
+    let mut statement = connection.prepare(
+        "SELECT name FROM pragma_index_list('receiver_answer_cleanups')
+         WHERE \"unique\" = 1 AND origin = 'c'",
+    )?;
+    let indexes = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    indexes.into_iter().try_fold(false, |found, index| {
+        if found {
+            return Ok(true);
+        }
+        let mut columns =
+            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?;
+        let columns = columns
+            .query_map([index], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(columns == ["workspace_id", "brain_instance_id"])
+    })
 }

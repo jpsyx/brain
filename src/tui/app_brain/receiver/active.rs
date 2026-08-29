@@ -200,18 +200,7 @@ impl App {
             &poll.observation,
             authorized_at_unix_ms,
         ) {
-            Ok(outcome) if outcome.changed && outcome.completed => {
-                crate::logging::log(receiver_observation_diagnostic(
-                    active.claim.job().id(),
-                    active.attribution.instance(),
-                    active.attribution.scope().agent_kind(),
-                    prior_state,
-                    Some(boundary),
-                    "persisted-terminal",
-                ));
-                self.finish_observation_only_receiver_run(&active);
-            }
-            Ok(outcome) if outcome.changed => {
+            Ok(true) => {
                 crate::logging::log(receiver_observation_diagnostic(
                     active.claim.job().id(),
                     active.attribution.instance(),
@@ -223,7 +212,7 @@ impl App {
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
             }
-            Ok(_) => {
+            Ok(false) => {
                 crate::logging::log(receiver_observation_diagnostic(
                     active.claim.job().id(),
                     active.attribution.instance(),
