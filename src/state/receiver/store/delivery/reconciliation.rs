@@ -24,9 +24,9 @@ impl Db {
         )?;
         let structurally_invalid =
             crate::state::receiver::schema::repair_structurally_malformed_deliveries(&transaction)?;
-        let invalid =
+        let invalid_lifecycle =
             terminalize_invalid_semantic_responses(&transaction, &self.workspace_id, now)?;
-        let terminalized =
+        let terminalized_lifecycle =
             terminalize_expired_due_retries(&transaction, &self.workspace_id, now_unix_ms)?;
         let expired = {
             let mut statement = transaction.prepare(
@@ -48,7 +48,10 @@ impl Db {
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
-        let mut lifecycle = Vec::new();
+        let invalid = invalid_lifecycle.len();
+        let terminalized = terminalized_lifecycle.len();
+        let mut lifecycle = invalid_lifecycle;
+        lifecycle.extend(terminalized_lifecycle);
         for delivery in &expired {
             if delivery.provider_io_started {
                 let decision = decide_receiver_delivery(ReceiverDeliveryPolicySnapshot {

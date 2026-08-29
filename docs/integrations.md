@@ -1411,6 +1411,11 @@ delivery result, and terminal advancement. Only finite event names, phases,
 recovery ordinals, queue or cleanup counts, delivery phases, and stable reason
 codes cross that boundary. The event type has no identity, content, or path
 field, so all three registered frontends share the same redacted contract.
+Combined acceptance-plus-progress observations emit both committed boundaries;
+control acknowledgements emit answer readiness; malformed semantic responses
+and expired delivery retries emit both delivery-result and terminal-advancement
+records. Callers retain those finite facts until commit, and a failed secondary
+summary read degrades only the count or recovery enrichment to `unavailable`.
 After draining private cleanup authority, the downgrade also removes the v12
 `receiver_jobs.response_sender` column and both v12-only tables while retaining
 the exact schema-v11 job rows and column order. It records `user_version = 11`

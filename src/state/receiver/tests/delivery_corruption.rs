@@ -398,3 +398,36 @@ fn malformed_due_retry_is_read_only_in_status_then_reconciles_before_later_claim
         .expect("later valid response remains claimable");
     assert!(claim.job_id() == later, "malformed due retry starved later FIFO work");
 }
+
+#[test]
+fn malformed_semantic_response_logs_delivery_and_terminal_events_after_commit() {
+    let fixture = answer_ready_fixture();
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries SET envelope_json = 'not-json-private-response'
+             WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("stage malformed semantic response");
+
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        let repaired = fixture
+            .db
+            .reconcile_expired_receiver_deliveries(3_000)
+            .expect("terminalize malformed semantic response");
+        assert!(
+            repaired == 1,
+            "malformed semantic response repair count changed"
+        );
+    });
+
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=delivery-result delivery_phase=failed reason=invalid-request",
+            "receiver lifecycle event=terminal-advancement phase=failed queue_depth=0 reason=invalid-request",
+        ],
+    );
+}

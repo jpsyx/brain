@@ -4,7 +4,7 @@ pub(super) fn terminalize_invalid_semantic_responses(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     observed_at_unix_ms: i64,
-) -> Result<usize> {
+) -> Result<Vec<super::super::result::DeliveryLifecycle>> {
     let invalid = {
         let mut statement = transaction.prepare(
             "SELECT delivery.delivery_id, delivery.job_id, delivery.job_token,
@@ -69,5 +69,14 @@ pub(super) fn terminalize_invalid_semantic_responses(
             "receiver invalid semantic response compare-and-swap lost authority"
         );
     }
-    Ok(invalid.len())
+    Ok(invalid
+        .into_iter()
+        .map(|_| {
+            super::super::result::DeliveryLifecycle::new(
+                "failed",
+                "failed",
+                crate::logging::ReceiverLifecycleReason::InvalidRequest,
+            )
+        })
+        .collect())
 }

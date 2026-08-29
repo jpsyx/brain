@@ -226,7 +226,7 @@ impl Db {
         if cleanup_promoted {
             self.log_receiver_summary(|summary| {
                 crate::logging::ReceiverLifecycleEvent::cleanup_promotion(
-                    summary.cleanup_gated_responses(),
+                    summary.map(crate::state::ReceiverWorkSummary::cleanup_gated_responses),
                 )
             });
         }

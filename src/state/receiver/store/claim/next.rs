@@ -191,8 +191,8 @@ pub(super) fn commit_loaded_claim(
         |row| row.get(0),
     )?;
     transaction.commit()?;
-    crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::claim(
+    crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::claim(Some(
         queue_depth,
-    ));
+    )));
     Ok(Some(ReceiverRunClaim::new(claim, job, conversation)))
 }

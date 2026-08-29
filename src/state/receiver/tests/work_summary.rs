@@ -50,7 +50,7 @@ fn work_summary_reports_agent_recovery_cleanup_and_delivery_from_durable_state()
     db.conn
         .execute(
             "UPDATE receiver_jobs
-             SET state = 'processing', recovery_count = 1
+             SET state = 'processing', recovery_count = 1, attempt_kind = 'recovery'
              WHERE job_id = ?1",
             [oldest.job_id().to_string()],
         )
@@ -69,6 +69,19 @@ fn work_summary_reports_agent_recovery_cleanup_and_delivery_from_durable_state()
     assert_eq!(summary.recovery_limit(), MAX_RECEIVER_RECOVERY_ATTEMPTS);
     assert_eq!(summary.cleanup_gated_responses(), 1);
     assert_eq!(summary.delivery_counts().retrying(), 1);
+}
+
+#[test]
+fn ordinary_active_work_does_not_report_an_active_recovery() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    db.accept_receiver_job(&receiver_job(Some("ordinary"), 100), &identity)
+        .expect("accept ordinary work");
+
+    let summary = db.receiver_work_summary().expect("ordinary work summary");
+
+    assert_eq!(summary.oldest_active_phase(), Some(ReceiverWorkPhase::Queued));
+    assert_eq!(summary.recovery_attempt(), None);
 }
 
 #[test]

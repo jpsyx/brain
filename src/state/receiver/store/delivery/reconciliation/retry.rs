@@ -8,7 +8,7 @@ pub(super) fn terminalize_expired_due_retries(
     transaction: &rusqlite::Transaction<'_>,
     workspace_id: &str,
     now_unix_ms: u64,
-) -> Result<usize> {
+) -> Result<Vec<super::super::result::DeliveryLifecycle>> {
     let now = to_i64(
         now_unix_ms,
         "receiver delivery replay-window reconciliation",
@@ -30,14 +30,13 @@ pub(super) fn terminalize_expired_due_retries(
             .query_map(rusqlite::params![workspace_id, now], decode_due_delivery)?
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    let mut terminalized = 0usize;
+    let mut terminalized = Vec::new();
     for delivery in &due {
-        terminalized = terminalized.saturating_add(usize::from(terminalize_expired_due_retry(
-            transaction,
-            workspace_id,
-            delivery,
-            now_unix_ms,
-        )?));
+        if let Some(lifecycle) =
+            terminalize_expired_due_retry(transaction, workspace_id, delivery, now_unix_ms)?
+        {
+            terminalized.push(lifecycle);
+        }
     }
     Ok(terminalized)
 }
@@ -47,7 +46,7 @@ pub(in super::super) fn terminalize_expired_due_retry(
     workspace_id: &str,
     delivery: &DueDelivery,
     now_unix_ms: u64,
-) -> Result<bool> {
+) -> Result<Option<super::super::result::DeliveryLifecycle>> {
     if delivery.source_state != "retrying"
         || !receiver_delivery_replay_window_is_expired(
             provider_for(&delivery.envelope),
@@ -56,10 +55,10 @@ pub(in super::super) fn terminalize_expired_due_retry(
             now_unix_ms,
         )
     {
-        return Ok(false);
+        return Ok(None);
     }
     let Some(retry_at_unix_ms) = delivery.retry_at_unix_ms else {
-        return Ok(false);
+        return Ok(None);
     };
     let now = to_i64(
         now_unix_ms,
@@ -96,7 +95,7 @@ pub(in super::super) fn terminalize_expired_due_retry(
         ],
     )?;
     if delivery_changed == 0 {
-        return Ok(false);
+        return Ok(None);
     }
     fallback.insert_notice(transaction, delivery.job_id, delivery.token, now)?;
     let job_changed = transaction.execute(
@@ -117,7 +116,11 @@ pub(in super::super) fn terminalize_expired_due_retry(
         job_changed == 1,
         "receiver delivery replay-window reconciliation lost exact job authority"
     );
-    Ok(true)
+    Ok(Some(super::super::result::DeliveryLifecycle::new(
+        "ambiguous",
+        fallback.job_state(),
+        crate::logging::ReceiverLifecycleReason::IdempotencyWindowExpired,
+    )))
 }
 
 pub(super) fn requeue_pre_spawn(

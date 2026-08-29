@@ -12,6 +12,7 @@ mod receiver_lifecycle;
 
 pub(crate) use receiver_lifecycle::{
     ReceiverDeliveryPhase, ReceiverLifecycleEvent, ReceiverLifecyclePhase, ReceiverLifecycleReason,
+    ReceiverLifecycleRecovery,
 };
 
 static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
@@ -213,16 +214,16 @@ mod tests {
 
         let cases = [
             (
-                ReceiverLifecycleEvent::ingress(4),
+                ReceiverLifecycleEvent::ingress(Some(4)),
                 "receiver lifecycle event=ingress phase=queued queue_depth=4",
             ),
             (
-                ReceiverLifecycleEvent::claim(3),
+                ReceiverLifecycleEvent::claim(Some(3)),
                 "receiver lifecycle event=claim phase=claimed queue_depth=3",
             ),
             (
-                ReceiverLifecycleEvent::launch(0, 3),
-                "receiver lifecycle event=launch phase=launched recovery=0/3",
+                ReceiverLifecycleEvent::launch(ReceiverLifecycleRecovery::NotActive),
+                "receiver lifecycle event=launch phase=launched recovery=not-active",
             ),
             (
                 ReceiverLifecycleEvent::observation(ReceiverLifecyclePhase::Accepted),
@@ -235,18 +236,20 @@ mod tests {
             (
                 ReceiverLifecycleEvent::recovery(
                     ReceiverLifecyclePhase::Retrying,
-                    2,
-                    3,
+                    ReceiverLifecycleRecovery::Active {
+                        ordinal: 2,
+                        limit: 3,
+                    },
                     ReceiverLifecycleReason::AcceptedStall,
                 ),
                 "receiver lifecycle event=recovery phase=retrying recovery=2/3 reason=accepted-stall",
             ),
             (
-                ReceiverLifecycleEvent::answer_ready(1),
+                ReceiverLifecycleEvent::answer_ready(Some(1)),
                 "receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=1",
             ),
             (
-                ReceiverLifecycleEvent::cleanup_promotion(0),
+                ReceiverLifecycleEvent::cleanup_promotion(Some(0)),
                 "receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=0",
             ),
             (
@@ -259,10 +262,54 @@ mod tests {
             (
                 ReceiverLifecycleEvent::terminal(
                     ReceiverLifecyclePhase::Done,
-                    0,
+                    Some(0),
                     ReceiverLifecycleReason::ProviderAcknowledged,
                 ),
                 "receiver lifecycle event=terminal-advancement phase=done queue_depth=0 reason=provider-acknowledged",
+            ),
+        ];
+
+        for (event, expected) in cases {
+            assert_eq!(event.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn receiver_lifecycle_enrichment_failure_is_explicit_without_losing_core_events() {
+        use super::{ReceiverLifecycleEvent, ReceiverLifecyclePhase, ReceiverLifecycleReason};
+
+        let cases = [
+            (
+                ReceiverLifecycleEvent::ingress(None),
+                "receiver lifecycle event=ingress phase=queued queue_depth=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::launch(ReceiverLifecycleRecovery::Unavailable),
+                "receiver lifecycle event=launch phase=launched recovery=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::recovery(
+                    ReceiverLifecyclePhase::Retrying,
+                    ReceiverLifecycleRecovery::Unavailable,
+                    ReceiverLifecycleReason::AcceptedStall,
+                ),
+                "receiver lifecycle event=recovery phase=retrying recovery=unavailable reason=accepted-stall",
+            ),
+            (
+                ReceiverLifecycleEvent::answer_ready(None),
+                "receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::cleanup_promotion(None),
+                "receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::terminal(
+                    ReceiverLifecyclePhase::Failed,
+                    None,
+                    ReceiverLifecycleReason::InvalidRequest,
+                ),
+                "receiver lifecycle event=terminal-advancement phase=failed queue_depth=unavailable reason=invalid-request",
             ),
         ];
 

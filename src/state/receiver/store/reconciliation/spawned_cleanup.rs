@@ -143,7 +143,7 @@ impl Db {
         self.log_receiver_summary(|summary| {
             crate::logging::ReceiverLifecycleEvent::terminal(
                 crate::logging::ReceiverLifecyclePhase::Failed,
-                summary.agent_queue_depth(),
+                summary.map(crate::state::ReceiverWorkSummary::agent_queue_depth),
                 super::terminal::lifecycle_reason(ReceiverReconciliationReason::RecoveryShutdown),
             )
         });

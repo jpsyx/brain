@@ -5318,3 +5318,9 @@ only after the transaction it describes commits. This keeps rolled-back work
 out of diagnostics, prevents IDs from becoming actor or workspace side
 channels, and lets `brain server logs` remain the faithful viewer of the
 machine-wide infrastructure stream without decoding durable payloads.
+Mutation paths retain one finite fact per crossed boundary until commit,
+including acceptance plus progress, answer readiness, and delivery
+terminalization. A secondary summary read enriches but does not authorize the
+record: failure is rendered explicitly as unavailable. Recovery ordinal display
+is separately gated by the oldest row's finite `attempt_kind`, so ordinary work
+cannot look like recovery zero.

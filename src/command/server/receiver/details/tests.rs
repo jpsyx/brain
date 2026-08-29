@@ -131,7 +131,7 @@ fn palette_status_uses_the_same_durable_summary_decisions_without_private_conten
 
     assert_eq!(
         rendered,
-        "receiver enabled; TUI live; server running; accepting yes; agent queue 3; oldest processing; recovery 1/1; cleanup gated 1; delivery ready 4 delivering 5 retrying 6 ambiguous 7 failed 8 done 9"
+        "receiver enabled; TUI live; server running; accepting yes; agent queue 3; oldest processing; recovery 1/1; cleanup gated 1; answer-ready 4; delivering 5; retrying 6; ambiguous 7; failed 8; done 9; retry-exhausted 10; permanent-rejection 11; ambiguous-acknowledgement 12; idempotency-window-expired 13; no-safe-fallback 14"
     );
     for private in ["private-prompt", "private-answer", "private-actor"] {
         assert!(!rendered.contains(private));

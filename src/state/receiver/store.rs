@@ -157,7 +157,9 @@ impl Db {
         )?;
         transaction.commit()?;
         self.log_receiver_summary(|summary| {
-            crate::logging::ReceiverLifecycleEvent::ingress(summary.agent_queue_depth())
+            crate::logging::ReceiverLifecycleEvent::ingress(
+                summary.map(crate::state::ReceiverWorkSummary::agent_queue_depth),
+            )
         });
         Ok(ReceiverAcceptance::new(job_id, conversation_id, true))
     }

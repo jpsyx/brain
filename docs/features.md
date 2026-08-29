@@ -1690,7 +1690,8 @@ the oldest active finite phase, the active recovery ordinal and limit, and the
 cleanup-gated response count. Missing, unreadable, or not-yet-created peer state
 is shown as `unavailable`, never as invented zero work. BR-18 removes the final
 legacy endpoint lifetime representation; receiver liveness and routing use only
-the elected server lease.
+the elected server lease. A recovery ordinal appears only while the oldest work
+is an active recovery attempt; ordinary work is shown as not active.
 
 ### Durable receiver model foundation
 
@@ -1951,7 +1952,9 @@ phase, recovery ordinal and limit, cleanup-gated responses, and counts for `answ
 terminal-reason counts for retry exhaustion, permanent rejection, ambiguous
 acknowledgement, idempotency-window expiry, and no safe fallback. These rows never
 include sender, recipient, answer, envelope, transcript, provider response, or
-credential material. The listing prints the receiver's own published addresses; it never prints a
+credential material. The TUI flash uses these same finite labels, including
+`answer-ready` and every terminal-reason count, rather than a reduced status
+vocabulary. The listing prints the receiver's own published addresses; it never prints a
 provider credential.
 
 `brain receiver email` and `brain receiver phone` print just that address, on

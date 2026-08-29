@@ -69,7 +69,7 @@ fn durable_agent_transitions_emit_stable_records_only_after_success() {
         &[
             "receiver lifecycle event=ingress phase=queued queue_depth=1",
             "receiver lifecycle event=claim phase=claimed queue_depth=1",
-            "receiver lifecycle event=launch phase=launched recovery=0/1",
+            "receiver lifecycle event=launch phase=launched recovery=not-active",
             "receiver lifecycle event=acceptance phase=accepted",
             "receiver lifecycle event=progress phase=processing",
         ],
@@ -101,6 +101,37 @@ fn rejected_transition_emits_no_lifecycle_record() {
     });
 
     assert!(records.is_empty(), "rejected transition was logged");
+}
+
+#[test]
+fn committed_ingress_logs_when_summary_enrichment_is_unavailable() {
+    let db = Db::open_in_memory().expect("receiver state");
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let malformed = db
+        .accept_receiver_job(&receiver_job(Some("malformed-prior"), 100), &identity)
+        .expect("accept prior job");
+    db.conn
+        .pragma_update(None, "ignore_check_constraints", true)
+        .expect("allow malformed summary fixture");
+    db.conn
+        .execute(
+            "UPDATE receiver_jobs SET state = 'mystery' WHERE job_id = ?1",
+            [malformed.job_id().to_string()],
+        )
+        .expect("stage malformed finite state");
+    db.conn
+        .pragma_update(None, "ignore_check_constraints", false)
+        .expect("restore receiver constraints");
+
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        db.accept_receiver_job(&receiver_job(Some("committed-next"), 200), &identity)
+            .expect("commit next ingress");
+    });
+
+    assert_receiver_lifecycle_records(
+        &records,
+        &["receiver lifecycle event=ingress phase=queued queue_depth=unavailable"],
+    );
 }
 
 #[test]

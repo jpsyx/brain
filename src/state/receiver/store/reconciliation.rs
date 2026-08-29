@@ -213,8 +213,7 @@ impl Db {
                 self.log_receiver_summary(|summary| {
                     crate::logging::ReceiverLifecycleEvent::recovery(
                         crate::logging::ReceiverLifecyclePhase::Retrying,
-                        summary.recovery_attempt().unwrap_or(0),
-                        summary.recovery_limit(),
+                        crate::logging::ReceiverLifecycleRecovery::from_summary(summary),
                         crate::logging::ReceiverLifecycleReason::AcceptedStall,
                     )
                 });

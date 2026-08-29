@@ -12,19 +12,36 @@ pub(crate) enum ReceiverWorkState {
 /// Redacted durable delivery phases for `brain receiver status`. Pure.
 #[must_use]
 pub(crate) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme: Theme) -> String {
-    let phases = [
+    let fields = delivery_fields(counts);
+    let phases = fields[..6]
+        .iter()
+        .copied()
+        .map(|(phase, count)| format!("{} {}", theme.muted(phase), theme.value(&count.to_string())))
+        .collect::<Vec<_>>()
+        .join("  ");
+    let reasons = fields[6..]
+        .iter()
+        .copied()
+        .map(|(reason, count)| {
+            format!(
+                "{} {}",
+                theme.muted(reason),
+                theme.value(&count.to_string())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ");
+    format!("{phases}\n{reasons}")
+}
+
+fn delivery_fields(counts: crate::state::ReceiverDeliveryCounts) -> [(&'static str, usize); 11] {
+    [
         ("answer-ready", counts.answer_ready()),
         ("delivering", counts.delivering()),
         ("retrying", counts.retrying()),
         ("ambiguous", counts.ambiguous()),
         ("failed", counts.failed()),
         ("done", counts.done()),
-    ]
-    .into_iter()
-    .map(|(phase, count)| format!("{} {}", theme.muted(phase), theme.value(&count.to_string())))
-    .collect::<Vec<_>>()
-    .join("  ");
-    let reasons = [
         ("retry-exhausted", counts.retry_exhausted()),
         ("permanent-rejection", counts.permanent_rejection()),
         (
@@ -37,17 +54,6 @@ pub(crate) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme:
         ),
         ("no-safe-fallback", counts.no_safe_fallback()),
     ]
-    .into_iter()
-    .map(|(reason, count)| {
-        format!(
-            "{} {}",
-            theme.muted(reason),
-            theme.value(&count.to_string())
-        )
-    })
-    .collect::<Vec<_>>()
-    .join("  ");
-    format!("{phases}\n{reasons}")
 }
 
 /// Content-free durable agent, recovery, cleanup, and delivery work. Pure.
@@ -125,21 +131,17 @@ pub(crate) fn receiver_status_flash(
                 || "not active".to_owned(),
                 |attempt| format!("{attempt}/{}", summary.recovery_limit()),
             );
-            let counts = summary.delivery_counts();
             let _ = write!(
                 text,
-                "; agent queue {}; oldest {}; recovery {}; cleanup gated {}; delivery ready {} delivering {} retrying {} ambiguous {} failed {} done {}",
+                "; agent queue {}; oldest {}; recovery {}; cleanup gated {}",
                 summary.agent_queue_depth(),
                 oldest,
                 recovery,
                 summary.cleanup_gated_responses(),
-                counts.answer_ready(),
-                counts.delivering(),
-                counts.retrying(),
-                counts.ambiguous(),
-                counts.failed(),
-                counts.done(),
             );
+            for (label, count) in delivery_fields(summary.delivery_counts()) {
+                let _ = write!(text, "; {label} {count}");
+            }
         }
         ReceiverWorkState::Unavailable => text.push_str("; durable work unavailable"),
     }

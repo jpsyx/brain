@@ -360,7 +360,11 @@ readiness, cleanup promotion, delivery result, and terminal advancement share
 finite event, phase, ordinal, count, and reason fields. The logger cannot accept
 actor, workspace, job, prompt, answer, envelope, provider body, credential,
 root, or filesystem path fields. These events append to the same machine-wide
-infrastructure stream read by `brain server logs`.
+infrastructure stream read by `brain server logs`. A transaction that crosses
+more than one boundary retains each finite event fact through commit and emits
+each record afterward. Summary-derived counts are optional enrichment: when the
+post-commit read fails, the core transition is still emitted with an explicit
+`unavailable` metric.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error
@@ -448,7 +452,8 @@ URLs, `receiver/identity.rs` owns the configured per-channel address behind
 `receiver email` / `receiver phone`, and `receiver/details.rs` owns the bare
 `brain receiver` listing. Its `details/work.rs` child owns the shared redacted
 durable-work formatter used by the listing, `receiver status`, and the TUI
-receiver-status action. The listing builds a read-only context per registered
+receiver-status action, including the same answer-ready, delivery-phase, and
+terminal-reason labels. The listing builds a read-only context per registered
 record through `workspace::peer_context`, the same helper `workspace list` uses,
 so one unreadable peer degrades to a themed note instead of failing the run. Its `setup/transaction.rs` owns
 bounded rollback orchestration across the selected machine record, portable

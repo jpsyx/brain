@@ -9,7 +9,7 @@ pub(in crate::state::receiver::store::delivery) struct DeliveryLifecycle {
 }
 
 impl DeliveryLifecycle {
-    pub(super) const fn new(
+    pub(in crate::state::receiver::store::delivery) const fn new(
         delivery_state: &str,
         job_state: &str,
         reason: crate::logging::ReceiverLifecycleReason,
@@ -23,6 +23,7 @@ impl DeliveryLifecycle {
             },
             reason,
             terminal_phase: match job_state.as_bytes() {
+                b"answer-ready" => Some(crate::logging::ReceiverLifecyclePhase::AnswerReady),
                 b"done" => Some(crate::logging::ReceiverLifecyclePhase::Done),
                 b"failed" => Some(crate::logging::ReceiverLifecyclePhase::Failed),
                 _ => None,
@@ -41,7 +42,7 @@ impl DeliveryLifecycle {
             db.log_receiver_summary(|summary| {
                 crate::logging::ReceiverLifecycleEvent::terminal(
                     phase,
-                    summary.agent_queue_depth(),
+                    summary.map(crate::state::ReceiverWorkSummary::agent_queue_depth),
                     self.reason,
                 )
             });

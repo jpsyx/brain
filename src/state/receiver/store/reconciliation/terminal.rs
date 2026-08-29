@@ -213,7 +213,7 @@ fn terminalize_with_cleanup(
     };
     crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::terminal(
         phase,
-        queue_depth,
+        Some(queue_depth),
         lifecycle_reason(reason),
     ));
     Ok(Some(ReceiverReconciliationEffect::new(
@@ -283,7 +283,7 @@ pub(super) fn terminalize_launched_recovery(
     transaction.commit()?;
     crate::logging::log_receiver_lifecycle(crate::logging::ReceiverLifecycleEvent::terminal(
         crate::logging::ReceiverLifecyclePhase::Failed,
-        queue_depth,
+        Some(queue_depth),
         lifecycle_reason(reason),
     ));
     Ok(Some(ReceiverReconciliationEffect::new(

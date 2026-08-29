@@ -1207,7 +1207,9 @@ active phase, recovery attempt and fixed limit, cleanup-gated response count,
 and `ReceiverDeliveryCounts`. Unknown finite states fail the read as malformed;
 an absent database or required table returns unavailable. No content-bearing
 column is selected or decoded, and the read-only path neither creates nor
-migrates state.
+migrates state. The oldest row's `attempt_kind` is the authority for recovery:
+an ordinal and limit are present only for an active `recovery` attempt, never
+for ordinary work whose persisted recovery count happens to be zero.
 
 Lifecycle diagnostics are another typed projection of committed state. Their
 schema is limited to a finite event name, optional finite agent or delivery
@@ -1215,6 +1217,9 @@ phase, queue or cleanup count, recovery ordinal and limit, and stable reason
 code. The model deliberately has no actor, workspace, job, token, session,
 prompt, transcript, answer, envelope, recipient, sender, provider body,
 credential, root, or path field.
+After a successful commit, summary-derived counts may be unavailable because a
+different malformed finite row prevents aggregation. That condition is encoded
+as `unavailable` enrichment and never suppresses the transition record itself.
 
 Same-version reconciliation compares the normalized full canonical CREATE TABLE
 contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected

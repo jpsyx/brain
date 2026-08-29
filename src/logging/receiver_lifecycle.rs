@@ -81,6 +81,29 @@ pub(crate) enum ReceiverLifecycleReason {
     ResultCommitUnknown,
 }
 
+/// Content-free recovery enrichment for lifecycle records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReceiverLifecycleRecovery {
+    Active { ordinal: u32, limit: u32 },
+    NotActive,
+    Unavailable,
+}
+
+impl ReceiverLifecycleRecovery {
+    pub(crate) const fn from_summary(summary: Option<crate::state::ReceiverWorkSummary>) -> Self {
+        let Some(summary) = summary else {
+            return Self::Unavailable;
+        };
+        let Some(ordinal) = summary.recovery_attempt() else {
+            return Self::NotActive;
+        };
+        Self::Active {
+            ordinal,
+            limit: summary.recovery_limit(),
+        }
+    }
+}
+
 impl ReceiverLifecycleReason {
     const fn as_str(self) -> &'static str {
         match self {
@@ -126,6 +149,13 @@ enum EventName {
     TerminalAdvancement,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventMetric<T> {
+    NotApplicable,
+    Available(T),
+    Unavailable,
+}
+
 impl EventName {
     const fn as_str(self) -> &'static str {
         match self {
@@ -149,29 +179,29 @@ pub(crate) struct ReceiverLifecycleEvent {
     name: EventName,
     phase: Option<ReceiverLifecyclePhase>,
     delivery_phase: Option<ReceiverDeliveryPhase>,
-    queue_depth: Option<usize>,
-    recovery: Option<(u32, u32)>,
-    cleanup_gated: Option<usize>,
+    queue_depth: EventMetric<usize>,
+    recovery: Option<ReceiverLifecycleRecovery>,
+    cleanup_gated: EventMetric<usize>,
     reason: Option<ReceiverLifecycleReason>,
 }
 
 impl ReceiverLifecycleEvent {
-    pub(crate) const fn ingress(queue_depth: usize) -> Self {
+    pub(crate) const fn ingress(queue_depth: Option<usize>) -> Self {
         Self::new(EventName::Ingress)
             .with_phase(ReceiverLifecyclePhase::Queued)
             .with_queue_depth(queue_depth)
     }
 
-    pub(crate) const fn claim(queue_depth: usize) -> Self {
+    pub(crate) const fn claim(queue_depth: Option<usize>) -> Self {
         Self::new(EventName::Claim)
             .with_phase(ReceiverLifecyclePhase::Claimed)
             .with_queue_depth(queue_depth)
     }
 
-    pub(crate) const fn launch(recovery_ordinal: u32, recovery_limit: u32) -> Self {
+    pub(crate) const fn launch(recovery: ReceiverLifecycleRecovery) -> Self {
         Self::new(EventName::Launch)
             .with_phase(ReceiverLifecyclePhase::Launched)
-            .with_recovery(recovery_ordinal, recovery_limit)
+            .with_recovery(recovery)
     }
 
     pub(crate) const fn observation(phase: ReceiverLifecyclePhase) -> Self {
@@ -184,23 +214,22 @@ impl ReceiverLifecycleEvent {
 
     pub(crate) const fn recovery(
         phase: ReceiverLifecyclePhase,
-        ordinal: u32,
-        limit: u32,
+        recovery: ReceiverLifecycleRecovery,
         reason: ReceiverLifecycleReason,
     ) -> Self {
         Self::new(EventName::Recovery)
             .with_phase(phase)
-            .with_recovery(ordinal, limit)
+            .with_recovery(recovery)
             .with_reason(reason)
     }
 
-    pub(crate) const fn answer_ready(cleanup_gated: usize) -> Self {
+    pub(crate) const fn answer_ready(cleanup_gated: Option<usize>) -> Self {
         Self::new(EventName::AnswerReadiness)
             .with_phase(ReceiverLifecyclePhase::AnswerReady)
             .with_cleanup_gated(cleanup_gated)
     }
 
-    pub(crate) const fn cleanup_promotion(cleanup_gated: usize) -> Self {
+    pub(crate) const fn cleanup_promotion(cleanup_gated: Option<usize>) -> Self {
         Self::new(EventName::CleanupPromotion)
             .with_delivery_phase(ReceiverDeliveryPhase::Ready)
             .with_cleanup_gated(cleanup_gated)
@@ -217,7 +246,7 @@ impl ReceiverLifecycleEvent {
 
     pub(crate) const fn terminal(
         phase: ReceiverLifecyclePhase,
-        queue_depth: usize,
+        queue_depth: Option<usize>,
         reason: ReceiverLifecycleReason,
     ) -> Self {
         Self::new(EventName::TerminalAdvancement)
@@ -231,9 +260,9 @@ impl ReceiverLifecycleEvent {
             name,
             phase: None,
             delivery_phase: None,
-            queue_depth: None,
+            queue_depth: EventMetric::NotApplicable,
             recovery: None,
-            cleanup_gated: None,
+            cleanup_gated: EventMetric::NotApplicable,
             reason: None,
         }
     }
@@ -248,18 +277,24 @@ impl ReceiverLifecycleEvent {
         self
     }
 
-    const fn with_queue_depth(mut self, depth: usize) -> Self {
-        self.queue_depth = Some(depth);
+    const fn with_queue_depth(mut self, depth: Option<usize>) -> Self {
+        self.queue_depth = match depth {
+            Some(depth) => EventMetric::Available(depth),
+            None => EventMetric::Unavailable,
+        };
         self
     }
 
-    const fn with_recovery(mut self, ordinal: u32, limit: u32) -> Self {
-        self.recovery = Some((ordinal, limit));
+    const fn with_recovery(mut self, recovery: ReceiverLifecycleRecovery) -> Self {
+        self.recovery = Some(recovery);
         self
     }
 
-    const fn with_cleanup_gated(mut self, count: usize) -> Self {
-        self.cleanup_gated = Some(count);
+    const fn with_cleanup_gated(mut self, count: Option<usize>) -> Self {
+        self.cleanup_gated = match count {
+            Some(count) => EventMetric::Available(count),
+            None => EventMetric::Unavailable,
+        };
         self
     }
 
@@ -278,14 +313,26 @@ impl Display for ReceiverLifecycleEvent {
         if let Some(phase) = self.delivery_phase {
             write!(line, " delivery_phase={}", phase.as_str())?;
         }
-        if let Some(depth) = self.queue_depth {
-            write!(line, " queue_depth={depth}")?;
+        match self.queue_depth {
+            EventMetric::NotApplicable => {}
+            EventMetric::Available(depth) => write!(line, " queue_depth={depth}")?,
+            EventMetric::Unavailable => line.push_str(" queue_depth=unavailable"),
         }
-        if let Some((ordinal, limit)) = self.recovery {
-            write!(line, " recovery={ordinal}/{limit}")?;
+        if let Some(recovery) = self.recovery {
+            match recovery {
+                ReceiverLifecycleRecovery::Active { ordinal, limit } => {
+                    write!(line, " recovery={ordinal}/{limit}")?;
+                }
+                ReceiverLifecycleRecovery::NotActive => line.push_str(" recovery=not-active"),
+                ReceiverLifecycleRecovery::Unavailable => {
+                    line.push_str(" recovery=unavailable");
+                }
+            }
         }
-        if let Some(count) = self.cleanup_gated {
-            write!(line, " cleanup_gated={count}")?;
+        match self.cleanup_gated {
+            EventMetric::NotApplicable => {}
+            EventMetric::Available(count) => write!(line, " cleanup_gated={count}")?,
+            EventMetric::Unavailable => line.push_str(" cleanup_gated=unavailable"),
         }
         if let Some(reason) = self.reason {
             write!(line, " reason={}", reason.as_str())?;

@@ -89,8 +89,7 @@ impl Db {
         if changed {
             self.log_receiver_summary(|summary| {
                 crate::logging::ReceiverLifecycleEvent::launch(
-                    summary.recovery_attempt().unwrap_or(0),
-                    summary.recovery_limit(),
+                    crate::logging::ReceiverLifecycleRecovery::from_summary(summary),
                 )
             });
         }
@@ -228,7 +227,8 @@ impl Db {
                 &format!(
                     "SELECT progress_expires_at_unix_ms,
                             absolute_work_expires_at_unix_ms,
-                            latest_progress_at_unix_ms
+                            latest_progress_at_unix_ms,
+                            accepted_at_unix_ms IS NULL
                      FROM receiver_jobs WHERE {exact_scope}"
                 ),
                 rusqlite::params![
@@ -247,12 +247,17 @@ impl Db {
                         row.get::<_, Option<i64>>(0)?,
                         row.get::<_, Option<i64>>(1)?,
                         row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, bool>(3)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((stored_progress_expires, stored_absolute_work_expires, stored_latest_progress)) =
-            stored_deadlines
+        let Some((
+            stored_progress_expires,
+            stored_absolute_work_expires,
+            stored_latest_progress,
+            accepted_boundary_is_new,
+        )) = stored_deadlines
         else {
             return Ok(false);
         };
@@ -330,13 +335,20 @@ impl Db {
         )?;
         if changed == 1 {
             transaction.commit()?;
-            crate::logging::log_receiver_lifecycle(
-                crate::logging::ReceiverLifecycleEvent::observation(if next == "accepted" {
-                    crate::logging::ReceiverLifecyclePhase::Accepted
-                } else {
-                    crate::logging::ReceiverLifecyclePhase::Processing
-                }),
-            );
+            if accepted.is_some() && accepted_boundary_is_new {
+                crate::logging::log_receiver_lifecycle(
+                    crate::logging::ReceiverLifecycleEvent::observation(
+                        crate::logging::ReceiverLifecyclePhase::Accepted,
+                    ),
+                );
+            }
+            if next == "processing" {
+                crate::logging::log_receiver_lifecycle(
+                    crate::logging::ReceiverLifecycleEvent::observation(
+                        crate::logging::ReceiverLifecyclePhase::Processing,
+                    ),
+                );
+            }
         }
         Ok(changed == 1)
     }

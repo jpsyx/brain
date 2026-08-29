@@ -53,11 +53,10 @@ impl Db {
 
     pub(super) fn log_receiver_summary(
         &self,
-        event: impl FnOnce(ReceiverWorkSummary) -> crate::logging::ReceiverLifecycleEvent,
+        event: impl FnOnce(Option<ReceiverWorkSummary>) -> crate::logging::ReceiverLifecycleEvent,
     ) {
-        if let Ok(summary) = self.receiver_work_summary() {
-            crate::logging::log_receiver_lifecycle(event(summary));
-        }
+        let summary = self.receiver_work_summary().ok();
+        crate::logging::log_receiver_lifecycle(event(summary));
     }
 }
 
@@ -170,7 +169,7 @@ fn count(value: i64, label: &str) -> Result<usize> {
 
 const SUMMARY_SQL: &str = "WITH
   agent_work AS (
-    SELECT state, recovery_count, received_at_unix_ms, job_id
+    SELECT state, recovery_count, attempt_kind, received_at_unix_ms, job_id
     FROM receiver_jobs
     WHERE workspace_id = ?1 AND (
       state IN ('queued', 'claimed', 'launching', 'launched', 'accepted', 'processing')
@@ -180,7 +179,7 @@ const SUMMARY_SQL: &str = "WITH
     )
   ),
   oldest AS (
-    SELECT state, recovery_count FROM agent_work
+    SELECT state, recovery_count, attempt_kind FROM agent_work
     ORDER BY received_at_unix_ms, job_id LIMIT 1
   ),
   delivery AS (
@@ -216,7 +215,7 @@ const SUMMARY_SQL: &str = "WITH
 SELECT
   (SELECT COUNT(*) FROM agent_work),
   (SELECT state FROM oldest),
-  (SELECT recovery_count FROM oldest),
+  (SELECT CASE WHEN attempt_kind = 'recovery' THEN recovery_count END FROM oldest),
   delivery.cleanup_gated,
   delivery.ready,
   delivery.delivering,
