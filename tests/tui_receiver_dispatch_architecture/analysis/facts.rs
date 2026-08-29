@@ -12,6 +12,7 @@ pub(crate) struct TypeFact {
     pub(super) borrowed: bool,
     pub(super) unresolved_glob: bool,
     pub(super) inbound_job: bool,
+    pub(super) job_socket: bool,
     pub(super) agent_controller: bool,
     pub(super) app: bool,
     pub(super) brain_panel: bool,

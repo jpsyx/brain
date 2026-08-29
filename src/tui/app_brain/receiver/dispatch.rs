@@ -1,7 +1,7 @@
 //! Durable receiver-run coordination from the application event loop.
 
 use crate::tui::App;
-use crate::tui::receiver::{ClaimedReceiverRun, DurableReceiverRun, ReceiverRemoteSession};
+use crate::tui::receiver::{ClaimedReceiverRun, DurableReceiverRun, ReceiverRunIdentity};
 
 pub(super) const CLAIM_LIFETIME_MS: u64 = 30_000;
 const DELIVERY_CLAIM_LIFETIME_MS: u64 = 60_000;
@@ -87,17 +87,17 @@ impl App {
         if !self.brain.receiver_run_observations().is_empty() {
             return;
         }
-        let remote = ReceiverRemoteSession::new(self.brain.instance());
+        let identity = ReceiverRunIdentity::new(self.brain.instance());
         let now = self.receiver_now_unix_ms();
         match self.services.claim_receiver_run(
-            remote.instance(),
+            identity.instance(),
             now,
             now.saturating_add(CLAIM_LIFETIME_MS),
         ) {
             Ok(Some(claim)) => {
                 self.continue_claimed_receiver_run(ClaimedReceiverRun {
                     claim,
-                    remote,
+                    identity,
                     freshness_ready: false,
                 });
             }

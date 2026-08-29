@@ -14,15 +14,15 @@ fn rollback_preserves_the_controller_shutdown_diagnostic_after_cleanup_and_durab
         .claim_receiver_run("receiver-claim", 1_000, 1_500)
         .expect("claim receiver job")
         .expect("ready receiver job");
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
     let registration = ReceiverSessionRegistration::register_fresh(
         &services,
         accepted.conversation_id(),
-        &remote,
+        &identity,
         42,
         &scope,
     )
-    .expect("register fresh remote placeholder");
+    .expect("register fresh isolated-run placeholder");
     let shutdowns = Arc::new(Mutex::new(0));
     let mut controller = AgentController::new(
         Arc::clone(&workspace),
@@ -52,7 +52,7 @@ fn rollback_preserves_the_controller_shutdown_diagnostic_after_cleanup_and_durab
     assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
     assert!(
         services
-            .locked_session_for_instance(remote.instance(), &scope)
+            .locked_session_for_instance(identity.instance(), &scope)
             .is_none(),
         "shutdown diagnostics must not skip exact registration cleanup"
     );
@@ -102,11 +102,11 @@ fn rollback_surfaces_explicit_registration_cleanup_failure_after_stopping_and_re
         .accept_receiver_job(&cleanup_inbound, &identity)
         .expect("accept cleanup-store conversation")
         .conversation_id();
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
     let registration = ReceiverSessionRegistration::register_fresh(
         &cleanup_store,
         cleanup_conversation,
-        &remote,
+        &identity,
         42,
         &scope,
     )

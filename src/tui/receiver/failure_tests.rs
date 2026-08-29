@@ -18,7 +18,7 @@ use crate::tui::state::{AppServices, AppServicesInit};
 use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::test_support::FailingReleaseStore;
-use super::{ReceiverRemoteSession, ReceiverSessionRegistration, rollback_receiver_launch};
+use super::{ReceiverRunIdentity, ReceiverSessionRegistration, rollback_receiver_launch};
 
 #[derive(Default)]
 struct NoopRunner;
@@ -225,7 +225,7 @@ fn retryable_launch_failures_exclude_post_spawn_allocation() {
 }
 
 #[test]
-fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote_ownership_and_retries()
+fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_run_ownership_and_retries()
  {
     for failure in ReceiverLaunchFailure::ALL {
         let workspace = workspace();
@@ -252,11 +252,11 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
                     .expect("prepare receiver launch")
             );
         }
-        let remote = ReceiverRemoteSession::new("interactive-shell");
+        let identity = ReceiverRunIdentity::new("interactive-shell");
         let registration = ReceiverSessionRegistration::register_fresh(
             &services,
             accepted.conversation_id(),
-            &remote,
+            &identity,
             42,
             &scope,
         )
@@ -289,9 +289,9 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
         assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
         assert!(
             services
-                .locked_session_for_instance(remote.instance(), &scope)
+                .locked_session_for_instance(identity.instance(), &scope)
                 .is_none(),
-            "{failure:?} must release the remote session owner"
+            "{failure:?} must release the isolated run owner"
         );
         assert_eq!(
             services

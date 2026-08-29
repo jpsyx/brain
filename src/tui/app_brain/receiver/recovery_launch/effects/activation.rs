@@ -122,7 +122,7 @@ impl App {
             &reservation,
             run.claimed.claim.job().id(),
             recovery_title(&run.claimed),
-            run.claimed.remote.instance().to_owned(),
+            run.claimed.identity.instance().to_owned(),
             controller,
         );
         #[cfg(test)]

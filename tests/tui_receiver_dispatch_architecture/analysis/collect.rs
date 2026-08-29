@@ -13,9 +13,9 @@ mod scope;
 mod symbols;
 
 use super::{
-    FunctionNode, Program, RawCall, TypeFact, classify_into_iteration, classify_operation,
-    is_global_inbound_consumer, is_into_iterator_dispatch, is_receiver_tick_call,
-    receiver_owned_module,
+    FunctionNode, Program, RawCall, TypeFact, classify_function_call, classify_into_iteration,
+    classify_operation, is_global_inbound_consumer, is_into_iterator_dispatch,
+    is_receiver_tick_call, receiver_owned_module, tui_receiver_owned_module,
 };
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
 use patterns::{bind_pattern, closure_parameter_fact};
@@ -71,6 +71,7 @@ fn collect_items(
         if item_is_test(item) {
             continue;
         }
+        collect_forbidden_receiver_declaration(item, &scope, audited_orphan, program);
         match item {
             syn::Item::Fn(function) => collect_function(
                 &function.sig,
@@ -93,6 +94,80 @@ fn collect_items(
             }
             _ => {}
         }
+    }
+}
+
+fn collect_forbidden_receiver_declaration(
+    item: &syn::Item,
+    scope: &Scope<'_>,
+    audited_orphan: bool,
+    program: &mut Program,
+) {
+    let receiver_owned = audited_orphan || receiver_owned_module(&scope.module);
+    if !receiver_owned {
+        return;
+    }
+    let lexical = Scope::lexical_scope(&[]);
+    let mut types = ReceiverOwnedTypeVisitor {
+        scope,
+        lexical: &lexical,
+        job_socket: false,
+    };
+    types.visit_item(item);
+    let mut violations = Vec::new();
+    if types.job_socket {
+        violations.push("receiver-owned JobSocket".to_owned());
+    }
+    let name = item_name(item);
+    if tui_receiver_owned_module(&scope.module)
+        && name.as_deref().is_some_and(|name| name.ends_with("Lease"))
+    {
+        violations.push("receiver-owned warm-panel lease".to_owned());
+    }
+    if violations.is_empty() {
+        return;
+    }
+    program.merge_function(FunctionNode {
+        id: format!(
+            "{}::<{}>",
+            scope.module.join("::"),
+            name.as_deref().unwrap_or("declaration")
+        ),
+        receiver_owned: true,
+        calls: Vec::new(),
+        violations,
+        global_consumer_violations: Vec::new(),
+    });
+}
+
+struct ReceiverOwnedTypeVisitor<'scope, 'symbols, 'lexical> {
+    scope: &'scope Scope<'symbols>,
+    lexical: &'lexical LexicalScope,
+    job_socket: bool,
+}
+
+impl<'ast> Visit<'ast> for ReceiverOwnedTypeVisitor<'_, '_, '_> {
+    fn visit_type(&mut self, ty: &'ast syn::Type) {
+        self.job_socket |= self
+            .scope
+            .type_fact_scoped(ty, self.lexical)
+            .any_variant(|fact| fact.job_socket);
+        syn::visit::visit_type(self, ty);
+    }
+}
+
+fn item_name(item: &syn::Item) -> Option<String> {
+    match item {
+        syn::Item::Const(item) => Some(item.ident.to_string()),
+        syn::Item::Enum(item) => Some(item.ident.to_string()),
+        syn::Item::Fn(item) => Some(item.sig.ident.to_string()),
+        syn::Item::Static(item) => Some(item.ident.to_string()),
+        syn::Item::Struct(item) => Some(item.ident.to_string()),
+        syn::Item::Trait(item) => Some(item.ident.to_string()),
+        syn::Item::TraitAlias(item) => Some(item.ident.to_string()),
+        syn::Item::Type(item) => Some(item.ident.to_string()),
+        syn::Item::Union(item) => Some(item.ident.to_string()),
+        _ => None,
     }
 }
 
@@ -231,6 +306,9 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(target) = call.func.as_ref() {
             let exact_target = self.scope.call_target_scoped(target, &self.lexical);
+            if let Some(violation) = classify_function_call(exact_target.as_deref()) {
+                self.violations.push(violation.to_owned());
+            }
             let name = target
                 .path
                 .segments

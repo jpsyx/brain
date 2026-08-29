@@ -164,12 +164,15 @@ fn spawn_failure_cleans_registration_and_schedules_preacceptance_retry() {
 }
 
 #[test]
-fn every_frontend_gets_an_isolated_controller_and_remote_instance() {
+fn every_frontend_uses_initial_launch_data_without_borrowing_the_main_controller() {
     for kind in AgentKind::ALL {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let cli = Cli::parse_from(["tasks"]);
         let mut app = test_app(&temporary, &cli, kind);
         app.receiver.record_intent(true);
+        let (main, main_recording) = recording_controller(&app, true, "busy main");
+        app.brain.install_main(main);
+        app.brain.mark_turn_started();
         let mut config = app.context.config().clone();
         config.access_mode = crate::access::AccessMode::WorkspaceOnly;
         app.context = app.context.replacing_config(config);
@@ -242,6 +245,14 @@ fn every_frontend_gets_an_isolated_controller_and_remote_instance() {
         assert_ne!(instance, "shell-under-test");
         assert_eq!(specs[0].cwd, app.context.workspace().root());
         assert!(specs[0].command.contains("frontend-neutral run"));
+        assert!(
+            transport.inputs().is_empty(),
+            "{kind:?} receiver prompt was injected after launch"
+        );
+        assert!(
+            main_recording.events().is_empty(),
+            "{kind:?} receiver launch touched the main controller"
+        );
         assert!(
             specs[0]
                 .environment

@@ -110,6 +110,15 @@ pub(super) fn receiver_owned_module(module: &[String]) -> bool {
     })
 }
 
+pub(super) fn tui_receiver_owned_module(module: &[String]) -> bool {
+    module
+        .windows(2)
+        .any(|segments| segments == ["tui", "receiver"])
+        || module
+            .windows(2)
+            .any(|segments| segments == ["app_brain", "receiver"])
+}
+
 pub(super) fn is_receiver_tick_call(owner: &TypeFact, method: &str) -> bool {
     method == "tick_receiver" && owner.any_variant(|variant| variant.app)
 }
@@ -143,6 +152,12 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
             "take_main" | "install_main" | "main_controller" | "main_controller_mut" => {
                 Some("interactive main-panel controller access")
             }
+            "active_brain_controller" | "active_brain_controller_mut" => {
+                Some("interactive selected-panel controller access")
+            }
+            "focus_brain" | "select_brain_tab" | "select_brain_tab_slot" | "cycle_brain_tab" => {
+                Some("interactive selected-panel takeover")
+            }
             _ => None,
         };
     }
@@ -159,6 +174,13 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
         return Some("in-memory receiver queue consume");
     }
     None
+}
+
+pub(super) fn classify_function_call(target: Option<&str>) -> Option<&'static str> {
+    match target {
+        Some("std::thread::sleep" | "tokio::time::sleep") => Some("blocking activity wait"),
+        _ => None,
+    }
 }
 
 pub(super) fn is_global_inbound_consumer(owner: &TypeFact, method: &str) -> bool {

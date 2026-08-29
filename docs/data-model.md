@@ -1532,12 +1532,14 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
-The TUI keeps at most one durable receiver run locally. Its local state
+The TUI keeps at most one durable receiver run locally. This is transient effect
+state, not an inbound work queue or scheduling authority; every later boundary
+revalidates the durable owner in the state DB. Its local state
 distinguishes ordinary claimed, recovery claimed, active, answer cleanup, and
 recovery cleanup. Recovery cleanup remembers whether controller shutdown and
 artifact removal already succeeded, so retries do not re-enter active renewal
 or repeat completed steps. Answer cleanup uses its separate state row after the
-answer transaction releases agent ownership. A separate bounded FIFO holds up
+answer transaction releases agent ownership. A separate bounded cleanup FIFO holds up
 to eight exact controllers awaiting confirmed shutdown, independent of the one
 durable receiver run. One cleanup controller is retried per cleanup pass and a failure
 rotates to the back; a ninth completed run stays in its exact tab until capacity

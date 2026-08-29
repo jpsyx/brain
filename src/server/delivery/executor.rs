@@ -36,7 +36,7 @@ impl<T> std::fmt::Debug for DeliveryExecutorFull<T> {
     }
 }
 
-/// A bounded single-worker executor whose reservation precedes durable IO-start publication.
+/// A bounded effect worker; durable state alone authorizes and records provider IO.
 pub(crate) struct BoundedDeliveryExecutor<T, R> {
     sender: Option<std::sync::mpsc::SyncSender<ReservedDelivery<T, R>>>,
     results: std::sync::mpsc::Receiver<DeliveryExecutorResult<T, R>>,

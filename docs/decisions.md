@@ -3089,6 +3089,14 @@ separates atomic answer-ready persistence from delivery-only recovery, and
 BR-18 removed the final retained endpoint representation while leaving schema
 v13 unchanged.
 
+The rule is enforced structurally, not as a compatibility scan. The
+syntax-aware production graph rejects receiver-owned endpoint or inbound-job
+consumer representations, warm-panel leases, main- or selected-panel access,
+screen/activity waits, and interactive controller input or queued prompts.
+Mutation controls preserve ordinary interactive input, provider-result and
+cleanup queues, and server watchdogs. Every frontend's fresh and native-resume
+receiver prompt remains initial launch data for a new isolated controller.
+
 ## Commit the portable answer before provider delivery
 
 Receiver lifecycle completion proves that an exact native session stopped, but

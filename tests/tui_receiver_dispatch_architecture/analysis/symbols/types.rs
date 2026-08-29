@@ -92,7 +92,7 @@ impl Symbols {
                     );
                     let frame = lexical_alias_frame(&key, &parameters, &bindings);
                     if resolving.contains(&frame) {
-                        return fact_for_canonical(key, false);
+                        return fact_for_canonical(key, false, false);
                     }
                     resolving.push(frame);
                     self.apply_lexical_alias_defaults(
@@ -133,13 +133,20 @@ impl Symbols {
                     resolving.pop();
                     return fact;
                 }
-                let inbound_job = path.path.segments.iter().any(|segment| {
-                    generic_types(segment).into_iter().any(|ty| {
-                        self.type_fact_inner(module, ty, lexical, resolving, type_parameters)
-                            .any_variant(|fact| fact.inbound_job)
-                    })
-                });
-                let mut fact = fact_for_canonical(canonical.clone(), inbound_job);
+                let generic_facts = path
+                    .path
+                    .segments
+                    .iter()
+                    .flat_map(generic_types)
+                    .map(|ty| self.type_fact_inner(module, ty, lexical, resolving, type_parameters))
+                    .collect::<Vec<_>>();
+                let inbound_job = generic_facts
+                    .iter()
+                    .any(|fact| fact.any_variant(|fact| fact.inbound_job));
+                let job_socket = generic_facts
+                    .iter()
+                    .any(|fact| fact.any_variant(|fact| fact.job_socket));
+                let mut fact = fact_for_canonical(canonical.clone(), inbound_job, job_socket);
                 if let Some(definition) = self.structs.get(&canonical) {
                     fact.type_arguments = self.struct_type_arguments(
                         definition,
@@ -234,9 +241,10 @@ fn lexical_alias(
     lexical.alias_definition(&path.path.segments[0].ident.to_string())
 }
 
-fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
+fn fact_for_canonical(canonical: String, inbound_job: bool, job_socket: bool) -> TypeFact {
     let unresolved_glob = canonical.starts_with("<ambiguous-glob>::");
     let inbound_job = inbound_job || canonical == "crate::server::receiver::job::InboundJob";
+    let job_socket = job_socket || canonical == "crate::tui::singleton::JobSocket";
     let agent_controller = canonical == "crate::agent::controller::AgentController";
     let app = canonical == "crate::tui::App";
     let brain_panel = canonical == "crate::tui::state::brain::BrainPanelState";
@@ -250,6 +258,7 @@ fn fact_for_canonical(canonical: String, inbound_job: bool) -> TypeFact {
         borrowed: false,
         unresolved_glob,
         inbound_job,
+        job_socket,
         agent_controller,
         app,
         brain_panel,

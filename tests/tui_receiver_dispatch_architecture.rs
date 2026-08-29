@@ -20,6 +20,8 @@ mod round_nine_mutations;
 mod round_seven_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_six_mutations.rs"]
 mod round_six_mutations;
+#[path = "tui_receiver_dispatch_architecture/round_sixteen_mutations.rs"]
+mod round_sixteen_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_ten_mutations.rs"]
 mod round_ten_mutations;
 #[path = "tui_receiver_dispatch_architecture/round_thirteen_mutations.rs"]
@@ -129,25 +131,13 @@ fn event_loop_has_only_one_receiver_consumer() {
 }
 
 #[test]
-fn receiver_source_cannot_reach_interactive_execution_or_activity_waits() {
+fn receiver_source_has_no_injection_architecture() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let violations = analysis::receiver_violations(root);
 
     assert!(
         violations.is_empty(),
-        "receiver-facing production source reaches the interactive panel or waits on its activity:\n{}",
-        violations.join("\n")
-    );
-}
-
-#[test]
-fn receiver_source_has_no_socket_or_in_memory_consumer() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let violations = analysis::receiver_violations(root);
-
-    assert!(
-        violations.is_empty(),
-        "production source retains a socket or in-memory receiver consumer:\n{}",
+        "production source regained receiver injection architecture:\n{}",
         violations.join("\n")
     );
 }

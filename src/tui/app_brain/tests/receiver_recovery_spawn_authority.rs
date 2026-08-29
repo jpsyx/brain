@@ -304,11 +304,11 @@ fn assert_spawned_capability(fixture: &DueRecoveryFixture) {
     assert_eq!(spawned.claimed.claim.job().token(), fixture.token);
     assert_eq!(
         spawned.claimed.claim.claim().owner(),
-        spawned.claimed.remote.instance()
+        spawned.claimed.identity.instance()
     );
     assert_eq!(
         spawned.attribution.instance(),
-        spawned.claimed.remote.instance()
+        spawned.claimed.identity.instance()
     );
     assert_eq!(spawned.attribution.registered_session(), &fixture.session);
     assert_eq!(spawned.attribution.scope().agent_kind(), AgentKind::Claude);

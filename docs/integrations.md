@@ -1484,10 +1484,12 @@ and enabled, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, and reauthorizes that exact claim
 after each potentially slow capability, validation, registration, spawn, and
-allocation boundary. It then registers a unique remote instance and spawns a
-new controller and PTY for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
+allocation boundary. It then registers a unique isolated-run instance and spawns a
+new controller and PTY for Claude, Codex, or OpenCode. Fresh and native-resume
+prompts are part of that controller's initial launch request; no post-launch
+typing or submission is involved. The new receiver tab is inserted in the
 background without selecting it or changing view, visibility, or focus. No
-receiver path types into, submits through, or otherwise injects the main panel.
+receiver path selects, borrows, types into, submits through, or otherwise injects the main panel.
 The tab collection rejects and shuts down a second simultaneous receiver
 controller before insertion, without moving the user.
 
@@ -1690,9 +1692,12 @@ enabled tick executes the schema-v10 recovery policy first.
 BR-15 owns exact accepted/progress observations, and BR-17 now owns atomic
 answer persistence, generic delivery-only retry, durable semantic notices and
 controls, frozen-authority fallback, schema reconciliation, and content-free
-delivery status and diagnostics. BR-18 removes the legacy endpoint
-representation; receiver injection, warm-panel reuse, activity inference, and
-the second execution cursor are already absent.
+delivery status and diagnostics. BR-18 makes that absence structural:
+syntax-aware mutation guards reject receiver-owned endpoint and inbound-consumer
+representations, warm-panel leases, main- or selected-panel takeover,
+screen/activity waits, and interactive `AgentController` input or prompt queues.
+Generic interactive controller input, bounded provider-result and cleanup
+queues, and the server watchdog remain valid.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.

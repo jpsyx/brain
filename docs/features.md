@@ -1547,11 +1547,13 @@ the interactive main panel. The one recurring TUI tick keeps at most one live
 receiver run for the workspace process, launches it in a background tab with a
 dedicated `AgentController` and PTY, and leaves later arrivals durable and
 unclaimed. Claude, Codex, and OpenCode use the same launch, lifecycle,
-completion, and shutdown facade. Receiver launch and terminal close never
+completion, and shutdown facade. Fresh and native-resume prompts are passed in
+the isolated controller's initial launch request, never as interactive input to
+that controller or the selected main-panel controller. Receiver launch and terminal close never
 change the current main view, selected tab, panel visibility, or keyboard
 focus; ordinary interactive input remains available on the user's selected
-tab. There is no receiver screen sampling, panel-activity wait, warm-panel
-lease, or local-input lock.
+tab. There is no receiver socket, in-memory inbound queue, screen sampling,
+panel-activity wait, warm-panel lease, or local-input lock.
 
 Each active tick renews the exact claim, resolves the lifecycle-owned native
 session for the isolated receiver tab, and asks that tab's `AgentController`

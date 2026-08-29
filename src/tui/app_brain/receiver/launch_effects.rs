@@ -105,7 +105,7 @@ impl<'app> ReceiverLaunchEffects<'app> {
         let tab = brain.add_receiver_run(
             claimed.claim.job().id(),
             title,
-            claimed.remote.instance().to_owned(),
+            claimed.identity.instance().to_owned(),
             controller,
         );
         #[cfg(test)]

@@ -1,4 +1,4 @@
-//! Durable receiver scheduling state.
+//! Bounded receiver effects; the state DB remains the scheduling authority.
 
 use std::time::Instant;
 
@@ -56,7 +56,9 @@ struct ReceiverSyncGate {
 pub(crate) struct ReceiverRuntime {
     enabled: bool,
     sync_gate: Option<ReceiverSyncGate>,
+    // This effect state is revalidated against durable ownership on later ticks.
     durable_run: DurableReceiverRun,
+    // Cleanup is bounded separately so completed answers cannot block the next claim.
     answer_controller_cleanups: std::collections::VecDeque<ReceiverAnswerControllerCleanup>,
     #[cfg(test)]
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,

@@ -172,7 +172,7 @@ impl App {
             claimed.claim.job(),
             claimed.claim.conversation(),
             &local_attachment_paths,
-            claimed.remote.placeholder().clone(),
+            claimed.identity.placeholder().clone(),
             resume_session,
         ) else {
             if let Some(registration) = resume_registration {
@@ -189,7 +189,7 @@ impl App {
             let registration = ReceiverSessionRegistration::register_fresh(
                 &self.services,
                 claimed.claim.job().conversation_id(),
-                &claimed.remote,
+                &claimed.identity,
                 pid,
                 &scope,
             );
@@ -305,7 +305,7 @@ impl App {
         HookMetadata::new(vec![
             (
                 "BRAIN_INSTANCE_ID".to_owned(),
-                claimed.remote.instance().to_owned(),
+                claimed.identity.instance().to_owned(),
             ),
             ("BRAIN_PID".to_owned(), pid.to_string()),
             (
@@ -314,7 +314,7 @@ impl App {
             ),
             (
                 "BRAIN_RESPONSE_ID".to_owned(),
-                claimed.remote.instance().to_owned(),
+                claimed.identity.instance().to_owned(),
             ),
             (
                 "BRAIN_RESPONSE_DIR".to_owned(),
@@ -335,7 +335,7 @@ impl App {
                     .workspace()
                     .paths()
                     .receiver_observations_dir()
-                    .join(format!("{}.json", claimed.remote.instance()))
+                    .join(format!("{}.json", claimed.identity.instance()))
                     .display()
                     .to_string(),
             ),

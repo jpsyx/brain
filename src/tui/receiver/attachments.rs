@@ -117,6 +117,7 @@ impl PreparedReceiverAttachments {
     }
 }
 
+/// One transient staging effect; the durable job remains the launch authority.
 pub(crate) struct ReceiverAttachmentCoordinator {
     runtime: Box<dyn ReceiverAttachmentRuntime>,
     active: Option<ReceiverAttachmentStage>,
