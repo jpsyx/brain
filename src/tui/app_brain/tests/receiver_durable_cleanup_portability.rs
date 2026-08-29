@@ -61,6 +61,12 @@ fn runtime_recovers_a_new_quarantine_without_nofollow_path_chmod_support() {
         "interruption discarded runtime cleanup authority"
     );
     assert!(
+        cleanup_quarantine(response.parent().expect("response directory"))
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with("-pending")),
+        "moved artifact quarantine was not durably pending"
+    );
+    assert!(
         quarantine_contains_inode(
             response.parent().expect("response directory"),
             artifact_inode
@@ -148,4 +154,114 @@ fn runtime_blocks_quarantine_entry_replacement_before_unlink() {
         quarantine.join("artifact").exists(),
         "cleanup unlinked a replacement quarantine entry"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_blocks_reappeared_original_after_artifact_unlink_interruption() {
+    let (temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer removed before directory cleanup");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+    let replacement_path = response.clone();
+
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::workspace::with_secure_remove_test_hook(
+            move |boundary, relative| {
+                if boundary
+                    == crate::workspace::SecureRemoveTestBoundary::QuarantineArtifactUnlinkedBeforeDirectoryRemoval
+                    && relative == expected_relative
+                {
+                    std::fs::write(&replacement_path, "replacement private artifact")
+                        .expect("reintroduce original cleanup name");
+                    panic!("simulated interruption after quarantine artifact unlink");
+                }
+            },
+            || app.tick_receiver(),
+        );
+    }));
+    assert!(
+        interrupted.is_err(),
+        "cleanup interruption hook did not run"
+    );
+    assert!(cleanup_authority_exists(&app, first.job_id()));
+    assert!(
+        cleanup_quarantine(response.parent().expect("response directory"))
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with("-active")),
+        "post-unlink quarantine did not retain its active phase"
+    );
+    drop(app);
+
+    let cli = Cli::parse_from(["tasks"]);
+    let mut restarted = test_app(&temporary, &cli, AgentKind::Claude);
+    restarted.receiver.record_intent(true);
+    restarted
+        .brain
+        .replace_receiver_transport(TransportRecording::default().transport());
+    restarted.tick_receiver();
+
+    assert!(
+        cleanup_authority_exists(&restarted, first.job_id()),
+        "empty quarantine retry discarded cleanup authority"
+    );
+    assert!(
+        response.exists(),
+        "empty quarantine retry deleted the replacement"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_recovers_an_interruption_immediately_after_quarantine_promotion() {
+    let (temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer retained after phase promotion");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::workspace::with_secure_remove_test_hook(
+            move |boundary, relative| {
+                if boundary
+                    == crate::workspace::SecureRemoveTestBoundary::QuarantinePromotedBeforeArtifactVerification
+                    && relative == expected_relative
+                {
+                    panic!("simulated interruption after quarantine promotion");
+                }
+            },
+            || app.tick_receiver(),
+        );
+    }));
+    assert!(
+        interrupted.is_err(),
+        "cleanup interruption hook did not run"
+    );
+    assert!(cleanup_authority_exists(&app, first.job_id()));
+    assert!(
+        cleanup_quarantine(response.parent().expect("response directory"))
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with("-active")),
+        "promoted quarantine did not persist its active phase"
+    );
+    drop(app);
+
+    let cli = Cli::parse_from(["tasks"]);
+    let mut restarted = test_app(&temporary, &cli, AgentKind::Claude);
+    restarted.receiver.record_intent(true);
+    restarted
+        .brain
+        .replace_receiver_transport(TransportRecording::default().transport());
+    restarted.tick_receiver();
+
+    assert!(
+        !cleanup_authority_exists(&restarted, first.job_id()),
+        "promoted quarantine interruption stranded cleanup authority"
+    );
+    assert!(!response.exists());
 }

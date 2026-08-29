@@ -1,8 +1,6 @@
-use std::{
-    ffi::OsString,
-    os::unix::ffi::{OsStrExt as _, OsStringExt as _},
-    path::Path,
-};
+use std::{ffi::OsString, os::unix::ffi::OsStrExt as _, path::Path};
+
+mod phase;
 
 use nix::{
     dir::Dir,
@@ -18,12 +16,21 @@ use super::{
     OwnedDescriptor, exact_name_is_absent, file_flags, identity_changed, io_error,
     open_directory_at,
 };
+use phase::{BoundQuarantine, QuarantinePhase, parse_bound_name, pending_name};
 
 const MAX_BOUND_QUARANTINES: usize = 8;
 
 pub(super) struct Quarantine {
     pub(super) name: OsString,
     pub(super) descriptor: OwnedDescriptor,
+    phase: QuarantinePhase,
+}
+
+pub(super) fn promote_quarantine(
+    parent: &OwnedDescriptor,
+    quarantine: &mut Quarantine,
+) -> std::io::Result<()> {
+    phase::promote(parent, quarantine)
 }
 
 pub(super) fn create_quarantine(
@@ -32,33 +39,29 @@ pub(super) fn create_quarantine(
 ) -> std::io::Result<Quarantine> {
     let prefix = bound_quarantine_prefix(target);
     for _ in 0..MAX_BOUND_QUARANTINES {
-        let name = OsString::from(format!("{prefix}{}", uuid::Uuid::new_v4()));
+        let name = pending_name(&prefix);
         match mkdirat(
             Some(parent.raw()),
             Path::new(&name),
             Mode::from_bits_truncate(0o700),
         ) {
-            Ok(()) => match open_directory_at(parent, &name) {
-                Ok(descriptor) => {
-                    if let Err(error) = fchmod(descriptor.raw(), Mode::from_bits_truncate(0o700)) {
-                        let _ = unlinkat(
-                            Some(parent.raw()),
-                            Path::new(&name),
-                            UnlinkatFlags::RemoveDir,
-                        );
-                        return Err(io_error(error));
+            Ok(()) => {
+                #[cfg(test)]
+                super::observe_test_boundary(
+                    super::SecureRemoveTestBoundary::QuarantineCreatedBeforeOpen,
+                    Path::new(target),
+                );
+                match open_verified_quarantine(parent, &name) {
+                    Ok(descriptor) => {
+                        return Ok(Quarantine {
+                            name,
+                            descriptor,
+                            phase: QuarantinePhase::Pending,
+                        });
                     }
-                    return Ok(Quarantine { name, descriptor });
+                    Err(error) => return Err(error),
                 }
-                Err(error) => {
-                    let _ = unlinkat(
-                        Some(parent.raw()),
-                        Path::new(&name),
-                        UnlinkatFlags::RemoveDir,
-                    );
-                    return Err(error);
-                }
-            },
+            }
             Err(Errno::EEXIST) => {}
             Err(error) => return Err(io_error(error)),
         }
@@ -78,8 +81,8 @@ pub(super) fn recover_bound_quarantines(
         return Ok(false);
     }
     let mut recovered_artifact = false;
-    for name in names {
-        recovered_artifact |= recover_one(parent, target, &name)?;
+    for bound in names {
+        recovered_artifact |= recover_one(parent, target, bound)?;
     }
     if !discover_bound_quarantines(parent, target)?.is_empty() {
         mark_cleanup_blocked(parent, target)?;
@@ -99,7 +102,7 @@ pub(super) fn recover_bound_quarantines(
 fn discover_bound_quarantines(
     parent: &OwnedDescriptor,
     target: &std::ffi::OsStr,
-) -> std::io::Result<Vec<OsString>> {
+) -> std::io::Result<Vec<BoundQuarantine>> {
     let prefix = bound_quarantine_prefix(target);
     let duplicate = dup(parent.raw()).map_err(io_error)?;
     let mut directory = Dir::from_fd(duplicate).map_err(io_error)?;
@@ -110,63 +113,37 @@ fn discover_bound_quarantines(
         if !bytes.starts_with(prefix.as_bytes()) {
             continue;
         }
-        let suffix = &bytes[prefix.len()..];
-        let valid_random_uuid = std::str::from_utf8(suffix)
-            .ok()
-            .and_then(|value| uuid::Uuid::parse_str(value).ok())
-            .is_some_and(|value| value.get_version() == Some(uuid::Version::Random));
-        if !valid_random_uuid {
+        let Some(bound) = parse_bound_name(bytes, prefix.len()) else {
             mark_cleanup_blocked(parent, target)?;
             return Err(identity_changed());
-        }
-        names.push(OsString::from_vec(bytes.to_vec()));
+        };
+        names.push(bound);
         if names.len() > MAX_BOUND_QUARANTINES {
             mark_cleanup_blocked(parent, target)?;
             return Err(identity_changed());
         }
     }
-    names.sort();
+    names.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(names)
 }
 
 fn recover_one(
     parent: &OwnedDescriptor,
     target: &std::ffi::OsStr,
-    name: &std::ffi::OsStr,
+    bound: BoundQuarantine,
 ) -> std::io::Result<bool> {
-    let parent_stat = fstat(parent.raw()).map_err(io_error)?;
-    let entry = fstatat(
-        Some(parent.raw()),
-        Path::new(name),
-        AtFlags::AT_SYMLINK_NOFOLLOW,
-    )
-    .map_err(io_error)?;
-    if !SFlag::from_bits_truncate(entry.st_mode).contains(SFlag::S_IFDIR)
-        || entry.st_uid != parent_stat.st_uid
-    {
-        mark_cleanup_blocked(parent, target)?;
-        return Err(identity_changed());
-    }
-    let descriptor = match open_directory_at(parent, name) {
-        Ok(descriptor) => descriptor,
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            if let Err(error) = restore_legacy_quarantine_mode(parent, name) {
-                mark_cleanup_blocked(parent, target)?;
-                return Err(error);
-            }
-            open_directory_at(parent, name)?
+    let descriptor = match open_verified_quarantine(parent, &bound.name) {
+        Ok(opened) => opened,
+        Err(error) => {
+            mark_cleanup_blocked(parent, target)?;
+            return Err(error);
         }
-        Err(error) => return Err(error),
     };
     let opened = fstat(descriptor.raw()).map_err(io_error)?;
-    if opened.st_dev != entry.st_dev || opened.st_ino != entry.st_ino {
-        mark_cleanup_blocked(parent, target)?;
-        return Err(identity_changed());
-    }
-    fchmod(descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
     let quarantine = Quarantine {
-        name: name.to_os_string(),
+        name: bound.name,
         descriptor,
+        phase: bound.phase,
     };
     let artifact_entry = match fstatat(
         Some(quarantine.descriptor.raw()),
@@ -175,12 +152,17 @@ fn recover_one(
     ) {
         Ok(entry) => entry,
         Err(Errno::ENOENT) => {
-            if exact_name_is_absent(parent, target)? {
-                remove_empty_quarantine(parent, &quarantine)?;
-                return Ok(false);
+            if !exact_name_is_absent(parent, target)?
+                && quarantine.phase != QuarantinePhase::Pending
+            {
+                fail_closed(parent, target, &quarantine)?;
+                return Err(identity_changed());
             }
-            fail_closed(parent, target, &quarantine)?;
-            return Err(identity_changed());
+            if let Err(error) = remove_empty_quarantine(parent, &quarantine) {
+                fail_closed(parent, target, &quarantine)?;
+                return Err(error);
+            }
+            return Ok(false);
         }
         Err(error) => return Err(io_error(error)),
     };
@@ -189,6 +171,11 @@ fn recover_one(
     {
         fail_closed(parent, target, &quarantine)?;
         return Err(identity_changed());
+    }
+    let mut quarantine = quarantine;
+    if let Err(error) = promote_quarantine(parent, &mut quarantine) {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(error);
     }
     let artifact = openat(
         Some(quarantine.descriptor.raw()),
@@ -239,19 +226,69 @@ fn recover_one(
     Ok(true)
 }
 
-fn restore_legacy_quarantine_mode(
+fn open_verified_quarantine(
     parent: &OwnedDescriptor,
     name: &std::ffi::OsStr,
+) -> std::io::Result<OwnedDescriptor> {
+    let parent_stat = fstat(parent.raw()).map_err(io_error)?;
+    let expected = fstatat(
+        Some(parent.raw()),
+        Path::new(name),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
+    if !SFlag::from_bits_truncate(expected.st_mode).contains(SFlag::S_IFDIR)
+        || expected.st_uid != parent_stat.st_uid
+    {
+        return Err(identity_changed());
+    }
+    let descriptor = match open_directory_at(parent, name) {
+        Ok(descriptor) => descriptor,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            chmod_quarantine_at(parent, name, FchmodatFlags::FollowSymlink)?;
+            open_directory_at(parent, name)?
+        }
+        Err(error) => return Err(error),
+    };
+    let opened = fstat(descriptor.raw()).map_err(io_error)?;
+    if opened.st_dev != expected.st_dev
+        || opened.st_ino != expected.st_ino
+        || !SFlag::from_bits_truncate(opened.st_mode).contains(SFlag::S_IFDIR)
+        || opened.st_uid != parent_stat.st_uid
+    {
+        return Err(identity_changed());
+    }
+    fchmod(descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
+    let final_entry = fstatat(
+        Some(parent.raw()),
+        Path::new(name),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
+    if final_entry.st_dev != opened.st_dev
+        || final_entry.st_ino != opened.st_ino
+        || !SFlag::from_bits_truncate(final_entry.st_mode).contains(SFlag::S_IFDIR)
+        || final_entry.st_uid != parent_stat.st_uid
+    {
+        return Err(identity_changed());
+    }
+    Ok(descriptor)
+}
+
+fn chmod_quarantine_at(
+    parent: &OwnedDescriptor,
+    name: &std::ffi::OsStr,
+    flags: FchmodatFlags,
 ) -> std::io::Result<()> {
     #[cfg(test)]
-    if recovery_nofollow_chmod_unsupported() {
+    if matches!(flags, FchmodatFlags::NoFollowSymlink) && recovery_nofollow_chmod_unsupported() {
         return Err(io_error(Errno::EOPNOTSUPP));
     }
     fchmodat(
         Some(parent.raw()),
         Path::new(name),
         Mode::from_bits_truncate(0o700),
-        FchmodatFlags::NoFollowSymlink,
+        flags,
     )
     .map_err(io_error)
 }
@@ -261,6 +298,22 @@ pub(super) fn remove_empty_quarantine(
     quarantine: &Quarantine,
 ) -> std::io::Result<()> {
     fchmod(quarantine.descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
+    let held = fstat(quarantine.descriptor.raw()).map_err(io_error)?;
+    let entry = match fstatat(
+        Some(parent.raw()),
+        Path::new(&quarantine.name),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) => entry,
+        Err(Errno::ENOENT) if exact_name_is_absent(parent, &quarantine.name)? => return Ok(()),
+        Err(error) => return Err(io_error(error)),
+    };
+    if entry.st_dev != held.st_dev
+        || entry.st_ino != held.st_ino
+        || !SFlag::from_bits_truncate(entry.st_mode).contains(SFlag::S_IFDIR)
+    {
+        return Err(identity_changed());
+    }
     match unlinkat(
         Some(parent.raw()),
         Path::new(&quarantine.name),

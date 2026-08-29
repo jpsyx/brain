@@ -4,8 +4,11 @@ use std::path::Path;
 pub(crate) enum SecureRemoveTestBoundary {
     OpenBeforeEntryStat,
     EntryIdentityVerifiedBeforeRename,
+    QuarantineCreatedBeforeOpen,
     QuarantineRenameBeforeVerification,
+    QuarantinePromotedBeforeArtifactVerification,
     QuarantineIdentityVerified,
+    QuarantineArtifactUnlinkedBeforeDirectoryRemoval,
     RenameMissingBeforeAbsenceCheck,
 }
 

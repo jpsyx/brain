@@ -3139,14 +3139,23 @@ with the parent-relative no-follow identity, and require a regular file. The
 leaf is atomically moved into a private quarantine below the held parent. The
 name carries a UUIDv5 tag of the raw leaf bytes and a UUIDv4 nonce, which is
 collision-resistant without disclosing the leaf and is rediscoverable after a
-crash. The moved entry is opened and verified again, and its directory remains
-owner-private mode `0700` so every quarantine this version creates is
-restart-openable on generic Unix without `fchmodat(AT_SYMLINK_NOFOLLOW)`.
-A retry duplicates the held parent descriptor, scans every entry, opens each
-match no-follow, validates its descriptor identity and ownership, and performs
-mode correction only through that verified descriptor. A legacy mode-`000`
-quarantine may attempt the older path operation; lack of platform support
-installs the blocker and fails closed instead of dropping authority. Recovery
+crash. The moved entry is opened and verified again, and Brain sets its
+directory to owner-private mode `0700`. Because the process umask can reduce
+the initial `mkdirat(0700)` mode as far as `000`, creation and retry first
+inspect the random bound entry without following links and validate its type
+and owner. When permissions prevent the no-follow open, Brain uses portable
+flags-zero `fchmodat` relative to the held parent, opens no-follow, and
+revalidates device, inode, type, and owner before descriptor mode correction or
+use. Recovery therefore does not require `fchmodat(AT_SYMLINK_NOFOLLOW)`.
+Each current quarantine name carries a `pending` or `active` phase after its
+random nonce. It begins pending. After moving the artifact, Brain verifies the
+held directory against its parent-relative name, atomically renames that same
+directory to active through the held parent, and revalidates its inode before
+any artifact unlink. Recovery promotes a pending directory that contains an
+artifact before unlinking it. A pending empty directory proves interruption
+before the move and can be removed before normal cleanup continues. An active
+or legacy empty directory with a reappeared original name blocks instead of
+deleting the replacement. Recovery
 handles up to eight sorted matching quarantines before returning success.
 Malformed matching names, a
 ninth match, a nonempty recovery rescan, original-name reappearance (including
@@ -3157,14 +3166,17 @@ observation artifact. Failure preserves runtime cleanup authority, or aborts
 downgrade while schema v12 remains intact. Exact-name absence is the only
 idempotent `ENOENT` case, and success means no matching quarantine remains.
 
-Mode `0700`, the atomic rename, and the collision-resistant random quarantine
-name isolate private data from other users and from accidental or ordinary path
-replacement. Unix cannot defend this directory from a malicious process with
-the same UID: that process owns the directory and can chmod or modify it, so
-Brain does not claim absolute same-UID race immunity. Brain does perform a
-final descriptor-relative inode check and fails closed on any substitution
-observable before unlink; the durable cleanup row remains the authority for a
-later safe retry.
+Mode `0700` after opening, the atomic rename, and the collision-resistant random
+quarantine name isolate private data from other users and from accidental or
+ordinary path replacement. The flags-zero chmod used only to recover an
+owner-created mode-`000` directory follows the validated name before the
+no-follow open and identity recheck. Unix cannot defend this interval from a
+malicious process with the same UID: that process owns the parent and can chmod
+or modify it, so Brain does not claim absolute same-UID race immunity. Brain
+does perform descriptor and parent-relative identity checks after opening and
+immediately before removal, and fails closed on every substitution observable
+at those boundaries; the durable cleanup row remains the authority for a later
+safe retry.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

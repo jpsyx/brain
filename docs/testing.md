@@ -1308,9 +1308,17 @@ schema v12 intact, and successful exact cleanup after restoration. The
 deterministic cleanup hooks also replace the original leaf after quarantine
 identity verification, remove it after open before the entry stat, interrupt
 before quarantine verification and after identity verification, and
-reintroduce the original after a missing rename. A portability seam makes the
-legacy no-follow path chmod return `EOPNOTSUPP`; a quarantine created by the
-current mode-`0700` design still recovers after a real App restart. A final
+reintroduce the original after a missing rename. Exact-test child processes set
+umask `0777` without racing the main suite and inspect, without chmod, that
+`mkdirat(0700)` produced mode `000`. They prove normal cleanup and interruption
+immediately after mkdir both recover, including after a real App restart, while
+a portability seam makes no-follow path chmod return `EOPNOTSUPP`. Further
+crash seams cover an artifact moved while its quarantine is pending, the exact
+boundary after atomic active-phase promotion, and the empty active directory
+after artifact unlink. They prove pending artifacts promote before unlink,
+pending empties retry under ordinary and restrictive umasks, and active empties
+with original-name reappearance retain authority without deleting the
+replacement. A final
 race hook replaces the quarantine's artifact after identity verification and
 proves the immediate pre-unlink inode check retains both private data and
 cleanup authority. These cases prove the original-name replacement is never unlinked, interrupted

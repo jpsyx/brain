@@ -1510,14 +1510,24 @@ On Unix, each artifact removal walks every ancestor through no-follow directory
 descriptors, opens the exact regular leaf, and atomically renames that leaf into
 a private quarantine below the held parent. Its name combines a UUIDv5 tag of
 the raw leaf bytes with a fresh UUIDv4 nonce, so restart can rediscover the
-artifact without persisting or exposing the raw leaf. Brain opens and verifies
-the moved entry against the original descriptor and keeps the quarantine at
-owner-private mode `0700`, which remains restart-openable without path-based
-no-follow chmod support. Before ordinary removal, a retry duplicates the held
+artifact without persisting or exposing the raw leaf. Brain verifies the
+directory type and owner without following links, opens it no-follow, verifies
+the moved entry against the original descriptor, and sets owner-private mode
+`0700`. A restrictive umask can reduce the initial directory to mode `000`; in
+that case Brain uses flags-zero `fchmodat` relative to the held parent, opens
+the directory no-follow, and revalidates device, inode, type, and owner. This
+portable recovery does not require path-based no-follow chmod. Before ordinary
+removal, a retry duplicates the held
 parent descriptor and completely scans that descriptor for matching
 quarantines. It recovers at most eight sorted matches, opens each directory
 no-follow, compares that descriptor with the parent-relative identity and
-owner, and applies any needed mode correction through the verified descriptor.
+owner, and applies later mode correction through the verified descriptor. An
+additional `pending` or `active` suffix makes the random name a durable phase
+record. Brain atomically promotes the held directory through the parent
+descriptor after the artifact move and before any artifact unlink, validating
+the held inode on both sides. Recovery promotes pending artifacts before
+unlink. A pending empty directory can be removed and retried; an active or
+legacy empty directory plus original-name reappearance fails closed.
 A malformed match, a ninth match, or any match remaining after the recovery
 rescan fails closed. A final no-follow inode check immediately before unlink
 rejects an observable replacement of the quarantine entry.

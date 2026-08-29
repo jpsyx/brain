@@ -10,7 +10,7 @@ mod test_seam;
 #[cfg(unix)]
 use quarantine::{
     blocked_cleanup_marker_exists, create_quarantine, fail_closed, mark_cleanup_blocked,
-    recover_bound_quarantines, remove_empty_quarantine,
+    promote_quarantine, recover_bound_quarantines, remove_empty_quarantine,
 };
 #[cfg(all(test, unix))]
 pub(crate) use test_seam::{
@@ -174,7 +174,7 @@ fn remove_regular_at(
     );
     #[cfg(not(test))]
     observe_test_boundary(relative);
-    let quarantine = create_quarantine(parent, name)?;
+    let mut quarantine = create_quarantine(parent, name)?;
     match renameat(
         Some(parent.raw()),
         Path::new(name),
@@ -205,6 +205,17 @@ fn remove_regular_at(
     #[cfg(test)]
     observe_test_boundary(
         SecureRemoveTestBoundary::QuarantineRenameBeforeVerification,
+        relative,
+    );
+    #[cfg(not(test))]
+    observe_test_boundary(relative);
+    if let Err(error) = promote_quarantine(parent, &mut quarantine) {
+        fail_closed(parent, name, &quarantine)?;
+        return Err(error);
+    }
+    #[cfg(test)]
+    observe_test_boundary(
+        SecureRemoveTestBoundary::QuarantinePromotedBeforeArtifactVerification,
         relative,
     );
     #[cfg(not(test))]
@@ -283,6 +294,13 @@ fn remove_regular_at(
             return Err(io_error(error));
         }
     }
+    #[cfg(test)]
+    observe_test_boundary(
+        SecureRemoveTestBoundary::QuarantineArtifactUnlinkedBeforeDirectoryRemoval,
+        relative,
+    );
+    #[cfg(not(test))]
+    observe_test_boundary(relative);
     remove_empty_quarantine(parent, &quarantine)
 }
 

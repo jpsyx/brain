@@ -7,7 +7,7 @@ use super::*;
 
 #[cfg(unix)]
 pub(super) fn quarantine_contains_inode(parent: &std::path::Path, inode: u64) -> bool {
-    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+    use std::os::unix::fs::MetadataExt as _;
 
     std::fs::read_dir(parent)
         .expect("cleanup parent entries")
@@ -19,8 +19,6 @@ pub(super) fn quarantine_contains_inode(parent: &std::path::Path, inode: u64) ->
                 .starts_with(".brain-cleanup-")
         })
         .any(|entry| {
-            std::fs::set_permissions(entry.path(), std::fs::Permissions::from_mode(0o700))
-                .expect("inspect private cleanup quarantine");
             std::fs::symlink_metadata(entry.path().join("artifact"))
                 .is_ok_and(|metadata| metadata.ino() == inode)
         })

@@ -2269,9 +2269,15 @@ sibling so the two projects share a stack:
   iterates its held parent descriptor, so a swapped parent path cannot redirect
   discovery. The directory iterator rewinds the shared stream after every
   complete scan, so the required recovery rescan also starts from the first
-  entry. Quarantine recovery opens owner-private directories no-follow before
-  changing their mode through the verified descriptor; it does not depend on
-  path-based no-follow chmod support for artifacts created by this version.
+  entry. Quarantine recovery validates directory type and ownership without
+  following links, opens no-follow when permissions allow, and changes mode
+  through the verified descriptor. If a restrictive umask made a newly created
+  quarantine unopenable, recovery first uses portable flags-zero `fchmodat`
+  relative to the held parent, then opens no-follow and revalidates device,
+  inode, type, and owner. It does not depend on path-based no-follow chmod.
+  The random quarantine name also carries a `pending` or `active` phase.
+  Brain atomically promotes the held directory through its parent descriptor
+  after moving the artifact and before any artifact unlink.
   Stable `std` does not expose that Unix directory stream or a cancellable
   Unix-domain `connect`; enabling the existing crate's `dir` feature avoids
   unsafe code and adds no dependency.
