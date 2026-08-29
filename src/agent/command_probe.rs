@@ -8,6 +8,9 @@ use std::{
 
 use crate::agent::frontend::shell_quote;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub(super) struct ProbeOutput {
     pub(super) success: bool,
@@ -80,6 +83,7 @@ impl ShellProbeRunner {
         let mut shell = Command::new("/bin/sh");
         shell
             .args(["-c", &probe])
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .process_group(0);
