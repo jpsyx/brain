@@ -92,7 +92,7 @@ impl Symbols {
                     );
                     let frame = lexical_alias_frame(&key, &parameters, &bindings);
                     if resolving.contains(&frame) {
-                        return fact_for_canonical(key, false, false);
+                        return fact_for_canonical(key, false, false, false, false);
                     }
                     resolving.push(frame);
                     self.apply_lexical_alias_defaults(
@@ -146,7 +146,19 @@ impl Symbols {
                 let job_socket = generic_facts
                     .iter()
                     .any(|fact| fact.any_variant(|fact| fact.job_socket));
-                let mut fact = fact_for_canonical(canonical.clone(), inbound_job, job_socket);
+                let warm_panel_authority = generic_facts
+                    .iter()
+                    .any(|fact| fact.any_variant(|fact| fact.warm_panel_authority));
+                let generation = path.qself.is_none()
+                    && path.path.leading_colon.is_none()
+                    && path.path.is_ident("u64");
+                let mut fact = fact_for_canonical(
+                    canonical.clone(),
+                    inbound_job,
+                    job_socket,
+                    warm_panel_authority,
+                    generation,
+                );
                 if let Some(definition) = self.structs.get(&canonical) {
                     fact.type_arguments = self.struct_type_arguments(
                         definition,
@@ -156,6 +168,16 @@ impl Symbols {
                         resolving,
                         type_parameters,
                     );
+                    let frame = ResolutionFrame::Definition(canonical);
+                    if !resolving.contains(&frame) {
+                        resolving.push(frame);
+                        fact.warm_panel_authority |= self.struct_has_warm_panel_authority(
+                            definition,
+                            &fact.type_arguments,
+                            resolving,
+                        );
+                        resolving.pop();
+                    }
                 }
                 fact
             }
@@ -217,6 +239,40 @@ impl Symbols {
             self.type_fact_scoped(&definition.module, &definition.ty, &definition.lexical)
         })
     }
+
+    fn struct_has_warm_panel_authority(
+        &self,
+        definition: &super::StructDefinition,
+        type_arguments: &[(String, TypeFact)],
+        resolving: &mut Vec<ResolutionFrame>,
+    ) -> bool {
+        let bindings = type_arguments.iter().cloned().collect::<HashMap<_, _>>();
+        let fields = definition
+            .fields
+            .iter()
+            .map(|field| {
+                self.type_fact_inner(
+                    &field.module,
+                    &field.ty,
+                    &field.lexical,
+                    resolving,
+                    &bindings,
+                )
+            })
+            .collect::<Vec<_>>();
+        fields
+            .iter()
+            .any(|fact| fact.any_variant(|fact| fact.warm_panel_authority))
+            || (fields
+                .iter()
+                .any(|fact| fact.any_variant(|fact| fact.receiver_channel))
+                && fields
+                    .iter()
+                    .any(|fact| fact.any_variant(|fact| fact.generation))
+                && fields
+                    .iter()
+                    .any(|fact| fact.any_variant(|fact| fact.instant)))
+    }
 }
 
 fn type_parameter_fact(
@@ -241,10 +297,18 @@ fn lexical_alias(
     lexical.alias_definition(&path.path.segments[0].ident.to_string())
 }
 
-fn fact_for_canonical(canonical: String, inbound_job: bool, job_socket: bool) -> TypeFact {
+fn fact_for_canonical(
+    canonical: String,
+    inbound_job: bool,
+    job_socket: bool,
+    warm_panel_authority: bool,
+    generation: bool,
+) -> TypeFact {
     let unresolved_glob = canonical.starts_with("<ambiguous-glob>::");
     let inbound_job = inbound_job || canonical == "crate::server::receiver::job::InboundJob";
     let job_socket = job_socket || canonical == "crate::tui::singleton::JobSocket";
+    let receiver_channel = canonical == "crate::server::receiver::job::Channel";
+    let instant = canonical == "std::time::Instant";
     let agent_controller = canonical == "crate::agent::controller::AgentController";
     let app = canonical == "crate::tui::App";
     let brain_panel = canonical == "crate::tui::state::brain::BrainPanelState";
@@ -253,12 +317,17 @@ fn fact_for_canonical(canonical: String, inbound_job: bool, job_socket: bool) ->
     let unix_stream = canonical == "std::os::unix::net::UnixStream";
     let channel_receiver = canonical == "std::sync::mpsc::Receiver";
     let memory_queue = canonical == "std::collections::VecDeque";
+    let condition_variable = canonical == "std::sync::Condvar";
     TypeFact {
         canonical: Some(canonical),
         borrowed: false,
         unresolved_glob,
         inbound_job,
         job_socket,
+        receiver_channel,
+        instant,
+        generation,
+        warm_panel_authority,
         agent_controller,
         app,
         brain_panel,
@@ -267,6 +336,7 @@ fn fact_for_canonical(canonical: String, inbound_job: bool, job_socket: bool) ->
         unix_stream,
         channel_receiver,
         memory_queue,
+        condition_variable,
         ..TypeFact::default()
     }
 }

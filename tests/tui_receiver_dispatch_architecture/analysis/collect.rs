@@ -14,8 +14,8 @@ mod symbols;
 
 use super::{
     FunctionNode, Program, RawCall, TypeFact, classify_function_call, classify_into_iteration,
-    classify_operation, is_global_inbound_consumer, is_into_iterator_dispatch,
-    is_receiver_tick_call, receiver_owned_module, tui_receiver_owned_module,
+    classify_method_operation, classify_operation, is_global_inbound_consumer,
+    is_into_iterator_dispatch, is_receiver_tick_call, receiver_owned_module,
 };
 use crate::source::{ProductionSource, is_exact_cfg_test, production_sources};
 use patterns::{bind_pattern, closure_parameter_fact};
@@ -108,21 +108,28 @@ fn collect_forbidden_receiver_declaration(
         return;
     }
     let lexical = Scope::lexical_scope(&[]);
+    let name = item_name(item);
+    let declaration_is_warm_panel_authority = name
+        .as_deref()
+        .and_then(|name| syn::parse_str::<syn::Type>(name).ok())
+        .is_some_and(|ty| {
+            scope
+                .type_fact_scoped(&ty, &lexical)
+                .any_variant(|fact| fact.warm_panel_authority)
+        });
     let mut types = ReceiverOwnedTypeVisitor {
         scope,
         lexical: &lexical,
         job_socket: false,
+        warm_panel_authority: declaration_is_warm_panel_authority,
     };
     types.visit_item(item);
     let mut violations = Vec::new();
     if types.job_socket {
         violations.push("receiver-owned JobSocket".to_owned());
     }
-    let name = item_name(item);
-    if tui_receiver_owned_module(&scope.module)
-        && name.as_deref().is_some_and(|name| name.ends_with("Lease"))
-    {
-        violations.push("receiver-owned warm-panel lease".to_owned());
+    if types.warm_panel_authority {
+        violations.push("receiver-owned warm-panel authority".to_owned());
     }
     if violations.is_empty() {
         return;
@@ -144,6 +151,7 @@ struct ReceiverOwnedTypeVisitor<'scope, 'symbols, 'lexical> {
     scope: &'scope Scope<'symbols>,
     lexical: &'lexical LexicalScope,
     job_socket: bool,
+    warm_panel_authority: bool,
 }
 
 impl<'ast> Visit<'ast> for ReceiverOwnedTypeVisitor<'_, '_, '_> {
@@ -152,6 +160,10 @@ impl<'ast> Visit<'ast> for ReceiverOwnedTypeVisitor<'_, '_, '_> {
             .scope
             .type_fact_scoped(ty, self.lexical)
             .any_variant(|fact| fact.job_socket);
+        self.warm_panel_authority |= self
+            .scope
+            .type_fact_scoped(ty, self.lexical)
+            .any_variant(|fact| fact.warm_panel_authority);
         syn::visit::visit_type(self, ty);
     }
 }
@@ -363,7 +375,7 @@ impl<'ast> Visit<'ast> for BodyVisitor<'_, '_> {
         if is_receiver_tick_call(&owner, &name) {
             self.receiver_tick_calls += 1;
         }
-        if let Some(violation) = classify_operation(&owner, &name) {
+        if let Some(violation) = classify_method_operation(&owner, &name) {
             self.record_operation(&owner, &name, violation);
         }
         if name == "into_iter"

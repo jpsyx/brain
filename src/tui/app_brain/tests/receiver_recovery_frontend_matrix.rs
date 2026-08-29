@@ -107,7 +107,7 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     assert_ne!(
         recovery.attribution.instance(),
         ordinary_instance,
-        "{kind:?} recovery needs a fresh remote instance"
+        "{kind:?} recovery needs a fresh isolated-run instance"
     );
     assert_eq!(
         recovery.attribution.registered_session(),

@@ -260,7 +260,7 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_run_ow
             42,
             &scope,
         )
-        .expect("register fresh remote placeholder");
+        .expect("register fresh isolated-run placeholder");
         let shutdowns = Arc::new(Mutex::new(0));
         let mut controller = AgentController::new(
             Arc::clone(&workspace),

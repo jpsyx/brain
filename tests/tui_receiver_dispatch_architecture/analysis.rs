@@ -110,15 +110,6 @@ pub(super) fn receiver_owned_module(module: &[String]) -> bool {
     })
 }
 
-pub(super) fn tui_receiver_owned_module(module: &[String]) -> bool {
-    module
-        .windows(2)
-        .any(|segments| segments == ["tui", "receiver"])
-        || module
-            .windows(2)
-            .any(|segments| segments == ["app_brain", "receiver"])
-}
-
 pub(super) fn is_receiver_tick_call(owner: &TypeFact, method: &str) -> bool {
     method == "tick_receiver" && owner.any_variant(|variant| variant.app)
 }
@@ -127,6 +118,18 @@ pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'sta
     owner
         .variants()
         .find_map(|variant| classify_single_operation(variant, method))
+}
+
+pub(super) fn classify_method_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
+    if matches!(
+        method,
+        "park_timeout" | "wait_timeout" | "wait_timeout_while"
+    ) && !owner.any_variant(|variant| variant.condition_variable)
+    {
+        Some("blocking activity wait")
+    } else {
+        classify_operation(owner, method)
+    }
 }
 
 fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
@@ -178,7 +181,9 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
 
 pub(super) fn classify_function_call(target: Option<&str>) -> Option<&'static str> {
     match target {
-        Some("std::thread::sleep" | "tokio::time::sleep") => Some("blocking activity wait"),
+        Some("std::thread::sleep" | "tokio::time::sleep" | "std::thread::park_timeout") => {
+            Some("blocking activity wait")
+        }
         _ => None,
     }
 }

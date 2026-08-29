@@ -25,6 +25,7 @@ struct StructDefinition {
     module: Vec<String>,
     parameters: Vec<syn::GenericParam>,
     lexical: LexicalScope,
+    fields: Vec<TypeDefinition>,
     field_count: usize,
 }
 
@@ -81,12 +82,22 @@ impl Symbols {
                     );
                 }
                 syn::Item::Struct(item_struct) => {
+                    let lexical = LexicalScope::from_generics(&[&item_struct.generics]);
                     self.structs.insert(
                         format!("{}::{}", module.join("::"), item_struct.ident),
                         StructDefinition {
                             module: module.to_vec(),
                             parameters: item_struct.generics.params.iter().cloned().collect(),
-                            lexical: LexicalScope::from_generics(&[&item_struct.generics]),
+                            lexical: lexical.clone(),
+                            fields: item_struct
+                                .fields
+                                .iter()
+                                .map(|field| TypeDefinition {
+                                    module: module.to_vec(),
+                                    ty: field.ty.clone(),
+                                    lexical: lexical.clone(),
+                                })
+                                .collect(),
                             field_count: item_struct.fields.len(),
                         },
                     );
@@ -209,6 +220,14 @@ impl Symbols {
         path: &syn::Path,
         lexical: &LexicalScope,
     ) -> String {
+        if path.leading_colon.is_some() {
+            return path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::");
+        }
         self.resolve_segments_scoped(
             module,
             &path
