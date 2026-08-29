@@ -1292,9 +1292,10 @@ count, or field-presence proof instead. The assertion scanner also covers
 named format arguments, nested and field or index assignment, match and for
 bindings, interpolation and debug macros, and misleading `is` or `has` names.
 It balances the source prefix before an assertion so syntax-tree value flow
-still covers an open block and every later match arm. Custom count, length, or
-use-named methods remain private unless the surrounding expression is an
-independent structural proof. Discovery evaluates full relative paths,
+still covers an open block and every later match arm. No method name or
+projection-chain shape is treated as a content-free proof. A method call on a
+private value remains private unless a top-level boolean comparison or another
+independent structural proof makes the assertion content-free. Discovery evaluates full relative paths,
 including the filename of future nested receiver, provider, and App test paths,
 without a name-only safe allowlist.
 `tests/module_structure.rs` recursively

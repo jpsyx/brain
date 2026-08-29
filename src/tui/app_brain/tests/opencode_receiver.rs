@@ -96,9 +96,10 @@ fn authenticated_completion_persists_answer_without_calling_provider() {
         "completion artifact must be consumed"
     );
     assert!(app.brain.receiver_run_observations().is_empty());
-    assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::AnswerReady
+    assert!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state()
+            == ReceiverJobState::AnswerReady,
+        "OpenCode completion recorded the wrong durable state"
     );
     let log = PathBuf::from(std::env::var_os("BRAIN_FAKE_CURL_LOG").expect("fake curl log"));
     assert!(

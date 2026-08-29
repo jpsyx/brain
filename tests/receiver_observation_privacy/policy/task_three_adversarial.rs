@@ -47,6 +47,33 @@ fn deceptive_method_names_on_private_receivers_do_not_prove_content_free_values(
 }
 
 #[test]
+fn exact_deceptive_methods_on_private_receivers_do_not_prove_content_free_values() {
+    for mutation in [
+        "assert_eq!(sender.len(), expected);",
+        "assert_eq!(sender.state(), expected);",
+        "assert_eq!(sender.status(), expected);",
+    ] {
+        assert!(
+            private_whole_value_assertion_violations(mutation) > 0,
+            "exact deceptive private-receiver method was accepted"
+        );
+    }
+}
+
+#[test]
+fn deceptive_projection_chains_do_not_prove_content_free_values() {
+    for mutation in [
+        "assert_eq!(sender.iter().count(), expected);",
+        "assert_eq!(payload.chars().count(), expected);",
+    ] {
+        assert!(
+            private_whole_value_assertion_violations(mutation) > 0,
+            "deceptive private projection chain was accepted"
+        );
+    }
+}
+
+#[test]
 fn content_free_sounding_identifiers_do_not_bypass_value_flow() {
     for mutation in [
         "fn fixture(sender_count: String) { assert_eq!(sender_count, expected); }",

@@ -157,9 +157,8 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Claimed,
+    assert!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state() == ReceiverJobState::Claimed,
         "freshness must run before launch preparation"
     );
     assert!(app.brain.receiver_run_observations().is_empty());

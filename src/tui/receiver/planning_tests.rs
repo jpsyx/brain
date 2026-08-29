@@ -503,11 +503,10 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
                 selected_resume(binding),
             );
 
-            assert_eq!(
-                plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count(),
-                1,
-                "{} with {binding:?}",
-                kind.label(),
+            assert!(
+                plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count() == 1,
+                "{} with {binding:?} had the wrong task-capture policy count",
+                kind.label()
             );
             assert!(plan.initial_prompt().starts_with(TASK_CAPTURE_POLICY));
         }
@@ -531,7 +530,10 @@ fn receiver_launch_appends_the_exact_job_token_marker_as_the_final_prompt_line()
                 plan.initial_prompt().lines().last() == Some(expected.as_str()),
                 "receiver job token marker was not last"
             );
-            assert_eq!(plan.initial_prompt().matches(&expected).count(), 1);
+            assert!(
+                plan.initial_prompt().matches(&expected).count() == 1,
+                "receiver job token marker appeared the wrong number of times"
+            );
             assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
         }
     }
@@ -644,9 +646,8 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
 
             assert!(
                 prompt.len() <= SHELL_INLINE_VALUE_BUDGET_BYTES,
-                "{} with {binding:?} raw prompt was {} bytes",
+                "{} with {binding:?} exceeded the shell inline-value budget",
                 kind.label(),
-                prompt.len(),
             );
             assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
             assert!(prompt.contains("authenticated-message-start-é🙂-"));
@@ -657,13 +658,18 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
                 prompt.lines().last() == Some(marker.as_str()),
                 "receiver job token marker was not last"
             );
-            assert_eq!(prompt.matches(&marker).count(), 1);
-            assert_eq!(command.matches(&marker).count(), 1);
+            assert!(
+                prompt.matches(&marker).count() == 1,
+                "receiver prompt token marker appeared the wrong number of times"
+            );
+            assert!(
+                command.matches(&marker).count() == 1,
+                "receiver command token marker appeared the wrong number of times"
+            );
             assert!(
                 command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
-                "{} with {binding:?} shell command was {} bytes",
+                "{} with {binding:?} exceeded the shell command-argument budget",
                 kind.label(),
-                command.len(),
             );
         }
     }

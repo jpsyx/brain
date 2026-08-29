@@ -229,7 +229,10 @@ fn orderly_shell_shutdown_cancels_claimed_staging_and_records_one_planning_retry
     app.shutdown_receiver_runtime();
 
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "shutdown recorded the wrong durable state"
+    );
     assert!(
         job.retry_count() == 1,
         "shutdown recorded the wrong retry count"

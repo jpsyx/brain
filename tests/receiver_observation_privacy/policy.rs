@@ -150,15 +150,15 @@ fn task_three_private_assertion_policy_rejects_raw_values_but_allows_safe_proofs
     }
     for (case_index, proof) in [
         "assert!(private_text_proof(transcript) == expected_proof);",
-        "assert_eq!(transcript.matches(heading).count(), 1);",
+        "assert!(transcript.matches(heading).count() == 1);",
         "assert!(email.sender() == canonical_sender);",
         "assert!(answer.len() == expected_len);",
         "assert!(envelope_count == 1);",
-        "assert_eq!((sender.len(), payload.len()), (1, 2));",
+        "assert!(sender.len() == 1 && payload.len() == 2);",
         "assert!(receiving_address == expected, \"fixed routing assertion\");",
         concat!(
             "let status = build_status(provider_reference); ",
-            "assert_eq!(status.state(), expected_state);"
+            "assert!(status.state() == expected_state);"
         ),
         concat!(
             "*STORE.lock().expect(\"store\") = Some(sender); ",

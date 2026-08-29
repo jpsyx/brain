@@ -91,7 +91,10 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     app.tick_receiver();
 
     let recovered = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(recovered.state(), ReceiverJobState::Launched, "{kind:?}");
+    assert!(
+        recovered.state() == ReceiverJobState::Launched,
+        "{kind:?} recovery recorded the wrong launched state"
+    );
     assert!(
         recovered.attempt_kind() == ReceiverAttemptKind::Recovery,
         "frontend recovery used the wrong attempt kind"
@@ -137,10 +140,9 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         false,
     );
     app.tick_receiver();
-    assert_eq!(
-        db.receiver_job(stalled.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Accepted,
-        "{kind:?}"
+    assert!(
+        db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Accepted,
+        "{kind:?} recovery recorded the wrong accepted state"
     );
     write_recovery_snapshot(
         &app,
@@ -152,10 +154,9 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         false,
     );
     app.tick_receiver();
-    assert_eq!(
-        db.receiver_job(stalled.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Processing,
-        "{kind:?}"
+    assert!(
+        db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Processing,
+        "{kind:?} recovery recorded the wrong processing state"
     );
     write_recovery_snapshot(
         &app,
@@ -170,7 +171,10 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     app.tick_receiver();
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
+    assert!(
+        completed.state() == ReceiverJobState::AnswerReady,
+        "{kind:?} recovery recorded the wrong answer-ready state"
+    );
     assert!(
         completed.observation_revision() == 3,
         "frontend recovery changed the observation revision"

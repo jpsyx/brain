@@ -10,8 +10,14 @@ fn portable_transcript_appends_exact_markdown_escaped_turn_once() {
     assert!(appended.starts_with(prior));
     assert!(appended.contains(inbound));
     assert!(appended.contains(answer));
-    assert_eq!(appended.matches("## Authenticated user").count(), 1);
-    assert_eq!(appended.matches("## Assistant").count(), 1);
+    assert!(
+        appended.matches("## Authenticated user").count() == 1,
+        "transcript had the wrong authenticated-user heading count"
+    );
+    assert!(
+        appended.matches("## Assistant").count() == 1,
+        "transcript had the wrong assistant heading count"
+    );
     assert!(
         private_text_proof(&duplicate) != private_text_proof(&appended),
         "the pure renderer exposes append semantics"
@@ -82,8 +88,14 @@ fn exact_completion_atomically_records_answer_ready_transcript_binding_and_outbo
         private_text_proof(&reloaded_transcript) == private_text_proof(&first_transcript),
         "exact completion replay changed the durable transcript proof"
     );
-    assert_eq!(first_transcript.matches("## Authenticated user").count(), 1);
-    assert_eq!(first_transcript.matches("## Assistant").count(), 1);
+    assert!(
+        first_transcript.matches("## Authenticated user").count() == 1,
+        "durable transcript had the wrong authenticated-user heading count"
+    );
+    assert!(
+        first_transcript.matches("## Assistant").count() == 1,
+        "durable transcript had the wrong assistant heading count"
+    );
     let (delivery_count, delivery_state, claim_owner): (i64, String, Option<String>) = fixture
         .db
         .conn

@@ -112,26 +112,6 @@ pub(super) fn matching_delimiter(
     None
 }
 
-pub(super) fn matching_delimiter_backwards(
-    source: &str,
-    closing_index: usize,
-    opening: char,
-    closing: char,
-) -> Option<usize> {
-    let mut depth = 0_usize;
-    for (index, character) in source[..=closing_index].char_indices().rev() {
-        if character == closing {
-            depth += 1;
-        } else if character == opening {
-            depth = depth.checked_sub(1)?;
-            if depth == 0 {
-                return Some(index);
-            }
-        }
-    }
-    None
-}
-
 pub(super) fn mask_non_code(source: &str) -> String {
     let bytes = source.as_bytes();
     let mut masked = bytes.to_vec();

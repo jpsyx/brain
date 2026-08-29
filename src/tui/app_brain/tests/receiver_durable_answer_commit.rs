@@ -77,11 +77,12 @@ fn crash_after_answer_commit_preserves_one_answer_and_releases_the_agent_lane() 
         .expect("durable conversation")
         .transcript_markdown()
         .to_owned();
-    assert_eq!(
+    assert!(
         transcript
             .matches("answer survives post-commit crash")
-            .count(),
-        1
+            .count()
+            == 1,
+        "post-commit recovery recorded the answer the wrong number of times"
     );
     assert!(artifact.exists(), "post-commit cleanup did not run");
     assert!(

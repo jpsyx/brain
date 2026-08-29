@@ -5,7 +5,7 @@ mod taint;
 
 use syntax::{
     identifiers, is_identifier_character, macro_bodies, mask_non_code, matching_delimiter,
-    matching_delimiter_backwards, top_level_arguments,
+    top_level_arguments,
 };
 
 pub(super) fn private_whole_value_assertion_violations(source: &str) -> usize {
@@ -247,7 +247,6 @@ fn expression_is_content_free(expression: &str, private: &BTreeSet<String>) -> b
     }
     has_top_level_boolean_operator(expression)
         || is_exact_content_proof_call(expression)
-        || ends_with_content_free_method(expression)
         || expression.trim_start().starts_with("matches!")
 }
 
@@ -303,65 +302,6 @@ fn is_exact_content_proof_function(name: &str) -> bool {
             | "classify_provider_http_response"
             | "classify_provider_process_failure"
             | "classify_provider_process_output"
-    )
-}
-
-fn ends_with_content_free_method(source: &str) -> bool {
-    let source = source.trim();
-    let Some(close) = source
-        .len()
-        .checked_sub(1)
-        .filter(|index| source.as_bytes()[*index] == b')')
-    else {
-        return false;
-    };
-    let Some(open) = matching_delimiter_backwards(source, close, '(', ')') else {
-        return false;
-    };
-    let prefix = source[..open].trim_end();
-    let Some(dot) = prefix.rfind('.') else {
-        return false;
-    };
-    let receiver = prefix[..dot].trim();
-    let method = prefix[dot + 1..].trim();
-    matches!(
-        method,
-        "len"
-            | "is_empty"
-            | "is_some"
-            | "is_none"
-            | "is_ok"
-            | "is_err"
-            | "is_some_and"
-            | "contains"
-            | "starts_with"
-            | "ends_with"
-            | "state"
-            | "status"
-            | "kind"
-            | "category"
-            | "error_category"
-            | "response_kind"
-            | "has_provider_reference"
-    ) || method == "count" && is_iterator_projection(receiver)
-}
-
-fn is_iterator_projection(source: &str) -> bool {
-    let Ok(syn::Expr::MethodCall(call)) = syn::parse_str::<syn::Expr>(source) else {
-        return false;
-    };
-    matches!(
-        call.method.to_string().as_str(),
-        "bytes"
-            | "chars"
-            | "into_iter"
-            | "iter"
-            | "iter_mut"
-            | "lines"
-            | "matches"
-            | "split"
-            | "split_ascii_whitespace"
-            | "split_whitespace"
     )
 }
 

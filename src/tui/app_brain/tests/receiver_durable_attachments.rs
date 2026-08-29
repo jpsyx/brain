@@ -92,7 +92,10 @@ fn attachment_refresh_failure_retries_without_launch_or_private_error_persistenc
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "attachment staging failure recorded the wrong durable state"
+    );
     assert!(
         job.retry_count() == 1,
         "staging failure recorded the wrong retry count"
@@ -148,7 +151,10 @@ fn durable_dispatch_retries_when_stager_returns_a_path_outside_the_receiver_inbo
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "out-of-root attachment recorded the wrong durable state"
+    );
     assert!(
         job.last_error() == Some("launch-planning"),
         "attachment download recorded the wrong error category"
@@ -195,7 +201,10 @@ fn durable_dispatch_retries_when_a_download_exceeds_the_attachment_size_limit() 
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "oversized attachment recorded the wrong durable state"
+    );
     assert!(
         job.last_error() == Some("launch-planning"),
         "oversized attachment recorded the wrong error category"
@@ -282,7 +291,10 @@ fn durable_dispatch_retries_without_staging_an_unbounded_attachment_batch() {
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "attachment worker construction failure recorded the wrong durable state"
+    );
     assert!(
         job.retry_count() == 1,
         "attachment worker recorded the wrong retry count"
@@ -357,12 +369,13 @@ fn durable_dispatch_downloads_authenticated_media_before_agent_launch() {
         messages.len() == 1 && inbound_job_proof(&messages[0]) == inbound_job_proof(&inbound),
         "attachment runtime did not receive the exact authenticated message"
     );
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Launched
+            .state()
+            == ReceiverJobState::Launched,
+        "downloaded attachment recorded the wrong durable state"
     );
     assert_eq!(
         (
@@ -419,12 +432,13 @@ fn receiver_freshness_finishes_before_attachment_refresh_and_background_launch()
 
     assert!(attachments.messages().is_empty());
     assert!(transport.launch_specs().is_empty());
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Claimed
+            .state()
+            == ReceiverJobState::Claimed,
+        "pending attachment download recorded the wrong durable state"
     );
     assert_eq!(
         (

@@ -48,12 +48,13 @@ fn durable_receiver_launches_in_background_while_main_turn_is_busy() {
         "receiver launch selected the wrong job"
     );
     assert_eq!(receiver_recording.launch_specs().len(), 1);
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Launched
+            .state()
+            == ReceiverJobState::Launched,
+        "receiver launch recorded the wrong durable state"
     );
     assert_eq!(
         (
