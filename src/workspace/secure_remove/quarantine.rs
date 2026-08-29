@@ -222,6 +222,17 @@ fn recover_one(
         UnlinkatFlags::NoRemoveDir,
     )
     .map_err(io_error)?;
+    match exact_name_is_absent(parent, target) {
+        Ok(true) => {}
+        Ok(false) => {
+            fail_closed(parent, target, &quarantine)?;
+            return Err(identity_changed());
+        }
+        Err(error) => {
+            fail_closed(parent, target, &quarantine)?;
+            return Err(error);
+        }
+    }
     remove_empty_quarantine(parent, &quarantine)?;
     Ok(true)
 }

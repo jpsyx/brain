@@ -216,6 +216,55 @@ fn runtime_blocks_reappeared_original_after_artifact_unlink_interruption() {
 
 #[cfg(unix)]
 #[test]
+fn runtime_blocks_reappeared_original_at_post_unlink_success_fence() {
+    let (_temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer removed before final absence fence");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+    let replacement_path = response.clone();
+
+    crate::workspace::with_secure_remove_test_hook(
+        move |boundary, relative| {
+            if boundary
+                == crate::workspace::SecureRemoveTestBoundary::QuarantineArtifactUnlinkedBeforeDirectoryRemoval
+                && relative == expected_relative
+            {
+                std::fs::write(&replacement_path, "replacement private artifact")
+                    .expect("reintroduce original cleanup name");
+            }
+        },
+        || app.tick_receiver(),
+    );
+
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "post-unlink replacement discharged runtime cleanup authority"
+    );
+    assert!(
+        response.exists(),
+        "cleanup deleted the post-unlink replacement"
+    );
+    assert!(
+        cleanup_quarantine(response.parent().expect("response directory"))
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().ends_with("-active")),
+        "post-unlink replacement did not retain the active quarantine"
+    );
+
+    app.tick_receiver();
+
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "blocked post-unlink replacement retry discarded cleanup authority"
+    );
+    assert!(response.exists(), "blocked retry deleted the replacement");
+}
+
+#[cfg(unix)]
+#[test]
 fn runtime_recovers_an_interruption_immediately_after_quarantine_promotion() {
     let (temporary, mut app, _db, first, _second, _transport) = answer_fixture();
     let response = publish_valid_completion(&app, "answer retained after phase promotion");

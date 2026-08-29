@@ -301,6 +301,17 @@ fn remove_regular_at(
     );
     #[cfg(not(test))]
     observe_test_boundary(relative);
+    match exact_name_is_absent(parent, name) {
+        Ok(true) => {}
+        Ok(false) => {
+            fail_closed(parent, name, &quarantine)?;
+            return Err(identity_changed());
+        }
+        Err(error) => {
+            fail_closed(parent, name, &quarantine)?;
+            return Err(error);
+        }
+    }
     remove_empty_quarantine(parent, &quarantine)
 }
 

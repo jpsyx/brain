@@ -3158,13 +3158,19 @@ or legacy empty directory with a reappeared original name blocks instead of
 deleting the replacement. Recovery
 handles up to eight sorted matching quarantines before returning success.
 Malformed matching names, a
-ninth match, a nonempty recovery rescan, original-name reappearance (including
-after `renameat` reports `ENOENT`), or either identity differing installs a
-per-leaf blocked marker and fails closed. This keeps substitution at any
+ninth match, a nonempty recovery rescan, original-name reappearance observed
+before the final success fence (including after `renameat` reports `ENOENT`),
+or either identity differing installs a per-leaf blocked marker and fails
+closed. This keeps substitution at any
 ancestor or the exact leaf from deleting an outside or replacement response or
 observation artifact. Failure preserves runtime cleanup authority, or aborts
 downgrade while schema v12 remains intact. Exact-name absence is the only
-idempotent `ENOENT` case, and success means no matching quarantine remains.
+idempotent `ENOENT` case. After artifact unlink, direct cleanup and recovery
+make one final no-follow lookup through the held parent. Success linearizes at
+that observation of original-leaf absence and requires that no matching
+quarantine remains. If the leaf reappears or the lookup fails before that
+point, Brain installs the blocker, preserves the active empty quarantine and
+database authority, and fails closed.
 
 Mode `0700` after opening, the atomic rename, and the collision-resistant random
 quarantine name isolate private data from other users and from accidental or
@@ -3176,7 +3182,9 @@ or modify it, so Brain does not claim absolute same-UID race immunity. Brain
 does perform descriptor and parent-relative identity checks after opening and
 immediately before removal, and fails closed on every substitution observable
 at those boundaries; the durable cleanup row remains the authority for a later
-safe retry.
+safe retry. Within that threat boundary, this is an observable-boundary
+guarantee, not immunity to a new leaf created after the final successful
+absence observation or after return.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

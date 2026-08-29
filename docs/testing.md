@@ -1318,6 +1318,10 @@ boundary after atomic active-phase promotion, and the empty active directory
 after artifact unlink. They prove pending artifacts promote before unlink,
 pending empties retry under ordinary and restrictive umasks, and active empties
 with original-name reappearance retain authority without deleting the
+replacement. Non-panicking runtime and v12-downgrade hooks also recreate the
+original leaf after artifact unlink. They prove the final descriptor-relative
+absence fence returns an identity error, preserves the active empty quarantine
+and database authority, and persistently blocks a retry from deleting the
 replacement. A final
 race hook replaces the quarantine's artifact after identity verification and
 proves the immediate pre-unlink inode check retains both private data and

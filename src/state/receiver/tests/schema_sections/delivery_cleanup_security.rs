@@ -197,3 +197,44 @@ fn v12_down_recovers_an_artifact_after_interruption_during_quarantine() {
         "downgrade retry orphaned the quarantined private artifact"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn v12_down_blocks_reappeared_original_at_post_unlink_success_fence() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = canonical_temporary_state_path(&temporary, "workspace-cache/state.db");
+    std::fs::create_dir_all(path.parent().expect("workspace cache"))
+        .expect("workspace cache directory");
+    let staged = stage_delivery_cleanup_down(&path, true);
+    let expected_relative = std::path::PathBuf::from("responses").join(
+        staged
+            .response
+            .file_name()
+            .expect("response artifact file name"),
+    );
+    let replacement_path = staged.response.clone();
+
+    let error = crate::workspace::with_secure_remove_test_hook(
+        move |boundary, relative| {
+            if boundary
+                == crate::workspace::SecureRemoveTestBoundary::QuarantineArtifactUnlinkedBeforeDirectoryRemoval
+                && relative == expected_relative
+            {
+                std::fs::write(&replacement_path, "replacement private artifact")
+                    .expect("reintroduce original cleanup name");
+            }
+        },
+        || super::super::schema::down_delivery_path(&path),
+    )
+    .expect_err("post-unlink replacement must retain v12 cleanup authority");
+
+    assert!(!error.to_string().contains("private"));
+    assert_eq!(delivery_cleanup_down_state(&path, &staged), (12, 1, 1, Some(42)));
+    assert!(staged.response.exists(), "downgrade deleted the replacement");
+
+    super::super::schema::down_delivery_path(&path)
+        .expect_err("blocked retry must preserve v12 cleanup authority");
+
+    assert_eq!(delivery_cleanup_down_state(&path, &staged), (12, 1, 1, Some(42)));
+    assert!(staged.response.exists(), "blocked retry deleted the replacement");
+}

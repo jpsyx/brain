@@ -1531,13 +1531,21 @@ legacy empty directory plus original-name reappearance fails closed.
 A malformed match, a ninth match, or any match remaining after the recovery
 rescan fails closed. A final no-follow inode check immediately before unlink
 rejects an observable replacement of the quarantine entry.
-A replacement at the original leaf is never unlinked. Any identity mismatch,
-original-name reappearance (including after `renameat` reports `ENOENT`), or
-ambiguous recovery leaves the quarantine intact, installs a mode-`000` per-leaf
-retry blocker, and preserves cleanup authority. An `ENOENT` is idempotent only
-after a descriptor-relative check proves that the exact name involved is
-absent. Runtime retries keep their cleanup row, and downgrade aborts with schema
-v12 intact, until exact cleanup succeeds.
+A replacement at the original leaf is never unlinked. Any observed identity
+mismatch, original-name reappearance before the final success fence (including
+after `renameat` reports `ENOENT`), or ambiguous recovery leaves the quarantine
+intact, installs a mode-`000` per-leaf retry blocker, and preserves cleanup
+authority. An `ENOENT` is idempotent only after a descriptor-relative check
+proves that the exact name involved is absent. After artifact unlink, direct
+cleanup and recovery make a final
+descriptor-relative no-follow observation that the original leaf remains
+absent. That observation is the success linearization point. Reappearance or a
+lookup error before it leaves the active empty quarantine intact, installs the
+blocker, and retains database authority. Within the documented
+no-malicious-same-UID boundary, Brain does not claim immunity to a new leaf
+created after that final observation or after successful return. Runtime
+retries keep their cleanup row, and downgrade aborts with schema v12 intact,
+until exact cleanup succeeds.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
 later fallible step. The local spawned capability owns the controller plus
 exact job, token, claim owner, instance, registered/native session, scope,
