@@ -9,7 +9,7 @@ pub(super) fn up(home: &Path) -> Result<()> {
             &state.workspace_id,
             &state.local_user_id,
         )
-        .with_context(|| format!("upgrade receiver notice state {}", state.path.display()))?;
+        .context("upgrade receiver notice state")?;
     }
     Ok(())
 }
@@ -17,7 +17,7 @@ pub(super) fn up(home: &Path) -> Result<()> {
 pub(super) fn down(home: &Path) -> Result<()> {
     for state in super::receiver_model::workspace_states(home) {
         crate::state::receiver_notice_cutover_schema_down(&state.path)
-            .with_context(|| format!("downgrade receiver notice state {}", state.path.display()))?;
+            .context("downgrade receiver notice state")?;
     }
     Ok(())
 }

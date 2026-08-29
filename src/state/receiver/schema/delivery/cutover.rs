@@ -60,9 +60,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
     transaction.pragma_update(None, "legacy_alter_table", true)?;
     super::super::job_contract::rebuild_exact_v12(&transaction)?;
     transaction.pragma_update(None, "legacy_alter_table", false)?;
-    if had_deliveries {
-        restore_v12_deliveries(&transaction)?;
-    }
+    restore_v12_deliveries(&transaction, had_deliveries)?;
     let has_foreign_key_violation: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
         [],
@@ -90,10 +88,11 @@ fn stage_v12_deliveries(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn restore_v12_deliveries(connection: &Connection) -> Result<()> {
+fn restore_v12_deliveries(connection: &Connection, had_snapshot: bool) -> Result<()> {
     connection.execute_batch(super::contract::CREATE_V12_TABLE)?;
-    connection.execute_batch(
-        "INSERT INTO receiver_deliveries
+    if had_snapshot {
+        connection.execute_batch(
+            "INSERT INTO receiver_deliveries
            (delivery_id, job_id, job_token, response_kind, envelope_json,
             completion_evidence_json, frozen_fallbacks_json, state,
             attempt_id, attempt_count, retry_at_unix_ms, claim_owner,
@@ -108,7 +107,8 @@ fn restore_v12_deliveries(connection: &Connection) -> Result<()> {
             created_at_unix_ms, updated_at_unix_ms
          FROM receiver_deliveries_v13_snapshot;
          DROP TABLE receiver_deliveries_v13_snapshot;",
-    )?;
+        )?;
+    }
     super::indexes::ensure_managed(connection)?;
     Ok(())
 }

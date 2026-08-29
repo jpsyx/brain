@@ -149,4 +149,5 @@ mod schema {
     include!("tests/schema_sections/delivery_writer.rs");
     include!("tests/schema_sections/writer_ordering.rs");
     include!("tests/schema_sections/v13_notice_cutover.rs");
+    include!("tests/schema_sections/v13_notice_cutover_review.rs");
 }

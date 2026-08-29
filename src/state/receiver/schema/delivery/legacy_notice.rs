@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 
 pub(in crate::state::receiver::schema) fn finish_v13_cutover(
     connection: &Connection,
@@ -13,7 +13,7 @@ pub(in crate::state::receiver::schema) fn finish_v13_cutover(
             "SELECT job_id, job_token, inbound_json, response_sender, updated_at_unix_ms,
                     recovery_cleanup_instance, recovery_cleanup_session_id
              FROM receiver_jobs
-             WHERE state = 'failed' AND pending_unavailable_notice = 1
+             WHERE pending_unavailable_notice = 1
              ORDER BY received_at_unix_ms, job_id",
         )?;
         statement
@@ -63,39 +63,80 @@ pub(in crate::state::receiver::schema) fn finish_v13_cutover(
             observed,
         );
         match inserted {
-            Ok(_) => {
-                connection.execute(
+            Ok(inserted) => {
+                if !inserted {
+                    ensure_expected_delivery(connection, &job_id, &token, delivery_state)?;
+                }
+                let changed = connection.execute(
                     "UPDATE receiver_jobs
                      SET state = CASE WHEN ?3 THEN 'failed' ELSE 'answer-ready' END,
                          pending_unavailable_notice = 0,
                          claim_owner = NULL, claim_expires_at_unix_ms = NULL,
                          retry_at_unix_ms = NULL, retry_from_state = NULL
-                     WHERE job_id = ?1 AND job_token = ?2 AND state = 'failed'
+                     WHERE job_id = ?1 AND job_token = ?2
                        AND pending_unavailable_notice = 1
                        AND EXISTS (SELECT 1 FROM receiver_deliveries
                          WHERE job_id = ?1 AND job_token = ?2
-                           AND response_kind = 'unavailable-notice')",
-                    rusqlite::params![job_id.to_string(), token.to_string(), cleanup_gated],
+                           AND response_kind = 'unavailable-notice'
+                           AND state = ?4)",
+                    rusqlite::params![
+                        job_id.to_string(),
+                        token.to_string(),
+                        cleanup_gated,
+                        delivery_state.as_str(),
+                    ],
                 )?;
+                anyhow::ensure!(
+                    changed == 1,
+                    "receiver v13 unavailable-notice cutover lost source authority"
+                );
             }
             Err(error)
                 if error
                     .downcast_ref::<crate::state::ReceiverDeliveryRenderError>()
                     .is_some() =>
             {
-                connection.execute(
+                let changed = connection.execute(
                     "UPDATE receiver_jobs
-                     SET pending_unavailable_notice = 0,
+                     SET state = 'failed', pending_unavailable_notice = 0,
+                         claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+                         retry_at_unix_ms = NULL, retry_from_state = NULL,
                          last_error = 'notice-no-authorized-destination'
-                     WHERE job_id = ?1 AND job_token = ?2 AND state = 'failed'
+                     WHERE job_id = ?1 AND job_token = ?2
                        AND pending_unavailable_notice = 1",
                     rusqlite::params![job_id.to_string(), token.to_string()],
                 )?;
+                anyhow::ensure!(
+                    changed == 1,
+                    "receiver v13 unavailable-notice terminalization lost source authority"
+                );
             }
             Err(error) => return Err(error),
         }
     }
     drop_obsolete_columns(connection)?;
+    Ok(())
+}
+
+fn ensure_expected_delivery(
+    connection: &Connection,
+    job_id: &crate::state::ReceiverJobId,
+    token: &crate::state::ReceiverJobToken,
+    expected: crate::state::ReceiverDeliveryState,
+) -> Result<()> {
+    let state = connection
+        .query_row(
+            "SELECT state FROM receiver_deliveries
+             WHERE job_id = ?1 AND job_token = ?2
+               AND response_kind = 'unavailable-notice'",
+            rusqlite::params![job_id.to_string(), token.to_string()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    anyhow::ensure!(
+        state.as_deref() == Some(expected.as_str()),
+        "receiver v13 cutover found conflicting unavailable-notice delivery state"
+    );
     Ok(())
 }
 

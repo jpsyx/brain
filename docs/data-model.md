@@ -1212,7 +1212,10 @@ promotes that row to `ready`; provider retry then proceeds without agent replay.
 The v12 upgrade converts pending rows to `cleanup-gated` when an exact cleanup
 tuple remains and to `ready` otherwise. A deterministic render or authorization
 failure records `notice-no-authorized-destination`; storage failures roll back
-the conversion for exact retry.
+the conversion for exact retry. This applies to the pending bit in every valid
+v12 job state. An existing semantic row satisfies an interrupted cutover only
+when its exact job token and delivery state match; a conflict or declined insert
+rolls back without clearing the legacy authority.
 Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
 process-local acknowledgement lease. Missing rows and missing tables receive

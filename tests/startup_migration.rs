@@ -481,3 +481,9 @@ mod receiver_recovery_cleanup_safety {
 
     include!("startup_migration/receiver_recovery_cleanup_safety.rs");
 }
+
+mod receiver_notice_cutover_review {
+    use super::*;
+
+    include!("startup_migration/receiver_notice_cutover_review.rs");
+}
