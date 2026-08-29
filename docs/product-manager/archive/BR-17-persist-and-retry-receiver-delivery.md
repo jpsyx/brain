@@ -1,7 +1,7 @@
 ---
 id: BR-17
 title: Persist and retry receiver response delivery separately
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [enhancement, server]
@@ -13,7 +13,7 @@ parent:
 github:
 blocked_by: []
 created: 2026-08-23
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # BR-17: Persist and retry receiver response delivery separately
@@ -28,24 +28,24 @@ recipient, subject, lineage, and authorization context.
 
 ## Acceptance criteria
 
-- [ ] A token-matched completion atomically records answer readiness and the
+- [x] A token-matched completion atomically records answer readiness and the
       conversation transcript before provider delivery begins.
-- [ ] SMS and email delivery use the job's immutable acceptance-time response
+- [x] SMS and email delivery use the job's immutable acceptance-time response
       identity and cannot widen recipients after later config changes.
-- [ ] Provider failure records retry state and never returns the job to agent
+- [x] Provider failure records retry state and never returns the job to agent
       processing.
-- [ ] Restart during answer recording, delivery, provider acknowledgement, or
+- [x] Restart during answer recording, delivery, provider acknowledgement, or
       final state commit reconciles without losing an answer or deliberately
       issuing duplicate agent work.
-- [ ] Delivery retries are bounded and idempotent where provider identifiers
+- [x] Delivery retries are bounded and idempotent where provider identifiers
       permit; ambiguous acknowledgement is recorded and surfaced explicitly.
-- [ ] A terminal delivery failure notifies through any remaining safe channel
+- [x] A terminal delivery failure notifies through any remaining safe channel
       when possible, records diagnostics, and allows later jobs to proceed.
-- [ ] Email subject/message lineage and allowed thread participants remain
+- [x] Email subject/message lineage and allowed thread participants remain
       intact; SMS formatting and length behavior remain unchanged.
-- [ ] Red/green tests cover response persistence, provider retry, crash points,
+- [x] Red/green tests cover response persistence, provider retry, crash points,
       authorization changes, duplicate acknowledgements, and terminal failure.
-- [ ] Response, transcript, integration, architecture, data-model, feature,
+- [x] Response, transcript, integration, architecture, data-model, feature,
       decision, and testing docs describe the phase boundary.
 
 ## Notes
@@ -336,3 +336,9 @@ acceptance review before integration.
   and transcript persistence, immutable delivery envelopes, a separately
   claimed provider outbox, bounded provider-aware retries, explicit ambiguity,
   durable notices, and redacted restart visibility.
+- 2026-08-29 completed and merged to `main` in `5db5b3d`. Brain 0.85.28
+  persists answers and transcripts atomically, delivers immutable responses
+  through a separately claimed provider outbox, reconciles every durable phase,
+  and retains fail-closed cleanup authority across crashes and replacement
+  races. The final serial release suite passed 3,409 tests, strict Clippy
+  passed, and the installed binary was verified at 0.85.28.
