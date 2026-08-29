@@ -14,7 +14,8 @@ pub(super) fn reconcile_partial_fences(connection: &Connection) -> Result<()> {
     if !has_partial_fence {
         return Ok(());
     }
-    connection.execute_batch(
+    connection.pragma_update(None, "ignore_check_constraints", true)?;
+    let repair = connection.execute_batch(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL,
              claim_expires_at_unix_ms = NULL, retry_at_unix_ms = NULL,
@@ -184,6 +185,8 @@ pub(super) fn reconcile_partial_fences(connection: &Connection) -> Result<()> {
              recovery_cleanup_session_id = NULL
          WHERE (recovery_cleanup_instance IS NULL)
              != (recovery_cleanup_session_id IS NULL);",
-    )?;
+    );
+    connection.pragma_update(None, "ignore_check_constraints", false)?;
+    repair?;
     Ok(())
 }

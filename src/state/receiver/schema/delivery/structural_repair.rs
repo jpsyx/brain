@@ -249,7 +249,13 @@ fn nonnegative_or_zero(value: &Value) -> i64 {
 fn valid_state(value: &str) -> bool {
     matches!(
         value,
-        "ready" | "delivering" | "retrying" | "acknowledged" | "failed" | "ambiguous"
+        "cleanup-gated"
+            | "ready"
+            | "delivering"
+            | "retrying"
+            | "acknowledged"
+            | "failed"
+            | "ambiguous"
     )
 }
 

@@ -29,7 +29,7 @@ pub(super) const EXACT_SNAPSHOT_SQL: &str = "json_array(
     launch_expires_at_unix_ms, acceptance_expires_at_unix_ms,
     progress_expires_at_unix_ms, recovery_expires_at_unix_ms,
     absolute_work_expires_at_unix_ms, recovery_count, attempt_kind,
-    pending_unavailable_notice, recovery_cleanup_instance,
+    recovery_cleanup_instance,
     recovery_cleanup_session_id, updated_at_unix_ms
 )";
 

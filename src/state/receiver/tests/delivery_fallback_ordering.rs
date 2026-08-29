@@ -103,20 +103,34 @@ fn seed_unavailable_notice_source(db: Db) -> (Db, ReceiverJobId) {
     let accepted = db
         .accept_receiver_job(&inbound, &identity)
         .expect("accept unavailable-notice source");
+    let token = db
+        .receiver_job(accepted.job_id())
+        .expect("load unavailable-notice source")
+        .expect("unavailable-notice source")
+        .token();
+    let notice = crate::server::reply::unanswered_notice("sms");
+    assert!(
+        super::super::store::response_intent::insert_with_state(
+            &db.conn,
+            accepted.job_id(),
+            token,
+            &inbound,
+            ReceiverResponseKind::UnavailableNotice,
+            &notice.text,
+            ReceiverDeliveryState::Ready,
+            200,
+        )
+        .expect("persist unavailable notice")
+    );
     db.conn
         .execute(
             "UPDATE receiver_jobs
-             SET state = 'failed', pending_unavailable_notice = 1,
+             SET state = 'answer-ready',
                  last_error = 'recovery-attempt-exhausted'
              WHERE job_id = ?1",
             [accepted.job_id().to_string()],
         )
-        .expect("stage legacy unavailable notice");
-    assert_eq!(
-        db.reconcile_expired_receiver_deliveries(200)
-            .expect("persist unavailable notice"),
-        1
-    );
+        .expect("stage unavailable notice source");
     (db, accepted.job_id())
 }
 

@@ -23,15 +23,24 @@ fn missing_exact_native_session_terminalizes_without_an_unacknowledgeable_cleanu
         .receiver_job(fixture.job_id)
         .expect("load terminal job")
         .expect("terminal job");
-    assert_eq!(terminal.state(), ReceiverJobState::Failed);
+    assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
     assert_eq!(terminal.recovery_count(), 0);
-    assert!(terminal.pending_unavailable_notice());
     assert_eq!(terminal.recovery_cleanup_instance(), None);
     assert_eq!(terminal.recovery_cleanup_session_id(), None);
     assert_eq!(
         terminal.last_error(),
         Some(ReceiverReconciliationReason::NativeSessionUnavailable.as_str())
     );
+    let delivery: (String, String) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT response_kind, state FROM receiver_deliveries WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load terminal unavailable response");
+    assert_eq!(delivery, ("unavailable-notice".to_owned(), "ready".to_owned()));
 }
 
 #[test]
@@ -69,7 +78,6 @@ fn exhausted_preacceptance_budget_terminalizes_and_releases_fifo() {
     assert_eq!(terminal.state(), ReceiverJobState::Failed);
     assert_eq!(terminal.retry_count(), 3);
     assert_eq!(terminal.recovery_count(), 0);
-    assert!(terminal.pending_unavailable_notice());
     assert_eq!(
         fixture
             .db
@@ -104,14 +112,6 @@ fn absolute_expiry_terminalizes_even_when_progress_deadline_is_later() {
         effect.reason(),
         ReceiverReconciliationReason::AbsoluteWorkExpired
     );
-    assert!(
-        fixture
-            .db
-            .receiver_job(fixture.job_id)
-            .expect("load absolute terminal job")
-            .expect("absolute terminal job")
-            .pending_unavailable_notice()
-    );
 }
 
 #[test]
@@ -145,7 +145,6 @@ fn incomplete_legacy_completion_states_terminalize_deterministically() {
             .expect("load legacy terminal job")
             .expect("legacy terminal job");
         assert_eq!(terminal.state(), ReceiverJobState::Failed);
-        assert!(terminal.pending_unavailable_notice());
     }
 }
 

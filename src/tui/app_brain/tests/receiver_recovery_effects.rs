@@ -180,7 +180,6 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
     let exited = db.receiver_job(stalled.job_id()).unwrap().unwrap();
     assert_eq!(exited.state(), ReceiverJobState::AnswerReady);
     assert_eq!(exited.last_error(), Some("recovery-launch-shutdown"));
-    assert!(!exited.pending_unavailable_notice());
     assert!(
         db.receiver_delivery_counts().unwrap().answer_ready() == 1,
         "recovery shutdown changed the answer-ready count"
@@ -192,7 +191,7 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
 }
 
 #[test]
-fn pending_unavailable_notice_becomes_durable_before_fifo_advances() {
+fn terminal_unavailable_notice_becomes_deliverable_before_fifo_advances() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
@@ -201,30 +200,46 @@ fn pending_unavailable_notice_becomes_durable_before_fifo_advances() {
     app.services.replace_receiver_sync_runtime(Box::new(clock));
     let db = Db::open(app.context.workspace()).expect("state DB");
     let terminal = accept_email_job(&app, &db, "private failed instruction", 100);
-    rusqlite::Connection::open(app.context.state_db_path())
-        .expect("terminal fixture connection")
+    let terminal_connection = rusqlite::Connection::open(app.context.state_db_path())
+        .expect("terminal fixture connection");
+    terminal_connection
         .execute(
             "UPDATE receiver_jobs
-             SET state = 'failed', attempt_kind = 'recovery', recovery_count = 1,
-                 pending_unavailable_notice = 1,
+             SET state = 'answer-ready', attempt_kind = 'recovery', recovery_count = 1,
                  last_error = 'recovery-attempt-exhausted'
              WHERE job_id = ?1",
             [terminal.job_id().to_string()],
         )
         .expect("persist terminal unavailable intent");
+    let envelope = serde_json::json!({
+        "channel": "email",
+        "value": {
+            "sender": "brain@example.test",
+            "recipients": ["member@example.test"],
+            "subject": "Re: Question",
+            "text": "The assistant could not complete that request.",
+            "html": "<p>The assistant could not complete that request.</p>",
+            "in_reply_to": null,
+            "references": null,
+            "provider_email_id": null
+        }
+    })
+    .to_string();
+    terminal_connection
+        .execute(
+            "INSERT INTO receiver_deliveries
+               (delivery_id, job_id, job_token, response_kind, envelope_json,
+                state, created_at_unix_ms, updated_at_unix_ms)
+             SELECT '10000000-0000-4000-8000-000000000001', job_id, job_token,
+                    'unavailable-notice', ?2, 'ready', 100, 100
+             FROM receiver_jobs WHERE job_id = ?1",
+            rusqlite::params![terminal.job_id().to_string(), envelope],
+        )
+        .expect("persist immutable unavailable response");
     let later = accept_email_job(&app, &db, "later ordinary work", 200);
     let scan_db = Db::open(app.context.workspace()).expect("restart scan DB");
-    let terminal_job = terminal.job_id();
     app.receiver
         .install_after_restart_scan_hook(Box::new(move || {
-            assert!(
-                !scan_db
-                    .receiver_job(terminal_job)
-                    .unwrap()
-                    .unwrap()
-                    .pending_unavailable_notice(),
-                "durable notice migration must precede restart controls"
-            );
             assert!(
                 scan_db.receiver_delivery_counts().unwrap().delivering() == 1,
                 "restart scan did not retain the durable notice delivery"
@@ -311,7 +326,6 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
 
         let fenced = db.receiver_job(terminal.job_id()).unwrap().unwrap();
         assert_eq!(fenced.state(), ReceiverJobState::Failed, "{failure:?}");
-        assert!(fenced.pending_unavailable_notice(), "{failure:?}");
         assert!(
             db.receiver_delivery_counts().unwrap().answer_ready() == 0,
             "cleanup failure created an answer-ready delivery"

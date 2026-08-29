@@ -193,7 +193,7 @@ pub(super) fn complete(
              observation_revision = ?10, observation_session_id = ?11,
              claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_at_unix_ms = NULL, retry_from_state = NULL,
-             last_error = ?17, pending_unavailable_notice = 0,
+             last_error = ?17,
              updated_at_unix_ms = ?6
          WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3 AND claim_owner = ?12
            AND claim_expires_at_unix_ms > ?13

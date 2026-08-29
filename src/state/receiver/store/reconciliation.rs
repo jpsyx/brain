@@ -178,7 +178,7 @@ impl Db {
                          progress_expires_at_unix_ms = NULL,
                          recovery_expires_at_unix_ms = ?7,
                          recovery_count = recovery_count + 1,
-                         attempt_kind = 'recovery', pending_unavailable_notice = 0,
+                         attempt_kind = 'recovery',
                          recovery_cleanup_instance = ?12,
                          recovery_cleanup_session_id = ?13,
                          updated_at_unix_ms = ?5

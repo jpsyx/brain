@@ -120,6 +120,7 @@ mod database;
 mod receiver;
 mod session_store;
 pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
+pub(crate) use receiver::schema::down_cutover_path as receiver_notice_cutover_schema_down;
 pub(crate) use receiver::schema::down_delivery_path as receiver_delivery_schema_down;
 pub(crate) use receiver::schema::down_observation_to_registration_path as receiver_observation_schema_down;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;

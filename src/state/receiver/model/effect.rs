@@ -88,6 +88,7 @@ pub enum ReceiverReconciliationReason {
     RecoveryShutdown,
     NativeSessionUnavailable,
     IncompleteLegacyCompletion,
+    NoticeNoAuthorizedDestination,
 }
 
 impl ReceiverReconciliationReason {
@@ -105,6 +106,7 @@ impl ReceiverReconciliationReason {
             Self::RecoveryShutdown => "recovery-launch-shutdown",
             Self::NativeSessionUnavailable => "recovery-native-session-unavailable",
             Self::IncompleteLegacyCompletion => "recovery-incomplete-legacy-completion",
+            Self::NoticeNoAuthorizedDestination => "notice-no-authorized-destination",
         }
     }
 
@@ -122,6 +124,7 @@ impl ReceiverReconciliationReason {
             Self::RecoveryShutdown,
             Self::NativeSessionUnavailable,
             Self::IncompleteLegacyCompletion,
+            Self::NoticeNoAuthorizedDestination,
         ]
         .into_iter()
         .find(|reason| reason.as_str() == value)

@@ -46,7 +46,6 @@ fn reconciliation_requeues_an_unaccepted_live_owner_before_later_fifo_work() {
     assert_eq!(requeued.observation_revision(), 0);
     assert_eq!(requeued.launch_expires_at_unix_ms(), None);
     assert_eq!(requeued.acceptance_expires_at_unix_ms(), None);
-    assert!(!requeued.pending_unavailable_notice());
     let registration_count = fixture
         .db
         .conn

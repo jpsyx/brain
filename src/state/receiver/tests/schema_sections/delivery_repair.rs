@@ -69,47 +69,6 @@ fn delivery_index_signature(
 }
 
 #[test]
-fn v12_same_version_repair_migrates_legacy_pending_notice_to_the_outbox() {
-    let db = Db::open_in_memory().expect("receiver state");
-    let accepted = db
-        .accept_receiver_job(
-            &receiver_job(Some("legacy-notice-repair"), 100),
-            &ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id()),
-        )
-        .expect("accept legacy notice job");
-    db.conn
-        .execute(
-            "UPDATE receiver_jobs
-             SET state = 'failed', pending_unavailable_notice = 1
-             WHERE job_id = ?1",
-            [accepted.job_id().to_string()],
-        )
-        .expect("stage legacy notice bit");
-
-    super::super::schema::up(&db.conn, 12).expect("run same-version repair");
-
-    let repaired: (String, bool, String) = db
-        .conn
-        .query_row(
-            "SELECT job.state, job.pending_unavailable_notice, delivery.response_kind
-             FROM receiver_jobs AS job
-             JOIN receiver_deliveries AS delivery ON delivery.job_id = job.job_id
-             WHERE job.job_id = ?1",
-            [accepted.job_id().to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .expect("load migrated legacy notice");
-    assert_eq!(
-        repaired,
-        (
-            "answer-ready".to_owned(),
-            false,
-            "unavailable-notice".to_owned()
-        )
-    );
-}
-
-#[test]
 fn v12_repair_adds_retry_time_before_creating_the_due_index() {
     let db = Db::open_in_memory().expect("receiver state");
     replace_delivery_table(&db.conn, LOOSE_DELIVERY_TABLE_WITHOUT_RETRY_SQL);

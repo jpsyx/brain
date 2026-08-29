@@ -6,6 +6,7 @@ use super::{ReceiverDeliveryId, ReceiverResponseKind};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReceiverDeliveryState {
+    CleanupGated,
     Ready,
     Delivering,
     Retrying,
@@ -18,6 +19,7 @@ impl ReceiverDeliveryState {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::CleanupGated => "cleanup-gated",
             Self::Ready => "ready",
             Self::Delivering => "delivering",
             Self::Retrying => "retrying",

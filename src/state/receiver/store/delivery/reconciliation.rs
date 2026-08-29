@@ -11,7 +11,7 @@ use crate::state::{
 mod repair;
 mod retry;
 
-use repair::{migrate_legacy_unavailable_notices, terminalize_invalid_semantic_responses};
+use repair::terminalize_invalid_semantic_responses;
 pub(super) use retry::terminalize_expired_due_retry;
 use retry::{requeue_pre_spawn, terminalize_expired_due_retries};
 
@@ -24,7 +24,6 @@ impl Db {
         )?;
         let structurally_invalid =
             crate::state::receiver::schema::repair_structurally_malformed_deliveries(&transaction)?;
-        let migrated = migrate_legacy_unavailable_notices(&transaction, &self.workspace_id, now)?;
         let invalid =
             terminalize_invalid_semantic_responses(&transaction, &self.workspace_id, now)?;
         let terminalized =
@@ -76,8 +75,7 @@ impl Db {
             }
         }
         transaction.commit()?;
-        Ok(migrated
-            .saturating_add(structurally_invalid)
+        Ok(structurally_invalid
             .saturating_add(invalid)
             .saturating_add(terminalized)
             .saturating_add(expired.len()))

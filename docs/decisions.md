@@ -5244,3 +5244,22 @@ Legacy pending-notice conversion has the same error boundary as same-version
 repair. Only the typed deterministic render or authorization error may clear the
 pending bit and record `notice-no-authorized-destination`; storage failures abort
 the transaction so the exact source can retry without notice loss.
+
+## Why unavailable-notice cleanup gating belongs on the outbox row
+
+The durable response is the provider-retry authority, while the receiver job's
+cleanup tuple is only the authority to release one exact agent session. Keeping
+a second pending bit and notice-writer lease on the job made those two facts
+diverge across crashes. Schema v13 therefore inserts the immutable unavailable
+response in the same transaction that terminalizes recovery. Its state is
+`cleanup-gated` only while an exact cleanup tuple remains, and the exact cleanup
+acknowledgement promotes it to `ready` in the transaction that clears that tuple.
+No provider failure can replay the agent, and no delivery worker can race ahead
+of cleanup.
+
+The v12 upgrade applies that rule transactionally, then removes the pending bit
+and its two claim columns. The down migration takes an immediate writer before
+schema inspection, maps gated rows back to exact v12 pending state, retains all
+representable ready or terminal delivery rows, and rebuilds the canonical v12
+tables. This makes both directions idempotent and keeps a crash on one side of
+the representation boundary, never between two independent authorities.

@@ -1304,7 +1304,10 @@ Injected store failures remain rollback errors. Runtime and downgrade cleanup
 tests substitute symlinks for both response and receiver-observation ancestors,
 and the shared helper also substitutes an ancestor above the cache root. They
 prove no outside deletion, retained runtime authority or failed downgrade with
-schema v12 intact, and successful exact cleanup after restoration. The
+schema v12 intact, and successful exact cleanup after restoration. Schema-v13
+cutover tests also cover cleanup-free and cleanup-fenced pending-row upgrade,
+exact v12 reconstruction on downgrade without agent replay, obsolete-column
+removal, and immediate-writer ordering against a concurrent schema mutation. The
 deterministic cleanup hooks also replace the original leaf after quarantine
 identity verification, remove it after open before the entry stat, interrupt
 before quarantine verification and after identity verification, and

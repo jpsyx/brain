@@ -1,8 +1,10 @@
 use anyhow::{Context as _, Result, bail};
 use rusqlite::Connection;
 
-use super::super::{DELIVERY_PREVIOUS_VERSION, VERSION};
 use crate::state::Db;
+
+const SOURCE_VERSION: i32 = 12;
+const TARGET_VERSION: i32 = 11;
 
 const REQUIRED_CONVERSATION_COLUMNS: &[&str] = &[
     "conversation_id",
@@ -108,7 +110,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
         rusqlite::TransactionBehavior::Immediate,
     )?;
     let version: i32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != VERSION {
+    if version != SOURCE_VERSION {
         transaction.commit()?;
         return Ok(());
     }
@@ -180,7 +182,7 @@ fn down_path_inner(path: &std::path::Path, busy_observer: Option<fn(i32) -> bool
          DROP TABLE IF EXISTS receiver_deliveries;",
     )?;
     super::super::job_contract::rebuild_exact_v11(&transaction)?;
-    transaction.pragma_update(None, "user_version", DELIVERY_PREVIOUS_VERSION)?;
+    transaction.pragma_update(None, "user_version", TARGET_VERSION)?;
     transaction.commit()?;
     Ok(())
 }

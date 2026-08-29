@@ -1736,8 +1736,8 @@ existing three-attempt launch retry budget. One immediate store transaction
 evaluates the oldest blocking snapshot and applies at most one transition. It
 safely requeues an unaccepted timeout, persists one accepted stall as an
 ownerless due recovery, or terminalizes exhaustion, absolute expiry, missing
-native evidence, and legacy completion ambiguity with a pending
-unavailable-notice intent. The accepted transition preserves lifetime identity
+native evidence, and legacy completion ambiguity with an immutable
+unavailable-notice response. The accepted transition preserves lifetime identity
 and first facts, resets only the superseded attempt cursor, binds the exact
 observed native session, records an exact cleanup-pending instance/session
 fence, and spends the recovery budget before any claim. Recovery discovery
@@ -1750,8 +1750,9 @@ across later ticks and restarts. Exact acknowledgement then releases
 the retained registration and native-session lock from either the due recovery
 or any cleanup-fenced terminal failed state, but only while its
 registration/session attribution still matches the exact job and durable
-conversation. The pending notice becomes one semantic durable outbox row
-independently from cleanup progress. Local cleanup remembers
+conversation. That response remains `cleanup-gated` while the exact cleanup
+tuple exists and becomes `ready` in the exact acknowledgement transaction.
+Local cleanup remembers
 successful shutdown and artifact removal so a later tick can finish the
 remaining step before later FIFO work launches. Pre-spawn owner-store failures
 also remain distinct from proven owner loss. They clean only the exact
@@ -1791,11 +1792,13 @@ while receiver intent is disabled, but neither an ordinary nor recovery claim
 may start a new process until intent is enabled again. The claim remains
 renewed so re-enable continues the same FIFO work.
 
-Terminal notice intent uses the schema-v12 durable response lane. Same-version
-repair and enabled-tick reconciliation convert a legacy BR-16 pending bit into
-one immutable `unavailable-notice` envelope and clear the obsolete local lease.
-A storage failure preserves the pending source transaction for an exact later
-retry; only a deterministic authorization or render failure clears the bit.
+Terminal notice intent uses the schema-v13 durable response lane. Terminal
+recovery freezes one immutable `unavailable-notice` envelope in its source
+transaction. Exact cleanup gates provider visibility on the row itself, and
+acknowledgement promotes it without replaying the agent. The v12 upgrade maps
+the legacy BR-16 pending bit into the same representation and removes its local
+lease columns. Storage failure rolls back the migration transaction; only a
+deterministic authorization or render failure records the stable no-destination outcome.
 `/new` and `/restart` acknowledgements, plus one notice for every dropped job,
 commit atomically with their source-job and conversation changes. Final answers,
 notices, and acknowledgements share exact claims, provider-result policy, retry
@@ -1845,9 +1848,9 @@ admission onto it, and BR-14 made the isolated TUI coordinator its sole
 execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
 BR-15 added acceptance/progress evidence. BR-16 added one accepted same-session
-recovery and pending unavailable-notice intent. BR-17 now migrates that intent
-and every receiver-owned reply to the durable delivery outbox; BR-18 retains
-final representation cleanup.
+recovery and pending unavailable-notice intent. BR-17 moved every receiver-owned
+reply to the durable delivery outbox. BR-18 schema v13 now makes the outbox row
+itself express cleanup gating and removes the legacy job representation.
 
 ### Steering the receiver from SMS or email
 

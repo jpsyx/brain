@@ -105,7 +105,6 @@ fn assert_fresh_conflict_terminal_effect(
         .expect("load terminal fresh conflict")
         .expect("terminal fresh conflict");
     assert_eq!(terminal.state(), ReceiverJobState::Failed);
-    assert!(terminal.pending_unavailable_notice());
     assert_eq!(
         terminal.recovery_cleanup_instance(),
         Some("fresh-conflict-instance")

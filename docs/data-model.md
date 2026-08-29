@@ -1093,11 +1093,9 @@ receiver_jobs(
   absolute_work_expires_at_unix_ms INTEGER,
   recovery_count            INTEGER NOT NULL,
   attempt_kind              TEXT NOT NULL,  -- ordinary | recovery
-  pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
   recovery_cleanup_instance TEXT,
   recovery_cleanup_session_id TEXT,
-  unavailable_notice_owner TEXT,
-  unavailable_notice_expires_at_unix_ms INTEGER,
+  response_sender           TEXT,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1109,7 +1107,7 @@ receiver_deliveries(
   envelope_json               TEXT NOT NULL,
   completion_evidence_json    TEXT,
   frozen_fallbacks_json       TEXT NOT NULL,
-  state                       TEXT NOT NULL,
+  state                       TEXT NOT NULL, -- cleanup-gated | ready | delivering | retrying | acknowledged | failed | ambiguous
   attempt_id                  TEXT,
   attempt_count               INTEGER NOT NULL,
   retry_at_unix_ms            INTEGER,
@@ -1206,11 +1204,15 @@ not invoke this repair.
 `fallback-notice` use the same state machine. `/new` persists its acknowledgement
 in the exact conversation-roll transaction. `/restart` persists its
 acknowledgement and one unavailable notice for every dropped job in the exact
-queue-cut transaction. Same-version repair and normal delivery reconciliation
-convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
-before clearing the bit. A deterministic render or authorization failure clears
-the bit with `notice-no-authorized-destination`; a SQLite or storage failure
-rolls back the whole conversion and leaves the source pending for exact retry.
+queue-cut transaction. Schema v13 adds the unavailable-notice-only
+`cleanup-gated` state and removes the pending bit and its two writer-lease
+columns from `receiver_jobs`. Terminal recovery freezes its semantic response
+in the same transaction as the source transition. Exact cleanup acknowledgement
+promotes that row to `ready`; provider retry then proceeds without agent replay.
+The v12 upgrade converts pending rows to `cleanup-gated` when an exact cleanup
+tuple remains and to `ready` otherwise. A deterministic render or authorization
+failure records `notice-no-authorized-destination`; storage failures roll back
+the conversion for exact retry.
 Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
 process-local acknowledgement lease. Missing rows and missing tables receive
@@ -1482,13 +1484,12 @@ the launch deadline and never rediscovers accepted work or increments recovery
 count. An unclaimed recovery remains a reconciliation candidate and becomes
 `failed` at exact recovery or absolute expiry. Exhaustion, missing resume
 evidence, incomplete legacy completion, and exact recovery planning,
-registration, spawn, or shutdown failure also become `failed` with a
-content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
+registration, spawn, or shutdown failure also freeze an unavailable response
+with a content-free stable reason; terminal rows
 do not block FIFO. The existing launch-retry mutation accepts only ordinary
 attempts.
-The cleanup fence and terminal notice have independent authority. The legacy
-pending bit is migration input only; repair freezes the notice body and accepted
-routing authority into a semantic delivery row. Exact delivery ownership then
+The cleanup fence and terminal notice have independent authority. Schema v13
+stores notice gating on the semantic delivery row itself. Exact delivery ownership then
 uses the delivery ID, job, token, attempt, owner, and finite expiry. Terminal
 rows and response-delivery leases never participate in ordinary agent FIFO
 blocking or the workspace live-job-claim predicate.
@@ -1652,7 +1653,9 @@ table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
 lifecycle evidence timestamps, exact observation instance/session identity,
 and monotonic revision. Schema v10 adds recovery deadlines, attempt identity,
 notice intent, and the exact cleanup fence. Schema v11 adds the all-or-none
-finite unavailable-notice owner and expiry. Every DB open reconciles the tables and managed
+finite unavailable-notice owner and expiry. Schema v12 adds immutable response
+delivery. Schema v13 moves terminal-notice cleanup gating into the outbox row
+and removes the three obsolete job columns. Every DB open reconciles the tables and managed
 columns for new, partially repaired, damaged, and already-current workspaces.
 Token reconciliation parses UUID identity, chooses one canonical spelling per
 identity, regenerates invalid or semantically colliding rows through the bounded

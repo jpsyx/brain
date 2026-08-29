@@ -13,8 +13,7 @@ use token::populate_job_tokens;
 
 pub(in crate::state::receiver) use delivery::repair_structurally_malformed_deliveries;
 
-pub(super) const VERSION: i32 = 12;
-pub(super) const DELIVERY_PREVIOUS_VERSION: i32 = 11;
+pub(super) const VERSION: i32 = 13;
 pub(super) const RECOVERY_VERSION: i32 = 10;
 pub(super) const OBSERVATION_VERSION: i32 = 9;
 pub(super) const REGISTRATION_VERSION: i32 = 8;
@@ -76,13 +75,26 @@ pub(super) fn up_with_token_factory(
     rebuild_v8_jobs_for_observations(&transaction)?;
     ensure_observation_columns(&transaction, &mut next_token)?;
     recovery::ensure_columns(&transaction)?;
-    ensure_unavailable_notice_columns(&transaction)?;
+    let has_partial_cleanup_fence = recovery::has_partial_cleanup_fence(&transaction)?;
+    if has_partial_cleanup_fence {
+        transaction.pragma_update(None, "ignore_check_constraints", true)?;
+    }
+    if current_version < VERSION || has_partial_cleanup_fence {
+        recovery::ensure_legacy_notice_column(&transaction)?;
+    }
+    if has_partial_cleanup_fence {
+        transaction.pragma_update(None, "ignore_check_constraints", false)?;
+    }
+    if current_version < VERSION {
+        ensure_unavailable_notice_columns(&transaction)?;
+    }
     ensure_response_sender_column(&transaction)?;
     delivery::ensure_schema(&transaction)?;
     if current_version < VERSION && !had_any_recovery_column {
         recovery::migrate_v9_metadata(&transaction)?;
     }
     recovery::reconcile_metadata(&transaction)?;
+    delivery::finish_v13_cutover(&transaction)?;
     if current_version < VERSION {
         transaction.pragma_update(None, "user_version", VERSION)?;
     }
@@ -247,9 +259,22 @@ pub(super) fn has_column(connection: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
-pub(crate) use delivery::down_path as down_delivery_path;
+pub(crate) use delivery::down_cutover_path;
 #[cfg(test)]
-pub(in crate::state::receiver) use delivery::down_path_with_busy_observer as down_delivery_path_with_busy_observer;
+pub(in crate::state::receiver) use delivery::down_cutover_path_with_busy_observer;
+
+pub(crate) fn down_delivery_path(path: &std::path::Path) -> Result<()> {
+    delivery::down_cutover_path(path)?;
+    delivery::down_path(path)
+}
+
+#[cfg(test)]
+pub(in crate::state::receiver) fn down_delivery_path_with_busy_observer(
+    path: &std::path::Path,
+    observer: fn(i32) -> bool,
+) -> Result<()> {
+    delivery::down_path_with_busy_observer(path, observer)
+}
 pub(crate) use downgrade::{
     down_observation_to_registration_path, down_path, down_registration_to_launch_path,
     down_to_previous_path,

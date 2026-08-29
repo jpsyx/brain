@@ -5,6 +5,7 @@ mod receiver_delivery;
 mod receiver_launch;
 mod receiver_lifecycle_observation;
 mod receiver_model;
+mod receiver_notice_cutover;
 mod receiver_observation;
 mod receiver_recovery;
 mod receiver_recovery_cleanup;
@@ -29,6 +30,7 @@ const RECEIVER_RECOVERY_VERSION: Version = Version::new(0, 84, 0);
 const RECEIVER_RECOVERY_CLEANUP_VERSION: Version = Version::new(0, 84, 8);
 const RECEIVER_UNAVAILABLE_NOTICE_VERSION: Version = Version::new(0, 84, 12);
 const RECEIVER_DELIVERY_VERSION: Version = Version::new(0, 85, 0);
+const RECEIVER_NOTICE_CUTOVER_VERSION: Version = Version::new(0, 86, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -37,7 +39,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 10] = [
+const MIGRATIONS: [Migration; 11] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -87,6 +89,11 @@ const MIGRATIONS: [Migration; 10] = [
         introduced: RECEIVER_DELIVERY_VERSION,
         up: receiver_delivery::up,
         down: receiver_delivery::down,
+    },
+    Migration {
+        introduced: RECEIVER_NOTICE_CUTOVER_VERSION,
+        up: receiver_notice_cutover::up,
+        down: receiver_notice_cutover::down,
     },
 ];
 

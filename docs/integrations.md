@@ -1343,6 +1343,16 @@ Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
 Authenticated ingress fills it with the canonical receiving identity actually
 proved by signature and destination confirmation before acknowledgement;
+the automatic 0.86.0 boundary then advances receiver state to schema v13.
+Terminal recovery persists an immutable unavailable response before returning
+its cleanup effect. A remaining exact cleanup tuple makes that response
+`cleanup-gated`; exact cleanup acknowledgement promotes it to `ready` in the
+same immediate transaction that clears the fence. Upgrade converts v12 pending
+rows by that rule, then rebuilds `receiver_jobs` without the pending bit or two
+notice-claim columns. Downgrade reserves an immediate writer before mutable
+schema inspection, reconstructs v12 pending state for gated rows, retains
+representable delivery state without agent replay, and rebuilds the exact v12
+contracts atomically.
 completion uses only that value. Defensive rendering, serialized-envelope
 decoding, and repair require an email sender already equal to its normalized
 bare lowercase mailbox, so legacy NULL, display-name, case-variant, or malformed
@@ -1641,7 +1651,7 @@ and shell services stay outside that module. The removed schema-v11 notice
 lease columns are migration-only compatibility state.
 
 Terminal notices, `/new` and `/restart` acknowledgements, and dropped-job
-notices use the schema-v12 outbox. Their source-job transition and immutable
+notices use the schema-v13 outbox. Their source-job transition and immutable
 provider envelope commit in one immediate transaction. A legacy BR-16 pending
 notice remains behind its exact cleanup fence; same-version repair or the next
 enabled delivery reconciliation converts it to one `unavailable-notice` row

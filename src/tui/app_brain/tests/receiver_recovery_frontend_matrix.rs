@@ -179,7 +179,6 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         completed.observation_revision() == 3,
         "frontend recovery changed the observation revision"
     );
-    assert!(!completed.pending_unavailable_notice(), "{kind:?}");
     assert!(!completion_path.exists(), "{kind:?}");
     assert!(app.brain.receiver_run_observations().is_empty(), "{kind:?}");
 

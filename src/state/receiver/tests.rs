@@ -68,13 +68,6 @@ mod recovery_claim {
     include!("tests/recovery_claim_ordering.rs");
 }
 
-mod unavailable_notice {
-    use super::support::*;
-    use super::*;
-
-    include!("tests/unavailable_notice.rs");
-}
-
 mod control_delivery {
     use super::support::*;
     use super::*;
@@ -155,4 +148,5 @@ mod schema {
     include!("tests/schema_sections/delivery_repair.rs");
     include!("tests/schema_sections/delivery_writer.rs");
     include!("tests/schema_sections/writer_ordering.rs");
+    include!("tests/schema_sections/v13_notice_cutover.rs");
 }

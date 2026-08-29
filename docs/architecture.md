@@ -334,7 +334,7 @@ targeted and discovery claims also require the recovery to be the workspace's
 globally oldest claimable or blocking row. Exhaustion, ownerless recovery or
 absolute expiry, missing resume evidence, incomplete legacy completion, and
 any claimed-recovery planning, registration, spawn, or shutdown failure become
-terminal with a pending unavailable-notice intent. Every terminalized live run
+terminal with an immutable unavailable-notice outbox row. Every terminalized live run
 with an exact instance/session pair retains that tuple, registration, and
 session lock; recurring
 reconciliation redrives the same content-free cleanup identifiers across
@@ -345,8 +345,9 @@ when the exact original fresh registration, current session lock, cleanup tuple,
 and dead recorded PID all still agree. Recovery and bound lineages retain the
 native-conversation requirement. Cleanup tracks successful shutdown and artifact
 removal independently, so a later tick
-resumes only the remaining step before FIFO advances. Notice acknowledgement
-is independent and cannot invalidate the cleanup acknowledgement. Controller
+resumes only the remaining step before FIFO advances. The response remains
+`cleanup-gated` until exact cleanup acknowledgement promotes it to `ready`.
+Provider acknowledgement is independent and cannot invalidate cleanup authority. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
 The state layer separately leases a pending terminal notice to one finite writer
 without reusing claim or cleanup ownership.
@@ -518,6 +519,14 @@ transcripts, and only then removes the cleanup table and outbox. It rebuilds
 only retained v11 columns and recreating its checks, uniqueness, foreign key,
 and managed indexes before recording version 11. Rows that cannot satisfy that
 contract abort without stamping or dropping the v12 database state.
+The 0.86.0 receiver-notice cutover advances state to schema v13. Recovery
+terminalization now inserts the immutable unavailable response in its source
+transaction, using `cleanup-gated` only while an exact cleanup tuple remains.
+The exact cleanup acknowledgement promotes that row to `ready`. Upgrade maps
+v12 pending rows by the same rule and rebuilds `receiver_jobs` without the
+pending bit or its writer lease. Downgrade takes an immediate writer before
+schema inspection, reconstructs exact v12 pending state for gated rows, retains
+representable outbox rows, and rebuilds both table contracts atomically.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
@@ -1830,7 +1839,7 @@ model is scoped lock + recency behind `agent::session::SessionStore`
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. `receiver/` separately owns durable logical
 conversations, immutable inbound jobs, explicit lifecycle and retry state,
-expiring owner fences, transcript/native-session bindings, and schema v12
+expiring owner fences, transcript/native-session bindings, and schema v13
 recovery, notice, and response-delivery metadata. Schema v7 added the retry origin required to distinguish
 pre-acceptance launch retries from progressed recovery work; schema v8 added
 exact receiver-session registrations; schema v9 added opaque job tokens,
@@ -1840,9 +1849,10 @@ observation split, the pending unavailable-notice intent, and the exact
 superseded instance/session cleanup fence; schema v11 added the independent
 finite unavailable-notice writer lease; schema v12 added immutable response
 envelopes, exact delivery attempts, finite delivery claims, provider result
-classification, and retry or ambiguity state. The state contracts, nonblocking
-provider executor, and App tick consumer are active for every semantic response
-kind.
+classification, and retry or ambiguity state. Schema v13 moved cleanup gating
+into unavailable-notice outbox rows and removed
+the obsolete job columns. The state contracts, nonblocking provider executor,
+and App tick consumer are active for every semantic response kind.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 

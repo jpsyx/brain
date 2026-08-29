@@ -3,8 +3,9 @@ use anyhow::Result;
 use super::recovery_registration::exact_recovery_registration;
 use super::support::{EXACT_SNAPSHOT_SQL, ReconciliationCandidate, release_registration};
 use crate::state::{
-    ReceiverAttemptKind, ReceiverJob, ReceiverJobState, ReceiverReconciliationAction,
-    ReceiverReconciliationEffect, ReceiverReconciliationReason, ReceiverRecoveryDecision,
+    ReceiverAttemptKind, ReceiverDeliveryState, ReceiverJob, ReceiverJobState,
+    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
+    ReceiverRecoveryDecision,
 };
 
 pub(super) fn terminal_reason(
@@ -141,9 +142,25 @@ fn terminalize_with_cleanup(
     let persisted_cleanup_session_id = cleanup_is_fenced
         .then_some(cleanup_session_id.as_deref())
         .flatten();
+    let notice_state = if cleanup_is_fenced {
+        ReceiverDeliveryState::CleanupGated
+    } else {
+        ReceiverDeliveryState::Ready
+    };
+    let notice_rendered = insert_unavailable_notice(&transaction, job, notice_state, now)?;
+    let terminal_state = if notice_rendered && !cleanup_is_fenced {
+        "answer-ready"
+    } else {
+        "failed"
+    };
+    let last_error = if notice_rendered {
+        reason.as_str()
+    } else {
+        "notice-no-authorized-destination"
+    };
     let sql = format!(
         "UPDATE receiver_jobs
-         SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
+         SET state = ?11, claim_owner = NULL, claim_expires_at_unix_ms = NULL,
              retry_count = retry_count + ?5, retry_at_unix_ms = NULL,
              retry_from_state = NULL, last_error = ?6,
              observation_instance = NULL, observation_session_id = NULL,
@@ -153,7 +170,6 @@ fn terminalize_with_cleanup(
              launch_expires_at_unix_ms = NULL,
              acceptance_expires_at_unix_ms = NULL,
              progress_expires_at_unix_ms = NULL,
-             pending_unavailable_notice = 1,
              recovery_cleanup_instance = ?9,
              recovery_cleanup_session_id = ?10,
              updated_at_unix_ms = ?7
@@ -168,11 +184,12 @@ fn terminalize_with_cleanup(
             candidate.state.as_str(),
             candidate.owner,
             i64::from(consume_launch_attempt),
-            reason.as_str(),
+            last_error,
             now,
             candidate.exact_snapshot,
             persisted_cleanup_instance,
             persisted_cleanup_session_id,
+            terminal_state,
         ],
     )?;
     if changed != 1 {
@@ -214,6 +231,9 @@ pub(super) fn terminalize_launched_recovery(
     if job.recovery_cleanup_instance().is_some() || job.recovery_cleanup_session_id().is_some() {
         return Ok(None);
     }
+    if !insert_unavailable_notice(&transaction, job, ReceiverDeliveryState::CleanupGated, now)? {
+        return Ok(None);
+    }
     let sql = format!(
         "UPDATE receiver_jobs
          SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -225,7 +245,6 @@ pub(super) fn terminalize_launched_recovery(
              launch_expires_at_unix_ms = NULL,
              acceptance_expires_at_unix_ms = NULL,
              progress_expires_at_unix_ms = NULL,
-             pending_unavailable_notice = 1,
              recovery_cleanup_instance = ?6,
              recovery_cleanup_session_id = ?7,
              updated_at_unix_ms = ?8
@@ -258,4 +277,35 @@ pub(super) fn terminalize_launched_recovery(
         Some(instance.to_owned()),
         Some(session_id.to_owned()),
     )))
+}
+
+pub(super) fn insert_unavailable_notice(
+    connection: &rusqlite::Connection,
+    job: &ReceiverJob,
+    state: ReceiverDeliveryState,
+    observed_at_unix_ms: i64,
+) -> Result<bool> {
+    let notice = crate::server::reply::unanswered_notice(
+        super::super::response_intent::channel_label(job.inbound().channel),
+    );
+    match super::super::response_intent::insert_with_state(
+        connection,
+        job.id(),
+        job.token(),
+        job.inbound(),
+        crate::state::ReceiverResponseKind::UnavailableNotice,
+        &notice.text,
+        state,
+        observed_at_unix_ms,
+    ) {
+        Ok(_) => Ok(true),
+        Err(error)
+            if error
+                .downcast_ref::<crate::state::ReceiverDeliveryRenderError>()
+                .is_some() =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }

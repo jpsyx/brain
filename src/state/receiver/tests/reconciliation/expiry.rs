@@ -87,10 +87,8 @@ fn assert_reopened_due_recovery_boundary(
     if let Some(reason) = expected_reason {
         assert_eq!(job.state(), ReceiverJobState::Failed);
         assert_eq!(job.last_error(), Some(reason.as_str()));
-        assert!(job.pending_unavailable_notice());
     } else {
         assert_eq!(job.state(), ReceiverJobState::Retrying);
         assert_eq!(job.attempt_kind(), ReceiverAttemptKind::Recovery);
-        assert!(!job.pending_unavailable_notice());
     }
 }

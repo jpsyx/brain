@@ -21,7 +21,6 @@ fn ordinary_claim_establishes_a_launch_lease_without_consuming_recovery() {
     assert_eq!(job.absolute_work_expires_at_unix_ms(), None);
     assert_eq!(job.latest_progress_at_unix_ms(), None);
     assert_eq!(job.recovery_count(), 0);
-    assert!(!job.pending_unavailable_notice());
     assert_eq!(job.id(), accepted.job_id());
 }
 

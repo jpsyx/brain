@@ -235,7 +235,6 @@ fn successful_spawn_cleanup_failure_retains_exact_fence_until_retry() {
             .expect("load terminal recovery")
             .expect("terminal recovery");
         assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
-        assert!(!terminal.pending_unavailable_notice());
         assert!(
             fixture
                 .db
