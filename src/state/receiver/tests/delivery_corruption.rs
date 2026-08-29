@@ -157,6 +157,187 @@ fn malformed_oldest_ready_delivery_terminalizes_before_later_fifo_claim() {
 }
 
 #[test]
+fn malformed_delivery_identity_uses_an_alternate_when_the_first_repair_id_is_owned() {
+    let fixture = answer_ready_fixture();
+    let later = seed_later_ready_response(&fixture.db, "repair-id-owner", 200);
+    let token: String = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT job_token FROM receiver_jobs WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("load corrupt delivery token");
+    let first_repair_id = repair_identity_candidates(fixture.job_id, &token, "final-answer")[0]
+        .clone();
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries SET delivery_id = ?1 WHERE job_id = ?2",
+            rusqlite::params![first_repair_id, later.to_string()],
+        )
+        .expect("reserve the first deterministic repair identity");
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries
+             SET delivery_id = 'malformed-delivery-id', created_at_unix_ms = 100
+             WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("stage colliding malformed delivery identity");
+
+    super::super::schema::up(&fixture.db.conn, 12)
+        .expect("repair colliding malformed delivery identity");
+
+    let repaired: (String, String) = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT delivery_id, state FROM receiver_deliveries WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load alternate repaired identity");
+    assert!(ReceiverDeliveryId::parse(&repaired.0).is_ok());
+    assert!(repaired.0 != first_repair_id);
+    assert!(repaired.1 == "failed");
+    let semantic_count: i64 = fixture
+        .db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM receiver_deliveries
+             WHERE job_id = ?1 AND job_token = ?2 AND response_kind = 'final-answer'",
+            rusqlite::params![fixture.job_id.to_string(), token],
+            |row| row.get(0),
+        )
+        .expect("count repaired semantic response");
+    assert!(semantic_count == 1, "repair created a semantic duplicate");
+
+    super::super::schema::up(&fixture.db.conn, 12).expect("idempotent collision repair reopen");
+    let claim = fixture
+        .db
+        .claim_next_receiver_delivery("later-owner", 300, 30_300)
+        .expect("claim after alternate identity repair")
+        .expect("later valid response remains claimable");
+    assert!(claim.job_id() == later, "collision repair starved later FIFO work");
+}
+
+#[test]
+fn exhausted_repair_id_sequence_deletes_corrupt_authority_and_survives_down_up() {
+    let temporary = tempfile::tempdir().expect("temporary state directory");
+    let path = temporary.path().join("state.db");
+    let db = Db::open_path_with_legacy_identity(
+            &path,
+            &receiver_workspace_id().to_string(),
+            receiver_user_id().as_str(),
+        )
+        .expect("receiver state");
+    let corrupt_job_id = seed_later_ready_response(&db, "exhausted-repair-owner", 100);
+    let token: String = db
+        .conn
+        .query_row(
+            "SELECT job_token FROM receiver_jobs WHERE job_id = ?1",
+            [corrupt_job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("load corrupt delivery token");
+    for (index, candidate) in
+        repair_identity_candidates(corrupt_job_id, &token, "unavailable-notice")
+            .into_iter()
+            .enumerate()
+    {
+        let owner = seed_later_ready_response(
+            &db,
+            &format!("repair-candidate-owner-{index}"),
+            200 + u64::try_from(index).expect("bounded repair index"),
+        );
+        db
+            .conn
+            .execute(
+                "UPDATE receiver_deliveries SET delivery_id = ?1 WHERE job_id = ?2",
+                rusqlite::params![candidate, owner.to_string()],
+            )
+            .expect("reserve deterministic repair identity");
+    }
+    db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries
+             SET delivery_id = 'malformed-delivery-id', created_at_unix_ms = 100
+             WHERE job_id = ?1",
+            [corrupt_job_id.to_string()],
+        )
+        .expect("stage exhausted malformed delivery identity");
+
+    super::super::schema::up(&db.conn, 12)
+        .expect("fail closed after exhausting repair identities");
+    super::super::schema::up(&db.conn, 12).expect("idempotent exhausted repair reopen");
+
+    let retained: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM receiver_deliveries WHERE job_id = ?1",
+            [corrupt_job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("count corrupt semantic authority");
+    assert!(retained == 0, "exhausted corrupt delivery authority remained");
+    assert!(
+        db.receiver_job(corrupt_job_id)
+            .expect("load exhausted repair job")
+            .expect("exhausted repair job")
+            .state()
+            == ReceiverJobState::Failed,
+        "exhausted repair job was not terminalized"
+    );
+    let claim = db
+        .claim_next_receiver_delivery("later-owner", 300, 30_300)
+        .expect("claim after exhausted collision repair")
+        .expect("later valid response remains claimable");
+    assert!(
+        claim.job_id() != corrupt_job_id,
+        "exhausted collision repair starved later FIFO work"
+    );
+    assert!(
+        db.release_receiver_delivery_before_io(&claim, 301)
+            .expect("release later collision-owner response"),
+        "later response claim was not releasable before provider IO"
+    );
+    drop(db);
+
+    super::super::schema::down_delivery_path(&path)
+        .expect("downgrade exhausted collision repair");
+    let reopened = Db::open_path_with_legacy_identity(
+        &path,
+        &receiver_workspace_id().to_string(),
+        receiver_user_id().as_str(),
+    )
+    .expect("reupgrade exhausted collision repair");
+    assert!(
+        reopened
+            .receiver_job(corrupt_job_id)
+            .expect("load reupgraded exhausted repair job")
+            .expect("reupgraded exhausted repair job")
+            .state()
+            == ReceiverJobState::Failed,
+        "down/up revived exhausted corrupt authority"
+    );
+    let recreated: i64 = reopened
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM receiver_deliveries WHERE job_id = ?1",
+            [corrupt_job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("count reupgraded corrupt semantic authority");
+    assert!(recreated == 0, "down/up recreated exhausted corrupt authority");
+}
+
+#[test]
 fn malformed_due_retry_is_read_only_in_status_then_reconciles_before_later_claim() {
     let temporary = tempfile::tempdir().expect("temporary state directory");
     let path = temporary.path().join("state.db");

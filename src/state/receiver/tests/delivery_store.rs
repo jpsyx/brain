@@ -1,5 +1,9 @@
 fn answer_ready_fixture() -> super::binding::CompletionFixture {
-    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    answer_ready_fixture_in(Db::open_in_memory().expect("receiver state"))
+}
+
+fn answer_ready_fixture_in(db: Db) -> super::binding::CompletionFixture {
+    let fixture = super::binding::completion_fixture_in(db, ReceiverJobState::Processing);
     fixture
         .db
         .complete_receiver_job_with_binding(&fixture.request())

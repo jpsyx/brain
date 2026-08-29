@@ -43,6 +43,8 @@ pub use requirements::{
     RequirementStatus, format_requirements, requirements,
 };
 pub(crate) use secure_remove::remove_regular_file_beneath;
+#[cfg(all(test, unix))]
+pub(crate) use secure_remove::{SecureRemoveTestBoundary, with_secure_remove_test_hook};
 pub use selector::{STRICT_ENV, WORKSPACE_ENV, suggest};
 
 #[cfg(test)]

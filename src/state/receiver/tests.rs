@@ -135,6 +135,7 @@ mod delivery_store {
     use super::support::*;
     use super::*;
 
+    include!("tests/delivery_repair_support.rs");
     include!("tests/delivery_store.rs");
     include!("tests/delivery_corruption.rs");
 }

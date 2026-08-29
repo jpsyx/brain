@@ -7,6 +7,8 @@ use crate::state::{
     ReceiverResponseKind,
 };
 
+const DELIVERY_ID_REPAIR_CANDIDATES: usize = 8;
+
 struct PersistedDeliveryShape {
     row_id: i64,
     delivery_id: Value,
@@ -122,18 +124,18 @@ fn repair_one(connection: &Connection, shape: &PersistedDeliveryShape) -> Result
         delete_unrecoverable(connection, shape.row_id)?;
         return Ok(());
     }
-    let delivery_id = required_text(&shape.delivery_id)
-        .filter(|value| ReceiverDeliveryId::parse(value).is_ok())
-        .map_or_else(
-            || {
-                uuid::Uuid::new_v5(
-                    &uuid::Uuid::NAMESPACE_OID,
-                    format!("{job_id}:{job_token}:{response_kind}").as_bytes(),
-                )
-                .to_string()
-            },
-            ToOwned::to_owned,
-        );
+    let delivery_id = if let Some(delivery_id) =
+        required_text(&shape.delivery_id).filter(|value| ReceiverDeliveryId::parse(value).is_ok())
+    {
+        delivery_id.to_owned()
+    } else if let Some(delivery_id) =
+        available_repair_delivery_id(connection, shape.row_id, job_id, job_token, response_kind)?
+    {
+        delivery_id
+    } else {
+        delete_unrecoverable(connection, shape.row_id)?;
+        return Ok(());
+    };
     let created_at = nonnegative_or_zero(&shape.created_at_unix_ms);
     let updated_at = nonnegative_or_zero(&shape.updated_at_unix_ms).max(created_at);
     connection.execute(
@@ -167,6 +169,35 @@ fn repair_one(connection: &Connection, shape: &PersistedDeliveryShape) -> Result
         rusqlite::params![job_id, job_token, updated_at],
     )?;
     Ok(())
+}
+
+fn available_repair_delivery_id(
+    connection: &Connection,
+    row_id: i64,
+    job_id: &str,
+    job_token: &str,
+    response_kind: &str,
+) -> Result<Option<String>> {
+    for index in 0..DELIVERY_ID_REPAIR_CANDIDATES {
+        let seed = if index == 0 {
+            format!("{job_id}:{job_token}:{response_kind}")
+        } else {
+            format!("{job_id}:{job_token}:{response_kind}:repair:{index}")
+        };
+        let candidate = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, seed.as_bytes()).to_string();
+        let occupied = connection.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM receiver_deliveries
+               WHERE delivery_id = ?1 AND rowid != ?2
+             )",
+            rusqlite::params![candidate, row_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !occupied {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
 }
 
 fn exact_job_exists(connection: &Connection, job_id: &str, token: &str) -> Result<bool> {

@@ -6,6 +6,27 @@ use super::receiver_durable_support::publish_valid_completion;
 use super::*;
 
 #[cfg(unix)]
+fn quarantine_contains_inode(parent: &std::path::Path, inode: u64) -> bool {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    std::fs::read_dir(parent)
+        .expect("cleanup parent entries")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".brain-cleanup-")
+        })
+        .any(|entry| {
+            std::fs::set_permissions(entry.path(), std::fs::Permissions::from_mode(0o700))
+                .expect("inspect private cleanup quarantine");
+            std::fs::symlink_metadata(entry.path().join("artifact"))
+                .is_ok_and(|metadata| metadata.ino() == inode)
+        })
+}
+
+#[cfg(unix)]
 #[test]
 fn runtime_answer_cleanup_rejects_symlinked_artifact_ancestors_and_retries_exact_paths() {
     let (temporary, mut app, _db, first, _second, _transport) = answer_fixture();
@@ -89,6 +110,76 @@ fn runtime_answer_cleanup_rejects_symlinked_artifact_ancestors_and_retries_exact
     assert!(
         !observation_lock.exists(),
         "exact observation lock survived cleanup"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_answer_cleanup_never_unlinks_a_replacement_after_quarantine_verification() {
+    use std::cell::Cell;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::rc::Rc;
+
+    let (_temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer retained during exact cleanup race");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let opened_inode = std::fs::symlink_metadata(&response)
+        .expect("opened response metadata")
+        .ino();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+    let replacement_inode = Rc::new(Cell::new(None));
+    let hook_inode = Rc::clone(&replacement_inode);
+    let hook_response = response.clone();
+
+    crate::workspace::with_secure_remove_test_hook(
+        move |boundary, relative| {
+            if boundary
+                == crate::workspace::SecureRemoveTestBoundary::AfterQuarantineIdentityVerified
+                && relative == expected_relative
+                && hook_inode.get().is_none()
+            {
+                std::fs::write(&hook_response, "replacement private artifact")
+                    .expect("replace response artifact");
+                hook_inode.set(Some(
+                    std::fs::symlink_metadata(&hook_response)
+                        .expect("replacement metadata")
+                        .ino(),
+                ));
+            }
+        },
+        || app.tick_receiver(),
+    );
+
+    let replacement_inode = replacement_inode.get().expect("replacement race hook ran");
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "runtime cleanup discarded authority after an exact-target mismatch"
+    );
+    assert!(
+        std::fs::symlink_metadata(&response)
+            .is_ok_and(|metadata| metadata.ino() == replacement_inode),
+        "runtime cleanup unlinked the replacement at the original leaf"
+    );
+    assert!(
+        quarantine_contains_inode(response.parent().expect("response directory"), opened_inode,),
+        "runtime cleanup deleted the opened artifact before resolving the replacement"
+    );
+    app.tick_receiver();
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "runtime cleanup retry discarded fail-closed mismatch authority"
+    );
+    assert!(
+        quarantine_contains_inode(response.parent().expect("response directory"), opened_inode,),
+        "runtime cleanup retry deleted the quarantined opened artifact"
+    );
+    assert!(
+        std::fs::symlink_metadata(&response)
+            .is_ok_and(|metadata| metadata.ino() == replacement_inode),
+        "runtime cleanup retry unlinked the replacement at the original leaf"
     );
 }
 

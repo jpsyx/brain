@@ -1248,6 +1248,10 @@ pairing, provider-IO, and terminal reason fields before typed decoding. Oldest
 ready and due-retry fixtures prove deterministic terminal repair, read-only
 status before reconciliation, later FIFO advancement, and idempotent startup
 reopen.
+Collision fixtures give another valid delivery ownership of the first stable
+UUIDv5 repair identity and then all eight bounded identities. They prove
+deterministic alternate selection, no semantic duplicate, delete-and-terminalize
+exhaustion, idempotent reopen, later FIFO advancement, and v12 down/up safety.
 The startup migration registry pins 0.85.0 directly after
 0.84.22. Atomic answer-ready runtime tests cover exact transcript, binding,
 outbox, cleanup-fence, and claim-release behavior. Delivery tests add concurrent
@@ -1301,6 +1305,11 @@ tests substitute symlinks for both response and receiver-observation ancestors,
 and the shared helper also substitutes an ancestor above the cache root. They
 prove no outside deletion, retained runtime authority or failed downgrade with
 schema v12 intact, and successful exact cleanup after restoration. The
+deterministic cleanup hooks also replace the original leaf after quarantine
+identity verification and remove it after open before the entry stat. They prove
+the replacement is never unlinked, the opened artifact remains in a private
+quarantine, unsafe retries retain database authority, and exact-name absence is
+idempotent during downgrade. The
 receiver privacy policy
 recursively discovers authenticated HTTP, provider, state, App, and App-service
 Task 3 suites. Its identifier-aware assertion scan tracks local aliases and
@@ -1336,6 +1345,10 @@ Guards cap every part at 400 lines and keep the privacy policy split. They also
 reject the former always-false completed flag and unreachable observation-only
 answerless cleanup branch. The delivery cleanup table contract stays in its
 focused schema module.
+Privacy suite sizing uses recursive `.rs` discovery below the full privacy test
+directory, with only the explicit `fixtures` subtree excluded. A mutation makes
+`task_three_assertions/mod.rs` 401 lines while `syntax.rs` and `taint.rs` remain
+nested siblings, proving every current and future split part enters the guard.
 
 ## Test layout
 

@@ -49,6 +49,26 @@ fn rust_modules_below(directory: &Path) -> Vec<std::path::PathBuf> {
     modules
 }
 
+fn receiver_privacy_module_budget_violations(root: &Path) -> Vec<(std::path::PathBuf, usize)> {
+    rust_modules_below(&root.join("tests/receiver_observation_privacy"))
+        .into_iter()
+        .filter(|path| {
+            !path
+                .strip_prefix(root)
+                .expect("repository privacy module")
+                .components()
+                .any(|component| component.as_os_str() == "fixtures")
+        })
+        .filter_map(|path| {
+            let lines = std::fs::read_to_string(&path)
+                .expect("receiver privacy module")
+                .lines()
+                .count();
+            (lines > 400).then_some((path, lines))
+        })
+        .collect()
+}
+
 #[test]
 fn receiver_module_guard_discovers_nested_br17_production_modules() {
     let temporary = tempfile::tempdir().expect("temporary repository");
@@ -208,16 +228,45 @@ fn receiver_completion_and_privacy_suites_stay_cohesive() {
         );
     }
 
-    for relative in [
-        "tests/receiver_observation_privacy/policy.rs",
-        "tests/receiver_observation_privacy/policy/task_three_policy.rs",
-    ] {
-        let lines = std::fs::read_to_string(root.join(relative))
-            .expect("receiver privacy policy module")
-            .lines()
-            .count();
-        assert!(lines <= 400, "{relative} has {lines} test lines");
+    if let Some((path, lines)) = receiver_privacy_module_budget_violations(root)
+        .into_iter()
+        .next()
+    {
+        let relative = path.strip_prefix(root).expect("repository privacy module");
+        panic!("{} has {lines} test lines", relative.display());
     }
+}
+
+#[test]
+fn receiver_privacy_guard_recurses_into_every_split_part_and_rejects_a_401_line_mod_root() {
+    let temporary = tempfile::tempdir().expect("temporary repository");
+    let assertion_root = temporary
+        .path()
+        .join("tests/receiver_observation_privacy/policy/task_three_assertions");
+    std::fs::create_dir_all(&assertion_root).expect("privacy assertion directory");
+    std::fs::write(
+        assertion_root.join("mod.rs"),
+        "// guarded module\n".repeat(401),
+    )
+    .expect("oversized privacy root");
+    std::fs::write(assertion_root.join("syntax.rs"), "// syntax\n").expect("privacy syntax module");
+    std::fs::write(assertion_root.join("taint.rs"), "// taint\n").expect("privacy taint module");
+    let fixture = temporary
+        .path()
+        .join("tests/receiver_observation_privacy/fixtures/generated.rs");
+    std::fs::create_dir_all(fixture.parent().expect("privacy fixture directory"))
+        .expect("privacy fixture directory");
+    std::fs::write(&fixture, "// generated fixture\n".repeat(401))
+        .expect("generated privacy fixture");
+
+    let violations = receiver_privacy_module_budget_violations(temporary.path());
+
+    assert!(
+        violations.len() == 1
+            && violations[0].0.ends_with("task_three_assertions/mod.rs")
+            && violations[0].1 == 401,
+        "recursive privacy guard did not isolate the oversized split module"
+    );
 }
 
 #[test]

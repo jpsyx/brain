@@ -3135,10 +3135,15 @@ Cleanup path authorization is not a path-string check. Runtime and downgrade
 open the raw authorized absolute cache-parent path from the filesystem root,
 then walk the cache root and every descendant through no-follow directory
 descriptors. They open the target without following it, compare the held target
-with the parent-relative no-follow identity, require a regular file, and unlink
-through the held parent descriptor. This keeps substitution at any ancestor
-from deleting an outside response or observation artifact. Failure preserves
-runtime cleanup authority, or aborts downgrade while schema v12 remains intact.
+with the parent-relative no-follow identity, and require a regular file. The
+leaf is atomically moved into a fresh UUIDv4 quarantine below the held parent,
+opened and verified again, then protected by mode `000` until the final
+descriptor-relative unlink. If the original name reappears or either identity
+differs, Brain retains the quarantined entry, installs a per-leaf blocked marker,
+and fails closed. This keeps substitution at any ancestor or the exact leaf from
+deleting an outside or replacement response or observation artifact. Failure
+preserves runtime cleanup authority, or aborts downgrade while schema v12
+remains intact. Exact-name absence is the only idempotent `ENOENT` case.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 
@@ -3171,6 +3176,12 @@ deterministic terminal `invalid-request` outcome; unrecoverable orphan identity
 rows are removed. This follows the existing fail-closed corruption policy and
 prevents an oldest corrupt row from starving a later valid response while
 leaving read-only status mutation-free.
+Malformed delivery IDs use at most eight stable UUIDv5 candidates inside the
+immediate repair transaction. Candidate zero preserves the original stable
+mapping and later candidates add a bounded ordinal. If every identity is owned,
+repair removes the corrupt delivery row and the missing-semantic rule
+terminalizes its job. Random allocation would make reopen outcomes depend on
+timing, while an unbounded probe would let corrupt state delay startup.
 
 Accepted recipient and provider lineage are immutable input, not an internal
 store failure. If completion finds a malformed accepted SMS recipient, email

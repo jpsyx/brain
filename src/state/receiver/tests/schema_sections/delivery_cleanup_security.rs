@@ -73,3 +73,44 @@ fn v12_down_rejects_symlinked_artifact_ancestors_then_cleans_exact_paths() {
     assert!(!staged.observation.exists());
     assert!(!staged.observation_lock.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn v12_down_treats_removal_after_open_as_exactly_absent() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let path = canonical_temporary_state_path(&temporary, "workspace-cache/state.db");
+    std::fs::create_dir_all(path.parent().expect("workspace cache"))
+        .expect("workspace cache directory");
+    let staged = stage_delivery_cleanup_down(&path, true);
+    let expected_relative = std::path::PathBuf::from("responses").join(
+        staged
+            .response
+            .file_name()
+            .expect("response artifact file name"),
+    );
+    let hook_response = staged.response.clone();
+
+    crate::workspace::with_secure_remove_test_hook(
+        move |boundary, relative| {
+            if boundary == crate::workspace::SecureRemoveTestBoundary::AfterOpenBeforeEntryStat
+                && relative == expected_relative
+                && hook_response.exists()
+            {
+                std::fs::remove_file(&hook_response)
+                    .expect("remove response after descriptor open");
+            }
+        },
+        || {
+            super::super::schema::down_delivery_path(&path)
+                .expect("exactly absent response must not block downgrade");
+        },
+    );
+
+    assert!(
+        delivery_cleanup_down_state(&path, &staged) == (11, 0, 0, None),
+        "exactly absent response did not complete downgrade cleanup"
+    );
+    assert!(!staged.response.exists());
+    assert!(!staged.observation.exists());
+    assert!(!staged.observation_lock.exists());
+}

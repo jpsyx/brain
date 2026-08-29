@@ -1333,6 +1333,12 @@ metadata. Credentials remain in the machine-local provider adapter.
 Same-version repair rebuilds the earlier v12 check contract before a claim can
 enter `delivering`, preserves every row, and terminalizes malformed or
 pre-frozen-sender semantic responses together with their matching job.
+When a malformed delivery identity collides with the first stable UUIDv5 repair
+identity, repair probes a bounded sequence of eight deterministic UUIDv5
+identities inside the same immediate transaction. Exhausting that sequence
+deletes the corrupt delivery authority and lets the existing missing-semantic
+policy terminalize its job, so startup still opens without inventing a random
+identity or blocking later FIFO work.
 Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
 Authenticated ingress fills it with the canonical receiving identity actually
@@ -1500,6 +1506,16 @@ relaunch agent work; a crash after sync launch but before row deletion may
 repeat the same push. Multiple per-job cleanup rows may coexist for one Brain
 instance, so an earlier artifact retry cannot prevent a later answer commit or
 re-block FIFO. Pre-spawn store ambiguity is not ownership loss.
+On Unix, each artifact removal walks every ancestor through no-follow directory
+descriptors, opens the exact regular leaf, and atomically renames that leaf into
+a fresh UUIDv4 quarantine below the held parent. Brain opens and verifies the
+moved entry against the original descriptor, hardens the quarantine directory
+to mode `000` across the last observable boundary, and unlinks only that verified
+quarantine entry. A replacement at the original leaf is never unlinked. Any
+identity mismatch or original-name reappearance leaves the quarantine intact,
+installs a mode-`000` per-leaf retry blocker, and preserves cleanup authority.
+An `ENOENT` is idempotent only after a descriptor-relative check proves that
+the exact name involved is absent.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
 later fallible step. The local spawned capability owns the controller plus
 exact job, token, claim owner, instance, registered/native session, scope,
