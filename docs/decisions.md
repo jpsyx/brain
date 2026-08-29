@@ -893,7 +893,14 @@ version records, and malformed output, and reports an unavailable configured
 command with exact upgrade and `claude_cmd` remediation. Claude and OpenCode
 share one bounded, process-group-aware runner with disposable HOME/XDG state,
 while keeping their compatibility policies and successful-command caches
-separate. Codex remains unchanged because its exact `turn_id` hook contract
+separate. That shared runner also gives every probe a null standard
+input. A probe already runs in its own process group, so inheriting the
+terminal would make it a background reader of the controlling TTY: under the
+TUI, `claude --version` was stopped by `SIGTTIN` and the bounded deadline
+reported the frontend as unavailable even though the command was fine. A probe
+never has anything to read, so closing its input is both correct and the fix.
+
+Codex remains unchanged because its exact `turn_id` hook contract
 does not require this Claude capability floor.
 
 Inherited `OPENCODE_CONFIG_CONTENT` is merged rather than replaced because it

@@ -72,6 +72,8 @@ helpers and shell-outs live in the tasks modules:
   checkpointed by observation, passes an explicit no-config path to the rclone
   probe, and does not create cache, config, lock, journal, or rendered-skill state.
   Agent compatibility probes use disposable HOME/XDG roots and remove them afterward.
+  Every probe runs in its own process group with a null standard input, so it
+  can never be stopped by the controlling terminal when a TUI is open.
 - **`agenda` zsh function** — `Ctrl+A` runs it via the injected `ShellRunner`.
 - **`brain habits`**: when no TUI is open, elects the shared process in
   background mode, attaches a temporary browser-only workspace lease, and
@@ -225,8 +227,8 @@ Those contracts are anchored to OpenCode's official [CLI](https://opencode.ai/do
 [configuration](https://opencode.ai/docs/config/),
 [agent](https://opencode.ai/docs/agents/), and
 [plugin](https://opencode.ai/docs/plugins/) references.
-These probes run with disposable HOME and XDG roots and bounded output/time;
-they do not alter the user's OpenCode state. Successful reports are cached by
+These probes run with disposable HOME and XDG roots, a null standard input,
+and bounded output/time; they do not alter the user's OpenCode state. Successful reports are cached by
 configured command for that Brain process. A future OpenCode version remains
 supported when those tested surfaces remain compatible; otherwise Brain fails
 with the missing capability and an `opencode_cmd` remediation.
