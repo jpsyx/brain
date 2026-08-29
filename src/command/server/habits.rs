@@ -86,7 +86,6 @@ fn open_habits(context: &crate::workspace::CommandContext) -> Result<()> {
                 ingress_id: manifest.receiver_ingress_id().into(),
                 tui_pid: 0,
                 resolved_root: context.workspace.root().to_path_buf(),
-                job_socket: std::path::PathBuf::new(),
             };
             client.start_background(&registration)?;
             client.workspace_local_route(context.workspace.id())?

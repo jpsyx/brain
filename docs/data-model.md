@@ -133,7 +133,7 @@ The shared process receives only live TUI registrations. Its pure
 `LeaseTable` records each `WorkspaceLease` by stable `WorkspaceId` and keeps a
 separate catalog of previously seen opaque `IngressId` values. A lease contains
 its unique `LeaseId`, canonical workspace name, ingress ID, TUI PID,
-workspace-local job socket, receiver-enable snapshot, and monotonic expiry.
+receiver-enable snapshot, and monotonic expiry.
 It contains no root, registry environment, user identity, credential, prompt,
 log, or inbound message data.
 
@@ -179,14 +179,13 @@ performs the admission CAS within one control-mutex operation.
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration
 contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
-TUI-resolved root plus UUID-local job socket. The root is an ephemeral
+TUI-resolved root. The root is an ephemeral
 comparison value, never a lease field or state selector. The server reloads the
-registry and manifest to verify the identity tuple and normalized root, derives
-the authoritative socket path from machine state and workspace UUID, and
-requires both the singleton PID and job listener to be live. Only that derived
-socket enters the lease, and its liveness probe shares the control request's
-absolute deadline. Enablement comes from the authoritative registry. The
-read-only snapshot exposes only the generation and live-lease count. The
+registry and manifest to verify the identity tuple and normalized root, and
+requires the singleton PID to identify a live process. No workspace-local
+endpoint enters the lease. Enablement comes from the authoritative registry.
+The read-only snapshot exposes only the protocol version, generation, and
+live-lease count. The
 generation-bound workspace-ingress query exposes only an optional ingress for
 the exact requested live workspace UUID. It prunes expiry first and never falls
 back to a known historical ingress or another workspace's lease.
@@ -211,8 +210,8 @@ constructing the immutable `WorkspaceContext`. A heartbeat renews expiry without
 the revision. Registration and receiver enablement refreshes advance the
 workspace's remembered revision. Removal or expiry leaves no accepting
 authority, and any later registration advances that remembered revision, so
-even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
-job socket cannot match a ticket from before revocation. An unregister,
+even a later lease that reuses the same ID, workspace, ingress, and TUI PID
+cannot match a ticket from before revocation. An unregister,
 disable, replacement, or expiry makes the ticket stale. An address no workspace
 publishes, or a workspace this process has never leased, maps to 404; a known
 workspace with receiver disabled or no live TUI maps to 503; one address
@@ -237,7 +236,7 @@ For Resend only, a known unavailable ingress can yield its remembered workspace
 UUID without yielding a live route ticket. That UUID selects exactly one
 registry record for signature verification and bounded in-memory provider-ID
 deduplication. It never constructs `WorkspaceContext`, loads portable users, or
-opens the state DB or job socket. A verified unavailable ID is a permanent
+opens the state DB. A verified unavailable ID is a permanent
 discard in the 1024-key workspace/channel set, not a queued job or durable
 replay item. If that exact ID is already being admitted, the verified discard
 is deferred without releasing the in-flight reservation and receives 503 until
@@ -252,7 +251,7 @@ publishes `~/.cache/brain/server/process.json` with only the process PID,
 loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
 `control.sock`, `election.lock`, and `server.log` artifacts are infrastructure,
 not workspace state. The record never contains a workspace UUID or root,
-ingress ID, job socket, actor, sender, credential, prompt, log payload, or
+ingress ID, actor, sender, credential, prompt, log payload, or
 message body. A generation UUID guards cleanup so a stale owner cannot remove a
 new winner's record or socket. The elected process must receive its first
 registration within two seconds or it exits and removes its generation
@@ -303,7 +302,6 @@ state; watchdog expiry remains a separate mutation.
 ~/.cache/brain/workspaces/<workspace-uuid>/
 ├── state.db
 ├── tui.lock
-├── jobs.sock              (live TUI only, mode 0600)
 ├── users.transaction.lock
 ├── tasks.transaction.lock
 ├── inbox/
@@ -322,7 +320,7 @@ state; watchdog expiry remains a separate mutation.
     └── baselines/
 ```
 
-Its state database, transaction/TUI locks, live job socket, inbox, responses,
+Its state database, transaction/TUI locks, inbox, responses,
 capability material, migration journal/backups, reserved log path, and sync
 working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
@@ -333,6 +331,11 @@ are created exclusively with mode `0600`, and receive only centrally redacted
 argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
+
+The former legacy receiver socket is not part of `WorkspacePaths` or live lease
+state. The automatic 0.86.2 cutover may remove only its exact stale,
+owner-controlled Unix socket leaf; it does not introduce a new schema field or
+change state-database schema v13.
 
 Machine startup migrations have one separate version record:
 `$XDG_CONFIG_HOME/brain/migrations/version`, falling back to

@@ -4,7 +4,6 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::provider_request::{
@@ -21,7 +20,6 @@ pub struct SharedReceiverFixture {
     home: tempfile::TempDir,
     pub workspace: WorkspaceContext,
     pub ingress: brain::server::IngressId,
-    _socket: JobSocket,
     _guard: brain::tui::singleton::Guard,
     client: brain::server::control::ServerClient,
     generation: brain::server::lifecycle::ServerGeneration,
@@ -35,7 +33,6 @@ pub struct SharedReceiverFixture {
 struct AnchorLease {
     heartbeat: brain::server::control::HeartbeatWorker,
     _guard: brain::tui::singleton::Guard,
-    _socket: JobSocket,
 }
 
 impl SharedReceiverFixture {
@@ -116,7 +113,6 @@ impl SharedReceiverFixture {
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));
         store.replace(&registry).unwrap();
         let guard = brain::tui::singleton::Guard::acquire(&workspace).unwrap();
-        let socket = JobSocket::bind(&workspace).unwrap();
         let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
         let generation = brain::server::lifecycle::ServerGeneration::new();
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
@@ -136,7 +132,6 @@ impl SharedReceiverFixture {
         let heartbeat = register_workspace(&client, generation, &workspace, ingress);
         let anchor = anchor_workspace.map(|workspace| {
             let guard = brain::tui::singleton::Guard::acquire(&workspace).unwrap();
-            let socket = JobSocket::bind(&workspace).unwrap();
             let heartbeat = register_workspace(
                 &client,
                 generation,
@@ -146,14 +141,12 @@ impl SharedReceiverFixture {
             AnchorLease {
                 heartbeat,
                 _guard: guard,
-                _socket: socket,
             }
         });
         Self {
             home,
             workspace,
             ingress,
-            _socket: socket,
             _guard: guard,
             client,
             generation,

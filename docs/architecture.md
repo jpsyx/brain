@@ -124,8 +124,8 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
  │   TaskViewOptions, then moves the resolved view, task rows, selector state,
  │   and workspace context into TuiLaunch
  └─→ TuiRuntime::start(TuiLaunch)
-      ├─→ named startup stages own singleton, receiver endpoint, server lease,
-      │   terminal, App/session state, watcher, and periodic puller
+      ├─→ named startup stages own singleton, server lease, terminal,
+      │   App/session state, watcher, and periodic puller
       ├─→ command_context.workspace.root()   (immutable selected root snapshot)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
       └─→ tick → draw → poll/read → application update
@@ -1517,8 +1517,7 @@ TuiRuntime (process lifetime)
     ├── AppServices      runners, state DB, session store, receiver intent refresh,
     │                    sync effects, and bounded attachment staging
     ├── StatusState      triage gate, live toggle, messages, and sync status
-    └── ReceiverRuntime  enabled intent, freshness gate, durable-run handle,
-                         and BR-18 legacy endpoint lifetime
+    └── ReceiverRuntime  enabled intent, freshness gate, and durable-run handle
 ```
 
 The context is replaced as a complete immutable snapshot when portable config
@@ -1536,8 +1535,7 @@ simultaneous receiver controller before it can mutate tab state.
 `Overlay` remains a top-level field because it mediates mutually exclusive
 modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
 also remains top-level because it holds receiver intent, freshness, and the one
-durable run across ticks. Its narrowly named legacy job socket only preserves
-builder/lifetime compatibility until BR-18 and has no consumer behavior. The injected receiver intent refresher is a
+durable run across ticks. The injected receiver intent refresher is a
 cross-feature server-control effect owned behind `AppServices`; App invokes its
 semantic receiver-action operation without obtaining the adapter. Cross-feature
 launch, database, receiver lifecycle, task refresh, and focus changes remain App
@@ -1671,11 +1669,14 @@ prevents an unrelated owner from becoming an accidental public surface.
 
 `run_tui()` only starts `TuiRuntime`, runs it, and requests orderly shutdown.
 The runtime's named builder stages acquire the workspace UUID singleton,
-refresh hooks and skills, bind the UUID-scoped `jobs.sock`, complete a bounded
-connect/elect/register handshake with the machine-wide server, and start its
+refresh hooks and skills, complete a bounded connect/elect/register handshake
+with the machine-wide server, and start its
 heartbeat worker. The
 handshake retries only stale or missing generations, while authoritative
-workspace rejection ends startup. It next resolves assignment state, acquires
+workspace rejection ends startup. A protocol-version mismatch waits only
+within that same bounded budget; if the old generation remains live, startup
+returns a restart diagnostic without changing lease state. Once it exits,
+election and registration continue normally. Startup next resolves assignment state, acquires
 the terminal, opens the state DB, builds the brain-search picker
 (`build_search`), and assembles
 one internal `AppInit` request. `App::new(AppInit)` initializes the
@@ -1701,15 +1702,13 @@ returns focus to the tasks main view so `j`/`k` work at once. The sync-services
 stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
 workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
-identity, and the App state that holds the session lock and the legacy receiver
-endpoint lifetime.
+identity, and the App state that holds the session lock.
 From successful server registration through final runtime assembly, one partial-
-startup owner retains the heartbeat lease before the bound job socket. Assignment
+startup owner retains the heartbeat lease. Assignment
 resolution, terminal acquisition, DB/config/model construction, initial-panel
 launch, startup workers, and the lifecycle-completeness check all run inside that
-boundary. Any fallible return therefore unwinds its newer resources, unregisters
-and drops the server lease, and only then removes the job socket. The socket moves
-into the App only during the final infallible runtime assembly.
+boundary. Any fallible return therefore unwinds its newer resources and
+unregisters the server lease.
 
 One runtime tick coordinates the established order: close an exited agent panel
 and refresh tasks if needed, drain heartbeat/server-health events, tick skill
@@ -1863,9 +1862,9 @@ durably admits receiver requests only for enabled workspaces with live TUI
 leases.
 
 The lifecycle is closed around those TUIs except for the explicit browser-only
-habits lease. Startup binds the workspace-local
-job socket before election and registration; heartbeats renew only the
-registered lease; recovery re-enters the election after a stale generation.
+habits lease. Startup registers lease authority after singleton acquisition;
+heartbeats renew only the registered lease; recovery re-enters the election
+after a stale generation.
 The final orderly unregister stops the process immediately, while the watchdog
 stops it when the final crashed lease reaches TTL. A background habits lease
 keeps the process alive without a TUI until `brain habits kill`; a TUI
@@ -1974,8 +1973,7 @@ consumer, or agent launcher.
   returns only the ingress from that workspace's exact live accepted registration.
   `server.rs` copies validation capabilities under the state mutex, reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
-  derives the UUID-local job socket, and verifies the live singleton and
-  listener through the request's bounded connector without that mutex, then
+  verifies the live singleton without that mutex, then
   rechecks generation and deadline before creating a lease. An
   exact replay of an already-accepted registration is idempotent, while any
   competing lease or changed identity remains rejected. `heartbeat.rs` renews or generation-safely
@@ -2012,8 +2010,8 @@ consumer, or agent launcher.
   the expected UUID before saving. After persistence, a generation-bound
   control refresh names only the workspace UUID; the shared process reloads
   the authoritative record and updates a matching live lease if present. This
-  path never elects a process. The UUID-local job socket is only a live-endpoint
-  validation marker; the TUI does not read or dispatch jobs from it. Receiver command
+  path never elects a process. The elected lease is the sole live-TUI route
+  authority. Receiver command
   dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
   mutation, refresh-warning, and status decisions live in its focused
   `enablement.rs` child, with their tests under `enablement/tests.rs`.

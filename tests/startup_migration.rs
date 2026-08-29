@@ -487,3 +487,9 @@ mod receiver_notice_cutover_review {
 
     include!("startup_migration/receiver_notice_cutover_review.rs");
 }
+
+mod job_socket_cutover {
+    use super::*;
+
+    include!("startup_migration/job_socket_cutover.rs");
+}

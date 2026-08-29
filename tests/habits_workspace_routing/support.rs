@@ -34,8 +34,6 @@ pub(super) struct ServerFixture {
     pub(super) personal_lease: LeaseId,
     _personal_guard: brain::tui::singleton::Guard,
     _family_guard: brain::tui::singleton::Guard,
-    _personal_job_socket: brain::tui::singleton::JobSocket,
-    _family_job_socket: brain::tui::singleton::JobSocket,
     _personal_heartbeat: brain::server::control::HeartbeatWorker,
     _family_heartbeat: brain::server::control::HeartbeatWorker,
     child: Child,
@@ -106,10 +104,6 @@ impl ServerFixture {
             brain::tui::singleton::Guard::acquire(&personal_workspace).expect("personal TUI");
         let family_guard =
             brain::tui::singleton::Guard::acquire(&family_workspace).expect("family TUI");
-        let personal_job_socket =
-            brain::tui::singleton::JobSocket::bind(&personal_workspace).expect("personal jobs");
-        let family_job_socket =
-            brain::tui::singleton::JobSocket::bind(&family_workspace).expect("family jobs");
 
         let paths = ServerPaths::from_home(home.path());
         let generation = ServerGeneration::new();
@@ -170,8 +164,6 @@ impl ServerFixture {
             personal_lease,
             _personal_guard: personal_guard,
             _family_guard: family_guard,
-            _personal_job_socket: personal_job_socket,
-            _family_job_socket: family_job_socket,
             _personal_heartbeat: personal_heartbeat,
             _family_heartbeat: family_heartbeat,
             child,
@@ -296,7 +288,6 @@ pub(super) fn registration(
         ingress_id,
         tui_pid: std::process::id(),
         resolved_root: workspace.root().to_path_buf(),
-        job_socket: workspace.paths().job_socket(),
     }
 }
 

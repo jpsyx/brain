@@ -355,22 +355,6 @@ fn ordinary_interactive_and_exact_cfg_test_calls_are_not_receiver_reachable() {
     );
 }
 
-#[test]
-fn lifetime_only_job_socket_ownership_is_not_a_consumer() {
-    let fixture = rust_fixture(&[
-        ("lib.rs", "mod receiver;\n"),
-        (
-            "receiver.rs",
-            "use crate::tui::singleton::JobSocket as Endpoint;\npub fn bind(workspace: &crate::WorkspaceContext) -> Endpoint { Endpoint::bind(workspace).unwrap() }\npub fn own(socket: Endpoint) { drop(socket); }\n",
-        ),
-    ]);
-
-    assert!(
-        fixture_receiver_violations(fixture.path()).is_empty(),
-        "binding, owning, and dropping a lifetime-only JobSocket is not job consumption"
-    );
-}
-
 fn rust_fixture(files: &[(&str, &str)]) -> tempfile::TempDir {
     let fixture = tempfile::tempdir().expect("create receiver architecture fixture");
     let src = fixture.path().join("src");

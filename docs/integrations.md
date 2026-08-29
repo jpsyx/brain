@@ -153,8 +153,7 @@ TuiRuntime
     │   └── AgentController
     │       └── frontend registry -> Claude | Codex | OpenCode adapter -> transport
     ├── AppServices (session DB, runners, receiver sync adapter)
-    └── ReceiverRuntime (intent, freshness gate, durable-run handle,
-                         and BR-18 legacy endpoint lifetime)
+    └── ReceiverRuntime (intent, freshness gate, durable-run handle)
 ```
 
 Launch, receiver completion/delivery, and cross-feature coordination stay on
@@ -666,8 +665,8 @@ ingress lookup, routing, and availability transitions also opportunistically
 discard expired leases. Status probes never prune or advance lifecycle state.
 
 The externally observable lifetime is exact. Personal and family TUIs can hold
-two leases in the same generation and receive one message through their own
-job sockets. Closing family unregisters it; if personal remains, a family
+two leases in the same generation and receive messages through their own
+durable workspace queues. Closing family unregisters it; if personal remains, a family
 request receives one unavailable response and is discarded while personal
 stays routable. Closing personal then removes the final lease and the process
 exits immediately. If the final TUI crashes, its heartbeat expires at TTL and
@@ -686,16 +685,19 @@ Register, heartbeat, receiver-enable refresh, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
 can change. The read-only workspace-ingress lookup is also generation-bound and
 returns a value only for the exact requested live workspace lease. Snapshot is
-read-only and returns only generation plus live-lease count. Registration supplies the TUI-resolved root only for an ephemeral,
+read-only and returns only the exact protocol version, generation, and
+live-lease count. A new TUI that decodes an older snapshot treats it as a
+protocol fence, waits only inside the bounded startup handshake, and either
+continues election after the old generation exits or reports that every Brain
+TUI must be closed and restarted. It sends no legacy registration and changes
+no lease state. Registration supplies the TUI-resolved root only for an ephemeral,
 normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
-manifest, and verifies its workspace and ingress UUIDs. It derives the expected
-job socket from its own machine paths plus the validated UUID, then requires a
-matching live TUI singleton PID and probes the job listener within the same
-control-request deadline. Neither the root nor the client-supplied socket
-selects stored state. Receiver intent comes from the registry record rather
+manifest, and verifies its workspace and ingress UUIDs. It then requires a
+matching live TUI singleton PID within the same control-request deadline. The
+root does not select stored state. Receiver intent comes from the registry record rather
 than the TUI. If an accepted response is lost, retrying the exact same
-generation, lease, workspace identity, PID, and derived endpoint is accepted
+generation, lease, workspace identity, ingress, root, and PID is accepted
 idempotently and renews the lease deadline. A competing lease or changed
 identity is still rejected.
 
@@ -707,7 +709,7 @@ a generation-bound workspace UUID notification and reloads that record before
 changing live routing authority. Missing processes and missing live leases are
 valid: persistent intent governs the next registration, and the short-lived
 caller never elects or hosts ingress. Startup applies `--with-receiver` before
-the selected TUI binds its job socket and registers its lease.
+the selected TUI registers its lease.
 Persistence is the commit point for these mutations. If the optional live
 refresh cannot be delivered afterward, the CLI or palette reports a warning
 while retaining and displaying the committed intent instead of claiming that
@@ -776,27 +778,32 @@ ingress. Neither path reselects an ingress from a later manifest read.
 
 TUI startup flows through named `TuiRuntime` builder stages. They order
 ownership as workspace readiness, UUID singleton, hook/skill refresh,
-UUID-local `jobs.sock`, bounded connect/elect/register handshake, heartbeat
+bounded connect/elect/register handshake, heartbeat
 worker, assignment, terminal, App/session state, initial agent panel, startup
 sync, watcher, and periodic puller. If the selected generation exits between discovery and
 registration, the handshake re-enters election and registers with the winner;
 an authoritative workspace rejection returns immediately.
-After registration, a partial-start boundary retains the heartbeat lease before
-the bound job socket across every remaining fallible stage: assignment and
+After registration, a partial-start boundary retains the heartbeat lease across
+every remaining fallible stage: assignment and
 terminal setup, DB/config/App initialization, initial-panel launch, and startup
-workers. A startup error drops and unregisters the lease before removing the
-socket. Only an otherwise-complete runtime installs the socket into the App, and
-that transfer has no fallible work after it.
+workers. A startup error drops and unregisters the lease.
 The worker sends one heartbeat per second. Missing transport, a stale
 generation, or a lost lease triggers bounded election/reuse and re-registration;
 concurrent TUIs use the same election path so only one replacement wins.
 The runtime tick drains health events before skill-session, receiver, sync, and
 triage work. Orderly exit stops the worker and unregisters before agent
 shutdown, periodic-puller and watcher drop, session-lock release, terminal
-restoration, and final singleton release. The receiver-owned `jobs.sock` stays
-inside the App for the complete live runtime. Startup passes one owned
+restoration, and final singleton release. Startup passes one owned
 `TuiLaunch` request to `run_tui`; the runtime converts it to one internal
 `AppInit` request, and the resulting `App` retains no borrowed launch data.
+
+The 0.86.2 automatic cutover migration examines only the exact legacy socket
+leaf below each validated workspace UUID cache. It uses non-following metadata,
+requires an owner-controlled directory and owner-only Unix socket, preserves a
+socket that accepts a connection, and rechecks device and inode before unlinking
+a refused stale leaf. Symlinks, regular files, changed replacements, and unknown
+probe failures are preserved. Its explicit downgrade is an idempotent no-op;
+an older binary creates its own endpoint when it starts.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done
@@ -1442,10 +1449,7 @@ handoff duration already installed as SQLite's busy timeout. Schema
 reconciliation and the atomic acceptance transaction therefore cannot inherit
 the ordinary five-second lock wait. Provider and exact-job deduplication run
 before the atomic 64-row `queued` capacity check. Provider success follows only
-the commit or an existing durable match. The mode-`0600`
-`<workspace-cache>/jobs.sock` remains part of live-lease validation and is held
-only by a narrowly named legacy lifetime field until BR-18; it has no receiver
-read, poll, dispatch, or in-memory queue behavior.
+the commit or an existing durable match.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
 claims, active controllers, and cleanup-pending authority. The one
@@ -1667,7 +1671,7 @@ enabled tick executes the schema-v10 recovery policy first.
 BR-15 owns exact accepted/progress observations, and BR-17 now owns atomic
 answer persistence, generic delivery-only retry, durable semantic notices and
 controls, frozen-authority fallback, schema reconciliation, and content-free
-delivery status and diagnostics. BR-18 retains deletion of the legacy endpoint
+delivery status and diagnostics. BR-18 removes the legacy endpoint
 representation; receiver injection, warm-panel reuse, activity inference, and
 the second execution cursor are already absent.
 The shared HTTP listener uses four
@@ -1680,7 +1684,7 @@ retained as a permanent discard in a separate 1024-key set. If that exact ID is
 already in flight, Brain defers the discard, preserves the reservation, and
 returns 503 until the pending acceptance resolves. Known unavailable ingress is
 resolved before selecting that exact workspace's signing credential, and no
-root, user, prompt, or job socket is opened for this verification. A later live
+root, user, or prompt is opened for this verification. A later live
 replay is rejected before Receiving API access. Persisted disable uses this
 same exact-workspace path even when live refresh is blocked or fails. Dispatch retains the original
 route ticket, reserves five seconds for

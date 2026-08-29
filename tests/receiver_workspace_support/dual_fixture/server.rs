@@ -17,7 +17,6 @@ pub(super) fn register(
         ingress_id,
         tui_pid: std::process::id(),
         resolved_root: workspace.root().to_path_buf(),
-        job_socket: workspace.paths().job_socket(),
     };
     client.register_generation(&registration).unwrap();
     brain::server::control::HeartbeatWorker::start(client.clone(), registration)

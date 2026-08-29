@@ -93,7 +93,6 @@ mod tests {
         assert_ne!(personal.cache_dir(), family.cache_dir());
         assert_ne!(personal.state_db(), family.state_db());
         assert_ne!(personal.tui_lock(), family.tui_lock());
-        assert_ne!(personal.job_socket(), family.job_socket());
         assert_ne!(
             personal.user_transaction_lock(),
             family.user_transaction_lock()
@@ -102,7 +101,6 @@ mod tests {
         assert_eq!(personal.cache_dir(), personal_base.as_path());
         assert_eq!(personal.state_db(), personal_base.join("state.db"));
         assert_eq!(personal.tui_lock(), personal_base.join("tui.lock"));
-        assert_eq!(personal.job_socket(), personal_base.join("jobs.sock"));
         assert_eq!(
             personal.user_transaction_lock(),
             personal_base.join("users.transaction.lock")

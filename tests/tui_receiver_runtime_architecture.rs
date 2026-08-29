@@ -152,22 +152,16 @@ fn provider_delivery_has_no_direct_send_bypass_api() {
 }
 
 #[test]
-fn legacy_receiver_endpoint_is_representation_only_until_br18() {
+fn receiver_runtime_has_no_local_endpoint_authority() {
     let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
     let receiver_root = tui_root.join("receiver");
     let runtime =
         std::fs::read_to_string(receiver_root.join("runtime.rs")).expect("read receiver runtime");
     let singleton =
         std::fs::read_to_string(tui_root.join("singleton.rs")).expect("read singleton source");
-    assert!(
-        runtime.contains("legacy_job_socket: Option<crate::tui::singleton::JobSocket>"),
-        "BR-18 compatibility must be explicit and narrowly named"
-    );
-    assert!(
-        runtime.contains("fn install_legacy_job_socket"),
-        "the runtime builder must retain only endpoint lifetime ownership"
-    );
     for forbidden in [
+        "JobSocket",
+        "job_socket",
         "InboundQueue",
         "poll_jobs(",
         "process_job_stream(",
@@ -177,7 +171,7 @@ fn legacy_receiver_endpoint_is_representation_only_until_br18() {
     ] {
         assert!(
             !runtime.contains(forbidden) && !singleton.contains(forbidden),
-            "legacy endpoint regained consumer or control behavior: {forbidden}"
+            "receiver runtime regained local endpoint authority: {forbidden}"
         );
     }
 }

@@ -145,7 +145,7 @@ impl HeartbeatWorker {
         self.registration.lease_id
     }
 
-    /// Stop heartbeats, then unregister before the caller removes its job socket.
+    /// Stop heartbeats, then unregister before the caller tears down its runtime.
     ///
     /// # Errors
     ///

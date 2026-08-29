@@ -40,7 +40,6 @@ impl Watchdog {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -60,7 +59,6 @@ mod tests {
                     canonical_name: WorkspaceName::parse("personal").unwrap(),
                     ingress_id: IngressId::new(),
                     tui_pid: 42,
-                    job_socket: PathBuf::from("/tmp/job.sock"),
                     receiver_enabled: true,
                     expires_at: now + Duration::from_secs(5),
                 },

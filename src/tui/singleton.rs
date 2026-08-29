@@ -2,10 +2,6 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::unix::{
-    fs::PermissionsExt,
-    net::{UnixListener, UnixStream},
-};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -63,66 +59,6 @@ impl Drop for Guard {
     }
 }
 
-/// Workspace-scoped endpoint owned for exactly one TUI lifetime.
-#[derive(Debug)]
-pub struct JobSocket {
-    _listener: UnixListener,
-    path: PathBuf,
-}
-
-impl JobSocket {
-    /// Bind the selected workspace's UUID-scoped socket.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when a live owner exists or the endpoint cannot be
-    /// created and secured.
-    pub fn bind(workspace: &crate::workspace::WorkspaceContext) -> Result<Self> {
-        Self::bind_at(workspace.paths().job_socket())
-    }
-
-    fn bind_at(path: PathBuf) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
-        }
-        if path.exists() {
-            match UnixStream::connect(&path) {
-                Ok(_) => anyhow::bail!("another brain TUI already owns {}", path.display()),
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
-                    ) =>
-                {
-                    std::fs::remove_file(&path)
-                        .with_context(|| format!("removing stale {}", path.display()))?;
-                }
-                Err(error) => {
-                    return Err(error).with_context(|| format!("checking {}", path.display()));
-                }
-            }
-        }
-        let listener =
-            UnixListener::bind(&path).with_context(|| format!("binding {}", path.display()))?;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("securing {}", path.display()))?;
-        listener
-            .set_nonblocking(true)
-            .context("making workspace job socket nonblocking")?;
-        Ok(Self {
-            _listener: listener,
-            path,
-        })
-    }
-}
-
-impl Drop for JobSocket {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,26 +76,5 @@ mod tests {
     #[test]
     fn dead_pid_is_reclaimable() {
         assert!(lock_is_reclaimable(Some(42), false));
-    }
-
-    #[test]
-    fn a_live_job_socket_cannot_be_replaced() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("jobs.sock");
-        let _owner = JobSocket::bind_at(path.clone()).unwrap();
-
-        let error = JobSocket::bind_at(path).unwrap_err();
-
-        assert!(error.to_string().contains("already owns"));
-    }
-
-    #[test]
-    fn job_socket_is_owner_only() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("jobs.sock");
-        let _socket = JobSocket::bind_at(path.clone()).unwrap();
-        let mode = std::fs::metadata(path).unwrap().permissions().mode();
-
-        assert_eq!(mode & 0o777, 0o600);
     }
 }

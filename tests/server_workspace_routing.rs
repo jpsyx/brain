@@ -47,27 +47,13 @@ impl Fixture {
         let mut table = LeaseTable::default();
         table
             .register(
-                lease(
-                    PERSONAL_ID,
-                    personal_name,
-                    personal_ingress,
-                    home.path().join("personal.sock"),
-                    true,
-                    now,
-                ),
+                lease(PERSONAL_ID, personal_name, personal_ingress, true, now),
                 now,
             )
             .expect("personal lease");
         table
             .register(
-                lease(
-                    FAMILY_ID,
-                    family_name,
-                    family_ingress,
-                    home.path().join("family.sock"),
-                    false,
-                    now,
-                ),
+                lease(FAMILY_ID, family_name, family_ingress, false, now),
                 now,
             )
             .expect("family lease");
@@ -146,7 +132,6 @@ fn lease(
     id: &str,
     name: WorkspaceName,
     ingress_id: IngressId,
-    job_socket: std::path::PathBuf,
     receiver_enabled: bool,
     now: Instant,
 ) -> WorkspaceLease {
@@ -156,7 +141,6 @@ fn lease(
         canonical_name: name,
         ingress_id,
         tui_pid: std::process::id(),
-        job_socket,
         receiver_enabled,
         expires_at: now + Duration::from_secs(30),
     }

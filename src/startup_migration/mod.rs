@@ -1,5 +1,6 @@
 //! Automatic, version-directed machine migrations.
 
+mod job_socket_cutover;
 mod lifecycle;
 mod receiver_delivery;
 mod receiver_launch;
@@ -31,6 +32,7 @@ const RECEIVER_RECOVERY_CLEANUP_VERSION: Version = Version::new(0, 84, 8);
 const RECEIVER_UNAVAILABLE_NOTICE_VERSION: Version = Version::new(0, 84, 12);
 const RECEIVER_DELIVERY_VERSION: Version = Version::new(0, 85, 0);
 const RECEIVER_NOTICE_CUTOVER_VERSION: Version = Version::new(0, 86, 0);
+const JOB_SOCKET_CUTOVER_VERSION: Version = Version::new(0, 86, 2);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -39,7 +41,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 11] = [
+const MIGRATIONS: [Migration; 12] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -94,6 +96,11 @@ const MIGRATIONS: [Migration; 11] = [
         introduced: RECEIVER_NOTICE_CUTOVER_VERSION,
         up: receiver_notice_cutover::up,
         down: receiver_notice_cutover::down,
+    },
+    Migration {
+        introduced: JOB_SOCKET_CUTOVER_VERSION,
+        up: job_socket_cutover::up,
+        down: job_socket_cutover::down,
     },
 ];
 
@@ -278,5 +285,24 @@ mod tests {
 
         assert_eq!(down, vec![RECEIVER_DELIVERY_VERSION]);
         assert_eq!(up, vec![RECEIVER_DELIVERY_VERSION]);
+    }
+
+    #[test]
+    fn job_socket_cutover_boundary_is_exactly_adjacent_to_0861() {
+        let before = Version::new(0, 86, 1);
+        let cutover = Version::new(0, 86, 2);
+        let down = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_downgrade(migration.introduced, cutover, before))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+        let up = MIGRATIONS
+            .iter()
+            .filter(|migration| runs_on_upgrade(migration.introduced, before, cutover))
+            .map(|migration| migration.introduced)
+            .collect::<Vec<_>>();
+
+        assert_eq!(down, vec![JOB_SOCKET_CUTOVER_VERSION]);
+        assert_eq!(up, vec![JOB_SOCKET_CUTOVER_VERSION]);
     }
 }

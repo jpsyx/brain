@@ -217,8 +217,8 @@ The persistent shell previously kept its process resources as locals in
 behavior but left ownership, recurring order, and teardown order implicit in one
 long function. `TuiRuntime` is now the composition root for the already-existing
 RAII owners. It owns the App, terminal session, workspace singleton, heartbeat
-worker, watcher, periodic puller, receiver endpoint through the App, and shell
-instance/session lock. It does not wrap or duplicate their cleanup internals.
+worker, watcher, periodic puller, and shell instance/session lock. It does not
+wrap or duplicate their cleanup internals.
 
 Startup uses named stages in the established order. A pure lifecycle model pins
 that acquisition sequence and makes orderly shutdown idempotent. Shutdown keeps
@@ -228,11 +228,10 @@ workspace singleton until the runtime drops. `Drop` invokes the same sequence
 as a best-effort fallback, so an early return cannot bypass cleanup. Controller
 and session-release failures are logged while later teardown stages continue.
 
-Partial startup needs a narrower ownership rule because registration makes the
-shared server advertise the job socket. One production boundary therefore owns
-the heartbeat lease before the socket through all later fallible preparation,
-including terminal and application setup, the initial panel, and startup
-workers. Its ordinary field destruction performs the required unregister-before-
+Partial startup needs a narrow ownership rule because registration creates live
+route authority. One production boundary therefore owns the heartbeat lease
+through all later fallible preparation, including terminal and application
+setup, the initial panel, and startup workers. Its ordinary field destruction performs unregister-before-
 socket-removal rollback without another cleanup implementation. Socket ownership
 moves into the App only in the final infallible assembly step.
 
@@ -2324,16 +2323,16 @@ transaction, so every production project-metadata writer shares this boundary.
 ## Why shared-server routing starts with a pure lease table
 
 The shared receiver must make a routing decision before it reads a selected
-workspace's root, environment, user record, credentials, prompts, logs, or job
-socket. A pure `LeaseTable` is the narrowest boundary that can enforce that
+workspace's root, environment, user record, credentials, prompts, or logs. A
+pure `LeaseTable` is the narrowest boundary that can enforce that
 ordering. It records verified, live TUI registrations by typed workspace,
-lease, and ingress UUIDs, with only the lease-local job socket and receiver
-intent needed by the later forwarding layer.
+lease, and ingress UUIDs, with receiver intent needed by the later forwarding
+layer.
 
 The table keeps ingress catalog entries after a lease is removed or expires.
 That preserves the meaningful distinction between an unknown public route and
 a known workspace whose TUI is no longer live, while pruning the actual lease
-before any route can receive stale socket or PID data. A receiver-disabled live
+before any route can receive stale PID data. A receiver-disabled live
 lease is a third, separate state. The HTTP layer can map all unavailable states
 to the required behavior without confusing them internally.
 
@@ -2377,7 +2376,7 @@ the current revision unchanged. Handlers receive the resulting
 never reopen a global root or choose a workspace independently. This ordering
 prevents slow filesystem IO from blocking heartbeat or shutdown and prevents
 one route from selecting another workspace's tasks, triage signal,
-credentials, users, prompts, logs, or job socket. Disabled and no-live-TUI
+credentials, users, prompts, or logs. Disabled and no-live-TUI
 routes return 503 before handler behavior; receiver dispatch never accepts
 unavailable work.
 
@@ -2484,16 +2483,13 @@ without hidden state churn.
 ## Why control registration reopens authoritative workspace identity
 
 The TUI knows its selected workspace, but the machine-wide server must not
-use a client-supplied root, endpoint, or enablement value to select state.
-Control registration carries the TUI-resolved root only for an ephemeral
-normalized comparison, plus stable identity and the claimed UUID-scoped job
-endpoint. The server reloads the machine registry by exact canonical name,
+use a client-supplied root or enablement value to select state. Control
+registration carries the TUI-resolved root only for an ephemeral normalized
+comparison, plus stable identity. The server reloads the machine registry by exact canonical name,
 checks the workspace UUID and root, reopens that record's manifest, checks
 workspace and ingress UUIDs, and takes receiver enablement from the registry.
-It derives the endpoint from its own machine home plus the validated UUID,
-requires the claim to match, and proves the matching singleton PID and listener
-are live within the control request's deadline. The root is never retained and
-only the server-derived endpoint enters the lease. This keeps roots and
+It proves the matching singleton PID is live within the control request's
+deadline. The root is never retained. This keeps roots and
 credentials out of process state while
 preventing a local client from redirecting a lease across silos.
 
@@ -2502,10 +2498,9 @@ deadline checked before every connect, write, flush, and EOF-terminated read
 attempt, including successful progress. Stable `std` cannot initiate a
 cancellable nonblocking Unix-domain connect, so the control plane uses the safe
 `nix` socket and poll wrappers. A timed-out attempt drops its owned descriptor;
-no detached connector thread can accumulate. The server uses the same bounded
-connector for its job-listener liveness probe. Registration and enablement
+no detached connector thread can accumulate. Registration and enablement
 refresh copy immutable capabilities under the state mutex, perform registry,
-manifest, singleton, and socket IO outside it, then reacquire only to check the
+manifest, and singleton IO outside it, then reacquire only to check the
 generation and original absolute deadline before mutation. Independent bounded
 control workers keep status, heartbeat, and unregister responsive. Every mutation names
 the process generation, so a heartbeat or shutdown from a dead generation
@@ -2517,10 +2512,26 @@ concurrent recovery deterministic in tests. The election lock, rather than
 timing, chooses the single replacement.
 
 Registration may commit before its response reaches the TUI. Retrying the exact
-same generation, lease, workspace identity, PID, and server-derived endpoint is
+same generation, lease, workspace identity, ingress, root, and PID is
 therefore idempotently accepted and refreshes the deadline. Treating only this
 identity-exact replay as success preserves the duplicate-workspace and
 duplicate-lease exclusions for real contenders.
+
+The endpoint removal changes the control registration shape, so snapshots carry
+an exact protocol version. Treating an older live generation as temporarily
+unavailable would risk either a legacy fallback or lease mutation across two
+shapes. The client instead remembers the mismatch inside the existing bounded
+startup budget. If older TUIs close, their final lease shuts down that process
+and normal election continues; otherwise Brain returns one content-free,
+themed restart instruction. No compatibility endpoint is recreated.
+
+The cutover migration is intentionally narrower than ordinary stale-file
+cleanup. It targets only the exact UUID-cache leaf, uses non-following metadata,
+requires matching owner and owner-only socket permissions, proves that the
+socket refuses connections, and rechecks device plus inode before unlinking.
+Anything ambiguous is preserved. Downgrade is a no-op because the older binary
+owns creation of its endpoint, which keeps the migration idempotent in both
+directions without manufacturing old runtime state.
 
 ## Shared receiver admission with TUI-only execution
 
@@ -2797,10 +2808,9 @@ writer transaction; a post-lock ineligible shape returns without mutation.
 
 Before BR-13, provider ingress crossed a UUID-local Unix socket into an
 `InboundQueue`. BR-14 Task 5 removed that socket consumer, memory queue, staged
-admission protocol, and their execution policy. The remaining `jobs.sock`
-object is only a live-endpoint lifetime marker retained for builder and
-migration compatibility; it never accepts, reads, polls, dispatches, or stores
-receiver work. BR-18 owns removal of that final representation.
+admission protocol, and their execution policy. BR-18 removes the remaining
+endpoint representation. The elected shared-server lease is now the sole
+live-TUI route authority.
 
 ## Why receiver conversations keep both native history and a Brain transcript
 
@@ -3055,7 +3065,8 @@ post-answer cleanup. It never reads a receiver socket, maintains an in-memory
 execution cursor, or coordinates with the interactive panel. BR-15 owns
 accepted and processing proof, BR-16 owns progressed-run recovery, BR-17 now
 separates atomic answer-ready persistence from delivery-only recovery, and
-BR-18 owns the final retained representation and schema cleanup.
+BR-18 removed the final retained endpoint representation while leaving schema
+v13 unchanged.
 
 ## Commit the portable answer before provider delivery
 

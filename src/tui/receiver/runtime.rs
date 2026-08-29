@@ -1,4 +1,4 @@
-//! Durable receiver scheduling state and the legacy endpoint lifetime owner.
+//! Durable receiver scheduling state.
 
 use std::time::Instant;
 
@@ -54,8 +54,6 @@ struct ReceiverSyncGate {
 }
 
 pub(crate) struct ReceiverRuntime {
-    #[allow(dead_code)] // BR-18 removes this builder-compatible endpoint owner.
-    legacy_job_socket: Option<crate::tui::singleton::JobSocket>,
     enabled: bool,
     sync_gate: Option<ReceiverSyncGate>,
     durable_run: DurableReceiverRun,
@@ -88,7 +86,6 @@ impl ReceiverRuntime {
     #[must_use]
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
-            legacy_job_socket: None,
             enabled,
             sync_gate: None,
             durable_run: DurableReceiverRun::Idle,
@@ -360,10 +357,6 @@ impl ReceiverRuntime {
             | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
-    }
-
-    pub(crate) fn install_legacy_job_socket(&mut self, socket: crate::tui::singleton::JobSocket) {
-        self.legacy_job_socket = Some(socket);
     }
 
     #[must_use]

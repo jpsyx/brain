@@ -1,5 +1,5 @@
 use brain::server::lifecycle::{
-    ElectionGuard, ServerDecision, ServerGeneration, ServerPaths, connect_or_elect,
+    ElectionGuard, ProcessRecord, ServerDecision, ServerGeneration, ServerPaths, connect_or_elect,
 };
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixListener;
@@ -16,6 +16,68 @@ fn connect_or_elect_reuses_an_existing_generation() {
 
     assert_eq!(connected.generation, server.generation);
     server.shutdown_with_two_leases();
+}
+
+#[test]
+fn connect_or_elect_continues_after_an_older_server_generation_exits() {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    let legacy_generation = ServerGeneration::new();
+    let election = ElectionGuard::try_acquire(&paths, legacy_generation)
+        .expect("legacy election probe")
+        .expect("test process wins legacy election");
+    let record = ProcessRecord {
+        pid: std::process::id(),
+        port: 0,
+        generation: legacy_generation,
+        started_at: "2026-08-29T00:00:00Z".to_owned(),
+    };
+    std::fs::write(
+        paths.process_record(),
+        serde_json::to_vec(&record).expect("legacy process record JSON"),
+    )
+    .expect("legacy process record");
+    let listener = UnixListener::bind(paths.control_socket()).expect("legacy control socket");
+    let legacy_paths = paths.clone();
+    let legacy = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("legacy control request");
+        let mut request = Vec::new();
+        stream
+            .read_to_end(&mut request)
+            .expect("legacy control request bytes");
+        assert!(!request.is_empty());
+        writeln!(
+            stream,
+            "{{\"result\":\"snapshot\",\"generation\":\"{legacy_generation}\",\"live_leases\":1}}"
+        )
+        .expect("legacy snapshot");
+        drop(stream);
+        drop(listener);
+        std::fs::remove_file(legacy_paths.control_socket()).expect("retire legacy socket");
+        std::fs::remove_file(legacy_paths.process_record()).expect("retire legacy record");
+        drop(election);
+    });
+    let client = brain::server::control::ServerClient::with_launch_context(
+        paths.clone(),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+        home.path().to_path_buf(),
+    );
+
+    let replacement = connect_or_elect(&client).expect("elect after legacy generation exits");
+
+    legacy.join().expect("legacy server thread");
+    assert_ne!(replacement.generation, legacy_generation);
+    let status = Command::new("kill")
+        .args(["-TERM", &replacement.pid.to_string()])
+        .status()
+        .expect("stop replacement server");
+    assert!(status.success());
+    wait_for("replacement generation cleanup", || {
+        !paths.process_record().exists()
+            && !paths.control_socket().exists()
+            && !paths.election_lock().exists()
+    });
 }
 
 #[test]

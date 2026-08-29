@@ -1506,10 +1506,9 @@ numbers use exact E.164 matching, including the leading `+` and country code. A 
 SMS number produces a persistent yellow warning in the TUI status line. The
 former generic `/webhooks/capture` route has been removed.
 
-Each ready TUI binds a UUID-scoped job socket for lease validation, registers a
-validated live lease, heartbeats it, recovers the shared process after a crash,
-and unregisters before removing its socket. Provider ingress no longer sends
-accepted jobs through that socket. It commits the complete immutable job and
+Each ready TUI registers a validated live lease, heartbeats it, recovers the
+shared process after a crash, and unregisters on orderly shutdown. Provider
+ingress commits the complete immutable job and
 logical conversation to the addressed workspace DB, and only that commit or a
 durable dedup hit permits provider success. Disabled, missing, storage-failed,
 and full durable-queue targets receive the existing channel-appropriate
@@ -2004,14 +2003,20 @@ registers before launching its agent through one bounded handshake. If the
 selected generation exits before registration, the handshake re-enters election
 and registers against the winner; authoritative identity rejection is not
 retried. Registration compares the normalized TUI-resolved root to the reopened
-registry, derives the UUID-local job socket from machine paths, and verifies the
-live singleton plus a deadline-bounded listener probe before accepting the
-lease. A retry after an accepted response is lost succeeds only when generation,
-lease, workspace identity, PID, and derived endpoint are unchanged; competing
+registry and verifies the live singleton before accepting the lease. A retry
+after an accepted response is lost succeeds only when generation, lease,
+workspace identity, ingress, root, PID, receiver intent, heartbeat, and expiry
+authority are unchanged; competing
 registrations remain rejected. The TUI then heartbeats
 once per second, re-elects and re-registers after a missing or stale generation,
-and unregisters before its workspace job socket is removed. Two workspaces may
+and unregisters on orderly shutdown. Two workspaces may
 hold leases concurrently; the last orderly exit shuts the shared process down.
+
+The shared control protocol carries an exact version in every snapshot. During
+an upgrade, a new TUI waits within the existing bounded startup handshake for
+older live TUIs to close. If they remain, startup reports a themed instruction
+to close every Brain TUI and restart Brain; it never falls back to the removed
+workspace endpoint or mutates the older generation's leases.
 
 `brain receiver setup` walks through the selected channel's provider
 credentials, the machine's one public base URL (machine-global, so setting it

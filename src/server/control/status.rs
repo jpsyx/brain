@@ -10,6 +10,24 @@ use super::{
 use crate::server::lifecycle::{IngressId, ProcessRecord, ServerGeneration, pid_alive};
 use crate::workspace::WorkspaceId;
 
+#[derive(Debug)]
+pub(crate) struct ProtocolMismatch;
+
+impl std::fmt::Display for ProtocolMismatch {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&crate::theme::Theme::active().error_line(
+            "🔴",
+            "Brain server protocol changed. Close every Brain TUI, then restart Brain.",
+        ))
+    }
+}
+
+impl std::error::Error for ProtocolMismatch {}
+
+pub(crate) fn is_protocol_mismatch(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ProtocolMismatch>().is_some()
+}
+
 /// One generation-coherent status projection for the process and workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkspaceStatusSnapshot {
@@ -53,9 +71,29 @@ impl ServerClient {
         if !pid_alive(record.pid) {
             anyhow::bail!("brain server process {} is not alive", record.pid);
         }
-        match self.request_until(&ControlRequest::Snapshot, deadline)? {
-            ControlResponse::Snapshot(snapshot) if snapshot.generation == record.generation => {
+        let response = self
+            .request_until(&ControlRequest::Snapshot, deadline)
+            .map_err(|error| {
+                if error
+                    .chain()
+                    .any(|cause| cause.downcast_ref::<serde_json::Error>().is_some())
+                {
+                    anyhow::Error::new(ProtocolMismatch)
+                } else {
+                    error
+                }
+            })?;
+        match response {
+            ControlResponse::Snapshot(snapshot)
+                if snapshot.protocol_version == super::CONTROL_PROTOCOL_VERSION
+                    && snapshot.generation == record.generation =>
+            {
                 Ok((record, snapshot))
+            }
+            ControlResponse::Snapshot(snapshot)
+                if snapshot.protocol_version != super::CONTROL_PROTOCOL_VERSION =>
+            {
+                Err(anyhow::Error::new(ProtocolMismatch))
             }
             ControlResponse::Snapshot(_) => {
                 anyhow::bail!("brain server generation changed while connecting")
@@ -174,6 +212,27 @@ impl ServerClient {
             response => {
                 anyhow::bail!("unexpected shared-server workspace status response: {response:?}")
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolMismatch;
+
+    #[test]
+    fn protocol_mismatch_diagnostic_is_themed_actionable_and_content_free() {
+        let diagnostic = ProtocolMismatch.to_string();
+
+        assert_eq!(
+            diagnostic,
+            "🔴 Brain server protocol changed. Close every Brain TUI, then restart Brain."
+        );
+        for private in ["jobs.sock", "/Users/", ".cache/brain", "receiver prompt"] {
+            assert!(
+                !diagnostic.contains(private),
+                "diagnostic disclosed {private}"
+            );
         }
     }
 }

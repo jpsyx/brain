@@ -163,8 +163,8 @@ access mode, workspace identity, root, local user, receiver enablement, or env.
 
 Multiple workspaces can be open at the same time. Start each TUI with its
 workspace selector, for example `brain -w brain` and `brain -w family`. Brain
-shares one machine-wide receiver process, while each TUI lease, job socket,
-runtime cache, root, and receiver ingress remains scoped to its workspace UUID.
+shares one machine-wide receiver process, while each TUI lease, runtime cache,
+root, and receiver ingress remains scoped to its workspace UUID.
 
 The complete implemented management surface is:
 
@@ -228,8 +228,8 @@ for current diagnostic logs.
 ### Shared server and receiver lifetime
 
 Brain runs at most one machine-wide HTTP process, and only while one or more
-workspace TUIs are live. A ready TUI binds its UUID-local job socket, wins or
-joins the shared-process election, registers its workspace lease, and renews
+workspace TUIs are live. A ready TUI wins or joins the shared-process election,
+registers its workspace lease, and renews
 that lease with heartbeats. An orderly final close unregisters and stops the
 process immediately. A crashed final TUI stops renewing, so the watchdog
 removes its lease and stops the process after the five-second TTL.

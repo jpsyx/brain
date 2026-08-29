@@ -108,14 +108,21 @@ fn connect_or_elect_until_with_publication_hook_and_mode(
     after_publication: &mut impl FnMut(&ProcessRecord),
     background: bool,
 ) -> Result<ProcessRecord> {
+    let mut legacy_protocol_observed = false;
     loop {
         let record = super::state::read_record(client.paths());
         let process_live = record.as_ref().is_some_and(|state| pid_alive(state.pid));
-        let socket_live = record.as_ref().is_some_and(|state| {
-            client
-                .connect_existing_until(deadline)
-                .is_ok_and(|found| found == *state)
-        });
+        let socket_live =
+            record
+                .as_ref()
+                .is_some_and(|state| match client.connect_existing_until(deadline) {
+                    Ok(found) => found == *state,
+                    Err(error) => {
+                        legacy_protocol_observed |=
+                            crate::server::control::is_protocol_mismatch(&error);
+                        false
+                    }
+                });
         if process_live && socket_live {
             return Ok(record.expect("live probes require a process record"));
         }
@@ -163,6 +170,9 @@ fn connect_or_elect_until_with_publication_hook_and_mode(
             }
         }
         if Instant::now() >= deadline {
+            if legacy_protocol_observed {
+                return Err(anyhow::Error::new(crate::server::control::ProtocolMismatch));
+            }
             anyhow::bail!("brain server did not come up within {STARTUP_TIMEOUT:?}");
         }
     }

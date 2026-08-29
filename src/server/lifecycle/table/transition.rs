@@ -34,7 +34,6 @@ pub(super) fn same_registration(existing: &WorkspaceLease, replay: &WorkspaceLea
         && existing.canonical_name == replay.canonical_name
         && existing.ingress_id == replay.ingress_id
         && existing.tui_pid == replay.tui_pid
-        && existing.job_socket == replay.job_socket
 }
 
 pub(super) const fn shutdown_decision(removed_lease: bool, no_live_leases: bool) -> ServerDecision {
