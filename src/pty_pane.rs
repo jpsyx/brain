@@ -19,8 +19,9 @@
 use std::{
     io::{Read, Write},
     path::Path,
-    sync::{Arc, RwLock, mpsc},
+    sync::{Arc, Condvar, Mutex, RwLock, mpsc},
     thread,
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -36,13 +37,15 @@ use crate::agent::{AgentError, AgentTransport, InputSequence, InputWrite, Launch
 /// so this is the only history available; ~10k rows is plenty for a long
 /// brain run and costs little memory at the panel's width.
 const SCROLLBACK_LEN: usize = 10_000;
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+type ExitState = (Mutex<Option<ExitStatus>>, Condvar);
 
 pub struct PtyPane {
     pub parser: Arc<RwLock<vt100::Parser>>,
     writer_tx: Option<mpsc::Sender<InputWrite>>,
     master: Option<Box<dyn MasterPty + Send>>,
     killer: Option<Box<dyn ChildKiller + Send + Sync>>,
-    exit_status: Option<Arc<RwLock<Option<ExitStatus>>>>,
+    exit_status: Option<Arc<ExitState>>,
     pub rows: u16,
     pub cols: u16,
 }
@@ -127,7 +130,7 @@ impl PtyPane {
             self.cols,
             SCROLLBACK_LEN,
         )));
-        let exit_status: Arc<RwLock<Option<ExitStatus>>> = Arc::new(RwLock::new(None));
+        let exit_status: Arc<ExitState> = Arc::new((Mutex::new(None), Condvar::new()));
 
         // Reader: PTY master → vt100 parser.
         let mut reader = pair
@@ -175,8 +178,10 @@ impl PtyPane {
             let exit_status = Arc::clone(&exit_status);
             thread::spawn(move || {
                 if let Ok(status) = child.wait() {
-                    if let Ok(mut slot) = exit_status.write() {
+                    let (slot, exited) = &*exit_status;
+                    if let Ok(mut slot) = slot.lock() {
                         *slot = Some(status);
+                        exited.notify_all();
                     }
                 }
             });
@@ -266,7 +271,32 @@ impl PtyPane {
     pub fn is_alive(&self) -> bool {
         self.exit_status
             .as_ref()
-            .is_some_and(|status| status.read().is_ok_and(|slot| slot.is_none()))
+            .is_some_and(|status| status.0.lock().is_ok_and(|slot| slot.is_none()))
+    }
+
+    // The condition-variable wait consumes and returns the same guard, so it
+    // cannot be dropped between the lock and bounded wait as Clippy suggests.
+    #[allow(clippy::significant_drop_tightening)]
+    fn wait_for_exit(&self) -> Result<(), AgentError> {
+        let Some(exit_status) = self.exit_status.as_ref() else {
+            return Ok(());
+        };
+        let (slot, exited) = &**exit_status;
+        let waiting_status = slot
+            .lock()
+            .map_err(|_| AgentError::Transport("PTY exit state is unavailable".to_owned()))?;
+        let (confirmed_status, _) = exited
+            .wait_timeout_while(waiting_status, SHUTDOWN_WAIT, |status| status.is_none())
+            .map_err(|_| AgentError::Transport("PTY exit state is unavailable".to_owned()))?;
+        let exited = confirmed_status.is_some();
+        drop(confirmed_status);
+        if exited {
+            Ok(())
+        } else {
+            Err(AgentError::Transport(
+                "PTY child remained running after termination".to_owned(),
+            ))
+        }
     }
 }
 
@@ -305,10 +335,16 @@ impl AgentTransport for PtyPane {
         Self::is_alive(self)
     }
 
-    fn shutdown(&mut self) {
-        if let Some(killer) = self.killer.as_mut() {
-            let _ = killer.kill();
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        if !self.is_alive() {
+            return Ok(());
         }
+        self.killer
+            .as_mut()
+            .ok_or_else(|| AgentError::Transport("PTY child terminator is unavailable".to_owned()))?
+            .kill()
+            .map_err(|_| AgentError::Transport("PTY child termination failed".to_owned()))?;
+        self.wait_for_exit()
     }
 
     fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {

@@ -122,6 +122,36 @@ fn receiver_runtime_contains_no_cross_feature_effect_adapters_or_io() {
 }
 
 #[test]
+fn provider_delivery_has_no_direct_send_bypass_api() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let path = root.join("src/server/delivery.rs");
+    let source = std::fs::read_to_string(&path).expect("read provider delivery facade");
+    let syntax = syn::parse_file(&source)
+        .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
+    let public_functions = syntax
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Fn(function) if matches!(function.vis, syn::Visibility::Public(_)) => {
+                Some(function.sig.ident.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for forbidden in ["send_sms", "send_email"] {
+        assert!(
+            !public_functions.iter().any(|name| name == forbidden),
+            "provider facade restored direct bypass {forbidden}"
+        );
+    }
+    assert!(
+        source.contains("trait ReceiverDeliveryExecution"),
+        "provider delivery must remain behind the typed execution seam"
+    );
+}
+
+#[test]
 fn legacy_receiver_endpoint_is_representation_only_until_br18() {
     let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
     let receiver_root = tui_root.join("receiver");

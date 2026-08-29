@@ -127,9 +127,26 @@ main view, or moves keyboard focus. When receiver intent is enabled, the single
 event-loop consumer preserves the sync-freshness gate, claims the oldest ready
 durable job, and launches a new PTY and frontend-neutral `AgentController` in
 that background tab even while the main panel is busy. Later arrivals remain
-durable until the active run reaches a valid exact completion. Terminal close
-shuts down only that controller, reloads tasks, preserves provider reply
-  behavior, and leaves the active view, tab, and focus unchanged. Only a proved
+durable until the active run reaches a valid exact completion. Answer commit
+releases agent ownership at `answer-ready`; cleanup shuts down only that
+controller and waits for the transport to confirm that exact child exited.
+Exact session release and private artifact removal stay fenced until that
+confirmation is durably acknowledged. If the origin dies, authoritative
+startup lock reaping atomically records the same handoff before it unlocks the
+exact session; PID equality or reuse is never takeover proof. Those two cleanup
+effects retry independently, then task reload
+and sync finish the handoff while leaving the active view, tab, and focus
+unchanged. A bounded cleanup-only registry detaches completed receiver tabs,
+retains their exact controllers, and gives each pending shutdown one fair retry
+per pass. The ordinary receiver lane can launch and complete later FIFO jobs
+while those exits remain unconfirmed; only a full eight-controller registry
+holds the next completed controller in its exact tab. Cleanup retries do not
+block a later job. A fresh App applies the same fairness to durable cleanup
+rows: an incomplete oldest row moves behind its eligible peers before another
+pass, so its persistent session, artifact, reload, or sync failure cannot
+starve a later answer's exact cleanup. Timestamp saturation shifts only the
+workspace's peer ordering timestamps in the same transaction, so the failed row
+still moves last at `i64::MAX`. Only a proved
   synchronous spawn failure enters bounded retry. A later child exit without
   exact completion preserves the fenced post-spawn job for BR-16.
 
@@ -1583,44 +1600,92 @@ separate work.
 
 The stop bridge settles a completed observation inside its session transaction
 before publishing the artifact or completed-session state. The TUI requires
-that exact completed session in its own atomic terminal transaction, so neither
-surface is accepted from a partially published stop. An exact lifecycle
-completion artifact and lifecycle-only completion are both terminal evidence.
-A valid artifact wins when both appear in one tick, so its private response is
-delivered once through the existing exact completion path. When the same poll
-contains a validated lifecycle completion, all normalized boundaries plus its
-revision/session cursor are merged atomically even though the artifact body wins
-delivery. Its producer
+that exact completed session and an exact answer artifact in its atomic answer
+transaction, so neither surface is accepted from a partially published stop.
+Lifecycle completion without an answer is not terminal: Brain may retain its
+accepted or progressing facts, but it keeps the agent run active and FIFO
+blocked until the exact artifact exists. When both appear in one tick, all
+normalized boundaries plus the revision/session cursor are merged atomically
+with the artifact answer. Its producer
 timestamp remains the durable terminal evidence time, even if it is later than
 the renewed lease. Producer evidence never authorizes completion. After exact
 artifact and lifecycle validation, Brain samples a fresh App clock for the
 lease check; without a lifecycle completion boundary, that same fresh value is
-  also the durable completion-time fallback. Artifact-only completion records a
-  representable terminal cursor at revision one or later and the exact completed
-  native session, without inventing accepted or progressing timestamps.
-Lifecycle-only completion can move `launched`, `accepted`, or `processing`
-directly to `done` without inventing missed intermediate timestamps or a
-response body. Its
-terminal transaction also replaces the conversation binding with the exact
-lifecycle-reported native session; if that binding cannot be persisted, the job
-remains retryable instead of becoming `done`. Terminal completion, child exit,
+also the durable completion-time fallback. Artifact-only completion records a
+representable terminal cursor at revision one or later and the exact completed
+native session, without inventing accepted or progressing timestamps.
+The immediate answer transaction validates the exact job, token, owner, live
+claim, conversation, instance, registered and actual session, frontend,
+actor/channel scope, and lifecycle evidence. It appends one authenticated user
+turn and the exact assistant answer to the portable transcript, freezes one
+final-answer delivery envelope, replaces the native binding, moves the job to
+`answer-ready`, and releases the agent claim. The sender is the canonical
+number or mailbox proven by authenticated ingress, including normalized
+human-formatted receiver configuration, and is never reread from mutable
+environment at completion. Email delivery requires the exact bare lowercase
+configured-mailbox syntax, including valid local-part dots and domain labels.
+Invalid legacy sender shapes terminalize atomically.
+If an email job has no trusted accepted recipient, the same
+transaction advances transcript and cleanup authority but persists an
+unclaimable terminal authorization outcome instead of leaving the run active.
+Malformed acceptance-time recipient or email reply lineage, including a blank
+optional Resend message ID, likewise commits a terminal `invalid-request`
+outcome. It releases the agent lane, survives restart and duplicate replay, and
+never reruns the completed answer. Store and serialization errors still roll
+back for retry.
+An identical duplicate returns
+the existing delivery without another transcript turn or outbox row only when
+the persisted completion proof exactly matches the original job, token,
+conversation, instance, frontend, actor/channel, registered, actual, and
+completed sessions, answer, envelope, rendered turn, and lifecycle cursor.
+Later conversation turns or binding changes do not affect that proof; any
+conflict fails closed. No provider IO begins in this transaction. After commit,
+Brain closes the exact controller and durably opens its cleanup fence. Exact
+registration release and exact-instance file removal then retry independently;
+file removal may succeed while session release remains pending. Task reload and
+the completion push wait for both. Exact controller, session, and artifact
+progress remains machine-local and durable until successful, so a later tick or
+fresh App retries it without
+restoring agent ownership or blocking the next job. Artifact completion, child exit,
 lost ownership, and orderly shutdown remove only the exact instance's response,
 observation snapshot, and observation lock while preserving durable facts and
-unrelated instance files. Poll diagnostics use one content-free shape containing
+unrelated instance files. Every runtime and downgrade removal opens the raw
+authorized absolute path from the filesystem root, walks held no-follow
+directory descriptors through the cache root and every descendant, and unlinks
+through the exact parent descriptor. A symlinked ancestor deletes no outside
+file and leaves durable cleanup or downgrade authority available for retry.
+Poll diagnostics use one content-free shape containing
 only opaque job and instance IDs, frontend, prior phase, observed boundary or
 `none`, and a stable category. Child exit or orderly shutdown after `launched`
 without terminal evidence never replays the prompt. Each enabled receiver tick
-now reconciles stalled work before restart controls, executes exact cleanup,
-hands off one pending terminal notice, and claims a due same-session recovery
-before later ordinary FIFO work. BR-17 still owns durable answer and
-delivery-only recovery.
-Provider replies currently use the
-exact acceptance-time channel and recipient context on a bounded background
-worker, so network latency does not block TUI input or `Ctrl+Q`, but a delivery
-failure is not yet a durable delivery-only retry. BR-18 still owns final schema
-migration/reconciliation, durable phase reporting, and removal of the narrowly
-retained legacy job-socket lifetime representation; it no longer needs to
-remove a parallel injection, warm-panel, or in-memory execution path.
+now reconciles stalled work and generic response delivery before restart
+controls, executes exact cleanup, persists control acknowledgements and
+dropped-job notices, rechecks delivery, and claims a due same-session recovery
+before later ordinary FIFO work. Active `answer-ready` and `delivering` rows
+with an exact semantic outbox row are not agent FIFO blockers, so an older
+delivery cannot starve a later due recovery; incomplete delivery states remain
+fail-closed blockers. Response delivery uses a separate
+oldest-due claim and bounded provider worker. Acknowledged provider references
+finish the job, safe failures schedule bounded retries, and provider-specific
+ambiguity becomes either an exact Resend replay or terminal failure. The exact
+outbound number or email sender is frozen with the authenticated inbound job, so a config
+change cannot retarget later attempts; only provider credentials remain live.
+Resend HTTP 5xx and concurrent-idempotency conflicts safely replay the same
+delivery key and bytes, while changed-payload conflicts fail terminally.
+Twilio HTTP 5xx is terminal ambiguity because retrying could duplicate an SMS.
+Curl proxy-resolution, host-resolution, and TCP-connect exits 5, 6, and 7 are
+safe pre-provider retries for either provider; timeout and neighboring generic
+process failures remain conservative. If Brain cannot construct its provider
+worker, it records one definitely-not-accepted transport attempt through this
+same bounded retry policy instead of immediately reclaiming the row in a loop.
+The same tick reconciles malformed or missing semantic-response authority before
+claiming the oldest due row. It records only content-free phase and stable
+terminal-reason counts (`retry-exhausted`, `permanent-rejection`,
+`ambiguous-acknowledgement`, `idempotency-window-expired`, and
+`no-safe-fallback`). `brain receiver status` reads and themes those counts
+without creating a database or running a migration. BR-18 retains only the
+narrow legacy job-socket lifetime representation; it no longer owns notice,
+control, delivery-status, or outbox reconciliation work.
 
 ### Durable receiver model foundation
 
@@ -1685,8 +1750,8 @@ across later ticks and restarts. Exact acknowledgement then releases
 the retained registration and native-session lock from either the due recovery
 or any cleanup-fenced terminal failed state, but only while its
 registration/session attribution still matches the exact job and durable
-conversation. The pending notice remains one durable intent, and its
-acknowledgement is independent from cleanup progress. Local cleanup remembers
+conversation. The pending notice becomes one semantic durable outbox row
+independently from cleanup progress. Local cleanup remembers
 successful shutdown and artifact removal so a later tick can finish the
 remaining step before later FIFO work launches. Pre-spawn owner-store failures
 also remain distinct from proven owner loss. They clean only the exact
@@ -1695,8 +1760,8 @@ operation fails, and then retry the same persisted recovery claim without
 replaying inbound content or selecting a different frontend. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
 recovery owner instead terminalizes with pending-notice intent. Controller
-cleanup, native-history inspection, recovery launch, and notice delivery are
-separate App effects. An accepted recovery creates a fresh receiver instance
+cleanup, native-history inspection, and recovery launch are separate App
+effects; every notice uses the generic outbox. An accepted recovery creates a fresh receiver instance
 through `AgentController` for the frontend stored in the conversation, validates
 and claims only that frontend's exact native session, and sends a bounded
 resume-only instruction. It never selects Fresh, replays the inbound message,
@@ -1726,15 +1791,29 @@ while receiver intent is disabled, but neither an ordinary nor recovery claim
 may start a new process until intent is enabled again. The claim remains
 renewed so re-enable continues the same FIFO work.
 
-Terminal notice intent uses a dedicated 30-second content-free writer lease.
-One App claimant loads the immutable accepted routing context, queues the fixed
-unavailable message to Brain's bounded local delivery worker, and clears the
-intent only after that local queue accepts it. SMS keeps the authenticated
-sender; Email keeps the acceptance-time trusted recipients and reply context.
-A failed queue attempt or crash before acknowledgement leaves the intent
-retryable after lease expiry and never blocks later FIFO jobs. Local queue
-acceptance is not provider acknowledgement. The queue-to-CAS crash ambiguity,
-provider delivery proof, and general delivery retry remain BR-17 work.
+Terminal notice intent uses the schema-v12 durable response lane. Same-version
+repair and enabled-tick reconciliation convert a legacy BR-16 pending bit into
+one immutable `unavailable-notice` envelope and clear the obsolete local lease.
+A storage failure preserves the pending source transaction for an exact later
+retry; only a deterministic authorization or render failure clears the bit.
+`/new` and `/restart` acknowledgements, plus one notice for every dropped job,
+commit atomically with their source-job and conversation changes. Final answers,
+notices, and acknowledgements share exact claims, provider-result policy, retry
+deadlines, and restart reconciliation. A provider outage cannot block later
+agent work, and concurrent TUIs cannot claim the same delivery tuple.
+
+Fallback selection is pure and fail-closed. It considers only alternate
+destinations frozen at acceptance, excludes the failed provider and attempted
+recipients, and chooses at most one short safe notice. Current single-channel
+jobs freeze no alternate authority, so they stop rather than consulting later
+user or machine configuration. Every terminal outcome persists either
+`fallback-planned` or `no-safe-fallback`. A planned notice is inserted in the
+same exact transaction as the source terminal transition, remains durable
+across restart and concurrent result delivery, and cannot create another
+fallback notice if its own provider attempt fails. Once that notice is
+acknowledged, its durable relation to the terminal source keeps the job done
+through reopen, repeated repair, downgrade, and later re-upgrade without a
+resend.
 
 A logical conversation belongs to one workspace, portable user, channel, and
 channel-specific key. SMS uses one stable key for that tuple. Email reuses only
@@ -1765,10 +1844,10 @@ BR-12 established the storage contract, BR-13 moved authenticated provider
 admission onto it, and BR-14 made the isolated TUI coordinator its sole
 execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
-BR-15 added acceptance/progress evidence. BR-16 now executes the one accepted
-same-session recovery and local unavailable-notice handoff; BR-17 and BR-18
-retain durable answer/delivery separation, final representation cleanup, and
-reporting.
+BR-15 added acceptance/progress evidence. BR-16 added one accepted same-session
+recovery and pending unavailable-notice intent. BR-17 now migrates that intent
+and every receiver-owned reply to the durable delivery outbox; BR-18 retains
+final representation cleanup.
 
 ### Steering the receiver from SMS or email
 
@@ -1856,8 +1935,13 @@ machine-wide variable to set, because there is no origin to build one from and
 the listing spans every workspace. A workspace whose record
 cannot be read reports `unavailable` with its repair command instead of taking
 the whole listing down, and a shared process that cannot be asked reports
-`live state unavailable` rather than claiming the server is stopped. The
-listing prints the receiver's own published addresses; it never prints a
+`live state unavailable` rather than claiming the server is stopped. Selected
+`receiver status` also prints content-free counts for `answer-ready`,
+`delivering`, `retrying`, `ambiguous`, `failed`, and `done`, followed by stable
+terminal-reason counts for retry exhaustion, permanent rejection, ambiguous
+acknowledgement, idempotency-window expiry, and no safe fallback. These rows never
+include sender, recipient, answer, envelope, transcript, provider response, or
+credential material. The listing prints the receiver's own published addresses; it never prints a
 provider credential.
 
 `brain receiver email` and `brain receiver phone` print just that address, on

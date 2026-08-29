@@ -4,6 +4,7 @@ use crate::tui::App;
 use crate::tui::receiver::{ClaimedReceiverRun, DurableReceiverRun, ReceiverRemoteSession};
 
 pub(super) const CLAIM_LIFETIME_MS: u64 = 30_000;
+const DELIVERY_CLAIM_LIFETIME_MS: u64 = 60_000;
 pub(super) const RETRY_DELAY_MS: u64 = 5_000;
 
 impl App {
@@ -11,14 +12,27 @@ impl App {
     pub(crate) fn tick_receiver(&mut self) {
         let receiver_enabled = self.receiver.is_enabled();
         if receiver_enabled {
+            self.tick_receiver_delivery();
             self.reconcile_receiver_job();
-            self.handoff_pending_receiver_notice();
             self.apply_receiver_restarts();
             #[cfg(test)]
             self.receiver.run_after_restart_scan_hook();
         }
-        match self.receiver.take_durable_run() {
+        self.continue_oldest_receiver_answer_controller_cleanup();
+        let run = match self.receiver.take_durable_run() {
+            DurableReceiverRun::AnswerCleanupPending(active) => {
+                if self.begin_receiver_answer_cleanup(active) {
+                    DurableReceiverRun::Idle
+                } else {
+                    return;
+                }
+            }
+            run => run,
+        };
+        self.continue_oldest_receiver_answer_cleanup();
+        match run {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
+            DurableReceiverRun::AnswerCleanupPending(_) => unreachable!(),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
             DurableReceiverRun::RecoveryClaimed(claimed) if receiver_enabled => {
                 self.launch_claimed_receiver_recovery(claimed);
@@ -52,6 +66,21 @@ impl App {
             }
             DurableReceiverRun::Idle => {}
         }
+        if receiver_enabled {
+            let now = self.receiver_now_unix_ms();
+            self.services.reconcile_receiver_delivery_state(now);
+        }
+    }
+
+    fn tick_receiver_delivery(&mut self) {
+        let now = self.receiver_now_unix_ms();
+        let owner = format!("{}:response-delivery", self.brain.instance());
+        self.services.tick_receiver_delivery(
+            self.context.command(),
+            &owner,
+            now,
+            now.saturating_add(DELIVERY_CLAIM_LIFETIME_MS),
+        );
     }
 
     pub(super) fn claim_receiver_run(&mut self) {

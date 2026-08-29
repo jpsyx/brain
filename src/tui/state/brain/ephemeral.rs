@@ -384,6 +384,24 @@ impl EphemeralTabs {
         })
     }
 
+    pub(super) fn detach_receiver_run_controller(
+        &mut self,
+        id: SessionTabId,
+        job_id: ReceiverJobId,
+        instance: &str,
+    ) -> Option<AgentController> {
+        let index = self.tabs.iter().position(|tab| {
+            tab.id == id
+                && matches!(
+                    &tab.metadata,
+                    EphemeralTabMetadata::ReceiverRun(receiver)
+                        if receiver.job_id == job_id && receiver.instance == instance
+                )
+        })?;
+        let tab = self.tabs.remove(index);
+        Some(tab.controller)
+    }
+
     fn add(
         &mut self,
         title: String,

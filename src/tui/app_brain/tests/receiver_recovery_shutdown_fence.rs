@@ -287,11 +287,20 @@ fn shutdown_after_claim_expiry_terminalizes_spawned_recovery_immediately() {
         .expect("cleanup after expired claim");
     assert_eq!(
         terminal.state(),
-        ReceiverJobState::Failed,
+        ReceiverJobState::AnswerReady,
         "successful shutdown must terminalize now even after the recovery lease expires"
     );
     assert!(terminal.recovery_cleanup_instance().is_none());
     assert!(terminal.recovery_cleanup_session_id().is_none());
+    assert!(
+        fixture
+            .db
+            .receiver_delivery_counts()
+            .unwrap()
+            .answer_ready()
+            == 1,
+        "expired-claim cleanup changed the answer-ready count"
+    );
     fixture.app.tick_receiver();
     assert_ne!(
         fixture
@@ -366,12 +375,21 @@ fn pre_spawn_reconciliation_effect_is_exactly_acknowledged_after_shutdown() {
         .receiver_job(fixture.accepted.job_id())
         .expect("load pre-spawn terminal cleanup")
         .expect("pre-spawn terminal cleanup");
-    assert_eq!(terminal.state(), ReceiverJobState::Failed);
+    assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
     assert!(
         terminal.recovery_cleanup_instance().is_none(),
         "the attributed pre-spawn effect must be acknowledged, not bypassed"
     );
     assert!(terminal.recovery_cleanup_session_id().is_none());
+    assert!(
+        fixture
+            .db
+            .receiver_delivery_counts()
+            .unwrap()
+            .answer_ready()
+            == 1,
+        "pre-spawn cleanup changed the answer-ready count"
+    );
 }
 
 fn advance_clock_after_spawn(app: &mut App, clock: ReceiverClock) {

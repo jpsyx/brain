@@ -148,3 +148,56 @@ fn incomplete_legacy_completion_states_terminalize_deterministically() {
         assert!(terminal.pending_unavailable_notice());
     }
 }
+
+#[test]
+fn semantic_notice_delivery_rows_leave_their_source_jobs_to_the_delivery_lane() {
+    for state in ["answer-ready", "delivering"] {
+        let fixture = accepted_run(&format!("notice-only-{state}"));
+        fixture
+            .db
+            .conn
+            .execute(
+                "UPDATE receiver_jobs SET state = ?2 WHERE job_id = ?1",
+                rusqlite::params![fixture.job_id.to_string(), state],
+            )
+            .expect("stage incomplete final-answer state");
+        let token = fixture
+            .db
+            .receiver_job(fixture.job_id)
+            .expect("load staged job")
+            .expect("durable job")
+            .token();
+        let notice = crate::server::reply::unanswered_notice("sms");
+        assert!(
+            super::super::store::response_intent::insert(
+                &fixture.db.conn,
+                fixture.job_id,
+                token,
+                &fixture.inbound,
+                ReceiverResponseKind::UnavailableNotice,
+                &notice.text,
+                1,
+            )
+            .expect("stage semantic notice delivery")
+        );
+
+        assert!(
+            fixture
+                .db
+                .reconcile_next_receiver_job(1_500)
+                .expect("reconcile semantic notice source")
+                .is_none(),
+            "semantic response authority belongs only to the delivery lane"
+        );
+        assert_eq!(
+            fixture
+                .db
+                .receiver_job(fixture.job_id)
+                .expect("load semantic notice source")
+                .expect("semantic notice source")
+                .state()
+                .as_str(),
+            state
+        );
+    }
+}

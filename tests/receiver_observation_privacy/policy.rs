@@ -8,6 +8,12 @@ mod debug_tests;
 mod diagnostics;
 #[path = "policy/literals.rs"]
 mod literals;
+#[path = "policy/task_three_adversarial.rs"]
+mod task_three_adversarial;
+#[path = "policy/task_three_assertions/mod.rs"]
+mod task_three_assertions;
+#[path = "policy/task_three_policy.rs"]
+mod task_three_policy;
 
 use diagnostics::privacy_diagnostic_violations;
 use literals::source_privacy_violations;
@@ -96,7 +102,10 @@ fn every_semantically_relevant_observation_and_completion_source_is_audited() {
         "src/agent/observation.rs",
         "src/agent/observation/snapshot.rs",
         "src/agent/observation/snapshot/file.rs",
-        "src/state/receiver/store/completion.rs",
+        "src/state/receiver/store/completion/authorization.rs",
+        "src/state/receiver/store/completion/duplicate.rs",
+        "src/state/receiver/store/completion/lifecycle.rs",
+        "src/state/receiver/store/completion/transaction.rs",
         "src/state/receiver/store/observation.rs",
         "src/state/session_store.rs",
         "src/tui/state/services.rs",

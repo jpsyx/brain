@@ -43,14 +43,18 @@ fn durable_receiver_launches_in_background_while_main_turn_is_busy() {
 
     let runs = app.brain.receiver_run_observations();
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].job_id, accepted.job_id());
+    assert!(
+        runs[0].job_id == accepted.job_id(),
+        "receiver launch selected the wrong job"
+    );
     assert_eq!(receiver_recording.launch_specs().len(), 1);
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Launched
+            .state()
+            == ReceiverJobState::Launched,
+        "receiver launch recorded the wrong durable state"
     );
     assert_eq!(
         (

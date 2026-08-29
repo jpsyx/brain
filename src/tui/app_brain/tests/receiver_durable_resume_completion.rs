@@ -22,7 +22,7 @@ fn resumed_codex_run_with_the_bound_native_id_completes() {
     app.tick_receiver();
     assert_eq!(
         db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let sessions_dir = temporary.path().join("codex-sessions");
     let rollout = CodexRollout::create(&sessions_dir, &native_id);
@@ -56,7 +56,7 @@ fn resumed_codex_run_with_the_bound_native_id_completes() {
 
     assert_eq!(
         db.receiver_job(second.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(second_transport.shutdowns(), 1);
@@ -83,7 +83,7 @@ fn resumed_opencode_run_with_the_bound_native_id_completes() {
     app.tick_receiver();
     assert_eq!(
         db.receiver_job(first.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let second = accept_email_job_in_thread(&app, &db, "opencode-resume", "second", 200);
     let second_transport = TransportRecording::default();
@@ -108,7 +108,7 @@ fn resumed_opencode_run_with_the_bound_native_id_completes() {
 
     assert_eq!(
         db.receiver_job(second.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert!(app.brain.receiver_run_observations().is_empty());
     assert_eq!(second_transport.shutdowns(), 1);

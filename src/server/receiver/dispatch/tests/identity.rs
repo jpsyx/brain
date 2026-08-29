@@ -85,6 +85,11 @@ fn job(channel: Channel, provider_id: &str) -> InboundJob {
             Channel::Email => "member@example.test",
         }
         .to_owned(),
+        response_sender: match channel {
+            Channel::Sms => "+13105550100",
+            Channel::Email => "brain@example.test",
+        }
+        .to_owned(),
         prompt: "receiver prompt".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 1_786_000_000_000,

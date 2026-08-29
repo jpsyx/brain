@@ -30,7 +30,10 @@ fn receiver_observation_diagnostics_have_one_stable_content_free_shape() {
         "recipient-canary-acde",
         "credential-canary-bdef",
     ] {
-        assert!(!diagnostic.contains(private), "diagnostic leaked {private}");
+        assert!(
+            !diagnostic.contains(private),
+            "diagnostic leaked private content"
+        );
     }
     assert_eq!(
         receiver_observation_diagnostic(

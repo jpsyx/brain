@@ -2,7 +2,9 @@
 
 use std::time::Instant;
 
-use super::DurableReceiverRun;
+use super::{DurableReceiverRun, ReceiverAnswerControllerCleanup};
+
+const MAX_ANSWER_CONTROLLER_CLEANUPS: usize = 8;
 
 mod sync;
 
@@ -29,8 +31,19 @@ pub(crate) enum ReceiverLaunchBoundary {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReceiverCleanupBoundary {
     Shutdown,
+    Session,
     Artifacts,
     Acknowledgement,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverAnswerCleanupEvent {
+    ControllerShutdown,
+    SessionRelease,
+    ArtifactCleanup,
+    TaskReload,
+    SyncLaunch,
 }
 
 struct ReceiverSyncGate {
@@ -46,10 +59,13 @@ pub(crate) struct ReceiverRuntime {
     enabled: bool,
     sync_gate: Option<ReceiverSyncGate>,
     durable_run: DurableReceiverRun,
+    answer_controller_cleanups: std::collections::VecDeque<ReceiverAnswerControllerCleanup>,
     #[cfg(test)]
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     after_completion_validation_hook: Option<Box<dyn FnOnce()>>,
+    #[cfg(test)]
+    after_completion_commit_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
     after_observation_validation_hook: Option<Box<dyn FnOnce()>>,
     #[cfg(test)]
@@ -58,6 +74,10 @@ pub(crate) struct ReceiverRuntime {
     launch_boundary_hooks: Vec<(ReceiverLaunchBoundary, Box<dyn FnOnce()>)>,
     #[cfg(test)]
     cleanup_failure_boundaries: Vec<ReceiverCleanupBoundary>,
+    #[cfg(test)]
+    answer_cleanup_failures: Vec<(crate::state::ReceiverJobId, ReceiverCleanupBoundary)>,
+    #[cfg(test)]
+    answer_cleanup_events: Vec<ReceiverAnswerCleanupEvent>,
     #[cfg(test)]
     recovery_tab_error: Option<crate::tui::state::ReceiverRunTabError>,
     #[cfg(test)]
@@ -72,10 +92,13 @@ impl ReceiverRuntime {
             enabled,
             sync_gate: None,
             durable_run: DurableReceiverRun::Idle,
+            answer_controller_cleanups: std::collections::VecDeque::new(),
             #[cfg(test)]
             after_restart_scan_hook: None,
             #[cfg(test)]
             after_completion_validation_hook: None,
+            #[cfg(test)]
+            after_completion_commit_hook: None,
             #[cfg(test)]
             after_observation_validation_hook: None,
             #[cfg(test)]
@@ -84,6 +107,10 @@ impl ReceiverRuntime {
             launch_boundary_hooks: Vec::new(),
             #[cfg(test)]
             cleanup_failure_boundaries: Vec::new(),
+            #[cfg(test)]
+            answer_cleanup_failures: Vec::new(),
+            #[cfg(test)]
+            answer_cleanup_events: Vec::new(),
             #[cfg(test)]
             recovery_tab_error: None,
             #[cfg(test)]
@@ -111,6 +138,18 @@ impl ReceiverRuntime {
     #[cfg(test)]
     pub(crate) fn run_after_completion_validation_hook(&mut self) {
         if let Some(hook) = self.after_completion_validation_hook.take() {
+            hook();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_after_completion_commit_hook(&mut self, hook: Box<dyn FnOnce()>) {
+        self.after_completion_commit_hook = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn run_after_completion_commit_hook(&mut self) {
+        if let Some(hook) = self.after_completion_commit_hook.take() {
             hook();
         }
     }
@@ -186,6 +225,42 @@ impl ReceiverRuntime {
     }
 
     #[cfg(test)]
+    pub(crate) fn inject_answer_cleanup_failure(
+        &mut self,
+        job_id: crate::state::ReceiverJobId,
+        boundary: ReceiverCleanupBoundary,
+    ) {
+        self.answer_cleanup_failures.push((job_id, boundary));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_answer_cleanup_failure(
+        &mut self,
+        job_id: crate::state::ReceiverJobId,
+        boundary: ReceiverCleanupBoundary,
+    ) -> bool {
+        let Some(index) = self
+            .answer_cleanup_failures
+            .iter()
+            .position(|candidate| *candidate == (job_id, boundary))
+        else {
+            return false;
+        };
+        self.answer_cleanup_failures.remove(index);
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_answer_cleanup_event(&mut self, event: ReceiverAnswerCleanupEvent) {
+        self.answer_cleanup_events.push(event);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn answer_cleanup_events(&self) -> &[ReceiverAnswerCleanupEvent] {
+        &self.answer_cleanup_events
+    }
+
+    #[cfg(test)]
     pub(crate) fn inject_recovery_tab_error(
         &mut self,
         error: crate::tui::state::ReceiverRunTabError,
@@ -218,6 +293,33 @@ impl ReceiverRuntime {
         self.durable_run = run;
     }
 
+    pub(crate) fn has_answer_controller_cleanup_capacity(&self) -> bool {
+        self.answer_controller_cleanups.len() < MAX_ANSWER_CONTROLLER_CLEANUPS
+    }
+
+    pub(crate) fn push_answer_controller_cleanup(
+        &mut self,
+        cleanup: ReceiverAnswerControllerCleanup,
+    ) {
+        assert!(self.has_answer_controller_cleanup_capacity());
+        self.answer_controller_cleanups.push_back(cleanup);
+    }
+
+    pub(crate) fn take_answer_controller_cleanup(
+        &mut self,
+    ) -> Option<ReceiverAnswerControllerCleanup> {
+        self.answer_controller_cleanups.pop_front()
+    }
+
+    pub(crate) fn answer_controller_cleanup_count(&self) -> usize {
+        self.answer_controller_cleanups.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_answer_controller_cleanups(&self) -> usize {
+        self.answer_controller_cleanup_count()
+    }
+
     #[cfg(test)]
     pub(crate) fn active_durable_run(&self) -> Option<&super::ActiveReceiverRun> {
         match &self.durable_run {
@@ -227,6 +329,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }
@@ -240,6 +343,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }
@@ -253,6 +357,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
     }

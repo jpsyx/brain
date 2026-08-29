@@ -66,10 +66,20 @@ impl TestWorkspaceFixture {
                         aliases: std::collections::BTreeSet::new(),
                         local_user_id: "pablo".to_owned(),
                         receiver_enabled: false,
-                        env: serde_json::Map::from_iter([(
-                            "opencode_cmd".to_owned(),
-                            serde_json::Value::String(fake_opencode.display().to_string()),
-                        )]),
+                        env: serde_json::Map::from_iter([
+                            (
+                                "opencode_cmd".to_owned(),
+                                serde_json::Value::String(fake_opencode.display().to_string()),
+                            ),
+                            (
+                                "twilio_from_number".to_owned(),
+                                serde_json::Value::String("+12125550100".to_owned()),
+                            ),
+                            (
+                                "resend_from_email".to_owned(),
+                                serde_json::Value::String("Brain <brain@example.test>".to_owned()),
+                            ),
+                        ]),
                     },
                 )]),
                 env: serde_json::Map::new(),
@@ -84,6 +94,15 @@ pub(super) fn test_app(
     temporary: &tempfile::TempDir,
     task_options: impl Into<crate::tasks::view::TaskViewOptions>,
     agent_kind: AgentKind,
+) -> App {
+    test_app_with_instance(temporary, task_options, agent_kind, "shell-under-test")
+}
+
+pub(super) fn test_app_with_instance(
+    temporary: &tempfile::TempDir,
+    task_options: impl Into<crate::tasks::view::TaskViewOptions>,
+    agent_kind: AgentKind,
+    instance: &str,
 ) -> App {
     let task_options = task_options.into();
     let TestWorkspaceFixture { root, context } = TestWorkspaceFixture::build(temporary);
@@ -116,7 +135,7 @@ pub(super) fn test_app(
             ..Config::default()
         },
         agent_kind,
-        instance: "shell-under-test".to_owned(),
+        instance: instance.to_owned(),
         db,
         search: crate::picker::App::new(&[], ""),
         panel_side: PanelSide::Right,

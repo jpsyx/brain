@@ -41,6 +41,7 @@ fn conversation_id(db: &Db, scope: &SessionScope) -> crate::state::ReceiverConve
         actor: scope.actor().clone(),
         channel: crate::server::receiver::Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: "private test prompt".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 100,

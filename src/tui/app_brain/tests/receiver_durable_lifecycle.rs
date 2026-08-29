@@ -88,7 +88,7 @@ fn completion_closes_only_the_exact_receiver_then_next_tick_launches_oldest_wait
     assert_eq!(first_transport.shutdowns(), 1);
     assert_eq!(
         db.receiver_job(older.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     assert!(!completion_path.exists());
     assert!(app.tasks.contains_task_named("Created remotely"));
@@ -270,7 +270,7 @@ fn active_receiver_remains_owned_and_completes_across_disable_and_reenable() {
     assert_eq!(transport.shutdowns(), 1);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
 }
 
@@ -315,9 +315,10 @@ fn fresh_claude_completion_persists_its_native_id_and_the_next_message_resumes_i
             .map(|binding| (binding.frontend(), binding.native_session_id().to_owned(),)),
         Some((AgentKind::Claude, native_id.as_str().to_owned()))
     );
-    assert_eq!(
-        conversation.transcript_markdown(),
-        "# Portable transcript\n\nPrior durable context"
+    assert!(
+        conversation.transcript_markdown()
+            == "# Portable transcript\n\nPrior durable context\n\n## Authenticated user\n\n```text\nfirst message\n```\n\n## Assistant\n\n```text\nfirst answer\n```",
+        "portable transcript changed"
     );
     let second = accept_email_job_in_thread(&app, &db, "claude-thread", "second message", 200);
     let second_transport = TransportRecording::default();

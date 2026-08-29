@@ -97,26 +97,6 @@ impl crate::tui::app_sync::ReceiverSyncRuntime for TestReceiverSyncRuntime {
 
 pub(super) fn configure_receiver_sync(app: &App) {
     let selected_name = app.context.workspace().name().clone();
-    app.context
-        .command()
-        .registry_store
-        .replace(&crate::workspace::MachineRegistry {
-            schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,
-            default_workspace: selected_name.clone(),
-            workspaces: std::collections::BTreeMap::from([(
-                selected_name.clone(),
-                crate::workspace::WorkspaceRecord {
-                    workspace_id: app.context.workspace().id(),
-                    root: app.context.workspace().root().to_path_buf(),
-                    aliases: std::collections::BTreeSet::new(),
-                    local_user_id: app.context.workspace().local_user_id().to_owned(),
-                    receiver_enabled: false,
-                    env: serde_json::Map::new(),
-                },
-            )]),
-            env: serde_json::Map::new(),
-        })
-        .unwrap();
     let mut registry =
         RegistryStore::load_from(app.context.command().registry_store.path()).unwrap();
     registry
@@ -154,6 +134,7 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
         channel: Channel::Sms,
         prompt: "wait for the remote brain".to_owned(),
         authenticated_sender: "+15551234567".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 1,
         provider_id: Some("provider-message-1".to_owned()),
@@ -176,9 +157,8 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
 
     app.tick_receiver();
 
-    assert_eq!(
-        db.receiver_job(accepted.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Claimed,
+    assert!(
+        db.receiver_job(accepted.job_id()).unwrap().unwrap().state() == ReceiverJobState::Claimed,
         "freshness must run before launch preparation"
     );
     assert!(app.brain.receiver_run_observations().is_empty());
@@ -207,15 +187,13 @@ fn durable_receiver_claim_stays_owned_while_workspace_freshness_is_pending() {
     runtime.advance(std::time::Duration::from_millis(250));
     app.tick_receiver();
 
-    assert_eq!(
-        app.brain.receiver_run_observations().len(),
-        1,
-        "journal completion should launch the claimed job; durable job is {:?}",
-        db.receiver_job(accepted.job_id()).unwrap().unwrap()
+    assert!(
+        app.brain.receiver_run_observations().len() == 1,
+        "journal completion did not launch one claimed job"
     );
-    assert_eq!(
-        app.brain.receiver_run_observations()[0].job_id,
-        accepted.job_id()
+    assert!(
+        app.brain.receiver_run_observations()[0].job_id == accepted.job_id(),
+        "journal completion launched the wrong job"
     );
     assert_eq!(receiver_recording.launch_specs().len(), 1);
 }

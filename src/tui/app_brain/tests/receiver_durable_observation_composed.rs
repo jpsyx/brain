@@ -99,21 +99,21 @@ fn one_app_poll_rebuilds_the_durable_cursor_and_commits_only_missed_boundaries_a
         "the App must rebuild its cursor from durable accepted evidence before one atomic write"
     );
     let completed = db.receiver_job(job_id).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::Processing);
     assert_eq!(completed.accepted_at_unix_ms(), Some(1_000));
     assert_eq!(completed.progressing_at_unix_ms(), Some(1_100));
-    assert_eq!(completed.completed_at_unix_ms(), Some(1_200));
-    assert_eq!(completed.observation_revision(), 3);
+    assert_eq!(completed.completed_at_unix_ms(), None);
+    assert_eq!(completed.observation_revision(), 2);
     assert_eq!(
         db.receiver_conversation(conversation_id)
             .unwrap()
             .unwrap()
             .binding()
             .map(crate::state::ReceiverSessionBinding::native_session_id),
-        Some(native.as_str())
+        None
     );
-    assert!(app.brain.receiver_run_observations().is_empty());
-    assert_eq!(transport.shutdowns(), 1);
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert_eq!(transport.shutdowns(), 0);
 }
 
 #[test]

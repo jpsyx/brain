@@ -157,6 +157,7 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             actor: actor.actor.clone(),
             channel: authenticated.channel,
             authenticated_sender: authenticated.sender.clone(),
+            response_sender: authenticated.receiving_address.clone(),
             prompt: authenticated.prompt.clone(),
             attachments: authenticated.attachments.clone(),
             received_at_unix_ms,

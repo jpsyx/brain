@@ -26,8 +26,8 @@ pub trait AgentTransport: Send {
     /// Whether the frontend child is still running.
     fn is_alive(&self) -> bool;
 
-    /// End the active frontend child.
-    fn shutdown(&mut self);
+    /// End the active frontend child and confirm that the exact child exited.
+    fn shutdown(&mut self) -> Result<(), AgentError>;
 
     /// Terminal screen exposed by transports that render an interactive pane.
     fn terminal_screen(&self) -> Option<Arc<RwLock<vt100::Parser>>> {
@@ -311,7 +311,7 @@ impl AgentController {
             return Ok(());
         }
         let availability = self.frontend.ensure_available();
-        self.transport.shutdown();
+        self.transport.shutdown()?;
         self.shutdown = true;
         availability
     }

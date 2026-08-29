@@ -189,9 +189,8 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             let prompt = prompt_from_command(kind, &specifications[0].command);
             assert!(
                 prompt.len() <= crate::tui::receiver::planning::RECOVERY_PROMPT_BUDGET_BYTES,
-                "{} with {history:?} raw prompt was {} bytes",
+                "{} with {history:?} exceeded the recovery prompt budget",
                 kind.label(),
-                prompt.len(),
             );
             assert!(prompt.starts_with("If the message asks to add, create, capture"));
             assert!(prompt.contains("authenticated-current-start-é🙂-"));

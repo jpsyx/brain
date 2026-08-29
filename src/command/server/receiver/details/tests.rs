@@ -1,6 +1,7 @@
 use super::{
     ReceiverDetails, ReceiverStatus, WorkspaceReport, listing, machine_block, report_block,
 };
+use crate::state::ReceiverDeliveryCounts;
 use crate::theme::Theme;
 
 const PUBLIC_URL: &str = "https://brain.example.test";
@@ -25,6 +26,53 @@ fn block_of(details: ReceiverDetails) -> String {
         &WorkspaceReport::Details(Box::new(details)),
         Theme::dark(false),
     )
+}
+
+#[test]
+fn delivery_status_rows_are_themed_stable_counts_without_private_content() {
+    let rendered = super::delivery_rows(
+        ReceiverDeliveryCounts::new(1, 2, 3, 4, 5, 6).with_terminal_reasons(7, 8, 9, 10, 11),
+        Theme::dark(true),
+    );
+
+    for phase in [
+        "answer-ready",
+        "delivering",
+        "retrying",
+        "ambiguous",
+        "failed",
+        "done",
+    ] {
+        assert!(rendered.contains(phase), "missing {phase}: {rendered}");
+    }
+    for count in 1..=6 {
+        assert!(
+            rendered.contains(&count.to_string()),
+            "missing count {count}"
+        );
+    }
+    for reason in [
+        "retry-exhausted",
+        "permanent-rejection",
+        "ambiguous-acknowledgement",
+        "idempotency-window-expired",
+        "no-safe-fallback",
+    ] {
+        assert!(rendered.contains(reason), "missing {reason}: {rendered}");
+    }
+    for count in 7..=11 {
+        assert!(
+            rendered.contains(&count.to_string()),
+            "missing terminal count {count}"
+        );
+    }
+    assert!(
+        rendered.contains("\u{1b}["),
+        "delivery rows were not themed"
+    );
+    for private in ["private-sender", "private-answer", "credential-secret"] {
+        assert!(!rendered.contains(private));
+    }
 }
 
 #[test]

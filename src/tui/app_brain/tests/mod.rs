@@ -41,6 +41,11 @@ fn receiver_job(
         channel,
         prompt: prompt.to_owned(),
         authenticated_sender: "+15551234567".to_owned(),
+        response_sender: match channel {
+            Channel::Sms => "+13105550100",
+            Channel::Email => "brain@example.test",
+        }
+        .to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 1,
         provider_id: Some("provider-message-1".to_owned()),
@@ -62,14 +67,24 @@ mod opencode_receiver;
 mod overlay_draw;
 mod receiver;
 mod receiver_attachment_worker_support;
+mod receiver_durable_answer_cleanup;
+mod receiver_durable_answer_commit;
+mod receiver_durable_answer_controller_queue;
+mod receiver_durable_answer_handoff;
 mod receiver_durable_attachment_prompt;
 mod receiver_durable_attachment_worker;
 mod receiver_durable_attachments;
 mod receiver_durable_binding_completion;
 mod receiver_durable_cleanup;
+mod receiver_durable_cleanup_portability;
+mod receiver_durable_cleanup_security;
+mod receiver_durable_cleanup_umask;
 mod receiver_durable_control_race;
 mod receiver_durable_control_sync;
 mod receiver_durable_controls;
+mod receiver_durable_delivery;
+mod receiver_durable_delivery_no_io;
+mod receiver_durable_delivery_post_ack;
 mod receiver_durable_diagnostics;
 mod receiver_durable_future_completion;
 mod receiver_durable_launch;

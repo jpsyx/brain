@@ -11,11 +11,8 @@ use crate::tui::receiver::attachments::{ReceiverAttachmentCoordinator, ReceiverA
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
-mod receiver_notice;
+mod receiver_delivery;
 mod receiver_recovery;
-
-pub(crate) use receiver_notice::ReceiverNoticeDelivery;
-use receiver_notice::SystemReceiverNoticeDelivery;
 
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
@@ -32,18 +29,28 @@ pub(crate) struct AppServices {
     receiver_intent_refresher: Box<dyn ReceiverIntentRefresher>,
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
-    receiver_notice_delivery: Box<dyn ReceiverNoticeDelivery>,
+    receiver_delivery_execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    receiver_delivery_active: Option<crate::state::ReceiverDeliveryClaim>,
     #[cfg(test)]
     receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
 }
 
-pub(crate) struct ReceiverObservationApplyOutcome {
-    pub(crate) changed: bool,
-    pub(crate) completed: bool,
-}
-
 impl AppServices {
     pub(crate) fn new(init: AppServicesInit) -> Self {
+        #[cfg(not(test))]
+        let receiver_delivery_execution: Box<
+            dyn crate::server::delivery::ReceiverDeliveryExecution,
+        > = match crate::server::delivery::SystemReceiverDeliveryExecution::new() {
+            Ok(execution) => Box::new(execution),
+            Err(error) => {
+                crate::logging::log(format!("receiver delivery worker start failed: {error}"));
+                Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default())
+            }
+        };
+        #[cfg(test)]
+        let receiver_delivery_execution: Box<
+            dyn crate::server::delivery::ReceiverDeliveryExecution,
+        > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default());
         Self {
             agenda_runner: init.agenda_runner,
             open_runner: init.open_runner,
@@ -51,7 +58,8 @@ impl AppServices {
             receiver_intent_refresher: init.receiver_intent_refresher,
             receiver_sync_runtime: init.receiver_sync_runtime,
             receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
-            receiver_notice_delivery: Box::new(SystemReceiverNoticeDelivery),
+            receiver_delivery_execution,
+            receiver_delivery_active: None,
             #[cfg(test)]
             receiver_recovery_commit_visible_error: std::cell::Cell::new(false),
         }
@@ -224,27 +232,21 @@ impl AppServices {
         registration: &crate::state::ReceiverSessionAttribution,
         result: &crate::agent::AgentObservationResult,
         authorized_at_unix_ms: u64,
-    ) -> Result<ReceiverObservationApplyOutcome> {
-        let observation = crate::state::ReceiverObservationSet::from_agent_observation(
+    ) -> Result<bool> {
+        let observation = crate::state::ReceiverObservationSet::nonterminal_from_agent_observation(
             token,
             registration,
             result,
             authorized_at_unix_ms,
         );
-        let completed = result.is_completed();
-        let changed = if completed {
-            self.db.apply_terminal_receiver_observation_set(
-                job_id,
-                owner,
-                &observation,
-                registration,
-                result.session(),
-            )?
-        } else {
-            self.db
-                .apply_receiver_observation_set(job_id, owner, &observation)?
+        let changed = match observation {
+            Some(observation) => {
+                self.db
+                    .apply_receiver_observation_set(job_id, owner, &observation)?
+            }
+            None => false,
         };
-        Ok(ReceiverObservationApplyOutcome { changed, completed })
+        Ok(changed)
     }
 
     pub(crate) fn receiver_observation_set(
@@ -265,9 +267,73 @@ impl AppServices {
         &self,
         request: &crate::state::ReceiverCompletionRequest<'_>,
         observation: Option<&crate::state::ReceiverObservationSet>,
-    ) -> Result<bool> {
+    ) -> Result<Option<crate::state::ReceiverCompletionOutcome>> {
         self.db
             .complete_receiver_job_with_observation(request, observation)
+    }
+
+    pub(crate) fn receiver_answer_cleanup(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+    ) -> Result<Option<crate::state::ReceiverAnswerCleanup>> {
+        self.db.receiver_answer_cleanup(job_id)
+    }
+
+    pub(crate) fn next_receiver_answer_cleanup(
+        &self,
+    ) -> Result<Option<crate::state::ReceiverAnswerCleanup>> {
+        self.db.next_receiver_answer_cleanup()
+    }
+
+    pub(crate) fn acknowledge_receiver_answer_controller_shutdown(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
+        instance: &str,
+        controller_pid: i32,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db.acknowledge_receiver_answer_controller_shutdown(
+            job_id,
+            token,
+            instance,
+            controller_pid,
+            observed_at_unix_ms,
+        )
+    }
+
+    pub(crate) fn defer_receiver_answer_cleanup(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .defer_receiver_answer_cleanup(cleanup, observed_at_unix_ms)
+    }
+
+    pub(crate) fn release_receiver_answer_cleanup_session(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .release_receiver_answer_cleanup_session(cleanup, observed_at_unix_ms)
+    }
+
+    pub(crate) fn mark_receiver_answer_artifacts_removed(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+        observed_at_unix_ms: u64,
+    ) -> Result<bool> {
+        self.db
+            .mark_receiver_answer_artifacts_removed(cleanup, observed_at_unix_ms)
+    }
+
+    pub(crate) fn finish_receiver_answer_cleanup(
+        &self,
+        cleanup: &crate::state::ReceiverAnswerCleanup,
+    ) -> Result<bool> {
+        self.db.finish_receiver_answer_cleanup(cleanup)
     }
 
     pub(crate) fn record_receiver_launch_retry(
@@ -344,6 +410,15 @@ impl AppServices {
         runtime: Box<dyn ReceiverAttachmentRuntime>,
     ) {
         self.receiver_attachment_coordinator.replace(runtime);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_receiver_delivery_execution(
+        &mut self,
+        execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    ) {
+        self.receiver_delivery_execution = execution;
+        self.receiver_delivery_active = None;
     }
 
     #[cfg(test)]

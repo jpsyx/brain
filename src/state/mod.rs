@@ -6,7 +6,7 @@
 //! clobbering or busy-waiting. Mirrors the `tasks` sibling project's state
 //! layer, scoped to what brain needs.
 //!
-//! Four tables:
+//! Seven tables:
 //! - `brain_sessions` stores frontend sessions with immutable workspace,
 //!   actor, and channel attribution. `locked_pid` is the PID of the live brain shell currently
 //!   driving that session (NULL when free). The session-resume model is
@@ -20,6 +20,12 @@
 //!   lineage with its portable transcript and current native session binding.
 //! - `receiver_jobs` stores immutable accepted inputs, explicit lifecycle and
 //!   retry state, plus expiring non-destructive claim ownership.
+//! - `receiver_session_registrations` stores exact frontend session ownership
+//!   for isolated receiver runs.
+//! - `receiver_deliveries` stores one frozen response envelope and its
+//!   provider-attempt state per job and semantic response kind.
+//! - `receiver_answer_cleanups` stores content-free, exact cleanup authority
+//!   after an answer releases agent ownership.
 //!
 //! The SessionStart hook requires the selected workspace/actor variables
 //! plus `BRAIN_INSTANCE_ID` and the selected UUID-scoped `BRAIN_STATE_DB`.
@@ -114,6 +120,7 @@ mod database;
 mod receiver;
 mod session_store;
 pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
+pub(crate) use receiver::schema::down_delivery_path as receiver_delivery_schema_down;
 pub(crate) use receiver::schema::down_observation_to_registration_path as receiver_observation_schema_down;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;
 pub(crate) use receiver::schema::down_recovery_to_observation_path as receiver_recovery_schema_down;
@@ -121,18 +128,28 @@ pub(crate) use receiver::schema::down_registration_to_launch_path as receiver_re
 pub(crate) use receiver::schema::down_to_previous_path as receiver_launch_schema_down;
 pub(crate) use receiver::schema::down_unavailable_notice_path as receiver_unavailable_notice_schema_down;
 pub use receiver::{
-    EmailLineage, EmailLineageError, MAX_RECEIVER_LAUNCH_ATTEMPTS, MAX_RECEIVER_RECOVERY_ATTEMPTS,
-    ReceiverAcceptance, ReceiverAttemptKind, ReceiverClaim, ReceiverCompletionRequest,
-    ReceiverConversation, ReceiverConversationId, ReceiverConversationIdentity, ReceiverJob,
-    ReceiverJobId, ReceiverJobState, ReceiverJobToken, ReceiverLaunchFailure,
-    ReceiverLaunchObservation, ReceiverLaunchRetryOutcome, ReceiverLifecycleDeadlines,
-    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
-    ReceiverReconciliationAction, ReceiverReconciliationEffect, ReceiverReconciliationReason,
-    ReceiverRecoveryCleanupOutcome, ReceiverRecoveryDecision, ReceiverRecoveryFailure,
-    ReceiverRecoverySnapshot, ReceiverRunClaim, ReceiverSessionAttribution, ReceiverSessionBinding,
-    ReceiverSessionBindingError, ReceiverSessionPlan, ReceiverUnavailableNoticeClaim,
-    decide_receiver_recovery, receiver_acceptance_expires_at, receiver_launch_expires_at,
-    receiver_recovery_expires_at,
+    EmailLineage, EmailLineageError, MAX_RECEIVER_ANSWER_BYTES, MAX_RECEIVER_LAUNCH_ATTEMPTS,
+    MAX_RECEIVER_RECOVERY_ATTEMPTS, ReceiverAcceptance, ReceiverAnswerCleanup, ReceiverAttemptKind,
+    ReceiverClaim, ReceiverCompletionOutcome, ReceiverCompletionRequest, ReceiverConversation,
+    ReceiverConversationId, ReceiverConversationIdentity, ReceiverDeliveryAmbiguity,
+    ReceiverDeliveryApplyOutcome, ReceiverDeliveryAttemptId, ReceiverDeliveryClaim,
+    ReceiverDeliveryCounts, ReceiverDeliveryDecision, ReceiverDeliveryEnvelope,
+    ReceiverDeliveryErrorCategory, ReceiverDeliveryId, ReceiverDeliveryPolicySnapshot,
+    ReceiverDeliveryRenderError, ReceiverDeliveryRetryMetadata, ReceiverDeliveryState,
+    ReceiverDeliveryStatus, ReceiverEmailEnvelope, ReceiverFallbackDestination,
+    ReceiverFallbackPlan, ReceiverJob, ReceiverJobId, ReceiverJobState, ReceiverJobToken,
+    ReceiverLaunchFailure, ReceiverLaunchObservation, ReceiverLaunchRetryOutcome,
+    ReceiverLifecycleDeadlines, ReceiverNonterminalObservationPhase, ReceiverObservation,
+    ReceiverObservationSet, ReceiverProviderCapability, ReceiverProviderReference,
+    ReceiverProviderResultClass, ReceiverReconciliationAction, ReceiverReconciliationEffect,
+    ReceiverReconciliationReason, ReceiverRecoveryCleanupOutcome, ReceiverRecoveryDecision,
+    ReceiverRecoveryFailure, ReceiverRecoverySnapshot, ReceiverResponseKind, ReceiverRunClaim,
+    ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
+    ReceiverSessionPlan, ReceiverSmsEnvelope, decide_receiver_delivery, decide_receiver_recovery,
+    plan_receiver_fallback, receiver_acceptance_expires_at,
+    receiver_delivery_replay_window_is_expired, receiver_delivery_retry_is_due,
+    receiver_launch_expires_at, receiver_recovery_expires_at, receiver_transcript_has_exact_turn,
+    render_receiver_delivery, render_receiver_transcript,
 };
 #[cfg(test)]
 mod tests;

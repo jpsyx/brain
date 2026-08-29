@@ -12,6 +12,11 @@ use super::diagnostic::receiver_observation_diagnostic;
 
 impl App {
     pub(crate) fn shutdown_receiver_runtime(&mut self) {
+        self.services.cancel_receiver_delivery();
+        let answer_cleanup_attempts = self.receiver.answer_controller_cleanup_count();
+        for _ in 0..answer_cleanup_attempts {
+            self.continue_oldest_receiver_answer_controller_cleanup();
+        }
         match self.receiver.take_durable_run() {
             DurableReceiverRun::Idle => self.services.shutdown_receiver_attachments(),
             DurableReceiverRun::Claimed(claimed) => self.shutdown_claimed_receiver_run(&claimed),
@@ -42,6 +47,9 @@ impl App {
                 self.shutdown_spawned_recovery_run(spawned);
             }
             DurableReceiverRun::Active(active) => self.shutdown_active_receiver_run(active),
+            DurableReceiverRun::AnswerCleanupPending(active) => {
+                self.shutdown_answer_cleanup_pending_receiver_run(&active);
+            }
             DurableReceiverRun::CleanupPending(pending) => {
                 self.shutdown_cleanup_pending_receiver_run(&pending);
             }
@@ -145,6 +153,54 @@ impl App {
         self.cleanup_receiver_instance_files(attribution.instance());
         drop(attachments);
         crate::logging::log("receiver shutdown preserved launched durable evidence");
+    }
+
+    fn shutdown_answer_cleanup_pending_receiver_run(&mut self, active: &ActiveReceiverRun) {
+        self.services.shutdown_receiver_attachments();
+        let shutdown = self.brain.shutdown_receiver_run(
+            active.tab_id,
+            active.claim.job().id(),
+            active.attribution.instance(),
+        );
+        if shutdown != Ok(true) {
+            crate::logging::log(
+                "receiver shutdown preserved answer cleanup controller and durable authority",
+            );
+            return;
+        }
+        let controller_pid = i32::try_from(std::process::id()).unwrap_or(0);
+        let acknowledged = self
+            .services
+            .acknowledge_receiver_answer_controller_shutdown(
+                active.claim.job().id(),
+                active.claim.job().token(),
+                active.attribution.instance(),
+                controller_pid,
+                self.receiver_now_unix_ms(),
+            )
+            .unwrap_or(false);
+        if !acknowledged {
+            crate::logging::log(
+                "receiver shutdown preserved confirmed answer cleanup controller handoff",
+            );
+            return;
+        }
+        let job_id = active.claim.job().id();
+        if self
+            .brain
+            .remove_shutdown_receiver_run(active.tab_id, job_id, active.attribution.instance())
+            .is_none()
+        {
+            crate::logging::log(
+                "receiver shutdown could not remove the confirmed answer cleanup controller",
+            );
+            return;
+        }
+        #[cfg(test)]
+        self.receiver.record_answer_cleanup_event(
+            crate::tui::receiver::ReceiverAnswerCleanupEvent::ControllerShutdown,
+        );
+        self.continue_receiver_answer_cleanup_for(job_id);
     }
 
     fn shutdown_cleanup_pending_receiver_run(&mut self, pending: &CleanupPendingReceiverRun) {

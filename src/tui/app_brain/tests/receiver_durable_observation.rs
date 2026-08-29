@@ -136,7 +136,7 @@ fn malformed_unrelated_and_equal_revision_evidence_never_changes_durable_state()
 }
 
 #[test]
-fn completion_only_evidence_finishes_without_a_response_and_unblocks_fifo() {
+fn completion_only_evidence_waits_for_an_answer_and_keeps_fifo_blocked() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Codex);
@@ -163,25 +163,23 @@ fn completion_only_evidence_finishes_without_a_response_and_unblocks_fifo() {
     app.tick_receiver();
 
     let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::Processing);
     assert_eq!(completed.accepted_at_unix_ms(), Some(1_000));
     assert_eq!(completed.progressing_at_unix_ms(), Some(1_100));
-    assert_eq!(completed.completed_at_unix_ms(), Some(1_200));
-    assert_eq!(completed.observation_revision(), 3);
+    assert_eq!(completed.completed_at_unix_ms(), None);
+    assert_eq!(completed.observation_revision(), 2);
     assert_eq!(completed.observation_session_id(), Some(session.as_str()));
-    assert!(app.brain.receiver_run_observations().is_empty());
-    assert_eq!(first_transport.shutdowns(), 1);
+    assert_eq!(app.brain.receiver_run_observations().len(), 1);
+    assert_eq!(first_transport.shutdowns(), 0);
     assert_eq!(
         db.receiver_job(second.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Queued
     );
 
-    app.brain
-        .replace_receiver_transport(TransportRecording::default().transport());
     app.tick_receiver();
     assert_eq!(
         app.brain.receiver_run_observations()[0].job_id,
-        second.job_id()
+        first.job_id()
     );
 }
 
@@ -212,7 +210,7 @@ fn artifact_and_lifecycle_completion_in_one_tick_finish_once_through_artifact_de
     app.tick_receiver();
 
     let completed = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done);
+    assert_eq!(completed.state(), ReceiverJobState::AnswerReady);
     assert_eq!(completed.accepted_at_unix_ms(), Some(1_000));
     assert_eq!(completed.progressing_at_unix_ms(), Some(1_100));
     assert_eq!(completed.completed_at_unix_ms(), Some(1_200));

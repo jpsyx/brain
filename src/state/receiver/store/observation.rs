@@ -2,11 +2,10 @@ use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
 use super::{to_i64, validated_owner};
-use crate::agent::AgentSession;
 use crate::state::{
-    Db, ReceiverCompletionRequest, ReceiverJobId, ReceiverLaunchObservation,
-    ReceiverLifecycleDeadlines, ReceiverNonterminalObservationPhase, ReceiverObservation,
-    ReceiverObservationSet, ReceiverSessionAttribution, receiver_acceptance_expires_at,
+    Db, ReceiverJobId, ReceiverLaunchObservation, ReceiverLifecycleDeadlines,
+    ReceiverNonterminalObservationPhase, ReceiverObservation, ReceiverObservationSet,
+    receiver_acceptance_expires_at,
 };
 
 impl Db {
@@ -324,31 +323,5 @@ impl Db {
             transaction.commit()?;
         }
         Ok(changed == 1)
-    }
-
-    /// Commit terminal lifecycle evidence and its exact native binding together.
-    pub fn apply_terminal_receiver_observation_set(
-        &self,
-        job_id: ReceiverJobId,
-        owner: &str,
-        observation: &ReceiverObservationSet,
-        registration: &ReceiverSessionAttribution,
-        completed_session: &AgentSession,
-    ) -> Result<bool> {
-        let completed_at_unix_ms = observation
-            .completed_at_unix_ms
-            .ok_or_else(|| anyhow::anyhow!("terminal receiver observation is incomplete"))?;
-        self.complete_receiver_job_with_observation(
-            &ReceiverCompletionRequest {
-                job_id,
-                token: observation.token,
-                owner,
-                registration,
-                completed_session,
-                observed_at_unix_ms: completed_at_unix_ms,
-                authorized_at_unix_ms: observation.authorized_at_unix_ms,
-            },
-            Some(observation),
-        )
     }
 }

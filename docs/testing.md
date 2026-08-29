@@ -375,9 +375,47 @@ first move is a failing test that reproduces it, *then* the fix.
   test permits only accepted and progressing, while the terminal continuity
   matrix proves the registration-aware path remains authorized. Terminal tests
   atomically combine the normalized boundary set, revision and session cursor,
-  exact completed-session binding, stored and incoming timeline validation, and
-  artifact completion. They prove artifact body precedence retains lifecycle
-  evidence and a future-skewed stored boundary remains monotonic. That matrix
+  exact completed-session binding, stored and incoming timeline validation,
+  portable transcript append, immutable final-answer outbox insert,
+  answer-ready transition, and agent-claim release. They prove exact duplicates
+  append once after later transcript turns and binding changes, crossed
+  registered sessions fail closed, conflicts fail closed, statement failure
+  rolls back, artifact
+  body precedence retains lifecycle evidence, lifecycle-only completion stays
+  nonterminal, and a future-skewed stored boundary remains monotonic. The
+  descriptor-bound artifact matrix covers symlinked ancestors and leaves,
+  FIFOs, permissive files, short reads, growth, inode replacement, malformed or
+  unknown JSON, blank and oversized answers, same-length in-place rewrites, and
+  every identity mismatch. The reconciliation matrix separately proves that
+  notice, control, and fallback-only rows cannot protect incomplete
+  `answer-ready` or `delivering` jobs as final-answer proof. Recovery claim
+  coverage keeps an older exact final-answer row active while
+  proving a later due recovery is still discovered with its original token and
+  owner. App boundary tests
+  cover crashes before and after commit, the two-App window between answer
+  commit and originating controller shutdown, exact origin acknowledgement,
+  end-to-end dead-owner takeover after atomic lock-reap acknowledgement,
+  a deterministic two-connection replacement-owner race between liveness
+  sampling and the immediate reap transaction,
+  same-PID main-session and stale-PID takeover denial, multiple same-instance
+  cleanup rows with a later answer commit, fair bounded retries for multiple
+  still-live cleanup controllers, full-registry preservation of the next exact
+  controller and artifact, durable selection that rotates one persistently
+  failing oldest fresh-App cleanup behind a later row, durable session-release
+  and artifact-cleanup retries, sync-start
+  failures, durable answers, and next-job release. They prove that controller
+  shutdown opens the cleanup fence, session and artifact flags progress
+  independently, and task reload plus sync wait for both. Agent-controller
+  contract tests cover kill failure, a child still running after the bound, and
+  confirmed exit without timing sleeps; only confirmed exit opens the durable
+  fence. A fresh App resumes
+  only an eligible cleanup without reclaiming agent work. Schema tests cover
+  same-version cleanup-table, legacy instance-unique-index and shutdown-ack
+  column repair, progressed and untouched pre-fence rows, content and credential
+  exclusion, and v12 downgrade cleanup. Down tests prove repaired progressed
+  cleanup completion, repaired untouched refusal, exact session and private-artifact
+  discharge, and filesystem failure with intact authority plus idempotent
+  retry. That matrix
   also proves fresh and
   rotated native sessions become the next message's exact resume target for all
   three frontends, including Codex and OpenCode placeholder rotation, while a
@@ -386,8 +424,8 @@ first move is a failing test that reproduces it, *then* the fix.
   unrelated, equal-revision, and completion-only evidence; owner loss between
   read and transaction; artifact plus lifecycle completion in one tick; a
   paused stop-hook observation publication that cannot expose completion or an
-  artifact early; exact
-  artifact-body delivery once versus no lifecycle-only delivery; exact-instance
+  artifact early; exact artifact answer persistence without provider IO versus
+  no lifecycle-only completion; exact-instance
   response, snapshot, and lock cleanup for all five exit routes; stable
   content-free diagnostics; and FIFO release to the next durable job.
   The final BR-15 parity matrix ticks the App separately after reordered
@@ -590,7 +628,8 @@ first move is a failing test that reproduces it, *then* the fix.
   prove claiming only an already-due attempt preserves identity and first facts,
   consumes no additional budget, establishes the launch deadline, honors the
   exact cleanup-acknowledgement fence, and refuses both targeted and discovered
-  recovery behind an older expired-owner lifecycle or due ordinary retry.
+  recovery behind an older expired-owner lifecycle or due ordinary retry, but
+  not behind an older active job with exact final-answer delivery proof.
   Cross-tests prove the ordinary retry seam rejects recovery attempts and the
   exact recovery planning, registration, spawn, and shutdown failures
   terminalize with notice intent. Completion remains atomic across the
@@ -646,7 +685,7 @@ first move is a failing test that reproduces it, *then* the fix.
   priority over later FIFO work, persisted-frontend command selection, exact
   native resume under a fresh instance, resume-only prompt privacy, typed
   recovery process exit, completion through the ordinary exact response path,
-  local terminal-notice handoff before FIFO advancement, and reconstruction
+  terminal-notice migration to the generic durable outbox before FIFO advancement, and reconstruction
   after an exact stale PID, recovery-only retry after a post-registration store
   error, independent notice and cleanup acknowledgement, retained local cleanup
   authority across shutdown/artifact/store failures, and disabled no-spawn with
@@ -1174,18 +1213,176 @@ first move is a failing test that reproduces it, *then* the fix.
   examples are neutral fixtures. If automation is desired, keep the private
   denylist outside the repo in a local hook or private CI secret.
 
+**Durable receiver delivery model.** `state::receiver::tests` covers frozen
+SMS and email envelopes, serialization round trips, redacted Debug, exact
+authenticated-ingress outbound sender persistence outside the compatibility
+JSON frame, config-independent completion, legacy NULL terminalization,
+recipients, and email lineage, whole-set
+recipient rejection,
+serialized-envelope validation, every provider-result branch, one/five/30-minute
+retry delays, permanent-category terminalization, attempt exhaustion, deadline
+equality, the scheduled Resend 24-hour boundary, and terminal Twilio ambiguity.
+Its schema suite covers v12 create and repair, one row per job and semantic
+response kind, optional-column ordering, full normalized canonical-table
+fingerprints, stale managed-index rebuilding,
+duplicate uniqueness failure, nonblank provider acknowledgements,
+privacy-preserving v12-to-v11 downgrade, complete prior-shape validation,
+transcript retention, malformed lease repair, and immediate-writer ordering in
+both directions. The down-up round trip proves the exact schema-v11 job column
+order and data survive while `response_sender` and both v12-only tables are
+removed before version 11 is recorded. Mutated-schema cases retain an older
+checked clause or managed index while independently removing or changing state,
+lease, provider-IO, foreign-key, uniqueness, and cleanup invariants, then prove
+same-version rebuild, idempotent reopen, and down-up compatibility. They also
+remove checks, provider uniqueness, the conversation foreign key, and each
+managed index to prove downgrade reconstructs exact old-reader behavior. Malformed source
+rows prove the database transition rolls back without a v11 stamp. It reconstructs the exact pre-Task-3 v12 table from commit
+`0473434`, preserves its envelope, then proves claim, IO start,
+acknowledgement, and final job completion. Repair tests also prove that a
+malformed active semantic response, including a pre-frozen-sender final answer
+or corrupt oldest generic row, terminalizes its matching job and cannot block a
+later valid delivery.
+Raw-value corruption cases cover malformed delivery and attempt IDs, response
+kind and state, negative counts and retry/lease/created/updated times, lease
+pairing, provider-IO, and terminal reason fields before typed decoding. Oldest
+ready and due-retry fixtures prove deterministic terminal repair, read-only
+status before reconciliation, later FIFO advancement, and idempotent startup
+reopen.
+Collision fixtures give another valid delivery ownership of the first stable
+UUIDv5 repair identity and then all eight bounded identities. They prove
+deterministic alternate selection, no semantic duplicate, delete-and-terminalize
+exhaustion, idempotent reopen, later FIFO advancement, and v12 down/up safety.
+The startup migration registry pins 0.85.0 directly after
+0.84.22. Atomic answer-ready runtime tests cover exact transcript, binding,
+outbox, cleanup-fence, and claim-release behavior. Delivery tests add concurrent
+oldest-due claim equality, exact stale and duplicate result rejection, retry
+schedule and exhaustion policy, safe pre-spawn release, Resend and Twilio
+restart outcomes, immutable envelope/evidence/transcript preservation, bounded
+response parsing, exact provider identifiers, byte-identical Resend replay,
+bounded and redacted Resend conflict parsing, provider-specific HTTP 5xx,
+exact curl 5/6/7 pre-provider retry classification with conservative neighbors,
+nonblocking queue publication, safe unsent-publication rollback, queue
+saturation, cancellation, lost results, fresh-App reconciliation, and
+independent next-job progress without sleeps or network.
+The final producer characterization drives each real Claude, Codex, and
+OpenCode completion producer from its exact artifact through one atomic
+transcript append and `answer-ready`, then through the same frontend-neutral
+provider reservation and acknowledgement to `done`. Worker-construction
+coverage proves an unavailable executor publishes one bounded durable attempt
+and cannot immediately reclaim the same row.
+Task 4 adds mandatory replay-window tests at exact 24-hour equality and after
+offline restart, missing-row/table repair across same-version and down/up paths,
+legacy-notice migration at repair and runtime reconciliation, atomic `/new` and
+multi-drop `/restart` response intents, frozen-authority fallback/no-fallback,
+generic concurrent delivery claims, obsolete-API structural checks, and themed
+privacy-redacted status counts for every durable phase. Review-fix coverage adds
+all-kind missing-row/table and valid-generic repair/down mapping, same-version
+fallback-column repair, terminal-result rollback on fallback insert failure,
+restart/concurrent at-most-once fallback creation, recursion fencing, read-only
+legacy/no-file status, stable terminal-reason counts, and content-free tick
+diagnostics. The second review fix adds an insert-only SQLite trigger proving
+runtime legacy-notice rollback and exact retry, acknowledged-fallback repair and
+down/up durability with stale-result rejection, and a structural guard that
+keeps the delivery schema coordinator thin.
+The composed HTTP-to-state suite accepts a human-formatted SMS receiver and a
+whitespace-padded email receiver, then proves authentication persists the
+canonical sender and completion advances transcript, outbox, cleanup, and job
+state with that immutable identity. Defensive completion tests prove every
+noncanonical or malformed persisted sender, including mailbox case, padding,
+display delimiters, multiple at signs, invalid local-part dots, and malformed
+domain dots or hyphens, becomes an unclaimable terminal outcome in render,
+decode, repair, and completion. The composed App suite deletes sender configuration after acceptance
+and proves the answer still commits with the frozen identity. The composed state suite
+proves that missing trusted email recipients atomically produce a terminal
+authorization outcome, advance transcript and cleanup authority, survive reopen
+replay, and never enter the provider claim lane. Completion tests also drive
+invalid accepted SMS recipients, email recipients, provider email IDs, and
+blank optional Resend message IDs through the real transaction. They become
+durable terminal `invalid-request` outcomes, survive restart and duplicate
+replay without another transcript or delivery, and release later FIFO work.
+Injected store failures remain rollback errors. Runtime and downgrade cleanup
+tests substitute symlinks for both response and receiver-observation ancestors,
+and the shared helper also substitutes an ancestor above the cache root. They
+prove no outside deletion, retained runtime authority or failed downgrade with
+schema v12 intact, and successful exact cleanup after restoration. The
+deterministic cleanup hooks also replace the original leaf after quarantine
+identity verification, remove it after open before the entry stat, interrupt
+before quarantine verification and after identity verification, and
+reintroduce the original after a missing rename. Exact-test child processes set
+umask `0777` without racing the main suite and inspect, without chmod, that
+`mkdirat(0700)` produced mode `000`. They prove normal cleanup and interruption
+immediately after mkdir both recover, including after a real App restart, while
+a portability seam makes no-follow path chmod return `EOPNOTSUPP`. Further
+crash seams cover an artifact moved while its quarantine is pending, the exact
+boundary after atomic active-phase promotion, and the empty active directory
+after artifact unlink. They prove pending artifacts promote before unlink,
+pending empties retry under ordinary and restrictive umasks, and active empties
+with original-name reappearance retain authority without deleting the
+replacement. Non-panicking runtime and v12-downgrade hooks also recreate the
+original leaf after artifact unlink. They prove the final descriptor-relative
+absence fence returns an identity error, preserves the active empty quarantine
+and database authority, and persistently blocks a retry from deleting the
+replacement. A final
+race hook replaces the quarantine's artifact after identity verification and
+proves the immediate pre-unlink inode check retains both private data and
+cleanup authority. These cases prove the original-name replacement is never unlinked, interrupted
+artifacts are rediscovered after restart, runtime and downgrade retain authority until every
+matching artifact is gone, unsafe retries remain persistently blocked, and
+exact-name absence is idempotent. Malformed matching quarantine names and more
+than eight matches prove bounded discovery fails closed without deleting private
+data. The
+receiver privacy policy
+recursively discovers authenticated HTTP, provider, state, App, and App-service
+Task 3 suites. Its identifier-aware assertion scan tracks local aliases and
+rejects raw values hidden in tuples, Debug formatting, implicit format capture,
+or mixed with a length proof, while content-free count identifiers remain
+valid. Every audited assertion uses a fixed-message boolean, digest, length,
+count, or field-presence proof instead. The assertion scanner also covers
+`debug_assert` variants, destructuring and adversarial neutral aliases,
+named format arguments, nested and field or index assignment, match and for
+bindings, interpolation and debug macros, and misleading `is` or `has` names.
+The same dynamic scan rejects private values in `panic!`, `println!`, and
+`eprintln!` in future nested receiver, provider, and App delivery files while
+allowing content-free fixed diagnostics.
+It balances the source prefix before an assertion so syntax-tree value flow
+still covers an open block and every later match arm. No method name or
+projection-chain shape is treated as a content-free proof. A method call on a
+private value remains private unless a top-level boolean comparison or another
+independent structural proof makes the assertion content-free. Discovery evaluates full relative paths,
+including the filename of future nested receiver, provider, and App test paths,
+without a name-only safe allowlist.
+`tests/module_structure.rs` recursively
+discovers receiver state, provider-delivery, App services, and composed App
+production modules
+for its size guard. Its lexical counter masks strings, raw strings, characters,
+and nested comments, then excludes test-only attributed items, fields, and
+variants, including stacked and composed `cfg` predicates. It resumes counting
+later production after generic angle-delimited commas, ordinary commas,
+semicolons, and braced targets. The structural suites are split into cohesive
+lexer, discovery, accounting, policy, and syntax modules. The formerly
+1,086-line completion suite is a thin include root with answer-record,
+terminal-outcome, replay/FIFO, cleanup, and transaction-integrity modules.
+Guards cap every part at 400 lines and keep the privacy policy split. They also
+reject the former always-false completed flag and unreachable observation-only
+answerless cleanup branch. The delivery cleanup table contract stays in its
+focused schema module.
+Privacy suite sizing uses recursive `.rs` discovery below the full privacy test
+directory, with only the explicit `fixtures` subtree excluded. A mutation makes
+`task_three_assertions/mod.rs` 401 lines while `syntax.rs` and `taint.rs` remain
+nested siblings, proving every current and future split part enters the guard.
+
 ## Test layout
 
 | Location | Scope |
 | --- | --- |
 | `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
-| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard keeps the model and schema coordinator plus their cohesive identity, conversation, observation, job, claim, effect, notice, and downgrade modules within the production-size prompt. It applies the same bound to the producer-matrix harness and native-cleanup fixture modules split from their focused assertions. |
+| `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard recursively discovers model, schema, completion-store, and delivery-store modules, excludes exact inline `#[cfg(test)]` items from the production budget, and resumes counting later production. It also bounds the split completion and privacy suites, keeps the completion root thin, rejects the obsolete answerless completion branch, and applies the production bound to the producer-matrix and native-cleanup fixture modules. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
 | `tests/tui_state_aggregates_architecture.rs` | Focused-state seam: exact owner-body extraction pins private Context/Tasks/Brain/Shell/Services/Status representation, including the six semantic AppServices effects, and App's exact eight-field composition. It rejects duplicate or flat App declarations across visibility forms. Outside `tui/state/`, direct or aliased representation access and single-owner App forwarding through transitively referenced transparent local bindings are forbidden; focused handlers/renderers and semantic aggregate surfaces are required. Synthetic fixtures cover alternate visibility, typed/parenthesized alias chains, lexical shadowing, dead bindings, and forwarding evasions without rejecting cross-owner mediation. |
-| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `ReceiverRuntime` retains only intent, freshness gating, the durable run, and a narrowly allowed legacy endpoint lifetime owner for BR-18; the guard rejects activity, input, queue, and socket-consumer behavior. `AppServices` retains the cross-feature sync effect adapter and nonblocking receiver-attachment coordinator behind semantic operations; the guard rejects those effects, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. |
+| `tests/tui_receiver_runtime_architecture.rs` | Receiver ownership seam: `App` owns one `ReceiverRuntime`, none of the former receiver-local fields, and no TUI module outside `tui/receiver/` accesses the representation directly. `ReceiverRuntime` retains only intent, freshness gating, the durable run, and a narrowly allowed legacy endpoint lifetime owner for BR-18; the guard rejects activity, input, queue, and socket-consumer behavior. `AppServices` retains the cross-feature sync effect adapter and nonblocking receiver-attachment coordinator behind semantic operations; the guard rejects those effects, workspace paths, journal/current-state reads, filesystem/process APIs, and detached sync launch from the receiver runtime. A provider-delivery scan also rejects public direct `send_sms` or `send_email` bypass APIs and requires the typed executor seam. |
 | `tests/tui_receiver_dispatch_architecture.rs` | Durable dispatch seam: an exact `cfg(test)`-aware Rust module graph defaults undeclared files to production and audits each as an orphan root while preserving declared module identities. A global symbol graph completes imports and aliases across every production source before collecting definitions, then follows exact receiver-owned call edges through neutral helpers, cross-module aliases, qualified-self UFCS, fields, and controller-return chains without same-basename guessing. Ordinary and qualified-self calls, trait implementation nodes, and method return facts canonicalize a generic aliased self type to its underlying identity while retaining the exact trait; direct and inherent methods remain distinct. Ordinary trait visibility follows exact named imports plus finite module and lexical glob exports, honors local shadowing, and refuses to guess across colliding traits. Type roles resolve modules, named imports, direct and nested public glob imports and re-exports, aliases, and generic arguments to exact production symbol identities. Function bodies add lexical frames for block imports, local type declarations and aliases, ordered variable bindings, and function/method/impl generics. Block aliases retain definition-scope targets, substitutions, defaults, and the full lifetime/type/const parameter sequence. Arguments bind by declared kind, including ambiguous bare const paths; explicit types override defaults; omitted defaults may refer to earlier parameters; omitted no-default parameters remain opaque. Generic struct fields align declaration parameters with explicit use-site types and definition-scope defaults before projection. Active alias frames combine the exact declaration with resolved supplied type facts. Finite same-alias arguments resolve before default and target recursion is guarded, while matching non-progress frames terminate self and mutual cycles. Nearest declarations shadow outer aliases, sibling blocks do not inherit one another, and local or generic types resolve before imports and globs. Sequential bindings replace same-scope predecessors only after initializer analysis; `or` patterns alone merge lexical alternatives. Tuple and tuple-struct rest suffixes map from the end, slice rest bindings retain sequence shape, and outer/ref-pattern borrowing propagates through projections. Alias, default, and export graphs terminate cycles, and unknown or ambiguous glob-owned type operations fail closed, so receiver-local same-named `AgentController`, `App`, `BrainPanelState`, and `InboundJob` types remain harmless while canonical aliased, qualified, module-globbed, and block-globbed Brain types stay guarded. Only the exact typed `ServerClient::refresh_enabled_generation` target is a control-capability boundary; every other `ServerClient` method stays receiver-reachable. The call graph rejects reachable main-panel input, activity sampling, Unix socket acceptance or reads before or after job decoding, and broad dead-code masking. Independently, a global semantic pass rejects canonical typed `InboundJob` channel or queue consumption in declared and orphan production modules while allowing unrelated channel/socket code, safe-trait peers, unrelated same-name methods, ordinary interactive APIs, and lifetime-only `JobSocket` ownership. Mutation fixtures cover both same-method implementation orders, aliased ordinary dispatch, aliased qualified-self return propagation, exact-symbol positive and negative controls, module and block glob imports for types and traits, local and ambiguous trait controls, block-local alias targets, generic chains and defaults, partial and explicit overrides, lifetime/const kind alignment, bare/braced/literal const arguments, generic struct fields, aggregate borrowing, exact rest mapping, sequential shadow replacement, finite same-alias nesting, true self/mutual cycles, ambiguous and unknown targets, nested shadowing, local-type and generic controls, declared-neutral direct and indirect typed consumers, dangerous `ServerClient` delegation, and their harmless peers; durable controls compile in the live coordinator, and production source contains exactly one receiver-consumer tick. |
-| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, pure recovery decisions at exact deadline boundaries, separate launch/recovery budgets, authorization-time and saturated deadline arithmetic, lifetime versus current-attempt observation evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim shared by ordinary and recovery paths with exact-expiry release and rejected-call preservation, globally oldest recovery gating, exact cleanup-pending acknowledgement including complete-tuple frontend/actor/channel mismatch rejection and dead-PID restart proof, ownerless recovery expiry after reopen, exact recovery-failure terminalization, finite single-writer unavailable-notice handoff with exact acknowledgement and FIFO independence, deterministic separate-handle writer serialization, exact-owner launch CAS, atomic claim of an already-persisted recovery plus failed-CAS preservation, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded ordinary planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative mixed-provenance v9-to-v10 repair, partial schema-v11 notice repair, v11-to-v10 notice downgrade, v10-to-v9 recovery downgrade, v9-to-v8 downgrade behavior, and receiver-specific pre-migration SQLite lock budgeting. |
+| `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, pure recovery decisions at exact deadline boundaries, separate launch/recovery budgets, authorization-time and saturated deadline arithmetic, lifetime versus current-attempt observation evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim shared by ordinary and recovery paths with exact-expiry release and rejected-call preservation, globally oldest recovery gating, exact cleanup-pending acknowledgement including complete-tuple frontend/actor/channel mismatch rejection and dead-PID restart proof, ownerless recovery expiry after reopen, exact recovery-failure terminalization, automatic BR-16 notice migration into the generic outbox with cleanup independence, deterministic separate-handle writer serialization, exact-owner launch CAS, atomic claim of an already-persisted recovery plus failed-CAS preservation, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded ordinary planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative mixed-provenance v9-to-v10 repair, v12 semantic-delivery repair and v12-to-v11 no-replay downgrade, v10 recovery down to v9, v9 down to v8, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `tui::app_brain::tests::receiver_durable_attachment_prompt` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode rendering from an already-authorized Fresh/Resume choice: empty transcript, UTF-8-safe newest-context truncation, complete localized path records with honest omission, composed post-staging prompt and shell-command bounds, and both fresh/resume command translations with a non-blank initial prompt. |
 | `tui::receiver::{session_tests,failure_tests}` | Unique remote instances distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for planning, registration, and proved synchronous spawn failure. The retryable failure type excludes post-spawn allocation. |
 | `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9/v10/v11 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. Adjacent 0.84.7/0.84.8 tests prove upgrade reconstructs either missing cleanup identifier only from one exact registration/session and conversation/job attribution match, preserves terminal redrive and exact acknowledgement across reopen, refuses wrong acknowledgement, and releases the exact registration and lock only after the right acknowledgement. Ambiguity, effective-session mismatch, and every unique frontend, actor, or channel mismatch for both missing halves fail closed without redrive or resource release. Downgrade makes cleanup-pending recovery non-replayable while retaining its exact tuple and locks. The adjacent 0.84.11/0.84.12 boundary owns only the finite notice lease columns. The state receiver suite separately proves v11 notice down to v10, v10 recovery down to v9, and the v9 every-state down-to-v8 old-claim round trip. |

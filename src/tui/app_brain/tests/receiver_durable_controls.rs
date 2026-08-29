@@ -21,6 +21,7 @@ fn accept_thread_job(
     inbound.provider_id = Some(format!("provider-{}", inbound.job_id));
     inbound.authenticated_sender = "member@example.test".to_owned();
     inbound.thread_participants = vec!["member@example.test".to_owned()];
+    inbound.response_email = Some("member@example.test".to_owned());
     let identity = ReceiverConversationIdentity::email(
         app.context.workspace().id(),
         inbound.actor.user_id().clone(),
@@ -97,7 +98,7 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
 
     assert_eq!(
         db.receiver_job(command.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let following_job = db.receiver_job(following.job_id()).unwrap().unwrap();
     assert_ne!(following_job.conversation_id(), command.conversation_id());
@@ -106,9 +107,9 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
         .receiver_conversation(command.conversation_id())
         .unwrap()
         .expect("retired conversation remains durable");
-    assert_eq!(
-        retired.transcript_markdown(),
-        "# Old transcript\n\nPrivate prior context"
+    assert!(
+        retired.transcript_markdown() == "# Old transcript\n\nPrivate prior context",
+        "retired transcript changed"
     );
     assert_eq!(retired.binding(), Some(&old_binding));
     let fresh = db
@@ -126,7 +127,10 @@ fn durable_new_rolls_only_its_conversation_then_launches_following_content_fresh
         .receiver_conversation(unrelated.conversation_id())
         .unwrap()
         .expect("unrelated conversation");
-    assert_eq!(untouched.transcript_markdown(), "# Unrelated transcript");
+    assert!(
+        untouched.transcript_markdown() == "# Unrelated transcript",
+        "unrelated transcript changed"
+    );
     assert_eq!(untouched.binding(), Some(&unrelated_binding));
     assert_eq!(
         app.services
@@ -218,18 +222,18 @@ fn durable_restart_cuts_prior_backlog_during_active_run_and_preserves_later_fres
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Failed
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(
         db.receiver_job(dropped_other.job_id())
             .unwrap()
             .unwrap()
             .state(),
-        ReceiverJobState::Failed
+        ReceiverJobState::AnswerReady
     );
     assert_eq!(
         db.receiver_job(restart.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Done
+        ReceiverJobState::AnswerReady
     );
     let survivor_job = db.receiver_job(survivor.job_id()).unwrap().unwrap();
     assert_eq!(survivor_job.state(), ReceiverJobState::Queued);
@@ -253,9 +257,9 @@ fn durable_restart_cuts_prior_backlog_during_active_run_and_preserves_later_fres
         .receiver_conversation(untouched.conversation_id())
         .unwrap()
         .expect("untouched conversation");
-    assert_eq!(
-        untouched_conversation.transcript_markdown(),
-        "# Untouched transcript"
+    assert!(
+        untouched_conversation.transcript_markdown() == "# Untouched transcript",
+        "untouched transcript changed"
     );
     assert_eq!(untouched_conversation.binding(), Some(&untouched_binding));
     assert_eq!(

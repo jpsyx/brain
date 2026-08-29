@@ -227,6 +227,7 @@ fn private_inbound_job() -> InboundJob {
         actor,
         channel: Channel::Email,
         authenticated_sender: SENDER_CANARY.to_owned(),
+        response_sender: PRIVATE_CANARIES[3].to_owned(),
         prompt: PRIVATE_CANARIES[0].to_owned(),
         attachments: vec![AttachmentRef {
             url: PRIVATE_HOST_CANARY.to_owned(),

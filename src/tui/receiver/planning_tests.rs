@@ -43,7 +43,6 @@ enum BindingKind {
 }
 
 struct PlanningCase {
-    name: &'static str,
     binding: BindingKind,
     transcript: &'static str,
     expects_resume: bool,
@@ -128,6 +127,7 @@ fn durable_fixture_with_input(
         actor,
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: prompt.to_owned(),
         attachments,
         received_at_unix_ms: 100,
@@ -241,7 +241,10 @@ fn accepted_recovery_plan_is_resume_only_bounded_and_contains_no_private_job_mat
 
     let plan = plan_receiver_recovery(job.id(), job.token(), session.clone());
 
-    assert_eq!(plan.session_plan(), &SessionPlan::resume(session));
+    assert!(
+        plan.session_plan() == &SessionPlan::resume(session),
+        "recovery selected the wrong session plan"
+    );
     assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
     assert!(plan.initial_prompt().contains(&job.id().to_string()));
     assert!(plan.initial_prompt().contains("Inspect the prior work"));
@@ -280,19 +283,16 @@ fn accepted_recovery_plan_is_resume_only_bounded_and_contains_no_private_job_mat
 fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_frontend() {
     let cases = [
         PlanningCase {
-            name: "matching resumable binding",
             binding: BindingKind::Matching,
             transcript: "old portable context",
             expects_resume: true,
         },
         PlanningCase {
-            name: "fresh fallback selected after frontend change",
             binding: BindingKind::OtherFrontend,
             transcript: "old portable context",
             expects_resume: false,
         },
         PlanningCase {
-            name: "empty transcript",
             binding: BindingKind::Absent,
             transcript: "",
             expects_resume: false,
@@ -310,51 +310,38 @@ fn receiver_launch_planning_renders_the_authorized_session_choice_for_every_fron
             );
 
             if case.expects_resume {
-                assert_eq!(
-                    plan.session_plan(),
-                    &SessionPlan::resume(
-                        AgentSession::new("native-session").expect("native session")
-                    ),
-                    "{} for {}",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.session_plan()
+                        == &SessionPlan::resume(
+                            AgentSession::new("native-session").expect("native session")
+                        ),
+                    "resume planning selected the wrong session plan"
                 );
-                assert_eq!(
-                    plan.initial_prompt(),
-                    format!(
-                        "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
-                        job.token()
-                    ),
-                    "{} for {} must omit portable transcript context",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.initial_prompt()
+                        == format!(
+                            "{RESUME_PROMPT}\n<!-- brain:receiver-job-token={} -->",
+                            job.token()
+                        ),
+                    "resume prompt did not omit portable transcript context"
                 );
             } else {
-                assert_eq!(
-                    plan.session_plan(),
-                    &SessionPlan::fresh(fresh_session()),
-                    "{} for {}",
-                    case.name,
-                    kind.label(),
+                assert!(
+                    plan.session_plan() == &SessionPlan::fresh(fresh_session()),
+                    "fresh planning selected the wrong session plan"
                 );
                 assert!(
                     plan.initial_prompt()
                         .contains("## Current authenticated message"),
-                    "{} for {} must use recovery prompt separation",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must use recovery prompt separation",
                 );
                 assert!(
                     plan.initial_prompt().contains(TASK_CAPTURE_POLICY),
-                    "{} for {} must retain the shared task-capture policy",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must retain the shared task-capture policy",
                 );
                 assert!(
                     plan.initial_prompt().contains(CURRENT_PROMPT),
-                    "{} for {} must retain the current job",
-                    case.name,
-                    kind.label(),
+                    "fresh planning must retain the current job",
                 );
             }
         }
@@ -443,7 +430,10 @@ fn receiver_launch_recovery_prompt_reserves_ordinary_context_before_many_attachm
             .expect("current authenticated message heading");
 
         assert!(prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES);
-        assert_eq!(transcript, "portable context from the preceding turn");
+        assert!(
+            transcript == "portable context from the preceding turn",
+            "portable transcript context changed"
+        );
         assert!(current.starts_with(CURRENT_PROMPT));
         assert!(current.contains("path=\"/workspaces/family/inbox/attachment-000.bin\""));
         assert!(current.contains("path=\"/workspaces/family/inbox/attachment-255.bin\""));
@@ -513,11 +503,10 @@ fn receiver_launch_uses_one_exact_task_capture_policy_for_fresh_and_resume() {
                 selected_resume(binding),
             );
 
-            assert_eq!(
-                plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count(),
-                1,
-                "{} with {binding:?}",
-                kind.label(),
+            assert!(
+                plan.initial_prompt().matches(TASK_CAPTURE_POLICY).count() == 1,
+                "{} with {binding:?} had the wrong task-capture policy count",
+                kind.label()
             );
             assert!(plan.initial_prompt().starts_with(TASK_CAPTURE_POLICY));
         }
@@ -537,11 +526,14 @@ fn receiver_launch_appends_the_exact_job_token_marker_as_the_final_prompt_line()
             );
             let expected = format!("<!-- brain:receiver-job-token={} -->", job.token());
 
-            assert_eq!(
-                plan.initial_prompt().lines().last(),
-                Some(expected.as_str())
+            assert!(
+                plan.initial_prompt().lines().last() == Some(expected.as_str()),
+                "receiver job token marker was not last"
             );
-            assert_eq!(plan.initial_prompt().matches(&expected).count(), 1);
+            assert!(
+                plan.initial_prompt().matches(&expected).count() == 1,
+                "receiver job token marker appeared the wrong number of times"
+            );
             assert!(plan.initial_prompt().len() <= RECOVERY_PROMPT_BUDGET_BYTES);
         }
     }
@@ -654,23 +646,30 @@ fn receiver_launch_prompts_fit_every_real_frontend_shell_command_for_fresh_and_r
 
             assert!(
                 prompt.len() <= SHELL_INLINE_VALUE_BUDGET_BYTES,
-                "{} with {binding:?} raw prompt was {} bytes",
+                "{} with {binding:?} exceeded the shell inline-value budget",
                 kind.label(),
-                prompt.len(),
             );
             assert!(prompt.starts_with(TASK_CAPTURE_POLICY));
             assert!(prompt.contains("authenticated-message-start-é🙂-"));
             assert!(prompt.contains(&paths[0].display().to_string()));
             assert!(prompt.contains("[Current authenticated message truncated]"));
             assert!(prompt.contains("[Additional local attachment files omitted]"));
-            assert_eq!(prompt.lines().last(), Some(marker.as_str()));
-            assert_eq!(prompt.matches(&marker).count(), 1);
-            assert_eq!(command.matches(&marker).count(), 1);
+            assert!(
+                prompt.lines().last() == Some(marker.as_str()),
+                "receiver job token marker was not last"
+            );
+            assert!(
+                prompt.matches(&marker).count() == 1,
+                "receiver prompt token marker appeared the wrong number of times"
+            );
+            assert!(
+                command.matches(&marker).count() == 1,
+                "receiver command token marker appeared the wrong number of times"
+            );
             assert!(
                 command.len() <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES,
-                "{} with {binding:?} shell command was {} bytes",
+                "{} with {binding:?} exceeded the shell command-argument budget",
                 kind.label(),
-                command.len(),
             );
         }
     }

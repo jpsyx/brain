@@ -17,6 +17,7 @@ pub(crate) enum DurableReceiverRun {
     RecoveryPreSpawnCleanup(PreSpawnRecoveryCleanup),
     RecoverySpawned(SpawnedRecoveryRun),
     Active(ActiveReceiverRun),
+    AnswerCleanupPending(ActiveReceiverRun),
     CleanupPending(CleanupPendingReceiverRun),
 }
 
@@ -31,6 +32,12 @@ pub(crate) struct ActiveReceiverRun {
     pub(crate) attribution: ReceiverSessionAttribution,
     pub(crate) tab_id: SessionTabId,
     pub(crate) _attachments: super::attachments::PreparedReceiverAttachments,
+}
+
+pub(crate) struct ReceiverAnswerControllerCleanup {
+    pub(crate) active: ActiveReceiverRun,
+    pub(crate) controller: AgentController,
+    pub(crate) shutdown_confirmed: bool,
 }
 
 pub(crate) enum PreSpawnRecoveryOutcome {

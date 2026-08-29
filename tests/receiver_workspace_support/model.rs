@@ -15,6 +15,7 @@ pub fn job(workspace: &WorkspaceContext, prompt: &str) -> InboundJob {
         actor: actor(),
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: prompt.to_owned(),
         attachments: vec![AttachmentRef {
             url: "https://media.example.test/photo.jpg".to_owned(),

@@ -54,13 +54,14 @@ pub(super) fn authenticate(
             "SMS body and media are both empty",
         ));
     }
+    let receiving_address = super::canonical_receiving_address(config, Channel::Sms)?;
     Ok(AuthenticatedInbound {
         channel: Channel::Sms,
         sender: sender.clone(),
         prompt,
         participants: vec![sender],
         attachments,
-        receiving_address: String::new(),
+        receiving_address,
         provider_id: fields.get("MessageSid").cloned(),
         email_reply: None,
     })
@@ -134,7 +135,9 @@ const fn hex_digit(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
+    use std::io::Write as _;
+    use std::net::{TcpListener, TcpStream};
 
     use super::{decode_form, sms_attachments};
 
@@ -168,6 +171,66 @@ mod tests {
     fn a_form_without_a_destination_routes_nowhere() {
         assert!(super::destinations(b"Body=hello&From=%2B12125550100").is_empty());
         assert!(super::destinations(b"not a form").is_empty());
+    }
+
+    #[test]
+    fn formatted_authenticated_receiver_completes_with_the_canonical_frozen_sender() {
+        let config = super::super::ProviderConfig {
+            workspace_id: crate::workspace::WorkspaceId::new(),
+            twilio_auth_token: "twilio-token".to_owned(),
+            twilio_from_number: "(212) 555-0100".to_owned(),
+            public_base_url: "https://receiver.example.test".to_owned(),
+            resend_signing_secret: String::new(),
+            resend_full_access_api_key: String::new(),
+            resend_from_email: String::new(),
+        };
+        let body =
+            "Body=canonical+answer&From=%2B13105550100&To=%2B12125550100&MessageSid=SM-canonical";
+        let fields = BTreeMap::from([
+            ("Body".to_owned(), "canonical answer".to_owned()),
+            ("From".to_owned(), "+13105550100".to_owned()),
+            ("To".to_owned(), "+12125550100".to_owned()),
+            ("MessageSid".to_owned(), "SM-canonical".to_owned()),
+        ]);
+        let signature = crate::server::security::twilio_signature(
+            "twilio-token",
+            "https://receiver.example.test/sms",
+            &fields,
+        );
+        let wire = format!(
+            "POST /sms HTTP/1.1\r\nHost: localhost\r\nX-Twilio-Signature: {signature}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let (mut client, server) = tcp_pair();
+        client
+            .write_all(wire.as_bytes())
+            .expect("write SMS request");
+        let mut request = crate::server::http::Request::read(server).expect("parse SMS request");
+        let authenticated = super::super::authenticate(
+            &mut request,
+            body.as_bytes(),
+            &config,
+            crate::server::receiver::Channel::Sms,
+        )
+        .expect("authenticate formatted receiver number");
+
+        let proof =
+            super::super::completion_fixture::complete_authenticated(authenticated, "+12125550100");
+
+        assert!(proof.accepted_sender_is_canonical);
+        assert!(proof.envelope_sender_is_canonical);
+        assert!(proof.transcript_advanced);
+        assert!(proof.outbox_is_ready);
+        assert!(proof.cleanup_count == 1);
+        assert!(proof.job_is_answer_ready);
+    }
+
+    fn tcp_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test listener");
+        let client = TcpStream::connect(listener.local_addr().expect("test address"))
+            .expect("connect request client");
+        let (server, _) = listener.accept().expect("accept request client");
+        (client, server)
     }
 
     #[test]

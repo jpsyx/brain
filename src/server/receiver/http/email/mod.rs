@@ -157,13 +157,14 @@ fn fetch_verified(
         .iter()
         .filter_map(|value| crate::users::normalize_mailbox(value).ok())
         .collect();
+    let receiving_address = super::canonical_receiving_address(config, Channel::Email)?;
     Ok(AuthenticatedInbound {
         channel: Channel::Email,
         sender,
         prompt: fetched.body,
         participants,
         attachments: fetched.attachments,
-        receiving_address: config.resend_from_email.clone(),
+        receiving_address,
         provider_id: Some(verified.webhook_id),
         email_reply: Some(crate::server::receiver::EmailReplyContext {
             provider_email_id: verified.email_id,

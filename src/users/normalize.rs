@@ -70,27 +70,91 @@ pub fn normalize_mailbox(value: &str) -> Result<String, NormalizeError> {
     normalize_email(address)
 }
 
+/// Validate one canonical bare lowercase mailbox used for outbound delivery.
+///
+/// This intentionally accepts the common ASCII `addr-spec` subset supported
+/// by Brain's configured provider identities. Display syntax, quoted local
+/// parts, comments, domain literals, and values needing normalization are not
+/// canonical outbound identities.
+pub fn validate_canonical_mailbox(value: &str) -> Result<(), NormalizeError> {
+    if value.is_empty() || value.len() > 254 || !value.is_ascii() {
+        return Err(NormalizeError);
+    }
+    let mut parts = value.split('@');
+    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(NormalizeError);
+    };
+    if local.is_empty()
+        || local.len() > 64
+        || local.starts_with('.')
+        || local.ends_with('.')
+        || local.contains("..")
+        || !local.bytes().all(is_canonical_local_byte)
+        || domain.is_empty()
+        || domain.len() > 253
+        || domain.bytes().any(|byte| byte.is_ascii_uppercase())
+        || !domain.split('.').all(is_canonical_domain_label)
+    {
+        return Err(NormalizeError);
+    }
+    Ok(())
+}
+
+const fn is_canonical_local_byte(byte: u8) -> bool {
+    byte.is_ascii_lowercase()
+        || byte.is_ascii_digit()
+        || matches!(
+            byte,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'/'
+                | b'='
+                | b'?'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'{'
+                | b'|'
+                | b'}'
+                | b'~'
+        )
+}
+
+fn is_canonical_domain_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 63
+        && label
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && label
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && label
+            .as_bytes()
+            .last()
+            .is_some_and(u8::is_ascii_alphanumeric)
+}
+
 /// Trim and ASCII-lowercase an email address without provider-specific
 /// rewriting.
 pub fn normalize_email(value: &str) -> Result<String, NormalizeError> {
     let trimmed = value.trim();
-    let Some((local, domain)) = trimmed.split_once('@') else {
-        return Err(NormalizeError);
-    };
-    if local.is_empty()
-        || domain.is_empty()
-        || domain.contains('@')
-        || trimmed.chars().any(char::is_whitespace)
-        || trimmed.chars().any(char::is_control)
-    {
-        return Err(NormalizeError);
-    }
-    Ok(trimmed.to_ascii_lowercase())
+    let normalized = trimmed.to_ascii_lowercase();
+    validate_canonical_mailbox(&normalized)?;
+    Ok(normalized)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_email, normalize_mailbox};
+    use super::{normalize_email, normalize_mailbox, validate_canonical_mailbox};
 
     #[test]
     fn a_display_name_mailbox_reduces_to_its_address() {
@@ -126,5 +190,44 @@ mod tests {
     #[test]
     fn plain_normalization_still_refuses_to_guess_at_a_display_name() {
         assert!(normalize_email("Pablo <pablo@example.com>").is_err());
+    }
+
+    #[test]
+    fn canonical_outbound_mailboxes_require_one_bare_lowercase_addr_spec() {
+        for mailbox in [
+            "brain@example.test",
+            "first.last+tag@example.test",
+            "brain@sub.example.test",
+        ] {
+            assert!(
+                validate_canonical_mailbox(mailbox).is_ok(),
+                "canonical mailbox was rejected"
+            );
+        }
+        for mailbox in [
+            "Brain@example.test",
+            " brain@example.test",
+            "brain@example.test ",
+            "Brain <brain@example.test>",
+            "brain@example.test>",
+            "<brain@example.test",
+            ".brain@example.test",
+            "brain.@example.test",
+            "brain..reply@example.test",
+            "brain@@example.test",
+            "brain@.example.test",
+            "brain@example..test",
+            "brain@-example.test",
+            "brain@example-.test",
+            "brain@example.test-",
+            "brain@example_test",
+            "brain@example.test\n",
+            "brain\u{7f}@example.test",
+        ] {
+            assert!(
+                validate_canonical_mailbox(mailbox).is_err(),
+                "noncanonical mailbox was accepted"
+            );
+        }
     }
 }

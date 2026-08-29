@@ -332,9 +332,10 @@ matches the workspace, logical conversation, frontend, actor, channel,
 instance, and registered ID may replace the durable binding. Equality is valid
 for fresh Claude lifecycle evidence and for a resumed Codex or OpenCode run
 whose exact conversation binding already names that native ID. Unproved or
-fresh reused placeholders remain rejected. The lifecycle-reported native ID
-is retained in that registration, and the binding-only update does not rewrite
-the portable transcript. Pre-launch rollback stops the controller,
+fresh reused placeholders remain rejected. The lifecycle-reported native ID is
+retained in that registration. Exact answer completion uses it in the atomic
+binding replacement, transcript append, final-answer insert, cleanup-fence
+insert, answer-ready transition, and claim release. Pre-launch rollback stops the controller,
 uses a fallible exact-registration cleanup, and still records its bounded
 durable retry before surfacing any shutdown or cleanup diagnostic; `Drop` is
 only a best-effort fallback.
@@ -882,10 +883,11 @@ Which session to run is decided by the **lock + recency** model in
    intersection, and the configured receiving address that is excluded from it,
    are reduced to bare addresses first, so a display-name `from`, `to`, or
    `resend_from_email` can neither strip the thread of recipients nor defeat
-   the self-echo guard. Isolated completion and control delivery pass the exact
-   immutable accepted job through `App::reply_to_job`, which derives trusted
-   recipients, logs an empty set instead of dropping silently, and queues the
-   bounded background provider send. Claude, Codex, and OpenCode
+   the self-echo guard. Isolated answer completion derives and freezes trusted
+   recipients in the atomic final-answer outbox transaction; it does not call a
+   provider or a process-local reply worker. Control acknowledgements and
+   dropped-job notices are frozen in the same transaction as the conversation
+   boundary and later use the generic durable provider executor. Claude, Codex, and OpenCode
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.
@@ -1086,38 +1088,66 @@ Which session to run is decided by the **lock + recency** model in
    is still the exact locked completed lifecycle row. A SessionStart rotation
    cannot substitute its new active session; the old artifact and run remain
    retryable instead. Process spawn and screen activity are never acceptance or
-   completion evidence. On a valid terminal completion, Brain sends the
-   channel-specific reply, moves the exact launched or progressed job to `done`, releases
-   that remote session owner, shuts down its controller once, removes only its
-   tab, reloads tasks, and starts an immediate sync push. Direct
-   `launching`-to-`done` remains forbidden. Exact completion may move a
-   `launched` job directly to `done` when intermediate observations were missed.
-   Lifecycle-only completion uses the same exact owner and identity gates, may
-   also finish directly without inventing a response body, and enters the same
-   transaction as artifact completion. That transaction validates stored and
-   incoming timelines, merges every accepted/progress/completed boundary and
-   cursor, requires the exact lifecycle session to remain locked and
-   `completed`, replaces the conversation binding, and marks the job done.
-   A binding persistence failure rolls back the terminal job update. A valid
-   artifact still wins when both terminal forms exist in one tick and delivers
-   its exact body once. When that poll also contains a strict completed
+   completion evidence. On a valid answer completion, one immediate transaction
+   validates stored and incoming timelines, merges every accepted, progressing,
+   and completed boundary and cursor, requires the exact lifecycle session to
+   remain locked and `completed`, appends the portable transcript, freezes the
+   final-answer outbox row, replaces the conversation binding, moves the job to
+   `answer-ready`, releases the agent claim, and records exact cleanup authority.
+   No provider IO runs at this boundary. An exact artifact may move a `launched`
+   job directly to `answer-ready` when intermediate observations were missed;
+   `launching` is never eligible. Lifecycle-only completion may persist newer
+   accepted or progressing facts, but cannot close the run or invent a response
+   body. A binding or cleanup-row persistence failure rolls back the entire
+   answer transaction. A valid artifact still wins when artifact and completed
+   lifecycle evidence arrive in one tick and freezes its exact body once. When
+   that poll also contains a strict completed
    boundary, its producer timestamp is retained as the durable completion time;
    the timestamp is evidence only and may be later than the current lease.
    After claim renewal and exact artifact/lifecycle validation, Brain samples a
    fresh App clock and passes it independently as terminal lease authorization.
    Only an artifact without lifecycle completion evidence uses that same fresh
    post-validation App time as its durable completion fallback.
-   Lifecycle-only completion delivers nothing. Terminal
-   completion, child exit, claim-renewal loss, and orderly shutdown remove only
+   Lifecycle-only completion delivers nothing. After answer commit, Brain shuts
+   down the exact controller, waits for the PTY waiter to confirm that exact
+   child exited, and durably acknowledges that exact-instance handoff before
+   another App may proceed. A failed kill or bounded exit-confirmation timeout
+   leaves the fence closed and retries shutdown. The complete sampled session
+   tuple and locked PID condition both the handoff acknowledgement and unlock
+   inside one immediate startup transaction, so a replacement owner keeps its
+   lock and the fence stays closed. Session release and exact-instance
+   file removal then retry independently, so private artifacts may be gone while
+   session release is still pending. Task reload and the configured sync push
+   wait for both flags. Controller, session, and artifact progress stays in the
+   machine-local cleanup row until every remaining step succeeds. Startup
+   dead-lock reaping may permit a fresh App to retry only by atomically recording
+   the handoff acknowledgement before it unlocks the exact dead session. A
+   remaining lock, including one whose PID equals the new process, denies
+   takeover. Fresh-App cleanup discovery orders eligible rows by
+   `updated_at_unix_ms`, then creation time and job ID. Any incomplete row has
+   its update time advanced behind the current eligible set before the next
+   pass, preserving exact authority while preventing one row-specific failure
+   from starving later cleanup. At `i64::MAX`, the same immediate transaction
+   shifts peer update times down and keeps the failed row last, preserving the
+   creation-time and job-ID tie breakers. Answer cleanup,
+   child exit, claim-renewal loss, and orderly shutdown remove only
    the exact instance's response artifact, observation snapshot, and sibling
    lock. Durable job evidence is retained for every nonterminal route. Poll
    outcomes use a stable content-free diagnostic containing opaque job and
    instance IDs, frontend, prior phase, boundary or `none`, and category. The
    state layer returns similarly content-free reconciliation effects for exact
    cleanup, one persisted recovery, or terminal notice intent. The App executes
-   those controller actions through `AgentController` and leases notice handoff
-   through its narrow delivery service; BR-17 owns answer persistence,
-   provider acknowledgement, and delivery-only retry.
+   controller actions through `AgentController`; terminal notices become semantic
+   outbox rows after exact cleanup authority is released. Schema v12 and the App now own atomic
+   answer persistence plus independent outbox claiming, typed provider
+   acknowledgement, delivery-only retry, and expired-lease reconciliation. A
+   missing provider worker is represented by a single reserved claim that
+   publishes a typed definitely-not-accepted transport result on its next
+   bounded poll. This no-IO path never sets `provider_io_started`; its separate
+   exact result CAS consumes the normal retry budget and cannot form an immediate
+   claim-release loop. A provider acknowledgement whose durable result commit is
+   lost retains the IO marker, so lease expiry and reopen use Resend replay or
+   Twilio ambiguity without returning to agent work.
 5. When the panel closes (the agent exits) or the shell quits, brain `release`s
    its lock, floating that session to the top of the resume queue — so
    "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
@@ -1296,14 +1326,51 @@ opens with the shared state-store timeout and pragmas, reserves an immediate
 writer before inspecting version or columns, removes only those two columns,
 restores schema version 10 in that transaction, and then permits the existing
 recovery downgrade chain to continue.
+The automatic 0.85.0 boundary advances receiver state to schema v12 by adding
+the `receiver_deliveries` outbox. It freezes the acceptance-time outbound sender,
+destinations, rendered bodies, email lineage, and content-free provider-attempt
+metadata. Credentials remain in the machine-local provider adapter.
+Same-version repair rebuilds the earlier v12 check contract before a claim can
+enter `delivering`, preserves every row, and terminalizes malformed or
+pre-frozen-sender semantic responses together with their matching job.
+When a malformed delivery identity collides with the first stable UUIDv5 repair
+identity, repair probes a bounded sequence of eight deterministic UUIDv5
+identities inside the same immediate transaction. Exhausting that sequence
+deletes the corrupt delivery authority and lets the existing missing-semantic
+policy terminalize its job, so startup still opens without inventing a random
+identity or blocking later FIFO work.
+Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
+without modifying `inbound_json`, preserving same-version reader compatibility.
+Authenticated ingress fills it with the canonical receiving identity actually
+proved by signature and destination confirmation before acknowledgement;
+completion uses only that value. Defensive rendering, serialized-envelope
+decoding, and repair require an email sender already equal to its normalized
+bare lowercase mailbox, so legacy NULL, display-name, case-variant, or malformed
+rows terminalize without rereading environment.
+Reconciliation terminalizes interrupted or malformed delivery leases without
+replay. Its down
+path reserves an immediate writer before schema inspection, verifies the v11
+conversation, job, recovery, notice, and registration shape, preserves done for
+an acknowledged fallback whose same-job terminal source records
+`fallback-planned`, maps other acknowledged rows with nonblank provider
+references to done, and maps every other row to a non-replayable failed job.
+Repair adds optional columns before
+managed indexes, rebuilds stale index signatures, fails closed on duplicate
+semantic responses, converts blank acknowledgements to explicit ambiguity,
+retains conversation transcripts, and drops the outbox last on downgrade.
+After draining private cleanup authority, the downgrade also removes the v12
+`receiver_jobs.response_sender` column and both v12-only tables while retaining
+the exact schema-v11 job rows and column order. It records `user_version = 11`
+only after every removal succeeds in the same transaction.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
 change Claude, Codex, or OpenCode integration state manually. Its root
 precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as the manual installer's
-single-workspace fallback. The session-stop bridge is
-required for receiver jobs: it records the completed assistant response so the
-TUI can deliver it over SMS or email without exposing the full thinking trace.
+single-workspace fallback. The session-stop bridge is required for receiver
+jobs: it records the completed assistant response so the TUI can commit a
+durable answer without exposing the full thinking trace. Provider delivery
+consumes that committed outbox later.
 
 Receiver setup stores provider credentials in the selected workspace's record
 in the machine-local brain env store, and the public base URL in that store's
@@ -1373,10 +1440,11 @@ One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
 claims, active controllers, and cleanup-pending authority. The one
 `App::tick_receiver` call is the sole
-production consumer. While enabled, it reconciles one oldest blocker and
-executes exact cleanup, attempts one finite terminal-notice handoff, applies
-restart controls, advances any held local run, then claims a due recovery before
-ordinary FIFO work. Disabled intent skips those new effects but the tick still
+production consumer. While enabled, it reconciles delivery state and one oldest
+agent blocker before controls, advances any exact cleanup or held run, claims a
+due recovery before ordinary FIFO work, then reconciles delivery state again.
+The second pass never polls or claims provider work, so it cannot duplicate an
+exact delivery claim. Disabled intent skips those new effects but the tick still
 renews an existing pending claim and manages active completion or cleanup. A
 pending ordinary or recovery claim cannot spawn while disabled; a claimed
 `/new` may still finish its non-spawning durable control boundary. When ready
@@ -1393,20 +1461,91 @@ controller before insertion, without moving the user.
 
 The active tick renews only its exact claim. A second arrival stays durable and
 unclaimed until the active run closes, then the next tick applies the same FIFO
-order. Completion requires the exact artifact and exact locked remote session.
+order. Completion requires the exact owner-only, regular, 256 KiB-bounded
+artifact and exact locked remote session. The descriptor-bound reader rejects
+symlinks, permissive or non-regular files, truncation or growth, malformed JSON,
+blank or oversized answers, any identity mismatch, and in-place rewrites whose
+length is unchanged but whose modification or change timestamps differ across
+the read.
 After validating both, the coordinator reads the injected clock again
 immediately before the terminal transaction. Thus validation cannot authorize
 completion after the exact lease expires or changes owners;
-the immediate binding/terminal transaction rechecks that the artifact's
-validated session is still that locked row and still `completed`. A concurrent
+the immediate answer transaction rechecks that the artifact's validated session
+is still that locked row and still `completed`. It atomically appends the
+portable transcript, inserts the immutable final-answer outbox row, replaces
+the binding, moves the job to `answer-ready`, and clears the agent claim. No
+provider adapter or local delivery queue runs before commit. The outbox
+envelope freezes the canonical outbound SMS number or email sender already
+proved and persisted at authenticated acceptance. Later config changes cannot
+retarget a retry, while the provider
+account, token, and API-key credentials remain live machine-local inputs. A concurrent
 lifecycle rotation leaves the old completion retryable instead of binding the
-new active session. Neither process spawn nor screen activity is completion
-evidence. Terminal cleanup releases that session owner, shuts down the
-controller once, closes only the matching receiver tab, preserves the immutable
-provider reply context, reloads tasks, and starts the sync push without changing
-the active view or focus. Pre-spawn store ambiguity is not ownership loss.
-Brain retains an explicit cleanup capability until controller shutdown and
-exact registration release complete, then restores the same recovery claim.
+new active session. The final-answer row also retains immutable private
+completion evidence for exact duplicate validation, including the registered,
+actual, and completed sessions plus the original answer, envelope, and rendered
+turn. Replay never depends on the conversation's later transcript tail or
+binding. Lifecycle completion alone may advance nonterminal facts,
+but it cannot close the run. Neither process spawn nor screen activity is
+completion evidence. Post-commit cleanup first shuts down the controller,
+waits for confirmed exit of its exact child, closes only the matching receiver
+tab, and durably opens the exact-instance fence. Session release and
+exact-instance file removal then progress
+independently without changing the active view or focus. A cleanup-only local
+runtime registry retains at most eight exact controllers independently of the
+one active receiver run. Each cleanup pass retries the oldest controller once and
+rotates a failed attempt to the back, so later FIFO jobs can launch and finish
+while multiple shutdowns remain pending. At capacity, the next completed
+controller stays in its exact background tab and retains its private artifacts.
+The machine-local
+`receiver_answer_cleanups` row retains the exact registration and artifact
+identity plus independent success flags; task reload and any configured sync
+launch wait until both flags succeed. Startup
+and later ticks can therefore retry cleanup without reclaiming agent work or
+blocking the next job. Cleanup or sync failure cannot undo the answer or
+relaunch agent work; a crash after sync launch but before row deletion may
+repeat the same push. Multiple per-job cleanup rows may coexist for one Brain
+instance, so an earlier artifact retry cannot prevent a later answer commit or
+re-block FIFO. Pre-spawn store ambiguity is not ownership loss.
+On Unix, each artifact removal walks every ancestor through no-follow directory
+descriptors, opens the exact regular leaf, and atomically renames that leaf into
+a private quarantine below the held parent. Its name combines a UUIDv5 tag of
+the raw leaf bytes with a fresh UUIDv4 nonce, so restart can rediscover the
+artifact without persisting or exposing the raw leaf. Brain verifies the
+directory type and owner without following links, opens it no-follow, verifies
+the moved entry against the original descriptor, and sets owner-private mode
+`0700`. A restrictive umask can reduce the initial directory to mode `000`; in
+that case Brain uses flags-zero `fchmodat` relative to the held parent, opens
+the directory no-follow, and revalidates device, inode, type, and owner. This
+portable recovery does not require path-based no-follow chmod. Before ordinary
+removal, a retry duplicates the held
+parent descriptor and completely scans that descriptor for matching
+quarantines. It recovers at most eight sorted matches, opens each directory
+no-follow, compares that descriptor with the parent-relative identity and
+owner, and applies later mode correction through the verified descriptor. An
+additional `pending` or `active` suffix makes the random name a durable phase
+record. Brain atomically promotes the held directory through the parent
+descriptor after the artifact move and before any artifact unlink, validating
+the held inode on both sides. Recovery promotes pending artifacts before
+unlink. A pending empty directory can be removed and retried; an active or
+legacy empty directory plus original-name reappearance fails closed.
+A malformed match, a ninth match, or any match remaining after the recovery
+rescan fails closed. A final no-follow inode check immediately before unlink
+rejects an observable replacement of the quarantine entry.
+A replacement at the original leaf is never unlinked. Any observed identity
+mismatch, original-name reappearance before the final success fence (including
+after `renameat` reports `ENOENT`), or ambiguous recovery leaves the quarantine
+intact, installs a mode-`000` per-leaf retry blocker, and preserves cleanup
+authority. An `ENOENT` is idempotent only after a descriptor-relative check
+proves that the exact name involved is absent. After artifact unlink, direct
+cleanup and recovery make a final
+descriptor-relative no-follow observation that the original leaf remains
+absent. That observation is the success linearization point. Reappearance or a
+lookup error before it leaves the active empty quarantine intact, installs the
+blocker, and retains database authority. Within the documented
+no-malicious-same-UID boundary, Brain does not claim immunity to a new leaf
+created after that final observation or after successful return. Runtime
+retries keep their cleanup row, and downgrade aborts with schema v12 intact,
+until exact cleanup succeeds.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
 later fallible step. The local spawned capability owns the controller plus
 exact job, token, claim owner, instance, registered/native session, scope,
@@ -1496,30 +1635,31 @@ sender, recipient, prior answer, and `/new` parsing never enter this planner.
 Recovery observation and completion use the ordinary exact lifecycle and
 response transactions with the preserved job identity. A child exit without
 completion becomes the typed recovery Shutdown terminal transition.
-The recovery and unavailable-notice database operations remain App-facing
-methods, but their implementations are isolated in
-`tui/state/services/receiver_recovery.rs` and `receiver_notice.rs`; generic
-session, sync, attachment, and shell services stay outside those modules.
+Recovery operations remain isolated in
+`tui/state/services/receiver_recovery.rs`; generic session, sync, attachment,
+and shell services stay outside that module. The removed schema-v11 notice
+lease columns are migration-only compatibility state.
 
-Terminal notice handoff uses the schema-v11 owner/expiry fields, not the job's
-claim or cleanup fence. One claimant receives only the immutable accepted
-routing frame in memory. SMS queues to the authenticated sender; Email queues
-to the acceptance-time trusted recipients and reply context. Exact job, token,
-terminal state, and writer-owner acknowledgement clears the intent only after
-the bounded local delivery worker accepts it. Queue failure leaves the finite
-lease and intent for retry while later FIFO work remains eligible. This does
-not prove provider delivery. The crash window between local queue acceptance
-and the acknowledgement CAS, provider acknowledgement, and general delivery
-retry remain BR-17 work.
+Terminal notices, `/new` and `/restart` acknowledgements, and dropped-job
+notices use the schema-v12 outbox. Their source-job transition and immutable
+provider envelope commit in one immediate transaction. A legacy BR-16 pending
+notice remains behind its exact cleanup fence; same-version repair or the next
+enabled delivery reconciliation converts it to one `unavailable-notice` row
+after that fence clears. A deterministic render or authorization failure records
+the content-free no-destination outcome; any SQLite or storage failure rolls
+back the transaction with the pending bit intact for exact retry. Every semantic
+response kind then uses the same
+delivery claim, provider executor, result policy, retry, and ambiguity rules.
 Retry failure paths finish controller, tab, registration, artifact,
 and staged-file cleanup before taking the fresh clock observation used by the
 exact-owner CAS. Progressed stale states are never rerun as ordinary work; the
 enabled tick executes the schema-v10 recovery policy first.
-BR-15 owns exact accepted/progress observations, and BR-17 owns
-atomic answer persistence plus delivery-only retry. BR-18 retains final
-schema/migration reconciliation, durable status and diagnostics, and deletion
-of the legacy endpoint representation; receiver injection, warm-panel reuse,
-activity inference, and the second execution cursor are already absent.
+BR-15 owns exact accepted/progress observations, and BR-17 now owns atomic
+answer persistence, generic delivery-only retry, durable semantic notices and
+controls, frozen-authority fallback, schema reconciliation, and content-free
+delivery status and diagnostics. BR-18 retains deletion of the legacy endpoint
+representation; receiver injection, warm-panel reuse, activity inference, and
+the second execution cursor are already absent.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.
@@ -1568,9 +1708,26 @@ rejection or malformed provider JSON returns 502.
 Provider
 credentials, message bodies, and signed media URLs are passed to `curl` through
 standard input rather than process arguments. Provider output is captured so it
-cannot corrupt the TUI. Outbound Twilio/Resend calls are serialized through a
-bounded background delivery worker, preserving reply order without blocking
-keyboard input or shell shutdown.
+cannot corrupt the TUI. Every receiver-owned response is frozen in the durable
+outbox. An enabled App tick claims one with a finite delivery-only
+lease and fresh attempt ID. It reserves bounded executor capacity before the
+exact IO-start CAS, then parses bounded Resend or Twilio success JSON into a
+redacted provider reference. Resend retries use the frozen envelope and stable
+delivery-ID idempotency key. Resend HTTP 5xx and
+`concurrent_idempotent_requests` use that safe replay path, while a changed
+idempotency payload is rejected terminally. Twilio HTTP 5xx and other
+post-request uncertainty are terminal because retrying can duplicate an SMS.
+Curl exits 5, 6, and 7 are retry-safe for either provider because resolution or
+TCP connection failed before a request could be accepted; other nonzero exits
+remain ambiguous unless a narrower provider response proves otherwise.
+Executor publication is nonblocking; a disconnected start handoff proves the
+operation was never sent and rolls back only the exact attempt increment.
+Every terminal provider result stores a content-free fallback decision. The
+planner receives only the failed provider, attempted recipients, and alternates
+frozen in the delivery row. When it selects one, the source CAS and unique short
+fallback-notice insert share the same immediate transaction. No result path
+consults later user or configuration state, and a fallback-notice result cannot
+plan another fallback.
 
 Orderly TUI shutdown handles the receiver before generic controllers. A claimed
 staging run is cancelled, reaped, and joined before the clock for its exact
@@ -1579,8 +1736,16 @@ its local receiver tab and exact instance files, drops the owning staged
 directory, and preserves its registration and durable state without recording
 a Spawn retry. Lost ownership permits the same local removals only. The stage
 is idempotent. After an unclean exit, expired `launching`, `launched`,
-`accepted`, and `processing` rows remain unchanged and stop FIFO for BR-16;
-answer-ready and delivery recovery remain BR-17 work.
+`accepted`, and `processing` rows remain unchanged until recovery proves the
+next action. Answer-ready rows backed by a semantic outbox row no longer
+participate in agent reconciliation or block the next ordinary claim; only
+delivery recovery owns them. Same-version schema repair terminalizes incomplete
+legacy answer-ready or delivering rows before ordinary runtime dispatch.
+Expired claims with durable pre-spawn proof safely requeue. Expired Resend IO
+claims may replay inside the provider's 24-hour idempotency window, while
+expired Twilio IO claims become terminally ambiguous. Stale worker results lose
+the exact workspace/job/token/delivery/attempt/owner/live-lease CAS and are
+ignored.
 
 An inbound message whose entire body is `/new` or `/restart` (case- and
 whitespace-insensitive) is a control command, read in
@@ -1592,9 +1757,9 @@ arrivals, and rolls only the command's exact logical conversation. `/new` waits
 its FIFO turn, then atomically retires its exact conversation, moves later
 unclaimed work onto a fresh empty conversation, and finishes without launching
 an agent. Neither command enters a PTY or the main panel.
-Both acknowledge their own sender through `reply_to_job`,
-which addresses the job's own recipients rather than whatever reply state is
-live. A dropped job is not the message currently in flight.
+Both freeze one control acknowledgement from the command's acceptance-time
+routing authority in the same transaction as the boundary. Each dropped job
+likewise freezes its own unavailable notice; no live reply state is consulted.
 The idle claim transaction repeats the exact restart check while holding its
 SQLite immediate writer reservation. A restart committed before that boundary
 blocks the ordinary claim; a restart committed afterward cannot retroactively
@@ -2071,11 +2236,18 @@ brain-root lookup.
   the backup.
   Shared-server control, TUI lease recovery, public opaque-ingress routing,
   authenticated actor resolution, durable job admission, TUI durable dispatch,
-  and response delivery are now active. Receiver completion proves and stores
-  its exact lifecycle-native binding in the same immediate transaction that
-  proves the artifact-validated session remains locked and completed and moves
-  the live launch to `done`; rollback retains the active run and artifact for a
-  later tick, and cleanup begins only after that transaction commits.
+  and response delivery are now active. Receiver answer completion proves and
+  stores its exact lifecycle-native binding in the same immediate transaction
+  that proves the artifact-validated session remains locked and completed,
+  appends the transcript, inserts the final-answer outbox and cleanup rows,
+  moves the live launch to `answer-ready`, and releases agent ownership.
+  Accepted malformed recipient or provider email lineage instead commits the
+  same durable boundary as a terminal `invalid-request` outcome, so restart
+  replay cannot rerun completed agent work. Provider serialization and SQLite
+  failures remain rollback errors.
+  Rollback retains the active run and artifact for a later tick; cleanup begins
+  only after that transaction commits and provider delivery remains a later
+  outbox operation.
 - **rclone is a soft prerequisite, not a startup gate.** Unlike
   `markdown-to-pdf`, a missing `rclone` never blocks `brain` from starting —
   `brain sync` itself just fails when it tries to spawn `rclone` and can't.

@@ -736,7 +736,9 @@ UUID, `ActorContext`, channel, normalized authenticated sender, prompt,
 attachment references, receipt time, provider delivery ID, authenticated
 thread participants, the actor's acceptance-time normalized response email,
 and the acceptance-time allowed response recipients. Authenticated ingress
-stores that complete frame in the matching workspace DB before provider
+stores that frame plus the canonical receiving number or email address that
+signature verification and destination confirmation proved in the job's
+nullable `response_sender` column before provider
 success. A provider retry with the same workspace/channel/provider identity
 returns the original durable job rather than replacing its accepted frame.
 Follow-ups retain the
@@ -1021,7 +1023,7 @@ bypass it.
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-The state schema has five tables:
+The state schema has seven tables:
 
 ```sql
 brain_sessions(
@@ -1099,6 +1101,49 @@ receiver_jobs(
   UNIQUE(workspace_id, channel, provider_id)
 )
 
+receiver_deliveries(
+  delivery_id                 TEXT PRIMARY KEY,
+  job_id                      TEXT NOT NULL REFERENCES receiver_jobs,
+  job_token                   TEXT NOT NULL,
+  response_kind               TEXT NOT NULL,
+  envelope_json               TEXT NOT NULL,
+  completion_evidence_json    TEXT,
+  frozen_fallbacks_json       TEXT NOT NULL,
+  state                       TEXT NOT NULL,
+  attempt_id                  TEXT,
+  attempt_count               INTEGER NOT NULL,
+  retry_at_unix_ms            INTEGER,
+  claim_owner                 TEXT,
+  claim_expires_at_unix_ms    INTEGER,
+  provider_io_started         INTEGER NOT NULL, -- 0 | 1
+  first_attempt_at_unix_ms    INTEGER,
+  provider_reference          TEXT,
+  error_category              TEXT,
+  ambiguity_reason            TEXT,
+  fallback_decision           TEXT,
+  created_at_unix_ms          INTEGER NOT NULL,
+  updated_at_unix_ms          INTEGER NOT NULL,
+  UNIQUE(job_id, response_kind)
+)
+
+receiver_answer_cleanups(
+  job_id                  TEXT PRIMARY KEY REFERENCES receiver_jobs,
+  job_token               TEXT NOT NULL,
+  workspace_id            TEXT NOT NULL,
+  conversation_id         TEXT NOT NULL,
+  brain_instance_id       TEXT NOT NULL,
+  agent_kind              TEXT NOT NULL,
+  actor_id                TEXT NOT NULL,
+  channel                 TEXT NOT NULL,
+  registered_session_id   TEXT NOT NULL,
+  actual_session_id       TEXT NOT NULL,
+  controller_shutdown_acknowledged INTEGER NOT NULL,  -- 0 | 1
+  session_released        INTEGER NOT NULL,  -- 0 | 1
+  artifacts_removed       INTEGER NOT NULL,  -- 0 | 1
+  created_at_unix_ms      INTEGER NOT NULL,
+  updated_at_unix_ms      INTEGER NOT NULL
+)
+
 receiver_session_registrations(
   workspace_id           TEXT NOT NULL,
   conversation_id        TEXT NOT NULL REFERENCES receiver_conversations,
@@ -1111,6 +1156,163 @@ receiver_session_registrations(
   PRIMARY KEY(workspace_id, brain_instance_id)
 )
 ```
+
+**Durable response delivery.** Schema v12 adds `receiver_deliveries` as a
+dedicated content-bearing outbox. One job may have one row for each semantic
+response kind, which keeps a final answer distinct from a later safe fallback
+or notice. `envelope_json` freezes the acceptance-time outbound sender and
+authorized SMS destination and shaped body, or the outbound sender, email
+recipient set, subject, text, HTML, provider lineage, `In-Reply-To`, and
+`References`. `frozen_fallbacks_json` contains only acceptance-time
+authenticated alternate destinations. `fallback_decision` is NULL while a row
+is active and becomes the content-free `fallback-planned` or
+`no-safe-fallback` fact on every failed or ambiguous terminal row. The sender is non-secret routing identity; account identifiers,
+API keys, and authentication tokens remain live machine-local configuration
+and are never stored. Stable
+final-answer completion also freezes a private `completion_evidence_json`
+record containing the exact job and token, conversation and remote instance,
+frontend, actor and channel, registered, actual, and completed sessions,
+original inbound prompt and answer, envelope, rendered transcript turn, and
+lifecycle cursor. Same-version repair leaves this nullable for delivery rows
+written before the field existed; an exact replay of such a row fails closed.
+Later conversation turns and binding changes therefore cannot redefine an
+earlier completion. Stable delivery and attempt IDs, finite claim columns,
+attempt count, retry deadline,
+nonblank provider reference, error category, and ambiguity reason remain
+content-free. Rendering rejects the entire email response when any frozen
+accepted recipient is invalid, so normalization can never silently narrow the
+authorized set. Loading a serialized envelope validates its channel shape,
+normalized destination set, SMS limit, and static email lineage invariants
+without copying attacker-controlled content into the error.
+The public status and every Debug implementation redact envelope, recipient,
+sender, provider reference, and answer content. Status groups terminal rows into
+stable content-free reason categories and remains read-only when the database or
+newer delivery columns do not exist.
+
+Same-version reconciliation compares the normalized full canonical CREATE TABLE
+contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected
+clauses. Any drift in state, lease, provider-IO, foreign-key, uniqueness, or
+other table invariants rebuilds the complete table transactionally. Before any
+claim or reconciliation row is decoded into unsigned or typed fields, a raw
+SQLite-value pass validates delivery and attempt identities, response kind,
+state, counts, retry and lease times, provider-IO state, and terminal reasons.
+An exact malformed row is terminalized as `invalid-request`, clears every claim
+and retry authority, and receives a deterministic replacement delivery ID when
+needed. An orphan whose job, token, or response kind cannot be recovered is
+removed. Both outcomes let later valid FIFO work advance. Read-only status does
+not invoke this repair.
+
+`final-answer`, `unavailable-notice`, `control-acknowledgement`, and
+`fallback-notice` use the same state machine. `/new` persists its acknowledgement
+in the exact conversation-roll transaction. `/restart` persists its
+acknowledgement and one unavailable notice for every dropped job in the exact
+queue-cut transaction. Same-version repair and normal delivery reconciliation
+convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
+before clearing the bit. A deterministic render or authorization failure clears
+the bit with `notice-no-authorized-destination`; a SQLite or storage failure
+rolls back the whole conversion and leaves the source pending for exact retry.
+Downgrade maps unfinished semantic deliveries to the
+deterministic `downgrade-no-replay` terminal rather than restoring a
+process-local acknowledgement lease. Missing rows and missing tables receive
+the same non-replayable mapping for every semantic response kind. Same-version
+repair adds fallback columns, supplies `[]` authority to older rows, records
+`no-safe-fallback` for older terminal rows, preserves valid generic rows, and
+terminalizes malformed active rows before later due work is claimed. A valid
+acknowledged fallback and its same-job terminal source with
+`fallback_decision = 'fallback-planned'` form the durable success relation that
+keeps the job done through repeated repair and v12 downgrade.
+
+The response sender is canonicalized and captured when authenticated ingress
+accepts the job, not when the agent finishes. Human-formatted SMS numbers and
+trimmed, case-normalized email addresses therefore become the same immutable
+identity that authenticated destination confirmation proved. Completion never
+rereads mutable environment configuration. Same-version repair adds the
+nullable column without extending the deny-unknown inbound JSON frame, so the
+prior schema-v12 release can still read new jobs. A legacy NULL, noncanonical,
+or malformed sender becomes a terminal `invalid-request` outcome. Defensive
+email rendering, envelope decoding, and repair require the persisted value to
+equal the canonical bare lowercase mailbox returned by normalization; they do
+not silently accept a display name or case variant. An email answer with no
+trusted accepted recipient atomically advances
+the transcript and cleanup authority but records a failed `authorization`
+outcome that cannot be claimed for provider delivery.
+An accepted job whose frozen SMS recipient, email recipient, provider email ID,
+or optional message ID is malformed receives the same atomic transcript and
+cleanup commit with a terminal `invalid-request` delivery and failed job. This
+includes Resend lineage with `message_id: Some("")`. Duplicate completion after
+restart matches the immutable completion proof and returns the existing outcome,
+so completed agent work is never run again. Serialization and SQLite failures
+remain transactional errors and do not become input failures.
+
+The pure delivery policy permits one initial provider attempt followed by
+delays of one, five, and 30 minutes only for transport failures proved not
+accepted. Authorization, credentials, invalid request, provider rejection, and
+other permanent categories remain terminal even if an adapter misclassifies
+them as definitely not accepted. A retry is due at exact deadline equality,
+and deadline arithmetic saturates. Resend may
+repeat the byte-identical envelope and delivery ID after an ambiguous result
+only when the scheduled retry itself remains inside the exact 24-hour
+idempotency boundary. Resend HTTP 5xx and
+`concurrent_idempotent_requests` are ambiguous results that use that safe replay
+policy; `invalid_idempotent_request` and other 409 conflicts are terminal
+provider rejection. Twilio HTTP 5xx is terminal ambiguity because create has no
+equivalent key and retrying an accepted request could duplicate the SMS.
+Curl exits 5, 6, and 7 are safe pre-provider transport failures for both
+providers because proxy resolution, host resolution, or TCP connection failed.
+Neighboring generic exits and timeouts remain conservative.
+Atomic App answer persistence now writes this outbox before
+provider IO. A separate oldest-due claim advances the frozen row through
+provider IO and an exact provider-result commit without restoring agent
+ownership. Worker-construction unavailability publishes one
+definitely-not-accepted transport result for the retained claim, consuming the
+ordinary bounded retry budget rather than releasing the same row for immediate
+reclaim.
+
+**Post-answer cleanup authority.** The same answer transaction inserts one
+machine-local `receiver_answer_cleanups` row with the exact job, token,
+conversation, instance, frontend, actor/channel, and registered plus actual
+session identity. It contains no message, recipient, provider payload, or
+credential. A durable controller-shutdown acknowledgement fences the row until
+the originating exact Brain instance has confirmed that its exact child exited.
+A different App may take over only after authoritative startup dead-lock
+reaping atomically persists that acknowledgement before unlocking the exact
+dead session. Both writes are conditional on the sampled frontend, session,
+instance, workspace, actor, channel, and locked PID in one immediate
+transaction. A replacement owner therefore keeps its lock and the cleanup
+fence. PID equality, inequality, or reuse is not takeover proof, and a
+remaining exact lock keeps cleanup waiting. Independent flags acknowledge exact session release and private
+artifact removal. Artifact removal may succeed while session release is still
+pending; neither flag authorizes the other. The row is not an agent claim and
+does not participate in FIFO blocking. Its job primary key permits multiple
+pending rows for one Brain instance, so a later answer can commit and launch
+while earlier cleanup retries. Eligible cleanup rows are ordered by
+`updated_at_unix_ms`, then `created_at_unix_ms` and job ID. When a pass cannot
+finish a row, Brain advances that row's update time past the current eligible
+set, preserving its exact flags and authority while making a later row next. If
+the workspace ordering clock is already saturated at `i64::MAX`, one immediate
+transaction shifts peer timestamps down before leaving the failed row at the
+maximum. Stable creation-time and job-ID tie breakers remain unchanged, so
+timestamp saturation cannot starve a peer.
+Brain deletes each row only after both flags,
+task reload, and any configured sync launch succeed, so recurring ticks can
+finish cleanup without re-entering agent work. The schema-v12 down path first
+requires the durable handoff proof, removes the three exact private artifacts,
+and discharges the exact registration and session lock. A file failure retains
+schema v12 and its cleanup authority for an idempotent retry; only a successful
+drain removes the machine-local cleanup table and outbox. The same transaction
+then removes `receiver_jobs.response_sender`, restoring the exact schema-v11
+jobs table and retained job data before it records schema version 11.
+Same-version repair reconstructs the shutdown acknowledgement only for a
+pre-fence row whose `session_released` flag already proves its session authority
+was discharged. It does not invent acknowledgement for an untouched row.
+
+Runtime and downgrade artifact removal are descriptor-bound. Brain opens the
+raw authorized absolute cache-parent path from the filesystem root, then opens
+the cache root, every relative ancestor, and the target without following
+symlinks; verifies the held target is the same regular file named by the parent
+descriptor; and unlinks through that descriptor. A symlinked ancestor or
+replaced target deletes nothing outside the cache. Runtime retains cleanup
+authority for retry, while downgrade fails and retains schema v12.
 
 `actual_session_id` records the lifecycle-native session authorized for that
 exact registration. Accepted-work reconciliation writes it together with the
@@ -1271,7 +1473,11 @@ the tuple and recurring reconciliation returns the same terminal cleanup
 identifiers after restart. That read-only redrive does not create another notice
 intent and the terminal row does not block later FIFO work. The separate
 recovery-claim seam accepts only that cleanup-acknowledged due row when it is
-also the workspace's globally oldest claimable or blocking row. It establishes
+also the workspace's globally oldest claimable or blocking row. An
+`answer-ready` or `delivering` job with an exact matching semantic outbox
+row belongs to the independent delivery lane and is excluded from this agent
+FIFO blocker scan; an incomplete row without that exact proof still blocks and
+reconciles closed. The claim establishes
 the launch deadline and never rediscovers accepted work or increments recovery
 count. An unclaimed recovery remains a reconciliation candidate and becomes
 `failed` at exact recovery or absolute expiry. Exhaustion, missing resume
@@ -1280,17 +1486,27 @@ registration, spawn, or shutdown failure also become `failed` with a
 content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
 do not block FIFO. The existing launch-retry mutation accepts only ordinary
 attempts.
-The cleanup fence and terminal notice have independent authority. A pending
-notice can be claimed by one non-blank writer only while its dedicated expiry
-is in the future. Claim returns the immutable accepted inbound frame in memory;
-it persists no notice body, derived recipient list, provider payload, or
-credential. Exact acknowledgement requires the same job, token, terminal state,
-and live notice owner, then clears the intent and both lease columns together.
-A failed local queue operation leaves the intent pending and the finite lease
-expires for another claimant. Terminal rows and notice leases never participate
-in ordinary FIFO blocking or the workspace live-job-claim predicate.
-Answer-ready and delivery phases retain
-their existing phase-specific replacement behavior for BR-17.
+The cleanup fence and terminal notice have independent authority. The legacy
+pending bit is migration input only; repair freezes the notice body and accepted
+routing authority into a semantic delivery row. Exact delivery ownership then
+uses the delivery ID, job, token, attempt, owner, and finite expiry. Terminal
+rows and response-delivery leases never participate in ordinary agent FIFO
+blocking or the workspace live-job-claim predicate.
+The schema-v12 outbox and pure delivery policy define answer-ready and delivery
+recovery. Exact artifact completion now inserts the immutable final-answer row
+and moves its job to `answer-ready` before any provider IO. Later delivery work
+owns only the outbox state machine and cannot re-enter agent execution.
+Each semantic delivery claim has its own owner, finite expiry, and fresh attempt ID.
+`provider_io_started` is the durable replay boundary: zero can be safely
+released or requeued without consuming an attempt, except that a typed local
+worker-construction failure consumes the bounded retry attempt through a
+separate no-IO CAS while keeping the marker zero. A marker of one requires
+provider-specific ambiguity policy after restart. Typed results commit only
+through the exact live delivery tuple. If provider acknowledgement is received
+but its result commit fails, the marker remains one so expiry and reopen select
+safe Resend replay or conservative Twilio ambiguity. Acknowledgement stores only
+the provider reference, while retries retain the immutable envelope and
+completion evidence.
 Pre-spawn planning, registration, and synchronous spawn failures
 release the lease and record only a stable content-free reason. Two retries are
 scheduled; the third failed launch leaves the durable job terminally `failed`.
@@ -1301,10 +1517,15 @@ against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
 The TUI keeps at most one durable receiver run locally. Its local state
-distinguishes ordinary claimed, recovery claimed, active, and cleanup pending.
-Cleanup pending remembers whether controller shutdown and artifact removal
-already succeeded, so retries do not re-enter active renewal or repeat completed
-steps. Disabling receiver intent prevents a new claim while idle and prevents
+distinguishes ordinary claimed, recovery claimed, active, answer cleanup, and
+recovery cleanup. Recovery cleanup remembers whether controller shutdown and
+artifact removal already succeeded, so retries do not re-enter active renewal
+or repeat completed steps. Answer cleanup uses its separate state row after the
+answer transaction releases agent ownership. A separate bounded FIFO holds up
+to eight exact controllers awaiting confirmed shutdown, independent of the one
+durable receiver run. One cleanup controller is retried per cleanup pass and a failure
+rotates to the back; a ninth completed run stays in its exact tab until capacity
+opens. Disabling receiver intent prevents a new claim while idle and prevents
 every pending ordinary or recovery claim from starting a process. It still
 renews pending claims and manages active completion, child exit, or cleanup,
 including across a later re-enable. Later arrivals remain `queued` and
@@ -1324,18 +1545,24 @@ The generic single-observation value uses
 and progressing. It cannot represent completion; terminal evidence requires the
 registration-aware batch transaction below.
 
-A valid completion can move `launched`, `accepted`, or `processing` directly to
-`done` without fabricating missing accepted or progressing timestamps. Artifact
-and lifecycle-only completion use one immediate transaction. It validates the
-stored and incoming current-attempt timelines, preserves the first lifetime
-accepted/progress facts, merges every normalized boundary plus the
-revision/session cursor, requires the exact lifecycle-native session to remain
-locked and `completed`, persists that binding, and only then marks the job done
-and clears its claim. Artifact body delivery precedence does not discard
-lifecycle evidence observed in the same poll. Both paths therefore make
-`done`, evidence, cursor, claim clearing, and conversation continuity one atomic
-fact; any binding or evidence write failure preserves the prior job,
-claim, registration, and binding for another tick. The
+A valid exact artifact can move `launched`, `accepted`, or `processing` directly
+to `answer-ready` without fabricating missing accepted or progressing
+timestamps. One immediate transaction validates the exact workspace, job,
+token, owner, live claim, conversation, instance, registered and actual native
+session, frontend, actor/channel scope, and stored plus incoming lifecycle
+timelines. It preserves lifetime facts, merges the current-attempt cursor,
+appends one Markdown-fenced authenticated user and assistant turn, freezes one
+unique final-answer envelope, replaces the binding, clears the agent claim, and
+marks the job answer-ready. Lifecycle evidence without an artifact may advance
+only accepted or progressing state and cannot complete the job. An identical
+answer duplicate proves the delivery row and its immutable completion evidence
+before returning its existing delivery ID. The proof includes the original
+registered, actual, and completed sessions, answer, envelope, transcript turn,
+and lifecycle cursor, independently of the conversation's current transcript
+tail or binding. A differing answer or any immutable identity conflict fails
+closed. Any statement failure
+preserves the prior transcript, job, claim, registration, binding, and outbox
+for another tick. The
 coordinator samples a fresh clock after artifact and lifecycle validation and
 passes it independently into the terminal transaction as authorization, so
 validation cannot outlive the owner's lease. A validated completed producer
@@ -1353,7 +1580,8 @@ registration, tab, and completion artifact available for another tick. The
 transaction accepts only the exact artifact-validated session while that same
 row remains locked and `completed`; a newly active session for the remote
 instance cannot replace it. Losing exact ownership forbids every durable
-lifecycle, reply, session, and job mutation. An expired `launched`, `accepted`,
+lifecycle, answer, session, and job mutation. Provider delivery is a later
+outbox operation, never part of the answer transaction. An expired `launched`, `accepted`,
 or `processing` row remains unchanged until the recurring reconciler records
 its exact recovery or terminal action; it is never reclaimed or launched again
 as ordinary work.
@@ -1374,19 +1602,22 @@ the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
 portable between Claude, Codex, and OpenCode. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp. At
-terminal completion after a fresh launch, the job transition and binding-only
-mutation share one immediate transaction that reads the exact locked remote
-instance. It verifies the durable registration's workspace, logical
-conversation, frontend, actor, channel, instance, and original registered ID.
+answer completion after a fresh or resumed launch, the answer-ready job
+transition, portable transcript append, immutable final-answer insert, native
+binding replacement, cleanup-fence insert, and agent-claim release share one
+immediate transaction that reads the exact locked remote instance. It verifies
+the durable registration's workspace, logical conversation, frontend, actor,
+channel, instance, and original registered ID.
 Claude may report that Brain-supplied ID as its native session ID, so equality
 is accepted for a fresh Claude launch with exact locked lifecycle evidence.
 Fresh Codex and OpenCode launches must rotate their placeholder to a distinct
 lifecycle-reported native ID. A resumed launch is different: its registered ID
 already equals the exact same-frontend durable conversation binding, so that
 equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
-remain rejected. The transaction writes only the native ID to the conversation
-binding, leaves the portable transcript bytes untouched, and makes `done`
-visible only after both writes can commit.
+remain rejected. The transaction appends the authenticated user and assistant
+turn exactly once, writes the native ID to the conversation binding, and makes
+`answer-ready` visible only when every answer mutation can commit. Provider
+acknowledgement later owns the terminal delivery state.
 The ordinary launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh

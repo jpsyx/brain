@@ -29,7 +29,9 @@ impl AgentTransport for DormantTransport {
         true
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }
 
 struct ShutdownRecordingTransport(Arc<AtomicBool>);
@@ -51,8 +53,9 @@ impl AgentTransport for ShutdownRecordingTransport {
         true
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.0.store(true, Ordering::SeqCst);
+        Ok(())
     }
 }
 

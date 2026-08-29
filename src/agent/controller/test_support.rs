@@ -117,6 +117,18 @@ struct RecordingTransport {
     pending_text: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+enum ShutdownOutcome {
+    ConfirmedExit,
+    KillFailed,
+    StillRunning,
+}
+
+struct ShutdownOutcomeTransport {
+    recording: Recording,
+    outcome: ShutdownOutcome,
+}
+
 struct FailingSpawnTransport {
     recording: Recording,
 }
@@ -139,7 +151,9 @@ impl AgentTransport for FailingSpawnTransport {
         false
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }
 
 impl AgentTransport for RecordingTransport {
@@ -178,8 +192,40 @@ impl AgentTransport for RecordingTransport {
         true
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.recording.record(Event::Shutdown);
+        Ok(())
+    }
+}
+
+impl AgentTransport for ShutdownOutcomeTransport {
+    fn spawn(&mut self, _spec: &LaunchSpec) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn send(&mut self, _input: InputSequence) -> Result<(), AgentError> {
+        Ok(())
+    }
+
+    fn snapshot(&self) -> String {
+        String::new()
+    }
+
+    fn is_alive(&self) -> bool {
+        !matches!(self.outcome, ShutdownOutcome::ConfirmedExit)
+    }
+
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        self.recording.record(Event::Shutdown);
+        match self.outcome {
+            ShutdownOutcome::ConfirmedExit => Ok(()),
+            ShutdownOutcome::KillFailed => Err(AgentError::Transport(
+                "PTY child termination failed".to_owned(),
+            )),
+            ShutdownOutcome::StillRunning => Err(AgentError::Transport(
+                "PTY child remained running after termination".to_owned(),
+            )),
+        }
     }
 }
 
@@ -220,6 +266,28 @@ fn controller() -> (
         }),
     );
     (controller, recording, workspace, actor)
+}
+
+fn controller_with_shutdown_outcome(
+    outcome: ShutdownOutcome,
+) -> (AgentController, Recording) {
+    let workspace = workspace();
+    let actor = crate::actor::test_actor("pablo");
+    let recording = Recording::default();
+    let controller = AgentController::new(
+        workspace,
+        actor,
+        Box::new(RecordingFrontend {
+            recording: recording.clone(),
+            available: true,
+            command: "recording-agent".to_owned(),
+        }),
+        Box::new(ShutdownOutcomeTransport {
+            recording: recording.clone(),
+            outcome,
+        }),
+    );
+    (controller, recording)
 }
 
 fn request(

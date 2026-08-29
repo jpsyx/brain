@@ -49,12 +49,13 @@ fn attachment_staging_starts_and_the_tick_returns_without_launch_or_focus_mutati
 
     assert_eq!(worker.starts(), 1);
     assert!(transport.launch_specs().is_empty());
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Claimed
+            .state()
+            == ReceiverJobState::Claimed,
+        "pending attachment worker recorded the wrong durable state"
     );
     assert_eq!(
         (
@@ -165,8 +166,14 @@ fn completed_staging_uses_fresh_time_and_discards_an_expired_claim() {
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Claimed);
-    assert_eq!(job.retry_count(), 0);
+    assert!(
+        job.state() == ReceiverJobState::Claimed,
+        "cancelled attachment worker recorded the wrong durable state"
+    );
+    assert!(
+        job.retry_count() == 0,
+        "cancelled staging changed the durable retry count"
+    );
 }
 
 #[test]
@@ -206,8 +213,14 @@ fn staging_failure_records_retry_from_the_post_result_clock() {
         .receiver_job(accepted.job_id())
         .expect("load receiver job")
         .expect("receiver job");
-    assert_eq!(job.state(), ReceiverJobState::Retrying);
-    assert_eq!(job.retry_at_unix_ms(), Some(clock.unix_ms() + 5_000));
+    assert!(
+        job.state() == ReceiverJobState::Retrying,
+        "failed attachment worker recorded the wrong durable state"
+    );
+    assert!(
+        job.retry_at_unix_ms() == Some(clock.unix_ms() + 5_000),
+        "attachment retry time changed"
+    );
 }
 
 #[test]
@@ -243,12 +256,13 @@ fn disabling_pending_staging_cancels_and_app_shutdown_stops_the_worker() {
 
     assert_eq!(worker.cancellations(), 1);
     assert!(transport.launch_specs().is_empty());
-    assert_eq!(
+    assert!(
         db.receiver_job(accepted.job_id())
             .expect("load receiver job")
             .expect("receiver job")
-            .state(),
-        ReceiverJobState::Claimed
+            .state()
+            == ReceiverJobState::Claimed,
+        "disabled attachment worker recorded the wrong durable state"
     );
 
     app.services.shutdown_receiver_attachments();
@@ -350,7 +364,10 @@ fn a_late_prior_generation_result_cannot_attach_to_the_restarted_stage() {
 
     app.tick_receiver();
     let stale_stage = worker.stage(0);
-    assert_eq!(stale_stage.job_id(), accepted.job_id());
+    assert!(
+        stale_stage.job_id() == accepted.job_id(),
+        "stale attachment stage belonged to the wrong job"
+    );
     app.receiver.record_intent(false);
     app.tick_receiver();
     app.receiver.record_intent(true);

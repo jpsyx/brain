@@ -7,6 +7,12 @@ pub(super) fn receiver_user_id() -> crate::users::UserId {
     crate::users::UserId::parse("test-user").expect("valid portable user ID")
 }
 
+pub(super) fn private_text_proof(value: &str) -> (usize, [u8; 32]) {
+    use sha2::Digest as _;
+
+    (value.len(), sha2::Sha256::digest(value.as_bytes()).into())
+}
+
 fn receiver_actor(channel: crate::server::receiver::Channel) -> crate::actor::ActorContext {
     let users = crate::users::Users {
         schema_version: crate::users::USERS_SCHEMA_VERSION,
@@ -51,6 +57,11 @@ pub(super) fn receiver_job_for(
         actor: receiver_actor(channel),
         channel,
         authenticated_sender: sender.to_owned(),
+        response_sender: match channel {
+            crate::server::receiver::Channel::Sms => "+12125550100",
+            crate::server::receiver::Channel::Email => "brain@example.test",
+        }
+        .to_owned(),
         prompt: "Remember the durable receiver job".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms,

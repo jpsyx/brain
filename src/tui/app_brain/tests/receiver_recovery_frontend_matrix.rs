@@ -91,13 +91,18 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     app.tick_receiver();
 
     let recovered = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(recovered.state(), ReceiverJobState::Launched, "{kind:?}");
-    assert_eq!(
-        recovered.attempt_kind(),
-        ReceiverAttemptKind::Recovery,
-        "{kind:?}"
+    assert!(
+        recovered.state() == ReceiverJobState::Launched,
+        "{kind:?} recovery recorded the wrong launched state"
     );
-    assert_eq!(recovered.recovery_count(), 1, "{kind:?}");
+    assert!(
+        recovered.attempt_kind() == ReceiverAttemptKind::Recovery,
+        "frontend recovery used the wrong attempt kind"
+    );
+    assert!(
+        recovered.recovery_count() == 1,
+        "frontend recovery recorded the wrong recovery count for {kind:?}"
+    );
     let recovery = app.receiver.active_durable_run().expect("active recovery");
     assert_ne!(
         recovery.attribution.instance(),
@@ -135,10 +140,9 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         false,
     );
     app.tick_receiver();
-    assert_eq!(
-        db.receiver_job(stalled.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Accepted,
-        "{kind:?}"
+    assert!(
+        db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Accepted,
+        "{kind:?} recovery recorded the wrong accepted state"
     );
     write_recovery_snapshot(
         &app,
@@ -150,10 +154,9 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         false,
     );
     app.tick_receiver();
-    assert_eq!(
-        db.receiver_job(stalled.job_id()).unwrap().unwrap().state(),
-        ReceiverJobState::Processing,
-        "{kind:?}"
+    assert!(
+        db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Processing,
+        "{kind:?} recovery recorded the wrong processing state"
     );
     write_recovery_snapshot(
         &app,
@@ -168,8 +171,14 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     app.tick_receiver();
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(completed.state(), ReceiverJobState::Done, "{kind:?}");
-    assert_eq!(completed.observation_revision(), 3, "{kind:?}");
+    assert!(
+        completed.state() == ReceiverJobState::AnswerReady,
+        "{kind:?} recovery recorded the wrong answer-ready state"
+    );
+    assert!(
+        completed.observation_revision() == 3,
+        "frontend recovery changed the observation revision"
+    );
     assert!(!completed.pending_unavailable_notice(), "{kind:?}");
     assert!(!completion_path.exists(), "{kind:?}");
     assert!(app.brain.receiver_run_observations().is_empty(), "{kind:?}");

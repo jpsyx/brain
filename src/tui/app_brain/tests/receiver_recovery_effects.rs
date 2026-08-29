@@ -6,24 +6,6 @@ use crate::state::{
 };
 use crate::tui::receiver::ReceiverCleanupBoundary;
 
-#[derive(Clone, Default)]
-struct NoticeHandoffRecording(Arc<Mutex<Vec<(InboundJob, String)>>>);
-
-impl crate::tui::state::ReceiverNoticeDelivery for NoticeHandoffRecording {
-    fn queue(
-        &self,
-        _command: &CommandContext,
-        inbound: &InboundJob,
-        message: &str,
-    ) -> anyhow::Result<bool> {
-        self.0
-            .lock()
-            .expect("notice handoff recording")
-            .push((inbound.clone(), message.to_owned()));
-        Ok(true)
-    }
-}
-
 #[test]
 fn enabled_tick_reconciles_before_restart_scan_and_cleans_the_exact_stale_run() {
     let temporary = tempfile::tempdir().expect("temporary directory");
@@ -196,9 +178,13 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
     app.tick_receiver();
 
     let exited = db.receiver_job(stalled.job_id()).unwrap().unwrap();
-    assert_eq!(exited.state(), ReceiverJobState::Failed);
+    assert_eq!(exited.state(), ReceiverJobState::AnswerReady);
     assert_eq!(exited.last_error(), Some("recovery-launch-shutdown"));
-    assert!(exited.pending_unavailable_notice());
+    assert!(!exited.pending_unavailable_notice());
+    assert!(
+        db.receiver_delivery_counts().unwrap().answer_ready() == 1,
+        "recovery shutdown changed the answer-ready count"
+    );
     assert!(app.brain.receiver_run_observations().is_empty());
 
     drop(sessions_override);
@@ -206,7 +192,7 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
 }
 
 #[test]
-fn pending_unavailable_notice_is_handed_off_and_acked_before_fifo_advances() {
+fn pending_unavailable_notice_becomes_durable_before_fifo_advances() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
@@ -227,12 +213,8 @@ fn pending_unavailable_notice_is_handed_off_and_acked_before_fifo_advances() {
         )
         .expect("persist terminal unavailable intent");
     let later = accept_email_job(&app, &db, "later ordinary work", 200);
-    let recording = NoticeHandoffRecording::default();
-    app.services
-        .replace_receiver_notice_delivery(Box::new(recording.clone()));
     let scan_db = Db::open(app.context.workspace()).expect("restart scan DB");
     let terminal_job = terminal.job_id();
-    let scan_recording = recording.clone();
     app.receiver
         .install_after_restart_scan_hook(Box::new(move || {
             assert!(
@@ -241,23 +223,22 @@ fn pending_unavailable_notice_is_handed_off_and_acked_before_fifo_advances() {
                     .unwrap()
                     .unwrap()
                     .pending_unavailable_notice(),
-                "local handoff acknowledgement must precede restart controls"
+                "durable notice migration must precede restart controls"
             );
-            assert_eq!(scan_recording.0.lock().unwrap().len(), 1);
+            assert!(
+                scan_db.receiver_delivery_counts().unwrap().delivering() == 1,
+                "restart scan did not retain the durable notice delivery"
+            );
         }));
     let transport = TransportRecording::default();
     app.brain.replace_receiver_transport(transport.transport());
 
     app.tick_receiver();
 
-    let handed_off = recording.0.lock().unwrap();
-    assert_eq!(handed_off.len(), 1);
-    assert_eq!(handed_off[0].0.authenticated_sender, "member@example.test");
-    assert_eq!(
-        handed_off[0].1,
-        crate::server::receiver::unavailable_message()
+    assert!(
+        db.receiver_delivery_counts().unwrap().delivering() == 1,
+        "notice migration did not begin one durable delivery attempt"
     );
-    drop(handed_off);
     assert_eq!(
         db.receiver_job(later.job_id()).unwrap().unwrap().state(),
         ReceiverJobState::Launched,
@@ -324,17 +305,17 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
             )
             .expect("expire active job");
         let later = accept_email_job(&app, &db, "later ordinary work", 200);
-        let notices = NoticeHandoffRecording::default();
-        app.services
-            .replace_receiver_notice_delivery(Box::new(notices.clone()));
         app.receiver.inject_cleanup_failure(failure);
 
         app.tick_receiver();
 
         let fenced = db.receiver_job(terminal.job_id()).unwrap().unwrap();
         assert_eq!(fenced.state(), ReceiverJobState::Failed, "{failure:?}");
-        assert!(!fenced.pending_unavailable_notice(), "{failure:?}");
-        assert_eq!(notices.0.lock().unwrap().len(), 1, "{failure:?}");
+        assert!(fenced.pending_unavailable_notice(), "{failure:?}");
+        assert!(
+            db.receiver_delivery_counts().unwrap().answer_ready() == 0,
+            "cleanup failure created an answer-ready delivery"
+        );
         assert_eq!(
             app.brain.receiver_run_observations().len(),
             1,
@@ -355,7 +336,16 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
         let later_transport = TransportRecording::default();
         app.brain
             .replace_receiver_transport(later_transport.transport());
-        app.tick_receiver();
+        for _ in 0..6 {
+            app.tick_receiver();
+            if db.receiver_job(later.job_id()).unwrap().unwrap().state()
+                == ReceiverJobState::Launched
+                && db.receiver_job(terminal.job_id()).unwrap().unwrap().state()
+                    == ReceiverJobState::AnswerReady
+            {
+                break;
+            }
+        }
 
         assert_eq!(active_transport.shutdowns(), 1, "{failure:?}");
         assert_eq!(
@@ -367,6 +357,15 @@ fn cleanup_failures_retain_local_authority_and_resume_only_remaining_work() {
             db.receiver_job(later.job_id()).unwrap().unwrap().state(),
             ReceiverJobState::Launched,
             "{failure:?}"
+        );
+        assert_eq!(
+            db.receiver_job(terminal.job_id()).unwrap().unwrap().state(),
+            ReceiverJobState::AnswerReady,
+            "{failure:?}"
+        );
+        assert!(
+            db.receiver_delivery_counts().unwrap().answer_ready() == 1,
+            "cleanup recovery changed the answer-ready count"
         );
         assert_eq!(later_transport.launch_specs().len(), 1, "{failure:?}");
     }

@@ -13,6 +13,7 @@ mod read_only;
 mod readiness;
 pub mod registry;
 mod requirements;
+mod secure_remove;
 mod selector;
 mod templates;
 
@@ -40,6 +41,12 @@ pub use registry::{
 pub use requirements::{
     FeatureStatus, PromptMetadata, RequiredStatus, Requirement, RequirementScope,
     RequirementStatus, format_requirements, requirements,
+};
+pub(crate) use secure_remove::remove_regular_file_beneath;
+#[cfg(all(test, unix))]
+pub(crate) use secure_remove::{
+    SecureRemoveTestBoundary, with_secure_remove_test_hook,
+    with_unsupported_recovery_nofollow_chmod,
 };
 pub use selector::{STRICT_ENV, WORKSPACE_ENV, suggest};
 

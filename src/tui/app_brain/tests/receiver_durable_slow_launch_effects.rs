@@ -27,8 +27,9 @@ impl AgentTransport for ClockAdvancingFailingSpawn {
         false
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         *self.shutdowns.lock().expect("shutdown count") += 1;
+        Ok(())
     }
 }
 
@@ -68,10 +69,11 @@ impl AgentTransport for ShutdownAdvancingActiveTransport {
         *self.alive.lock().expect("alive state")
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.clock.advance(std::time::Duration::from_secs(7));
         *self.shutdowns.lock().expect("shutdown count") += 1;
         *self.alive.lock().expect("alive state") = false;
+        Ok(())
     }
 }
 
@@ -96,9 +98,10 @@ impl AgentTransport for ShutdownAdvancingTransport {
         !self.spawn_fails
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         self.clock.advance(std::time::Duration::from_secs(7));
         *self.shutdowns.lock().expect("shutdown count") += 1;
+        Ok(())
     }
 }
 
@@ -121,8 +124,9 @@ impl AgentTransport for ClockAdvancingSuccessfulSpawn {
         true
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         *self.shutdowns.lock().expect("shutdown count") += 1;
+        Ok(())
     }
 }
 

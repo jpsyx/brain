@@ -77,3 +77,64 @@ fn recovery_discovery_refuses_every_older_workspace_blocker() {
         );
     }
 }
+
+#[test]
+fn active_final_answer_does_not_block_a_later_due_recovery_claim() {
+    let target = stalled_run("recovery-behind-final-answer");
+    target
+        .db
+        .reconcile_next_receiver_job(301_400)
+        .expect("reconcile target recovery")
+        .expect("target recovery effect");
+    acknowledge_stalled_cleanup(&target, 301_401);
+    let target_job_id = target.job_id;
+    let target_token = target.ordinary.token();
+    let older_job = receiver_job(Some("older-final-answer"), 50);
+    let identity = ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
+    let older = super::binding::completion_fixture_for_job(
+        target.db,
+        ReceiverJobState::Processing,
+        older_job,
+        &identity,
+    );
+    older
+        .db
+        .complete_receiver_job_with_binding(&older.request())
+        .expect("record older final answer")
+        .expect("exact older answer owner");
+
+    let recovery = older
+        .db
+        .claim_next_receiver_recovery_run("recovery-owner", 302_100, 332_100)
+        .expect("discover due recovery behind active delivery")
+        .expect("active final answer must not block recovery");
+
+    assert!(recovery.job().id() == target_job_id);
+    assert!(recovery.job().token() == target_token);
+    assert!(recovery.claim().owner() == "recovery-owner");
+    assert!(
+        older
+            .db
+            .receiver_job(older.job_id)
+            .expect("load older final-answer job")
+            .is_some_and(|job| job.state() == ReceiverJobState::AnswerReady),
+        "the independent final-answer delivery left its active state"
+    );
+    let delivery_is_exact_and_ready: bool = older
+        .db
+        .conn
+        .query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM receiver_deliveries
+               WHERE job_id = ?1 AND job_token = ?2
+                 AND response_kind = 'final-answer' AND state = 'ready'
+             )",
+            rusqlite::params![older.job_id.to_string(), older.token.to_string()],
+            |row| row.get(0),
+        )
+        .expect("inspect older final-answer fence");
+    assert!(
+        delivery_is_exact_and_ready,
+        "recovery claim changed the independent exact delivery"
+    );
+}

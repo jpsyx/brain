@@ -129,7 +129,9 @@ impl AgentTransport for RecordingTransport {
         true
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }
 
 struct FailingTransport;
@@ -151,5 +153,7 @@ impl AgentTransport for FailingTransport {
         false
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) -> Result<(), AgentError> {
+        Ok(())
+    }
 }

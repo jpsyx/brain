@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::receiver_durable_delivery::ScriptedDeliveryExecution;
 use super::receiver_durable_producer_support::{ProducerStage, produce_stage, snapshot};
 pub(super) use super::receiver_durable_producer_support::{
     active_completion_path, active_observation_path, produce_completion, rotate_active_session,
@@ -9,6 +10,70 @@ use super::receiver_durable_support::accept_email_job;
 use super::*;
 
 use crate::state::ReceiverJobState;
+
+#[test]
+fn every_frontend_exact_completion_artifact_enters_the_same_acknowledged_delivery_lane() {
+    for kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, kind);
+        app.receiver.record_intent(true);
+        let db = Db::open(app.context.workspace()).expect("state DB");
+        let accepted = accept_email_job(&app, &db, "all-frontends delivery", 100);
+        let controller = TransportRecording::default();
+        app.brain.replace_receiver_transport(controller.transport());
+        let delivery = ScriptedDeliveryExecution::acknowledged();
+        app.services
+            .replace_receiver_delivery_execution(Box::new(delivery.clone()));
+
+        app.tick_receiver();
+        let session = rotate_active_session(&app, &format!("native-{}", kind.as_str()));
+        let path = active_observation_path(&app);
+        produce_completion(&app, kind, &session, &path);
+        app.tick_receiver();
+
+        assert!(
+            db.receiver_job(accepted.job_id())
+                .expect("load answer-ready job")
+                .is_some_and(|job| job.state() == ReceiverJobState::AnswerReady),
+            "exact completion did not atomically enter answer-ready"
+        );
+        let transcript = db
+            .receiver_conversation(accepted.conversation_id())
+            .expect("load durable conversation")
+            .expect("durable conversation")
+            .transcript_markdown()
+            .to_owned();
+        assert!(
+            transcript.matches("matrix completion").count() == 1,
+            "exact completion did not append once"
+        );
+
+        app.tick_receiver();
+        assert!(
+            db.receiver_job(accepted.job_id())
+                .expect("load delivering job")
+                .is_some_and(|job| job.state() == ReceiverJobState::Delivering),
+            "frontend-neutral delivery did not start"
+        );
+        app.tick_receiver();
+
+        assert!(
+            db.receiver_job(accepted.job_id())
+                .expect("load delivered job")
+                .is_some_and(|job| job.state() == ReceiverJobState::Done),
+            "acknowledged delivery did not finish"
+        );
+        assert!(
+            delivery.reservation_count() == 1,
+            "exact completion did not use one provider attempt"
+        );
+        assert!(
+            controller.shutdowns() == 1,
+            "exact completion did not release its controller"
+        );
+    }
+}
 
 #[test]
 fn normalized_producers_drive_one_controller_and_coordinator_lifecycle_matrix() {
@@ -145,7 +210,7 @@ fn normalized_producers_drive_one_controller_and_coordinator_lifecycle_matrix() 
         assert_terminal_duplicate(&app, kind, &first_session, &first_path);
         app.tick_receiver();
         let completed = db.receiver_job(first.job_id()).unwrap().unwrap();
-        assert_eq!(completed.state(), ReceiverJobState::Done, "{kind:?}");
+        assert_eq!(completed.state(), ReceiverJobState::AnswerReady, "{kind:?}");
         assert_eq!(completed.observation_revision(), 3, "{kind:?}");
         assert_eq!(
             completed.accepted_at_unix_ms(),
@@ -195,7 +260,7 @@ fn normalized_producers_drive_one_controller_and_coordinator_lifecycle_matrix() 
         let completion_first_job = db.receiver_job(second.job_id()).unwrap().unwrap();
         assert_eq!(
             completion_first_job.state(),
-            ReceiverJobState::Done,
+            ReceiverJobState::AnswerReady,
             "{kind:?}"
         );
         assert_eq!(completion_first_job.observation_revision(), 1, "{kind:?}");

@@ -7,34 +7,6 @@ use crate::tui::receiver::{ActiveReceiverRun, CleanupPendingReceiverRun};
 use super::super::artifact::{CompletionExpectation, ReceiverCompletion, read_exact_completion};
 
 impl App {
-    pub(super) fn finish_observation_only_receiver_run(&mut self, active: &ActiveReceiverRun) {
-        if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
-            let _ = self
-                .services
-                .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
-        }
-        if self
-            .services
-            .release_receiver_session(&active.attribution)
-            .is_err()
-        {
-            self.log_receiver_observation(
-                active,
-                Some(AgentObservationPhase::Completed),
-                "session-release-store",
-            );
-        }
-        self.remove_exact_receiver_tab(active);
-        self.cleanup_receiver_instance_files(active.attribution.instance());
-        crate::logging::log(format!(
-            "receiver run completed from lifecycle observation job={} instance={} frontend={}",
-            active.claim.job().id(),
-            active.attribution.instance(),
-            active.attribution.scope().agent_kind().as_str(),
-        ));
-        self.reload_after_brain();
-    }
-
     pub(super) fn exact_receiver_completion(
         &self,
         active: &ActiveReceiverRun,
@@ -81,6 +53,7 @@ impl App {
             owner: active.claim.claim().owner(),
             registration: &active.attribution,
             completed_session,
+            answer: message,
             observed_at_unix_ms,
             authorized_at_unix_ms,
         };
@@ -88,8 +61,8 @@ impl App {
             .services
             .complete_receiver_job_with_observation(&request, observation);
         match completed {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 self.log_receiver_observation(&active, None, "artifact-not-committed");
                 self.receiver
                     .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
@@ -102,34 +75,13 @@ impl App {
                 return;
             }
         }
-        if crate::sync::config::SyncConfig::load(self.context.command()).is_configured() {
-            let _ = self
-                .services
-                .spawn_detached_sync(self.context.workspace(), crate::sync::args::Direction::Push);
-        }
-        self.reply_to_job(
-            active.claim.job().inbound(),
-            "final receiver response",
-            message,
-        );
-        if self
-            .services
-            .release_receiver_session(&active.attribution)
-            .is_err()
-        {
-            self.log_receiver_observation(
-                &active,
-                Some(AgentObservationPhase::Completed),
-                "session-release-store",
-            );
-        }
-        self.remove_exact_receiver_tab(&active);
-        self.cleanup_receiver_instance_files(active.attribution.instance());
+        #[cfg(test)]
+        self.receiver.run_after_completion_commit_hook();
         crate::logging::log(format!(
             "receiver run completed channel={:?}",
             active.claim.job().inbound().channel
         ));
-        self.reload_after_brain();
+        self.begin_receiver_answer_cleanup(active);
     }
 
     pub(super) fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {

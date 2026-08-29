@@ -138,8 +138,9 @@ impl AgentTransport for ShutdownTransport {
         false
     }
 
-    fn shutdown(&mut self) {
+    fn shutdown(&mut self) -> Result<(), AgentError> {
         *self.0.lock().expect("shutdown count") += 1;
+        Ok(())
     }
 }
 
@@ -189,6 +190,7 @@ fn inbound(workspace: &WorkspaceContext, actor: &crate::actor::ActorContext) -> 
         actor: actor.clone(),
         channel: Channel::Sms,
         authenticated_sender: "+12125550100".to_owned(),
+        response_sender: "+13105550100".to_owned(),
         prompt: "private receiver prompt".to_owned(),
         attachments: Vec::new(),
         received_at_unix_ms: 100,
@@ -280,7 +282,10 @@ fn every_pre_acceptance_launch_failure_stops_the_controller_releases_only_remote
         })
         .expect("roll back receiver launch");
 
-        assert_eq!(outcome, ReceiverLaunchRetryOutcome::Scheduled);
+        assert!(
+            outcome == ReceiverLaunchRetryOutcome::Scheduled,
+            "receiver launch retry was not scheduled"
+        );
         assert_eq!(*shutdowns.lock().expect("shutdown count"), 1);
         assert!(
             services

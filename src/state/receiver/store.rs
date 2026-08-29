@@ -7,18 +7,30 @@ use super::{
 };
 use crate::state::Db;
 
+mod answer_cleanup;
 mod claim;
 mod completion;
 mod control;
+mod delivery;
 mod load;
 mod observation;
 mod reconciliation;
+pub(in crate::state::receiver) mod response_intent;
 mod session;
-mod unavailable_notice;
 
 use load::{load_receiver_conversation, load_receiver_job};
 
 const QUEUED_JOB_LIMIT: i64 = 64;
+
+pub(super) fn decode_inbound(
+    inbound_json: &str,
+    response_sender: Option<String>,
+) -> Result<crate::server::receiver::InboundJob> {
+    let mut inbound = serde_json::from_str::<crate::server::receiver::InboundJob>(inbound_json)
+        .context("parse durable receiver job")?;
+    inbound.response_sender = response_sender.unwrap_or_default();
+    Ok(inbound)
+}
 
 impl Db {
     /// Persist one authenticated inbound job before acknowledging its provider.
@@ -128,8 +140,8 @@ impl Db {
         transaction.execute(
             "INSERT INTO receiver_jobs
                (job_id, job_token, workspace_id, conversation_id, channel, provider_id,
-                inbound_json, state, received_at_unix_ms, updated_at_unix_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued', ?8, ?8)",
+                inbound_json, response_sender, state, received_at_unix_ms, updated_at_unix_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'queued', ?9, ?9)",
             rusqlite::params![
                 job_id.to_string(),
                 token.to_string(),
@@ -138,6 +150,7 @@ impl Db {
                 channel,
                 inbound.provider_id,
                 inbound_json,
+                inbound.response_sender,
                 received_at,
             ],
         )?;

@@ -100,6 +100,7 @@ pub(super) fn accept_email_job_with_id(
     inbound.provider_id = Some(format!("provider-{job_id}"));
     inbound.authenticated_sender = "member@example.test".to_owned();
     inbound.thread_participants = vec!["member@example.test".to_owned()];
+    inbound.response_email = Some("member@example.test".to_owned());
     let identity = ReceiverConversationIdentity::email(
         app.context.workspace().id(),
         inbound.actor.user_id().clone(),
@@ -122,6 +123,7 @@ pub(super) fn accept_email_job_in_thread(
     inbound.provider_id = Some(format!("provider-{}", inbound.job_id));
     inbound.authenticated_sender = "member@example.test".to_owned();
     inbound.thread_participants = vec!["member@example.test".to_owned()];
+    inbound.response_email = Some("member@example.test".to_owned());
     let identity = ReceiverConversationIdentity::email(
         app.context.workspace().id(),
         inbound.actor.user_id().clone(),
@@ -210,6 +212,12 @@ fn write_completion_artifact(
         .to_string(),
     )
     .expect("completion artifact");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only completion artifact");
+    }
     path
 }
 
