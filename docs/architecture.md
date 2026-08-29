@@ -1673,9 +1673,10 @@ refresh hooks and skills, complete a bounded connect/elect/register handshake
 with the machine-wide server, and start its
 heartbeat worker. The
 handshake retries only stale or missing generations, while authoritative
-workspace rejection ends startup. A protocol-version mismatch waits only
-within that same bounded budget; if the old generation remains live, startup
-returns a restart diagnostic without changing lease state. Once it exits,
+workspace rejection ends startup. A protocol-version mismatch remains pinned
+to that live generation within the same bounded budget; the client does not
+enter election or change lease state while it remains live. At the deadline,
+startup returns a restart diagnostic. If the old generation exits first,
 election and registration continue normally. Startup next resolves assignment state, acquires
 the terminal, opens the state DB, builds the brain-search picker
 (`build_search`), and assembles

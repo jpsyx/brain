@@ -687,10 +687,11 @@ can change. The read-only workspace-ingress lookup is also generation-bound and
 returns a value only for the exact requested live workspace lease. Snapshot is
 read-only and returns only the exact protocol version, generation, and
 live-lease count. A new TUI that decodes an older snapshot treats it as a
-protocol fence, waits only inside the bounded startup handshake, and either
-continues election after the old generation exits or reports that every Brain
-TUI must be closed and restarted. It sends no legacy registration and changes
-no lease state. Registration supplies the TUI-resolved root only for an ephemeral,
+protocol fence pinned to that live generation, waits only inside the bounded
+startup handshake, and never enters election while that generation remains
+live. It either continues election after the old generation exits or reports
+that every Brain TUI must be closed and restarted. It sends no legacy
+registration and changes no lease state. Registration supplies the TUI-resolved root only for an ephemeral,
 normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
 manifest, and verifies its workspace and ingress UUIDs. It then requires a
@@ -800,10 +801,13 @@ restoration, and final singleton release. Startup passes one owned
 The 0.86.2 automatic cutover migration examines only the exact legacy socket
 leaf below each validated workspace UUID cache. It uses non-following metadata,
 requires an owner-controlled directory and owner-only Unix socket, preserves a
-socket that accepts a connection, and rechecks device and inode before unlinking
-a refused stale leaf. Symlinks, regular files, changed replacements, and unknown
-probe failures are preserved. Its explicit downgrade is an idempotent no-op;
-an older binary creates its own endpoint when it starts.
+live singleton without probing, and gives every fallback connection probe a
+deadline. After a definitive refused stale probe, it moves the observed leaf
+with a descriptor-relative rename into an owner-only quarantine, then rechecks
+device, inode, owner, type, and mode through that descriptor before unlinking.
+Symlinks, regular files, raced replacements, and unknown probe failures are
+preserved fail-closed. Its explicit downgrade is an idempotent no-op; an older
+binary creates its own endpoint when it starts.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done

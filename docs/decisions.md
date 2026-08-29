@@ -231,9 +231,10 @@ and session-release failures are logged while later teardown stages continue.
 Partial startup needs a narrow ownership rule because registration creates live
 route authority. One production boundary therefore owns the heartbeat lease
 through all later fallible preparation, including terminal and application
-setup, the initial panel, and startup workers. Its ordinary field destruction performs unregister-before-
-socket-removal rollback without another cleanup implementation. Socket ownership
-moves into the App only in the final infallible assembly step.
+setup, the initial panel, and startup workers. Its ordinary field destruction
+unregisters that lease without another cleanup implementation. Final infallible
+assembly moves the same lease owner into `TuiRuntime`; `App` owns no endpoint
+lifetime.
 
 The recurring coordinator similarly names the current order without moving
 feature decisions out of their owners. Sync and triage still decide internally
@@ -2520,18 +2521,24 @@ duplicate-lease exclusions for real contenders.
 The endpoint removal changes the control registration shape, so snapshots carry
 an exact protocol version. Treating an older live generation as temporarily
 unavailable would risk either a legacy fallback or lease mutation across two
-shapes. The client instead remembers the mismatch inside the existing bounded
-startup budget. If older TUIs close, their final lease shuts down that process
-and normal election continues; otherwise Brain returns one content-free,
-themed restart instruction. No compatibility endpoint is recreated.
+shapes. The client instead remembers the mismatch for that live generation
+inside the existing bounded startup budget and suppresses election even if the
+final probe reaches its deadline. If older TUIs close, their final lease shuts
+down that process and normal election continues; otherwise Brain returns one
+content-free, themed restart instruction. No compatibility endpoint is
+recreated.
 
 The cutover migration is intentionally narrower than ordinary stale-file
 cleanup. It targets only the exact UUID-cache leaf, uses non-following metadata,
-requires matching owner and owner-only socket permissions, proves that the
-socket refuses connections, and rechecks device plus inode before unlinking.
-Anything ambiguous is preserved. Downgrade is a no-op because the older binary
-owns creation of its endpoint, which keeps the migration idempotent in both
-directions without manufacturing old runtime state.
+requires matching owner and owner-only socket permissions, preserves a live
+singleton before probing, and uses only a deadline-bounded connection probe.
+After a refused stale probe, descriptor-relative quarantine closes the
+check-to-unlink race: the migration verifies device, inode, owner, type, and
+mode before the rename and again through the quarantine descriptor before
+unlinking. A replacement raced into the leaf is quarantined and preserved
+fail-closed. Anything ambiguous is preserved. Downgrade is a no-op because the
+older binary owns creation of its endpoint, which keeps the migration
+idempotent in both directions without manufacturing old runtime state.
 
 ## Shared receiver admission with TUI-only execution
 

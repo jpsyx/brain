@@ -4,6 +4,8 @@ use std::path::Path;
 
 #[cfg(unix)]
 mod quarantine;
+#[cfg(unix)]
+mod socket;
 #[cfg(all(test, unix))]
 mod test_seam;
 
@@ -12,6 +14,8 @@ use quarantine::{
     blocked_cleanup_marker_exists, create_quarantine, fail_closed, mark_cleanup_blocked,
     promote_quarantine, recover_bound_quarantines, remove_empty_quarantine,
 };
+#[cfg(unix)]
+pub(crate) use socket::remove_socket_file_beneath;
 #[cfg(all(test, unix))]
 pub(crate) use test_seam::{
     SecureRemoveTestBoundary, with_secure_remove_test_hook,

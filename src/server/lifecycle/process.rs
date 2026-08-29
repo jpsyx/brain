@@ -126,6 +126,13 @@ fn connect_or_elect_until_with_publication_hook_and_mode(
         if process_live && socket_live {
             return Ok(record.expect("live probes require a process record"));
         }
+        if process_live && legacy_protocol_observed {
+            if Instant::now() >= deadline {
+                return Err(anyhow::Error::new(crate::server::control::ProtocolMismatch));
+            }
+            std::thread::park_timeout(POLL_INTERVAL);
+            continue;
+        }
 
         let generation = ServerGeneration::new();
         let election = ElectionGuard::try_acquire(client.paths(), generation)?;

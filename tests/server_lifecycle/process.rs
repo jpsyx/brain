@@ -4,6 +4,10 @@ use brain::server::lifecycle::{
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixListener;
 use std::process::{Command, Stdio};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use super::support::{LiveTui, PROCESS_FIXTURE_PERMITS, RunningServer, wait_for};
@@ -78,6 +82,93 @@ fn connect_or_elect_continues_after_an_older_server_generation_exits() {
             && !paths.control_socket().exists()
             && !paths.election_lock().exists()
     });
+}
+
+#[test]
+fn a_continuously_live_older_server_is_fenced_without_lease_mutation_or_election() {
+    let _process_permit = PROCESS_FIXTURE_PERMITS.acquire();
+    let home = tempfile::tempdir().expect("temporary server home");
+    let paths = ServerPaths::from_home(home.path());
+    std::fs::create_dir_all(paths.directory()).expect("server directory");
+    let legacy_generation = ServerGeneration::new();
+    let record = ProcessRecord {
+        pid: std::process::id(),
+        port: 0,
+        generation: legacy_generation,
+        started_at: "2026-08-29T00:00:00Z".to_owned(),
+    };
+    let record_bytes = serde_json::to_vec(&record).expect("legacy process record JSON");
+    std::fs::write(paths.process_record(), &record_bytes).expect("legacy process record");
+    let listener = UnixListener::bind(paths.control_socket()).expect("legacy control socket");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking legacy listener");
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_server = Arc::clone(&stop);
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed_requests = Arc::clone(&requests);
+    let legacy = std::thread::spawn(move || {
+        while !stop_server.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut request = Vec::new();
+                    stream
+                        .read_to_end(&mut request)
+                        .expect("legacy control request bytes");
+                    observed_requests.lock().expect("legacy requests").push(
+                        serde_json::from_slice::<serde_json::Value>(&request)
+                            .expect("request JSON"),
+                    );
+                    writeln!(
+                        stream,
+                        "{{\"result\":\"snapshot\",\"generation\":\"{legacy_generation}\",\"live_leases\":1}}"
+                    )
+                    .expect("legacy snapshot");
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("legacy accept failed: {error}"),
+            }
+        }
+    });
+    let client = brain::server::control::ServerClient::with_launch_context(
+        paths.clone(),
+        std::path::PathBuf::from(env!("CARGO_BIN_EXE_brain")),
+        home.path().to_path_buf(),
+    );
+    let started = Instant::now();
+
+    let result = connect_or_elect(&client);
+    let record_after_fence = std::fs::read(paths.process_record());
+    let election_after_fence = paths.election_lock().exists();
+
+    stop.store(true, Ordering::Release);
+    legacy.join().expect("legacy server thread");
+    if let Ok(replacement) = &result {
+        let _ = Command::new("kill")
+            .args(["-TERM", &replacement.pid.to_string()])
+            .status();
+    }
+    assert!(started.elapsed() <= Duration::from_secs(3));
+    let error = result.expect_err("a live legacy generation must not be replaced");
+    assert_eq!(
+        error.to_string(),
+        "🔴 Brain server protocol changed. Close every Brain TUI, then restart Brain."
+    );
+    assert_eq!(
+        record_after_fence.expect("unchanged legacy process record"),
+        record_bytes
+    );
+    let requests = requests.lock().expect("legacy requests");
+    assert!(!requests.is_empty());
+    assert!(
+        requests
+            .iter()
+            .all(|request| request["action"] == "snapshot")
+    );
+    drop(requests);
+    assert!(!election_after_fence);
 }
 
 #[test]

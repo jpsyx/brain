@@ -1682,9 +1682,9 @@ claiming the oldest due row. It records only content-free phase and stable
 terminal-reason counts (`retry-exhausted`, `permanent-rejection`,
 `ambiguous-acknowledgement`, `idempotency-window-expired`, and
 `no-safe-fallback`). `brain receiver status` reads and themes those counts
-without creating a database or running a migration. BR-18 retains only the
-narrow legacy job-socket lifetime representation; it no longer owns notice,
-control, delivery-status, or outbox reconciliation work.
+without creating a database or running a migration. BR-18 removes the final
+legacy endpoint lifetime representation; receiver liveness and routing use only
+the elected server lease.
 
 ### Durable receiver model foundation
 

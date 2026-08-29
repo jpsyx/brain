@@ -62,7 +62,7 @@ pub(super) fn recovery_nofollow_chmod_unsupported() -> bool {
     RECOVERY_NOFOLLOW_CHMOD_UNSUPPORTED.get()
 }
 
-pub(super) fn observe_test_boundary(boundary: SecureRemoveTestBoundary, relative: &Path) {
+pub(crate) fn observe_test_boundary(boundary: SecureRemoveTestBoundary, relative: &Path) {
     SECURE_REMOVE_TEST_HOOK.with(|installed| {
         if let Some(hook) = installed.borrow_mut().as_mut() {
             hook(boundary, relative);

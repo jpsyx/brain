@@ -267,9 +267,8 @@ durable without blocking a new slot. Zero live TUIs still means zero server and
 no Brain response because routing requires a live enabled lease. The shared
 process owns no execution cursor or headless agent. The live TUI consumes these
 accepted rows through one durable receiver tick. No socket or in-memory receiver
-queue remains as an acceptance or execution path. The UUID-local job-socket
-object is retained only as a narrowly named live-endpoint lifetime marker until
-BR-18 removes that representation.
+queue remains as an acceptance or execution path. The live lease is the sole
+TUI liveness and route-authority representation.
 
 Receiver controls are durable jobs. An exact claimed `/new` atomically retires
 only its logical conversation key, creates an empty unbound conversation under
@@ -334,8 +333,10 @@ current diagnostic-log destination.
 
 The former legacy receiver socket is not part of `WorkspacePaths` or live lease
 state. The automatic 0.86.2 cutover may remove only its exact stale,
-owner-controlled Unix socket leaf; it does not introduce a new schema field or
-change state-database schema v13.
+owner-controlled Unix socket leaf. It preserves live or ambiguous endpoints and
+removes a proved stale identity only after descriptor-relative quarantine and
+post-rename identity verification. The cutover does not introduce a new schema
+field or change state-database schema v13.
 
 Machine startup migrations have one separate version record:
 `$XDG_CONFIG_HOME/brain/migrations/version`, falling back to

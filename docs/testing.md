@@ -183,7 +183,12 @@ first move is a failing test that reproduces it, *then* the fix.
   `Db::open`; removes only schema-v7 launch retry origin on downgrade to v6;
   removes that receiver schema through the older down migration; leaves
   help and version byte-idle; and restores the previous lifecycle layout
-  through the down migration.
+  through the down migration. The 0.86.2 cutover cases prove exact stale
+  owner-only socket removal for every workspace, preservation of live and
+  replacement leaves, same-version repair, and a no-op downgrade. Unit races
+  replace the leaf after identity verification and saturate a live legacy
+  backlog, proving the migration never unlinks the replacement and never waits
+  beyond its bounded probe budget.
   `tests/install_script.rs` drives the real installer around fake versioned
   binaries to pin upgrade-after-replace and downgrade-before-replace ordering.
   `tests/stop_hook_actor.rs` proves the stable response ID and actor/channel
@@ -847,7 +852,11 @@ first move is a failing test that reproduces it, *then* the fix.
   cleanup inspections propagate errors, preserve the artifact, and allow the
   same handoff value to remove a restored exact parent token on retry. An
   elected child that never receives its first registration exits within its
-  bounded bootstrap deadline. Two fake TUI clients also register distinct
+  bounded bootstrap deadline. A continuously live older control process proves
+  the protocol fence consumes only its bounded budget, sends snapshot requests
+  only, leaves the process record and election state unchanged, and emits the
+  restart diagnostic. Its companion fixture proves election resumes
+  automatically after that older generation closes. Two fake TUI clients also register distinct
   workspaces, observe a deliberately killed generation, enter recovery together
   through injected heartbeat clocks and an explicit barrier, converge on one
   replacement generation, re-register, and drive final-unregister cleanup. A
@@ -1175,8 +1184,8 @@ first move is a failing test that reproduces it, *then* the fix.
   mode, pushes kitty flags, spawns the selected agent PTY, and runs the panel
   loop. We test its lifecycle and recurring order through pure stage models. An
   injected post-registration application-setup failure uses the production
-  partial-start owner and proves server-lease teardown precedes job-socket
-  removal without a terminal or sleep. We test the terminal lifecycle through
+  partial-start owner and proves server-lease teardown completes without a
+  terminal or sleep. We test the terminal lifecycle through
   injected headless operations, and the pure
   application logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
