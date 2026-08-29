@@ -2,11 +2,23 @@
 
 use std::path::Path;
 
+#[cfg(unix)]
+mod quarantine;
+
+#[cfg(unix)]
+use quarantine::{
+    blocked_cleanup_marker_exists, create_quarantine, fail_closed, mark_cleanup_blocked,
+    recover_bound_quarantines, remove_empty_quarantine,
+};
+
 #[cfg(all(test, unix))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SecureRemoveTestBoundary {
-    AfterOpenBeforeEntryStat,
-    AfterQuarantineIdentityVerified,
+    OpenBeforeEntryStat,
+    EntryIdentityVerifiedBeforeRename,
+    QuarantineRenameBeforeVerification,
+    QuarantineIdentityVerified,
+    RenameMissingBeforeAbsenceCheck,
 }
 
 #[cfg(all(test, unix))]
@@ -59,12 +71,12 @@ use std::os::fd::RawFd;
 use nix::{
     errno::Errno,
     fcntl::{AtFlags, OFlag, open, openat, renameat},
-    sys::stat::{Mode, SFlag, fchmod, fstat, fstatat, mkdirat},
+    sys::stat::{Mode, SFlag, fchmod, fstat, fstatat},
     unistd::{UnlinkatFlags, close, unlinkat},
 };
 
 #[cfg(unix)]
-struct OwnedDescriptor(RawFd);
+pub(super) struct OwnedDescriptor(RawFd);
 
 #[cfg(unix)]
 impl OwnedDescriptor {
@@ -156,6 +168,9 @@ fn remove_regular_at(
     if blocked_cleanup_marker_exists(parent, name)? {
         return Err(identity_changed());
     }
+    if recover_bound_quarantines(parent, name)? {
+        return Ok(());
+    }
     let descriptor = match openat(
         Some(parent.raw()),
         Path::new(name),
@@ -174,7 +189,7 @@ fn remove_regular_at(
         ));
     }
     #[cfg(test)]
-    observe_test_boundary(SecureRemoveTestBoundary::AfterOpenBeforeEntryStat, relative);
+    observe_test_boundary(SecureRemoveTestBoundary::OpenBeforeEntryStat, relative);
     #[cfg(not(test))]
     observe_test_boundary(relative);
     let entry = match fstatat(
@@ -190,10 +205,17 @@ fn remove_regular_at(
         || entry.st_ino != opened.st_ino
         || !SFlag::from_bits_truncate(entry.st_mode).contains(SFlag::S_IFREG)
     {
-        mark_cleanup_blocked(parent, name);
+        mark_cleanup_blocked(parent, name)?;
         return Err(identity_changed());
     }
-    let quarantine = create_quarantine(parent)?;
+    #[cfg(test)]
+    observe_test_boundary(
+        SecureRemoveTestBoundary::EntryIdentityVerifiedBeforeRename,
+        relative,
+    );
+    #[cfg(not(test))]
+    observe_test_boundary(relative);
+    let quarantine = create_quarantine(parent, name)?;
     match renameat(
         Some(parent.raw()),
         Path::new(name),
@@ -202,10 +224,17 @@ fn remove_regular_at(
     ) {
         Ok(()) => {}
         Err(Errno::ENOENT) => {
-            remove_empty_quarantine(parent, &quarantine)?;
+            #[cfg(test)]
+            observe_test_boundary(
+                SecureRemoveTestBoundary::RenameMissingBeforeAbsenceCheck,
+                relative,
+            );
+            #[cfg(not(test))]
+            observe_test_boundary(relative);
             return if exact_name_is_absent(parent, name)? {
-                Ok(())
+                remove_empty_quarantine(parent, &quarantine)
             } else {
+                fail_closed(parent, name, &quarantine)?;
                 Err(identity_changed())
             };
         }
@@ -214,6 +243,13 @@ fn remove_regular_at(
             return Err(io_error(error));
         }
     }
+    #[cfg(test)]
+    observe_test_boundary(
+        SecureRemoveTestBoundary::QuarantineRenameBeforeVerification,
+        relative,
+    );
+    #[cfg(not(test))]
+    observe_test_boundary(relative);
     let quarantined = match openat(
         Some(quarantine.descriptor.raw()),
         Path::new("artifact"),
@@ -222,14 +258,14 @@ fn remove_regular_at(
     ) {
         Ok(descriptor) => OwnedDescriptor(descriptor),
         Err(error) => {
-            fail_closed(parent, name, &quarantine);
+            fail_closed(parent, name, &quarantine)?;
             return Err(io_error(error));
         }
     };
     let moved = match fstat(quarantined.raw()) {
         Ok(moved) => moved,
         Err(error) => {
-            fail_closed(parent, name, &quarantine);
+            fail_closed(parent, name, &quarantine)?;
             return Err(io_error(error));
         }
     };
@@ -237,16 +273,16 @@ fn remove_regular_at(
         || moved.st_ino != opened.st_ino
         || !SFlag::from_bits_truncate(moved.st_mode).contains(SFlag::S_IFREG)
     {
-        fail_closed(parent, name, &quarantine);
+        fail_closed(parent, name, &quarantine)?;
         return Err(identity_changed());
     }
     if let Err(error) = fchmod(quarantine.descriptor.raw(), Mode::empty()) {
-        fail_closed(parent, name, &quarantine);
+        fail_closed(parent, name, &quarantine)?;
         return Err(io_error(error));
     }
     #[cfg(test)]
     observe_test_boundary(
-        SecureRemoveTestBoundary::AfterQuarantineIdentityVerified,
+        SecureRemoveTestBoundary::QuarantineIdentityVerified,
         relative,
     );
     #[cfg(not(test))]
@@ -254,16 +290,16 @@ fn remove_regular_at(
     match exact_name_is_absent(parent, name) {
         Ok(true) => {}
         Ok(false) => {
-            fail_closed(parent, name, &quarantine);
+            fail_closed(parent, name, &quarantine)?;
             return Err(identity_changed());
         }
         Err(error) => {
-            fail_closed(parent, name, &quarantine);
+            fail_closed(parent, name, &quarantine)?;
             return Err(error);
         }
     }
     if let Err(error) = fchmod(quarantine.descriptor.raw(), Mode::from_bits_truncate(0o700)) {
-        fail_closed(parent, name, &quarantine);
+        fail_closed(parent, name, &quarantine)?;
         return Err(io_error(error));
     }
     match unlinkat(
@@ -274,7 +310,7 @@ fn remove_regular_at(
         Ok(()) => {}
         Err(Errno::ENOENT) if exact_name_is_absent(&quarantine.descriptor, "artifact")? => {}
         Err(error) => {
-            fail_closed(parent, name, &quarantine);
+            fail_closed(parent, name, &quarantine)?;
             return Err(io_error(error));
         }
     }
@@ -282,97 +318,7 @@ fn remove_regular_at(
 }
 
 #[cfg(unix)]
-struct Quarantine {
-    name: std::ffi::OsString,
-    descriptor: OwnedDescriptor,
-}
-
-#[cfg(unix)]
-fn create_quarantine(parent: &OwnedDescriptor) -> std::io::Result<Quarantine> {
-    for _ in 0..8 {
-        let name = std::ffi::OsString::from(format!(".brain-cleanup-{}", uuid::Uuid::new_v4()));
-        match mkdirat(
-            Some(parent.raw()),
-            Path::new(&name),
-            Mode::from_bits_truncate(0o700),
-        ) {
-            Ok(()) => match open_directory_at(parent, &name) {
-                Ok(descriptor) => return Ok(Quarantine { name, descriptor }),
-                Err(error) => {
-                    let _ = unlinkat(
-                        Some(parent.raw()),
-                        Path::new(&name),
-                        UnlinkatFlags::RemoveDir,
-                    );
-                    return Err(error);
-                }
-            },
-            Err(Errno::EEXIST) => {}
-            Err(error) => return Err(io_error(error)),
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "workspace cleanup quarantine unavailable",
-    ))
-}
-
-#[cfg(unix)]
-fn remove_empty_quarantine(
-    parent: &OwnedDescriptor,
-    quarantine: &Quarantine,
-) -> std::io::Result<()> {
-    fchmod(quarantine.descriptor.raw(), Mode::from_bits_truncate(0o700)).map_err(io_error)?;
-    match unlinkat(
-        Some(parent.raw()),
-        Path::new(&quarantine.name),
-        UnlinkatFlags::RemoveDir,
-    ) {
-        Ok(()) => Ok(()),
-        Err(Errno::ENOENT) if exact_name_is_absent(parent, &quarantine.name)? => Ok(()),
-        Err(error) => Err(io_error(error)),
-    }
-}
-
-#[cfg(unix)]
-fn fail_closed(parent: &OwnedDescriptor, name: &std::ffi::OsStr, quarantine: &Quarantine) {
-    let _ = fchmod(quarantine.descriptor.raw(), Mode::empty());
-    mark_cleanup_blocked(parent, name);
-}
-
-#[cfg(unix)]
-fn mark_cleanup_blocked(parent: &OwnedDescriptor, name: &std::ffi::OsStr) {
-    let marker = blocked_cleanup_marker(name);
-    let _ = mkdirat(Some(parent.raw()), Path::new(&marker), Mode::empty());
-}
-
-#[cfg(unix)]
-fn blocked_cleanup_marker_exists(
-    parent: &OwnedDescriptor,
-    name: &std::ffi::OsStr,
-) -> std::io::Result<bool> {
-    let marker = blocked_cleanup_marker(name);
-    match fstatat(
-        Some(parent.raw()),
-        Path::new(&marker),
-        AtFlags::AT_SYMLINK_NOFOLLOW,
-    ) {
-        Ok(_) => Ok(true),
-        Err(Errno::ENOENT) => Ok(false),
-        Err(error) => Err(io_error(error)),
-    }
-}
-
-#[cfg(unix)]
-fn blocked_cleanup_marker(name: &std::ffi::OsStr) -> std::ffi::OsString {
-    use std::os::unix::ffi::OsStrExt as _;
-
-    let identity = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, name.as_bytes());
-    std::ffi::OsString::from(format!(".brain-cleanup-blocked-{identity}"))
-}
-
-#[cfg(unix)]
-fn exact_name_is_absent(
+pub(super) fn exact_name_is_absent(
     parent: &OwnedDescriptor,
     name: impl AsRef<std::ffi::OsStr>,
 ) -> std::io::Result<bool> {
@@ -388,7 +334,7 @@ fn exact_name_is_absent(
 }
 
 #[cfg(unix)]
-fn identity_changed() -> std::io::Error {
+pub(super) fn identity_changed() -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
         "workspace cleanup target identity changed",
@@ -396,17 +342,17 @@ fn identity_changed() -> std::io::Error {
 }
 
 #[cfg(unix)]
-fn directory_flags() -> OFlag {
+pub(super) fn directory_flags() -> OFlag {
     OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_DIRECTORY
 }
 
 #[cfg(unix)]
-fn file_flags() -> OFlag {
+pub(super) fn file_flags() -> OFlag {
     OFlag::O_RDONLY | OFlag::O_CLOEXEC | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_NOCTTY
 }
 
 #[cfg(unix)]
-fn io_error(error: Errno) -> std::io::Error {
+pub(super) fn io_error(error: Errno) -> std::io::Error {
     std::io::Error::from_raw_os_error(error as i32)
 }
 
@@ -426,44 +372,4 @@ pub(crate) fn remove_regular_file_beneath(_root: &Path, _relative: &Path) -> std
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use std::os::unix::fs::symlink;
-
-    use super::remove_regular_file_beneath;
-
-    #[test]
-    fn cleanup_rejects_a_symlink_above_the_cache_root() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let temporary_root =
-            std::fs::canonicalize(temporary.path()).expect("canonical temporary directory");
-        let cache_parent = temporary_root.join("workspace-caches");
-        let cache_root = cache_parent.join("workspace-id");
-        let original_target = cache_root.join("responses/instance.json");
-        std::fs::create_dir_all(
-            original_target
-                .parent()
-                .expect("original response directory"),
-        )
-        .expect("original cache tree");
-        std::fs::write(&original_target, "original private artifact")
-            .expect("original private artifact");
-
-        let retained_parent = temporary_root.join("workspace-caches-real");
-        std::fs::rename(&cache_parent, &retained_parent).expect("retain original cache parent");
-        let outside_parent = temporary_root.join("outside");
-        let outside_target = outside_parent.join("workspace-id/responses/instance.json");
-        std::fs::create_dir_all(outside_target.parent().expect("outside response directory"))
-            .expect("outside cache tree");
-        std::fs::write(&outside_target, "outside private artifact")
-            .expect("outside private artifact");
-        symlink(&outside_parent, &cache_parent).expect("replace cache parent with symlink");
-
-        remove_regular_file_beneath(&cache_root, std::path::Path::new("responses/instance.json"))
-            .expect_err("cleanup must reject every symlinked ancestor");
-
-        assert!(
-            outside_target.exists(),
-            "cleanup deleted an outside artifact through a higher ancestor symlink"
-        );
-    }
-}
+mod tests;

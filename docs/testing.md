@@ -1306,10 +1306,14 @@ and the shared helper also substitutes an ancestor above the cache root. They
 prove no outside deletion, retained runtime authority or failed downgrade with
 schema v12 intact, and successful exact cleanup after restoration. The
 deterministic cleanup hooks also replace the original leaf after quarantine
-identity verification and remove it after open before the entry stat. They prove
-the replacement is never unlinked, the opened artifact remains in a private
-quarantine, unsafe retries retain database authority, and exact-name absence is
-idempotent during downgrade. The
+identity verification, remove it after open before the entry stat, interrupt
+before and after quarantine mode hardening, and reintroduce the original after
+a missing rename. They prove the replacement is never unlinked, interrupted
+artifacts are rediscovered after restart, runtime and downgrade retain authority until every
+matching artifact is gone, unsafe retries remain persistently blocked, and
+exact-name absence is idempotent. Malformed matching quarantine names and more
+than eight matches prove bounded discovery fails closed without deleting private
+data. The
 receiver privacy policy
 recursively discovers authenticated HTTP, provider, state, App, and App-service
 Task 3 suites. Its identifier-aware assertion scan tracks local aliases and

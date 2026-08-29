@@ -1508,14 +1508,22 @@ instance, so an earlier artifact retry cannot prevent a later answer commit or
 re-block FIFO. Pre-spawn store ambiguity is not ownership loss.
 On Unix, each artifact removal walks every ancestor through no-follow directory
 descriptors, opens the exact regular leaf, and atomically renames that leaf into
-a fresh UUIDv4 quarantine below the held parent. Brain opens and verifies the
-moved entry against the original descriptor, hardens the quarantine directory
-to mode `000` across the last observable boundary, and unlinks only that verified
-quarantine entry. A replacement at the original leaf is never unlinked. Any
-identity mismatch or original-name reappearance leaves the quarantine intact,
-installs a mode-`000` per-leaf retry blocker, and preserves cleanup authority.
-An `ENOENT` is idempotent only after a descriptor-relative check proves that
-the exact name involved is absent.
+a private quarantine below the held parent. Its name combines a UUIDv5 tag of
+the raw leaf bytes with a fresh UUIDv4 nonce, so restart can rediscover the
+artifact without persisting or exposing the raw leaf. Brain opens and verifies
+the moved entry against the original descriptor, hardens the quarantine
+directory to mode `000` across the last observable boundary, and unlinks only
+that verified quarantine entry. Before ordinary removal, a retry duplicates
+the held parent descriptor and completely scans that descriptor for matching
+quarantines. It recovers at most eight sorted matches; a malformed match, a
+ninth match, or any match remaining after the recovery rescan fails closed.
+A replacement at the original leaf is never unlinked. Any identity mismatch,
+original-name reappearance (including after `renameat` reports `ENOENT`), or
+ambiguous recovery leaves the quarantine intact, installs a mode-`000` per-leaf
+retry blocker, and preserves cleanup authority. An `ENOENT` is idempotent only
+after a descriptor-relative check proves that the exact name involved is
+absent. Runtime retries keep their cleanup row, and downgrade aborts with schema
+v12 intact, until exact cleanup succeeds.
 Once process spawn succeeds, Brain crosses a no-auto-replay boundary before any
 later fallible step. The local spawned capability owns the controller plus
 exact job, token, claim owner, instance, registered/native session, scope,

@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.85.24"
+version = "0.85.25"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -34,10 +34,10 @@ hmac = "0.12"
 # PollWatcher because FSEvents can silently omit valid changes. Debouncing stays
 # in our tested `watch::Debouncer` (no notify-debouncer-* dependency).
 notify = "8"
-# Safe nonblocking Unix-socket creation plus bounded poll lets the shared
-# control plane enforce one connect deadline without unsafe code or detached
-# connector threads. This crate was already present through portable-pty.
-nix = { version = "0.28", features = ["fs", "poll", "signal", "socket"] }
+# Safe descriptor iteration and Unix-socket operations support confined
+# cleanup plus bounded shared-control-plane deadlines without unsafe code.
+# This crate was already present through portable-pty.
+nix = { version = "0.28", features = ["dir", "fs", "poll", "signal", "socket"] }
 nucleo-matcher = "0.3"
 # CommonMark parsing for the email channel's HTML part. The agent answers in
 # markdown, and an email client renders HTML, so something has to translate;

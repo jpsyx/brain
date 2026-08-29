@@ -136,8 +136,7 @@ fn runtime_answer_cleanup_never_unlinks_a_replacement_after_quarantine_verificat
 
     crate::workspace::with_secure_remove_test_hook(
         move |boundary, relative| {
-            if boundary
-                == crate::workspace::SecureRemoveTestBoundary::AfterQuarantineIdentityVerified
+            if boundary == crate::workspace::SecureRemoveTestBoundary::QuarantineIdentityVerified
                 && relative == expected_relative
                 && hook_inode.get().is_none()
             {
@@ -180,6 +179,188 @@ fn runtime_answer_cleanup_never_unlinks_a_replacement_after_quarantine_verificat
         std::fs::symlink_metadata(&response)
             .is_ok_and(|metadata| metadata.ino() == replacement_inode),
         "runtime cleanup retry unlinked the replacement at the original leaf"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_answer_cleanup_recovers_an_artifact_after_interruption_during_quarantine() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let (temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer retained across cleanup interruption");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let opened_inode = std::fs::symlink_metadata(&response)
+        .expect("response metadata")
+        .ino();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::workspace::with_secure_remove_test_hook(
+            move |boundary, relative| {
+                if boundary
+                    == crate::workspace::SecureRemoveTestBoundary::QuarantineRenameBeforeVerification
+                    && relative == expected_relative
+                {
+                    panic!("simulated cleanup interruption");
+                }
+            },
+            || app.tick_receiver(),
+        );
+    }));
+
+    assert!(
+        interrupted.is_err(),
+        "cleanup interruption hook did not run"
+    );
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "interruption discarded runtime cleanup authority"
+    );
+    assert!(
+        !response.exists(),
+        "interrupted rename left the original leaf"
+    );
+    assert!(
+        quarantine_contains_inode(response.parent().expect("response directory"), opened_inode),
+        "interrupted rename did not retain the private artifact"
+    );
+    drop(app);
+
+    let cli = Cli::parse_from(["tasks"]);
+    let mut restarted = test_app(&temporary, &cli, AgentKind::Claude);
+    restarted.receiver.record_intent(true);
+    restarted
+        .brain
+        .replace_receiver_transport(TransportRecording::default().transport());
+    restarted.tick_receiver();
+
+    assert!(
+        !cleanup_authority_exists(&restarted, first.job_id()),
+        "recovered quarantine did not release runtime cleanup authority"
+    );
+    assert!(
+        !quarantine_contains_inode(response.parent().expect("response directory"), opened_inode),
+        "runtime retry orphaned the quarantined private artifact"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_answer_cleanup_blocks_reappeared_original_after_hardened_quarantine_interruption() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let (_temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer retained after hardened interruption");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let opened_inode = std::fs::symlink_metadata(&response)
+        .expect("response metadata")
+        .ino();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::workspace::with_secure_remove_test_hook(
+            move |boundary, relative| {
+                if boundary
+                    == crate::workspace::SecureRemoveTestBoundary::QuarantineIdentityVerified
+                    && relative == expected_relative
+                {
+                    panic!("simulated hardened cleanup interruption");
+                }
+            },
+            || app.tick_receiver(),
+        );
+    }));
+    assert!(
+        interrupted.is_err(),
+        "hardened interruption hook did not run"
+    );
+    std::fs::write(&response, "replacement private artifact")
+        .expect("reappear original response name");
+    let replacement_inode = std::fs::symlink_metadata(&response)
+        .expect("replacement metadata")
+        .ino();
+
+    app.tick_receiver();
+    app.tick_receiver();
+
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "reappeared original discarded runtime cleanup authority"
+    );
+    assert!(
+        std::fs::symlink_metadata(&response)
+            .is_ok_and(|metadata| metadata.ino() == replacement_inode),
+        "retry unlinked the reappeared original"
+    );
+    assert!(
+        quarantine_contains_inode(response.parent().expect("response directory"), opened_inode),
+        "retry deleted the hardened quarantined artifact"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_answer_cleanup_persistently_blocks_a_replacement_after_rename_reports_missing() {
+    use std::cell::Cell;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::rc::Rc;
+
+    let (_temporary, mut app, _db, first, _second, _transport) = answer_fixture();
+    let response = publish_valid_completion(&app, "answer retained during missing rename race");
+    app.receiver
+        .inject_cleanup_failure(crate::tui::receiver::ReceiverCleanupBoundary::Artifacts);
+    app.tick_receiver();
+    let expected_relative = std::path::PathBuf::from("responses")
+        .join(response.file_name().expect("response artifact file name"));
+    let replacement_inode = Rc::new(Cell::new(None));
+    let hook_inode = Rc::clone(&replacement_inode);
+    let hook_response = response.clone();
+
+    crate::workspace::with_secure_remove_test_hook(
+        move |boundary, relative| {
+            if relative != expected_relative {
+                return;
+            }
+            if boundary
+                == crate::workspace::SecureRemoveTestBoundary::EntryIdentityVerifiedBeforeRename
+            {
+                std::fs::remove_file(&hook_response).expect("remove response before rename");
+            } else if boundary
+                == crate::workspace::SecureRemoveTestBoundary::RenameMissingBeforeAbsenceCheck
+            {
+                std::fs::write(&hook_response, "replacement private artifact")
+                    .expect("replace response after missing rename");
+                hook_inode.set(Some(
+                    std::fs::symlink_metadata(&hook_response)
+                        .expect("replacement metadata")
+                        .ino(),
+                ));
+            }
+        },
+        || app.tick_receiver(),
+    );
+
+    let replacement_inode = replacement_inode.get().expect("replacement race hook ran");
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "missing rename race discarded runtime cleanup authority"
+    );
+    app.tick_receiver();
+    assert!(
+        cleanup_authority_exists(&app, first.job_id()),
+        "retry discarded fail-closed authority after missing rename"
+    );
+    assert!(
+        std::fs::symlink_metadata(&response)
+            .is_ok_and(|metadata| metadata.ino() == replacement_inode),
+        "retry unlinked the replacement after missing rename"
     );
 }
 

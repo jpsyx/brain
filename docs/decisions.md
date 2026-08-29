@@ -3136,14 +3136,20 @@ open the raw authorized absolute cache-parent path from the filesystem root,
 then walk the cache root and every descendant through no-follow directory
 descriptors. They open the target without following it, compare the held target
 with the parent-relative no-follow identity, and require a regular file. The
-leaf is atomically moved into a fresh UUIDv4 quarantine below the held parent,
-opened and verified again, then protected by mode `000` until the final
-descriptor-relative unlink. If the original name reappears or either identity
-differs, Brain retains the quarantined entry, installs a per-leaf blocked marker,
-and fails closed. This keeps substitution at any ancestor or the exact leaf from
-deleting an outside or replacement response or observation artifact. Failure
-preserves runtime cleanup authority, or aborts downgrade while schema v12
-remains intact. Exact-name absence is the only idempotent `ENOENT` case.
+leaf is atomically moved into a private quarantine below the held parent. The
+name carries a UUIDv5 tag of the raw leaf bytes and a UUIDv4 nonce, which is
+collision-resistant without disclosing the leaf and is rediscoverable after a
+crash. The moved entry is opened and verified again, then protected by mode
+`000` until the final descriptor-relative unlink. A retry duplicates the held
+parent descriptor, scans every entry, and recovers up to eight sorted
+matching quarantines before returning success. Malformed matching names, a
+ninth match, a nonempty recovery rescan, original-name reappearance (including
+after `renameat` reports `ENOENT`), or either identity differing installs a
+per-leaf blocked marker and fails closed. This keeps substitution at any
+ancestor or the exact leaf from deleting an outside or replacement response or
+observation artifact. Failure preserves runtime cleanup authority, or aborts
+downgrade while schema v12 remains intact. Exact-name absence is the only
+idempotent `ENOENT` case, and success means no matching quarantine remains.
 
 ## Freeze provider payloads before IO and classify ambiguity by provider
 

@@ -2263,10 +2263,15 @@ sibling so the two projects share a stack:
 - `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
   election mutex, avoiding unsafe platform calls while serializing exact owner
   reaping and parent-to-child adoption.
-- `nix` (`fs`, `poll`, `socket`): provides safe nonblocking Unix-socket setup,
-  readiness polling, and socket-error inspection for the shared control plane.
-  Stable `std` has no cancellable Unix-domain `connect`, so this small wrapper
-  enforces the total deadline without unsafe code or detached helper threads.
+- `nix` (`dir`, `fs`, `poll`, `signal`, `socket`): provides safe descriptor
+  iteration, filesystem operations, nonblocking Unix-socket setup, readiness
+  polling, and socket-error inspection. Cleanup recovery duplicates and
+  iterates its held parent descriptor, so a swapped parent path cannot redirect
+  discovery. The directory iterator rewinds the shared stream after every
+  complete scan, so the required recovery rescan also starts from the first
+  entry. Stable `std` does not expose that Unix directory stream or a
+  cancellable Unix-domain `connect`; enabling the existing crate's `dir`
+  feature avoids unsafe code and adds no dependency.
 - `notify` (8.x) — cross-platform filesystem observation for the **C4
   auto-sync watcher** (`src/sync/watch.rs`). Linux uses the recommended native
   backend. macOS uses notify's one-second `PollWatcher`, because FSEvents can
