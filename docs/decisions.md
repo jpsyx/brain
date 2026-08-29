@@ -2530,15 +2530,25 @@ recreated.
 
 The cutover migration is intentionally narrower than ordinary stale-file
 cleanup. It targets only the exact UUID-cache leaf, uses non-following metadata,
-requires matching owner and owner-only socket permissions, preserves a live
-singleton before probing, and uses only a deadline-bounded connection probe.
-After a refused stale probe, descriptor-relative quarantine closes the
-check-to-unlink race: the migration verifies device, inode, owner, type, and
+requires matching owner and owner-only socket permissions, and never connects
+to the legacy socket pathname. The sibling singleton is opened relative to the
+held parent with no-follow and nonblocking flags; only an owner-controlled
+regular file of at most 32 bytes is parsed. A live PID preserves the endpoint,
+while a symlink, FIFO, device, oversized file, malformed value, or read error is
+untrusted and therefore also preserves it.
+
+When no older singleton is live, descriptor-relative quarantine closes the
+check-to-unlink race. The migration verifies device, inode, owner, type, and
 mode before the rename and again through the quarantine descriptor before
-unlinking. A replacement raced into the leaf is quarantined and preserved
-fail-closed. Anything ambiguous is preserved. Downgrade is a no-op because the
-older binary owns creation of its endpoint, which keeps the migration
-idempotent in both directions without manufacturing old runtime state.
+unlinking. If the rename moved a raced replacement, an atomic no-overwrite hard
+link restores that socket at the exact legacy pathname before the quarantine
+link is removed. An interruption or a later leaf leaves the socket in its
+owner-only bound quarantine. Every subsequent migration invocation discovers
+at most eight such quarantines before inspecting the pathname, restores only
+into an absent exact name, and never overwrites a later leaf. Anything ambiguous
+is preserved. Downgrade is a no-op because the older binary owns creation of its
+endpoint, which keeps the migration idempotent in both directions without
+manufacturing old runtime state.
 
 ## Shared receiver admission with TUI-only execution
 

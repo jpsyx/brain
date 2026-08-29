@@ -2289,7 +2289,11 @@ sibling so the two projects share a stack:
   after moving the artifact and before any artifact unlink. After unlink,
   direct cleanup and recovery make one final no-follow observation through the
   held parent descriptor that the original leaf is absent before removing the
-  quarantine and reporting success.
+  quarantine and reporting success. Legacy socket cutover additionally uses
+  atomic no-overwrite `linkat` restoration so a raced socket returns to the
+  exact pathname, or stays durably quarantined until that name is absent. Its
+  sibling singleton proof uses a no-follow, nonblocking descriptor read capped
+  at 32 bytes, and never reopens the legacy socket for a connection probe.
   Stable `std` does not expose that Unix directory stream or a cancellable
   Unix-domain `connect`; enabling the existing crate's `dir` feature avoids
   unsafe code and adds no dependency.

@@ -1,9 +1,10 @@
 use std::fs;
 use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
+
+const MAX_LEGACY_SINGLETON_BYTES: usize = 32;
 
 pub(super) fn up(home: &Path) -> Result<()> {
     for path in legacy_socket_paths(home) {
@@ -37,17 +38,26 @@ fn legacy_socket_paths(home: &Path) -> Vec<PathBuf> {
 }
 
 fn remove_stale_owned_socket(path: &Path, home: &Path) -> Result<()> {
+    let Some((parent, owner_uid)) = verified_socket_parent(path, home)? else {
+        return Ok(());
+    };
+    let recovered =
+        crate::workspace::recover_socket_file_beneath(&parent, Path::new("jobs.sock"), owner_uid)
+            .context("recover legacy receiver endpoint")?;
+    if recovered {
+        return Ok(());
+    }
     let Some(observed) = socket_identity(path, home)? else {
         return Ok(());
     };
-    if legacy_endpoint_may_be_live(path) {
+    #[cfg(test)]
+    crate::workspace::observe_secure_remove_test_boundary(
+        crate::workspace::SecureRemoveTestBoundary::LegacySocketIdentityObservedBeforeLiveness,
+        Path::new("jobs.sock"),
+    );
+    if legacy_endpoint_may_be_live(&parent, observed.uid) {
         return Ok(());
     }
-    let parent = fs::canonicalize(
-        path.parent()
-            .context("resolve legacy receiver endpoint parent")?,
-    )
-    .context("resolve legacy receiver endpoint owner")?;
     crate::workspace::remove_socket_file_beneath(
         &parent,
         Path::new("jobs.sock"),
@@ -58,26 +68,63 @@ fn remove_stale_owned_socket(path: &Path, home: &Path) -> Result<()> {
     .context("unlink stale legacy receiver endpoint")
 }
 
-fn legacy_endpoint_may_be_live(path: &Path) -> bool {
-    if legacy_tui_is_live(path) {
-        return true;
+fn verified_socket_parent(path: &Path, home: &Path) -> Result<Option<(PathBuf, u32)>> {
+    let Some(parent) = path.parent() else {
+        return Ok(None);
+    };
+    let metadata = match fs::symlink_metadata(parent) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("inspect legacy receiver endpoint owner"),
+    };
+    let owner_uid = fs::metadata(home).context("inspect migration owner")?.uid();
+    if !metadata.file_type().is_dir()
+        || metadata.uid() != owner_uid
+        || metadata.permissions().mode() & 0o022 != 0
+    {
+        return Ok(None);
     }
-    let deadline = Instant::now() + Duration::from_millis(25);
-    match crate::server::control::connect::connect_until(path, deadline) {
-        Ok(_) => true,
-        Err(error) => !error.chain().any(|cause| {
-            cause
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
-        }),
+    let parent = fs::canonicalize(parent).context("resolve legacy receiver endpoint owner")?;
+    Ok(Some((parent, owner_uid)))
+}
+
+fn legacy_endpoint_may_be_live(parent: &Path, expected_uid: u32) -> bool {
+    !matches!(
+        legacy_tui_status(parent, expected_uid),
+        LegacyTuiStatus::Inactive
+    )
+}
+
+fn legacy_tui_status(parent: &Path, expected_uid: u32) -> LegacyTuiStatus {
+    let singleton = crate::workspace::read_small_owned_regular_file_beneath(
+        parent,
+        Path::new("tui.lock"),
+        expected_uid,
+        MAX_LEGACY_SINGLETON_BYTES,
+    );
+    let contents = match singleton {
+        Ok(Some(contents)) => contents,
+        Ok(None) => return LegacyTuiStatus::Inactive,
+        Err(_) => return LegacyTuiStatus::Untrusted,
+    };
+    let Some(pid) = std::str::from_utf8(&contents)
+        .ok()
+        .and_then(|contents| contents.trim().parse::<u32>().ok())
+    else {
+        return LegacyTuiStatus::Untrusted;
+    };
+    if pid > 0 && crate::server::lifecycle::pid_alive(pid) {
+        LegacyTuiStatus::Live
+    } else {
+        LegacyTuiStatus::Inactive
     }
 }
 
-fn legacy_tui_is_live(path: &Path) -> bool {
-    path.parent()
-        .and_then(|parent| fs::read_to_string(parent.join("tui.lock")).ok())
-        .and_then(|pid| pid.trim().parse::<u32>().ok())
-        .is_some_and(crate::server::lifecycle::pid_alive)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LegacyTuiStatus {
+    Live,
+    Inactive,
+    Untrusted,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -123,11 +170,15 @@ fn socket_identity(path: &Path, home: &Path) -> Result<Option<SocketIdentity>> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
     use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::{Duration, Instant};
+
+    use nix::sys::stat::Mode;
+    use nix::unistd::mkfifo;
 
     use super::remove_stale_owned_socket;
     use crate::workspace::{SecureRemoveTestBoundary, with_secure_remove_test_hook};
@@ -137,21 +188,6 @@ mod tests {
         drop(UnixListener::bind(path).expect("stale socket"));
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .expect("owner-only socket");
-    }
-
-    fn socket_leaves_beneath(path: &Path) -> usize {
-        let Ok(entries) = std::fs::read_dir(path) else {
-            return 0;
-        };
-        entries
-            .flatten()
-            .map(|entry| {
-                let path = entry.path();
-                let is_socket = std::fs::symlink_metadata(&path)
-                    .is_ok_and(|metadata| metadata.file_type().is_socket());
-                usize::from(is_socket) + socket_leaves_beneath(&path)
-            })
-            .sum()
     }
 
     #[test]
@@ -182,12 +218,93 @@ mod tests {
         );
 
         assert!(result.is_err(), "replacement race must fail closed");
-        assert_eq!(
-            socket_leaves_beneath(&parent),
-            1,
-            "replacement socket was unlinked"
+        assert!(
+            std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_socket()),
+            "replacement socket did not remain at jobs.sock"
         );
         assert!(replacement.lock().expect("replacement owner").is_some());
+    }
+
+    #[test]
+    fn restart_restores_an_interrupted_replacement_to_jobs_sock() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let replacement = Arc::new(Mutex::new(None));
+        let held = Arc::clone(&replacement);
+        let replaced_path = path.clone();
+
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_secure_remove_test_hook(
+                move |boundary, _| match boundary {
+                    SecureRemoveTestBoundary::EntryIdentityVerifiedBeforeRename => {
+                        std::fs::remove_file(&replaced_path).expect("retire observed socket");
+                        let listener =
+                            UnixListener::bind(&replaced_path).expect("replacement socket");
+                        std::fs::set_permissions(
+                            &replaced_path,
+                            std::fs::Permissions::from_mode(0o600),
+                        )
+                        .expect("owner-only replacement");
+                        *held.lock().expect("replacement owner") = Some(listener);
+                    }
+                    SecureRemoveTestBoundary::QuarantineRenameBeforeVerification => {
+                        panic!("simulated process interruption after quarantine rename");
+                    }
+                    _ => {}
+                },
+                || remove_stale_owned_socket(&path, &home),
+            )
+        }));
+        assert!(interrupted.is_err(), "test did not interrupt quarantine");
+        assert!(
+            std::fs::symlink_metadata(&path).is_err(),
+            "interruption did not expose the missing-path recovery case"
+        );
+
+        let restarted = remove_stale_owned_socket(&path, &home);
+
+        assert!(restarted.is_ok(), "restart recovery failed: {restarted:?}");
+        assert!(
+            std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_socket()),
+            "restart did not restore the replacement to jobs.sock"
+        );
+        assert!(replacement.lock().expect("replacement owner").is_some());
+    }
+
+    #[test]
+    fn restart_recovers_an_interrupted_empty_socket_quarantine() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_secure_remove_test_hook(
+                |boundary, _| {
+                    assert_ne!(
+                        boundary,
+                        SecureRemoveTestBoundary::QuarantineCreatedBeforeOpen,
+                        "simulated process interruption after quarantine creation"
+                    );
+                },
+                || remove_stale_owned_socket(&path, &home),
+            )
+        }));
+        assert!(interrupted.is_err(), "test did not interrupt quarantine");
+        assert!(
+            path.exists(),
+            "interruption unexpectedly removed the stale socket"
+        );
+
+        let restarted = remove_stale_owned_socket(&path, &home);
+
+        assert!(restarted.is_ok(), "restart recovery failed: {restarted:?}");
+        assert!(
+            !path.exists(),
+            "restart did not resume stale socket removal"
+        );
     }
 
     #[test]
@@ -230,5 +347,147 @@ mod tests {
             "legacy socket probe exceeded its bounded budget"
         );
         assert!(path.exists(), "an uncertain live listener was removed");
+    }
+
+    #[test]
+    fn a_fifo_singleton_never_blocks_or_authorizes_socket_removal() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let singleton = path.parent().expect("socket parent").join("tui.lock");
+        mkfifo(&singleton, Mode::from_bits_truncate(0o600)).expect("singleton fifo");
+        let worker_path = path.clone();
+        let worker_home = home;
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = remove_stale_owned_socket(&worker_path, &worker_home);
+            finished_tx.send(result).expect("publish migration result");
+        });
+
+        let bounded = finished_rx.recv_timeout(Duration::from_millis(250));
+        if bounded.is_err() {
+            let mut writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&singleton)
+                .expect("unblock unsafe fifo reader");
+            writer
+                .write_all(std::process::id().to_string().as_bytes())
+                .expect("unblock contents");
+        }
+        worker.join().expect("migration worker");
+
+        let result = bounded.expect("singleton inspection exceeded its bounded budget");
+        assert!(
+            result.is_ok(),
+            "invalid singleton inspection failed startup"
+        );
+        assert!(path.exists(), "invalid singleton authorized socket removal");
+    }
+
+    #[test]
+    fn a_symlink_singleton_never_follows_a_blocking_target() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let target = home.join("blocking-target");
+        mkfifo(&target, Mode::from_bits_truncate(0o600)).expect("target fifo");
+        std::os::unix::fs::symlink(
+            &target,
+            path.parent().expect("socket parent").join("tui.lock"),
+        )
+        .expect("singleton symlink");
+        let worker_path = path.clone();
+        let worker_home = home;
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = remove_stale_owned_socket(&worker_path, &worker_home);
+            finished_tx.send(result).expect("publish migration result");
+        });
+
+        let bounded = finished_rx.recv_timeout(Duration::from_millis(250));
+        if bounded.is_err() {
+            let mut writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&target)
+                .expect("unblock followed symlink target");
+            writer
+                .write_all(std::process::id().to_string().as_bytes())
+                .expect("unblock contents");
+        }
+        worker.join().expect("migration worker");
+
+        let result = bounded.expect("singleton symlink was followed past the bounded budget");
+        assert!(
+            result.is_ok(),
+            "symlink singleton inspection failed startup"
+        );
+        assert!(path.exists(), "symlink singleton authorized socket removal");
+    }
+
+    #[test]
+    fn an_oversized_singleton_never_authorizes_socket_removal() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        std::fs::write(
+            path.parent().expect("socket parent").join("tui.lock"),
+            vec![b'1'; 33],
+        )
+        .expect("oversized singleton");
+
+        let result = remove_stale_owned_socket(&path, &home);
+
+        assert!(
+            result.is_ok(),
+            "oversized singleton inspection failed startup"
+        );
+        assert!(
+            path.exists(),
+            "oversized singleton authorized socket removal"
+        );
+    }
+
+    #[test]
+    fn liveness_probe_never_follows_a_raced_socket_symlink() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let target = home.join("target.sock");
+        let listener = UnixListener::bind(&target).expect("symlink target listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking target listener");
+        let raced_path = path.clone();
+        let raced_target = target;
+
+        let result = with_secure_remove_test_hook(
+            move |boundary, _| {
+                if boundary == SecureRemoveTestBoundary::LegacySocketIdentityObservedBeforeLiveness
+                {
+                    std::fs::remove_file(&raced_path).expect("retire observed socket");
+                    std::os::unix::fs::symlink(&raced_target, &raced_path)
+                        .expect("raced socket symlink");
+                }
+            },
+            || remove_stale_owned_socket(&path, &home),
+        );
+
+        assert!(result.is_ok(), "raced symlink inspection failed startup");
+        assert!(
+            std::fs::symlink_metadata(&path)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink()),
+            "raced symlink was removed"
+        );
+        let accept = listener.accept();
+        assert!(
+            accept
+                .as_ref()
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::WouldBlock),
+            "liveness probe followed the raced socket symlink"
+        );
     }
 }

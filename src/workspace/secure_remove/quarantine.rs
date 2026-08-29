@@ -7,7 +7,7 @@ use nix::{
     errno::Errno,
     fcntl::{AtFlags, openat},
     sys::stat::{FchmodatFlags, Mode, SFlag, fchmod, fchmodat, fstat, fstatat, mkdirat},
-    unistd::{UnlinkatFlags, dup, unlinkat},
+    unistd::{UnlinkatFlags, dup, linkat, unlinkat},
 };
 
 #[cfg(test)]
@@ -97,6 +97,100 @@ pub(super) fn recover_bound_quarantines(
         Ok(false) => Ok(false),
         Err(error) => Err(error),
     }
+}
+
+pub(super) fn recover_socket_quarantines(
+    parent: &OwnedDescriptor,
+    target: &std::ffi::OsStr,
+    expected_uid: u32,
+) -> std::io::Result<bool> {
+    let names = discover_bound_quarantines(parent, target)?;
+    let mut restored = false;
+    for bound in names {
+        restored |= recover_one_socket(parent, target, expected_uid, bound)?;
+    }
+    if !discover_bound_quarantines(parent, target)?.is_empty() {
+        mark_cleanup_blocked(parent, target)?;
+        return Err(identity_changed());
+    }
+    Ok(restored)
+}
+
+fn recover_one_socket(
+    parent: &OwnedDescriptor,
+    target: &std::ffi::OsStr,
+    expected_uid: u32,
+    bound: BoundQuarantine,
+) -> std::io::Result<bool> {
+    let descriptor = open_verified_quarantine(parent, &bound.name)?;
+    let mut quarantine = Quarantine {
+        name: bound.name,
+        descriptor,
+        phase: bound.phase,
+    };
+    let artifact = match fstatat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(artifact) => artifact,
+        Err(Errno::ENOENT) => {
+            remove_empty_quarantine(parent, &quarantine)?;
+            return Ok(false);
+        }
+        Err(error) => return Err(io_error(error)),
+    };
+    if !SFlag::from_bits_truncate(artifact.st_mode).contains(SFlag::S_IFSOCK)
+        || artifact.st_uid != expected_uid
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
+    if let Err(error) = promote_quarantine(parent, &mut quarantine) {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(error);
+    }
+    match fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) if entry.st_dev == artifact.st_dev && entry.st_ino == artifact.st_ino => {}
+        Ok(_) => {
+            fail_closed(parent, target, &quarantine)?;
+            return Err(identity_changed());
+        }
+        Err(Errno::ENOENT) => linkat(
+            Some(quarantine.descriptor.raw()),
+            Path::new("artifact"),
+            Some(parent.raw()),
+            Path::new(target),
+            AtFlags::empty(),
+        )
+        .map_err(io_error)?,
+        Err(error) => return Err(io_error(error)),
+    }
+    let restored = fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
+    if restored.st_dev != artifact.st_dev
+        || restored.st_ino != artifact.st_ino
+        || !SFlag::from_bits_truncate(restored.st_mode).contains(SFlag::S_IFSOCK)
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
+    unlinkat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        UnlinkatFlags::NoRemoveDir,
+    )
+    .map_err(io_error)?;
+    remove_empty_quarantine(parent, &quarantine)?;
+    Ok(true)
 }
 
 fn discover_bound_quarantines(

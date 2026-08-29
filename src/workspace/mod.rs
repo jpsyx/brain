@@ -43,11 +43,16 @@ pub use requirements::{
     RequirementStatus, format_requirements, requirements,
 };
 #[cfg(all(test, unix))]
+pub(crate) use secure_remove::observe_secure_remove_test_boundary;
+#[cfg(all(test, unix))]
 pub(crate) use secure_remove::{
     SecureRemoveTestBoundary, with_secure_remove_test_hook,
     with_unsupported_recovery_nofollow_chmod,
 };
-pub(crate) use secure_remove::{remove_regular_file_beneath, remove_socket_file_beneath};
+pub(crate) use secure_remove::{
+    read_small_owned_regular_file_beneath, recover_socket_file_beneath,
+    remove_regular_file_beneath, remove_socket_file_beneath,
+};
 pub use selector::{STRICT_ENV, WORKSPACE_ENV, suggest};
 
 #[cfg(test)]

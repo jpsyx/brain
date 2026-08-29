@@ -333,10 +333,15 @@ current diagnostic-log destination.
 
 The former legacy receiver socket is not part of `WorkspacePaths` or live lease
 state. The automatic 0.86.2 cutover may remove only its exact stale,
-owner-controlled Unix socket leaf. It preserves live or ambiguous endpoints and
-removes a proved stale identity only after descriptor-relative quarantine and
-post-rename identity verification. The cutover does not introduce a new schema
-field or change state-database schema v13.
+owner-controlled Unix socket leaf. It reads only a bounded, regular,
+owner-controlled sibling singleton through a no-follow descriptor and never
+connects through the legacy socket pathname. It preserves live or ambiguous
+endpoints and removes a proved stale identity only after descriptor-relative
+quarantine and post-rename identity verification. If a raced replacement is
+moved, no-overwrite link restoration keeps or recovers that socket at the exact
+legacy name without replacing a later leaf. Bound quarantine recovery runs
+before missing-leaf reconciliation on later startups. The cutover does not
+introduce a new schema field or change state-database schema v13.
 
 Machine startup migrations have one separate version record:
 `$XDG_CONFIG_HOME/brain/migrations/version`, falling back to

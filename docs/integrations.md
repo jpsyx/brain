@@ -800,12 +800,21 @@ restoration, and final singleton release. Startup passes one owned
 
 The 0.86.2 automatic cutover migration examines only the exact legacy socket
 leaf below each validated workspace UUID cache. It uses non-following metadata,
-requires an owner-controlled directory and owner-only Unix socket, preserves a
-live singleton without probing, and gives every fallback connection probe a
-deadline. After a definitive refused stale probe, it moves the observed leaf
-with a descriptor-relative rename into an owner-only quarantine, then rechecks
-device, inode, owner, type, and mode through that descriptor before unlinking.
-Symlinks, regular files, raced replacements, and unknown probe failures are
+requires an owner-controlled directory and owner-only Unix socket, and never
+connects to that pathname. It opens the sibling singleton descriptor-relative
+with no-follow and nonblocking flags and accepts only an owner-controlled
+regular file of at most 32 bytes. A live PID preserves the endpoint; nonregular,
+oversized, malformed, raced, or unreadable singleton evidence is untrusted and
+also preserves it.
+
+After proving there is no live older singleton, the migration moves the
+observed socket with a descriptor-relative rename into an owner-only quarantine
+and rechecks device, inode, owner, type, and mode through that descriptor before
+unlinking. A raced replacement is restored to the exact legacy pathname with an
+atomic no-overwrite hard link. Interrupted or temporarily blocked restoration
+is retried from the bounded quarantine inventory on every ordinary invocation,
+before a missing pathname can short-circuit migration. A later leaf is never
+overwritten. Symlinks, regular files, replacements, and ambiguous evidence are
 preserved fail-closed. Its explicit downgrade is an idempotent no-op; an older
 binary creates its own endpoint when it starts.
 

@@ -1343,7 +1343,19 @@ artifacts are rediscovered after restart, runtime and downgrade retain authority
 matching artifact is gone, unsafe retries remain persistently blocked, and
 exact-name absence is idempotent. Malformed matching quarantine names and more
 than eight matches prove bounded discovery fails closed without deleting private
-data. The
+data.
+
+The legacy-socket cutover suite has separate deterministic seams before its
+liveness decision and after its quarantine rename. It proves a raced socket
+replacement remains at the exact legacy pathname, an interrupted moved
+replacement and an interrupted empty quarantine recover on restart, and a
+raced socket symlink receives no connection. FIFO and symlink singletons must
+finish within the test budget, while FIFO, symlink, and 33-byte singleton leaves
+all preserve the socket as untrusted. The process-level migration fixture gives
+a retained older listener its matching live singleton, rather than treating a
+listener alone as older-TUI authority.
+
+The
 receiver privacy policy
 recursively discovers authenticated HTTP, provider, state, App, and App-service
 Task 3 suites. Its identifier-aware assertion scan tracks local aliases and

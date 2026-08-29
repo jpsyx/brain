@@ -52,6 +52,11 @@ fn ordinary_startup_preserves_live_socket_symlink_and_regular_file_leaves() {
                 let listener = UnixListener::bind(&socket).expect("live legacy socket");
                 std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600))
                     .expect("legacy owner-only permissions");
+                std::fs::write(
+                    socket.parent().expect("legacy socket parent").join("tui.lock"),
+                    std::process::id().to_string(),
+                )
+                .expect("live legacy singleton");
                 Some(listener)
             }
             "symlink" => {

@@ -5,6 +5,8 @@ use std::path::Path;
 #[cfg(unix)]
 mod quarantine;
 #[cfg(unix)]
+mod small_file;
+#[cfg(unix)]
 mod socket;
 #[cfg(all(test, unix))]
 mod test_seam;
@@ -12,17 +14,23 @@ mod test_seam;
 #[cfg(unix)]
 use quarantine::{
     blocked_cleanup_marker_exists, create_quarantine, fail_closed, mark_cleanup_blocked,
-    promote_quarantine, recover_bound_quarantines, remove_empty_quarantine,
+    promote_quarantine, recover_bound_quarantines, recover_socket_quarantines,
+    remove_empty_quarantine,
 };
 #[cfg(unix)]
-pub(crate) use socket::remove_socket_file_beneath;
+pub(crate) use small_file::read_small_owned_regular_file_beneath;
+#[cfg(unix)]
+pub(crate) use socket::{recover_socket_file_beneath, remove_socket_file_beneath};
+#[cfg(all(test, unix))]
+use test_seam::recovery_nofollow_chmod_unsupported;
 #[cfg(all(test, unix))]
 pub(crate) use test_seam::{
-    SecureRemoveTestBoundary, with_secure_remove_test_hook,
-    with_unsupported_recovery_nofollow_chmod,
+    SecureRemoveTestBoundary, observe_test_boundary as observe_secure_remove_test_boundary,
+    with_secure_remove_test_hook, with_unsupported_recovery_nofollow_chmod,
 };
+
 #[cfg(all(test, unix))]
-use test_seam::{observe_test_boundary, recovery_nofollow_chmod_unsupported};
+use test_seam::observe_test_boundary;
 
 #[cfg(all(not(test), unix))]
 fn observe_test_boundary(_relative: &Path) {}

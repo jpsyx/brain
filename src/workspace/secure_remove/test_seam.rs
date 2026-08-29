@@ -2,6 +2,7 @@ use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SecureRemoveTestBoundary {
+    LegacySocketIdentityObservedBeforeLiveness,
     OpenBeforeEntryStat,
     EntryIdentityVerifiedBeforeRename,
     QuarantineCreatedBeforeOpen,
