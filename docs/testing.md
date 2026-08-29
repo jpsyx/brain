@@ -1343,13 +1343,17 @@ artifacts are rediscovered after restart, runtime and downgrade retain authority
 matching artifact is gone, unsafe retries remain persistently blocked, and
 exact-name absence is idempotent. Malformed matching quarantine names and more
 than eight matches prove bounded discovery fails closed without deleting private
-data.
+data. Unrelated-entry pressure proves each discovery visits at most 256 total
+directory entries rather than bounding only matches.
 
 The legacy-socket cutover suite has separate deterministic seams before its
 liveness decision and after its quarantine rename. It proves a raced socket
-replacement remains at the exact legacy pathname, an interrupted moved
-replacement and an interrupted empty quarantine recover on restart, and a
-raced socket symlink receives no connection. FIFO and symlink singletons must
+replacement remains at the exact legacy pathname, including when a later leaf
+wins after immediate or restart restoration. Both post-link cases remove that
+later leaf on the next simulated restart and prove the retained quarantine
+authority restores the original socket inode automatically. An interrupted
+moved replacement and an interrupted empty quarantine recover on restart, and
+a raced socket symlink receives no connection. FIFO and symlink singletons must
 finish within the test budget, while FIFO, symlink, and 33-byte singleton leaves
 all preserve the socket as untrusted. The process-level migration fixture gives
 a retained older listener its matching live singleton, rather than treating a

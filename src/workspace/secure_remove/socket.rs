@@ -160,6 +160,12 @@ fn restore_quarantined_socket(
     name: &std::ffi::OsStr,
     quarantine: &Quarantine,
 ) -> std::io::Result<()> {
+    let authority = fstatat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
     if let Err(error) = linkat(
         Some(quarantine.descriptor.raw()),
         Path::new("artifact"),
@@ -170,13 +176,22 @@ fn restore_quarantined_socket(
         fail_closed(parent, name, quarantine)?;
         return Err(io_error(error));
     }
-    unlinkat(
-        Some(quarantine.descriptor.raw()),
-        Path::new("artifact"),
-        UnlinkatFlags::NoRemoveDir,
+    #[cfg(test)]
+    super::observe_test_boundary(
+        super::SecureRemoveTestBoundary::SocketRestoredBeforeAuthorityRetention,
+        Path::new(name),
+    );
+    let restored = fstatat(
+        Some(parent.raw()),
+        Path::new(name),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
     )
     .map_err(io_error)?;
-    remove_empty_quarantine(parent, quarantine)
+    if restored.st_dev != authority.st_dev || restored.st_ino != authority.st_ino {
+        fail_closed(parent, name, quarantine)?;
+        return Err(identity_changed());
+    }
+    Ok(())
 }
 
 #[expect(

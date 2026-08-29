@@ -9,6 +9,8 @@ pub(crate) enum SecureRemoveTestBoundary {
     QuarantineRenameBeforeVerification,
     QuarantinePromotedBeforeArtifactVerification,
     QuarantineIdentityVerified,
+    SocketRestoredBeforeAuthorityRetention,
+    QuarantineDirectoryEntryVisited,
     QuarantineArtifactUnlinkedBeforeDirectoryRemoval,
     RenameMissingBeforeAbsenceCheck,
 }

@@ -2276,9 +2276,10 @@ sibling so the two projects share a stack:
   iteration, filesystem operations, nonblocking Unix-socket setup, readiness
   polling, and socket-error inspection. Cleanup recovery duplicates and
   iterates its held parent descriptor, so a swapped parent path cannot redirect
-  discovery. The directory iterator rewinds the shared stream after every
-  complete scan, so the required recovery rescan also starts from the first
-  entry. Quarantine recovery validates directory type and ownership without
+  discovery. Each scan visits at most 256 directory entries, including
+  unrelated entries, and fails closed at that fence. A recovery rescan starts
+  from the first entry. Quarantine recovery validates directory type and
+  ownership without
   following links, opens no-follow when permissions allow, and changes mode
   through the verified descriptor. If a restrictive umask made a newly created
   quarantine unopenable, recovery first uses portable flags-zero `fchmodat`
@@ -2291,7 +2292,11 @@ sibling so the two projects share a stack:
   held parent descriptor that the original leaf is absent before removing the
   quarantine and reporting success. Legacy socket cutover additionally uses
   atomic no-overwrite `linkat` restoration so a raced socket returns to the
-  exact pathname, or stays durably quarantined until that name is absent. Its
+  exact pathname without replacing a later leaf. Once restoration is needed,
+  Brain retains the owner-only quarantine hard link as durable recovery
+  authority instead of trying to prove safety with a later pathname check. It
+  relinks from that authority whenever the exact name becomes absent and never
+  unlinks the authority during automatic migration. Its
   sibling singleton proof uses a no-follow, nonblocking descriptor read capped
   at 32 bytes, and never reopens the legacy socket for a connection probe.
   Stable `std` does not expose that Unix directory stream or a cancellable

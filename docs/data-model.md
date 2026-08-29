@@ -339,8 +339,11 @@ connects through the legacy socket pathname. It preserves live or ambiguous
 endpoints and removes a proved stale identity only after descriptor-relative
 quarantine and post-rename identity verification. If a raced replacement is
 moved, no-overwrite link restoration keeps or recovers that socket at the exact
-legacy name without replacing a later leaf. Bound quarantine recovery runs
-before missing-leaf reconciliation on later startups. The cutover does not
+legacy name without replacing a later leaf. The quarantine link remains as
+durable recovery authority after restoration, so a post-link replacement cannot
+orphan the moved socket. Bound recovery runs before missing-leaf reconciliation
+on later startups, visits at most 256 total parent entries, and retains at most
+eight matching authorities per successful recovery pass. The cutover does not
 introduce a new schema field or change state-database schema v13.
 
 Machine startup migrations have one separate version record:

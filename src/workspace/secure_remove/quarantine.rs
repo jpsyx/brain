@@ -19,6 +19,7 @@ use super::{
 use phase::{BoundQuarantine, QuarantinePhase, parse_bound_name, pending_name};
 
 const MAX_BOUND_QUARANTINES: usize = 8;
+const MAX_DIRECTORY_ENTRY_VISITS: usize = 256;
 
 pub(super) struct Quarantine {
     pub(super) name: OsString,
@@ -109,10 +110,6 @@ pub(super) fn recover_socket_quarantines(
     for bound in names {
         restored |= recover_one_socket(parent, target, expected_uid, bound)?;
     }
-    if !discover_bound_quarantines(parent, target)?.is_empty() {
-        mark_cleanup_blocked(parent, target)?;
-        return Err(identity_changed());
-    }
     Ok(restored)
 }
 
@@ -183,13 +180,24 @@ fn recover_one_socket(
         fail_closed(parent, target, &quarantine)?;
         return Err(identity_changed());
     }
-    unlinkat(
-        Some(quarantine.descriptor.raw()),
-        Path::new("artifact"),
-        UnlinkatFlags::NoRemoveDir,
+    #[cfg(test)]
+    super::observe_test_boundary(
+        super::SecureRemoveTestBoundary::SocketRestoredBeforeAuthorityRetention,
+        Path::new(target),
+    );
+    let final_entry = fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
     )
     .map_err(io_error)?;
-    remove_empty_quarantine(parent, &quarantine)?;
+    if final_entry.st_dev != artifact.st_dev
+        || final_entry.st_ino != artifact.st_ino
+        || !SFlag::from_bits_truncate(final_entry.st_mode).contains(SFlag::S_IFSOCK)
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
     Ok(true)
 }
 
@@ -201,8 +209,19 @@ fn discover_bound_quarantines(
     let duplicate = dup(parent.raw()).map_err(io_error)?;
     let mut directory = Dir::from_fd(duplicate).map_err(io_error)?;
     let mut names = Vec::new();
+    let mut visited = 0;
     for entry in directory.iter() {
         let entry = entry.map_err(io_error)?;
+        visited += 1;
+        #[cfg(test)]
+        super::observe_test_boundary(
+            super::SecureRemoveTestBoundary::QuarantineDirectoryEntryVisited,
+            Path::new(target),
+        );
+        if visited == MAX_DIRECTORY_ENTRY_VISITS {
+            mark_cleanup_blocked(parent, target)?;
+            return Err(identity_changed());
+        }
         let bytes = entry.file_name().to_bytes();
         if !bytes.starts_with(prefix.as_bytes()) {
             continue;

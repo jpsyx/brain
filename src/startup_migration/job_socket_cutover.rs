@@ -171,10 +171,14 @@ fn socket_identity(path: &Path, home: &Path) -> Result<Option<SocketIdentity>> {
 #[cfg(test)]
 mod tests {
     use std::io::Write as _;
-    use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
+    use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _, PermissionsExt as _};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        mpsc,
+    };
     use std::time::{Duration, Instant};
 
     use nix::sys::stat::Mode;
@@ -188,6 +192,210 @@ mod tests {
         drop(UnixListener::bind(path).expect("stale socket"));
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .expect("owner-only socket");
+    }
+
+    fn replace_with_listener(path: &Path) -> (UnixListener, u64) {
+        let listener = UnixListener::bind(path).expect("replacement socket");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .expect("owner-only replacement");
+        let inode = std::fs::symlink_metadata(path)
+            .expect("replacement metadata")
+            .ino();
+        (listener, inode)
+    }
+
+    #[test]
+    fn immediate_restore_retains_authority_when_a_later_leaf_wins_the_race() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let replacement = Arc::new(Mutex::new(None));
+        let later = Arc::new(Mutex::new(None));
+        let replacement_inode = Arc::new(AtomicU64::new(0));
+        let later_inode = Arc::new(AtomicU64::new(0));
+        let held_replacement = Arc::clone(&replacement);
+        let held_later = Arc::clone(&later);
+        let recorded_replacement_inode = Arc::clone(&replacement_inode);
+        let recorded_later_inode = Arc::clone(&later_inode);
+        let raced_path = path.clone();
+
+        let result = with_secure_remove_test_hook(
+            move |boundary, _| match boundary {
+                SecureRemoveTestBoundary::EntryIdentityVerifiedBeforeRename => {
+                    std::fs::remove_file(&raced_path).expect("retire observed socket");
+                    let (listener, inode) = replace_with_listener(&raced_path);
+                    recorded_replacement_inode.store(inode, Ordering::SeqCst);
+                    *held_replacement.lock().expect("replacement owner") = Some(listener);
+                }
+                SecureRemoveTestBoundary::SocketRestoredBeforeAuthorityRetention => {
+                    std::fs::remove_file(&raced_path).expect("race restored socket");
+                    let (listener, inode) = replace_with_listener(&raced_path);
+                    recorded_later_inode.store(inode, Ordering::SeqCst);
+                    *held_later.lock().expect("later owner") = Some(listener);
+                }
+                _ => {}
+            },
+            || remove_stale_owned_socket(&path, &home),
+        );
+
+        assert!(result.is_err(), "replacement race must fail closed");
+        assert_eq!(
+            std::fs::symlink_metadata(&path)
+                .expect("later socket metadata")
+                .ino(),
+            later_inode.load(Ordering::SeqCst),
+            "the later leaf did not remain at jobs.sock"
+        );
+        drop(later.lock().expect("later owner").take());
+        std::fs::remove_file(&path).expect("retire later leaf");
+
+        let restarted = remove_stale_owned_socket(&path, &home);
+
+        assert!(restarted.is_ok(), "restart recovery failed: {restarted:?}");
+        assert_eq!(
+            std::fs::symlink_metadata(&path)
+                .expect("recovered socket metadata")
+                .ino(),
+            replacement_inode.load(Ordering::SeqCst),
+            "restart did not restore the quarantined socket authority"
+        );
+    }
+
+    #[test]
+    fn restart_restore_retains_authority_when_a_later_leaf_wins_the_race() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let path = home.join("cache/jobs.sock");
+        bind_stale(&path);
+        let replacement = Arc::new(Mutex::new(None));
+        let replacement_inode = Arc::new(AtomicU64::new(0));
+        let held_replacement = Arc::clone(&replacement);
+        let recorded_replacement_inode = Arc::clone(&replacement_inode);
+        let raced_path = path.clone();
+
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_secure_remove_test_hook(
+                move |boundary, _| match boundary {
+                    SecureRemoveTestBoundary::EntryIdentityVerifiedBeforeRename => {
+                        std::fs::remove_file(&raced_path).expect("retire observed socket");
+                        let (listener, inode) = replace_with_listener(&raced_path);
+                        recorded_replacement_inode.store(inode, Ordering::SeqCst);
+                        *held_replacement.lock().expect("replacement owner") = Some(listener);
+                    }
+                    SecureRemoveTestBoundary::QuarantineRenameBeforeVerification => {
+                        panic!("simulated process interruption after quarantine rename");
+                    }
+                    _ => {}
+                },
+                || remove_stale_owned_socket(&path, &home),
+            )
+        }));
+        assert!(interrupted.is_err(), "test did not interrupt quarantine");
+
+        let later = Arc::new(Mutex::new(None));
+        let later_inode = Arc::new(AtomicU64::new(0));
+        let held_later = Arc::clone(&later);
+        let recorded_later_inode = Arc::clone(&later_inode);
+        let raced_path = path.clone();
+        let restarted = with_secure_remove_test_hook(
+            move |boundary, _| {
+                if boundary == SecureRemoveTestBoundary::SocketRestoredBeforeAuthorityRetention {
+                    std::fs::remove_file(&raced_path).expect("race restored socket");
+                    let (listener, inode) = replace_with_listener(&raced_path);
+                    recorded_later_inode.store(inode, Ordering::SeqCst);
+                    *held_later.lock().expect("later owner") = Some(listener);
+                }
+            },
+            || remove_stale_owned_socket(&path, &home),
+        );
+
+        assert!(
+            restarted.is_err(),
+            "post-link replacement must fail closed: {restarted:?}"
+        );
+        assert_eq!(
+            std::fs::symlink_metadata(&path)
+                .expect("later socket metadata")
+                .ino(),
+            later_inode.load(Ordering::SeqCst),
+            "the later leaf did not remain at jobs.sock"
+        );
+        drop(later.lock().expect("later owner").take());
+        std::fs::remove_file(&path).expect("retire later leaf");
+
+        let recovered = remove_stale_owned_socket(&path, &home);
+
+        assert!(recovered.is_ok(), "second restart failed: {recovered:?}");
+        assert_eq!(
+            std::fs::symlink_metadata(&path)
+                .expect("recovered socket metadata")
+                .ino(),
+            replacement_inode.load(Ordering::SeqCst),
+            "restart recovery discarded the quarantined socket authority"
+        );
+    }
+
+    #[test]
+    fn socket_quarantine_discovery_has_a_total_directory_entry_budget() {
+        const DIRECTORY_ENTRY_VISIT_LIMIT: usize = 256;
+
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let parent = home.join("cache");
+        let path = parent.join("jobs.sock");
+        bind_stale(&path);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_secure_remove_test_hook(
+                |boundary, _| {
+                    assert_ne!(
+                        boundary,
+                        SecureRemoveTestBoundary::QuarantineRenameBeforeVerification,
+                        "simulated process interruption after quarantine rename"
+                    );
+                },
+                || remove_stale_owned_socket(&path, &home),
+            )
+        }));
+        assert!(interrupted.is_err(), "test did not interrupt quarantine");
+        let unrelated = (0..DIRECTORY_ENTRY_VISIT_LIMIT + 32)
+            .map(|index| parent.join(format!("unrelated-{index:03}")))
+            .collect::<Vec<_>>();
+        for entry in &unrelated {
+            std::fs::write(entry, b"unrelated").expect("unrelated cache entry");
+        }
+        let visited = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&visited);
+
+        let bounded = with_secure_remove_test_hook(
+            move |boundary, _| {
+                if boundary == SecureRemoveTestBoundary::QuarantineDirectoryEntryVisited {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                }
+            },
+            || remove_stale_owned_socket(&path, &home),
+        );
+
+        assert!(bounded.is_err(), "directory pressure must fail closed");
+        assert!(
+            visited.load(Ordering::SeqCst) <= DIRECTORY_ENTRY_VISIT_LIMIT,
+            "quarantine discovery exceeded its total entry budget"
+        );
+        assert!(!path.exists(), "bounded scan mutated the exact socket leaf");
+        for entry in unrelated {
+            std::fs::remove_file(entry).expect("remove unrelated cache entry");
+        }
+
+        let recovered = remove_stale_owned_socket(&path, &home);
+
+        assert!(
+            recovered.is_ok(),
+            "recovery after pressure failed: {recovered:?}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_socket()),
+            "restart did not recover the quarantined socket after pressure cleared"
+        );
     }
 
     #[test]

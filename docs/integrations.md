@@ -811,12 +811,17 @@ After proving there is no live older singleton, the migration moves the
 observed socket with a descriptor-relative rename into an owner-only quarantine
 and rechecks device, inode, owner, type, and mode through that descriptor before
 unlinking. A raced replacement is restored to the exact legacy pathname with an
-atomic no-overwrite hard link. Interrupted or temporarily blocked restoration
-is retried from the bounded quarantine inventory on every ordinary invocation,
-before a missing pathname can short-circuit migration. A later leaf is never
-overwritten. Symlinks, regular files, replacements, and ambiguous evidence are
-preserved fail-closed. Its explicit downgrade is an idempotent no-op; an older
-binary creates its own endpoint when it starts.
+atomic no-overwrite hard link. The quarantine link then remains as durable
+recovery authority because no later pathname observation can prove that an
+uncooperative writer will not replace the restored name. Interrupted,
+post-link-raced, or temporarily blocked restoration is retried from the bounded
+quarantine inventory on every ordinary invocation, before a missing pathname
+can short-circuit migration. Discovery visits at most 256 total parent entries,
+not merely eight matching entries; pressure at that fence fails closed without
+mutation and recovery resumes automatically after the pressure clears. A later
+leaf is never overwritten. Symlinks, regular files, replacements, and ambiguous
+evidence are preserved fail-closed. Its explicit downgrade is an idempotent
+no-op; an older binary creates its own endpoint when it starts.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done
@@ -1545,7 +1550,7 @@ that case Brain uses flags-zero `fchmodat` relative to the held parent, opens
 the directory no-follow, and revalidates device, inode, type, and owner. This
 portable recovery does not require path-based no-follow chmod. Before ordinary
 removal, a retry duplicates the held
-parent descriptor and completely scans that descriptor for matching
+parent descriptor and scans at most 256 total entries for matching
 quarantines. It recovers at most eight sorted matches, opens each directory
 no-follow, compares that descriptor with the parent-relative identity and
 owner, and applies later mode correction through the verified descriptor. An
@@ -1555,9 +1560,10 @@ descriptor after the artifact move and before any artifact unlink, validating
 the held inode on both sides. Recovery promotes pending artifacts before
 unlink. A pending empty directory can be removed and retried; an active or
 legacy empty directory plus original-name reappearance fails closed.
-A malformed match, a ninth match, or any match remaining after the recovery
-rescan fails closed. A final no-follow inode check immediately before unlink
-rejects an observable replacement of the quarantine entry.
+A malformed match, a ninth match, reaching the total-entry fence, or any match
+remaining after the recovery rescan fails closed. A final no-follow inode check
+immediately before unlink rejects an observable replacement of the quarantine
+entry.
 A replacement at the original leaf is never unlinked. Any observed identity
 mismatch, original-name reappearance before the final success fence (including
 after `renameat` reports `ENOENT`), or ambiguous recovery leaves the quarantine

@@ -2541,14 +2541,18 @@ When no older singleton is live, descriptor-relative quarantine closes the
 check-to-unlink race. The migration verifies device, inode, owner, type, and
 mode before the rename and again through the quarantine descriptor before
 unlinking. If the rename moved a raced replacement, an atomic no-overwrite hard
-link restores that socket at the exact legacy pathname before the quarantine
-link is removed. An interruption or a later leaf leaves the socket in its
-owner-only bound quarantine. Every subsequent migration invocation discovers
-at most eight such quarantines before inspecting the pathname, restores only
-into an absent exact name, and never overwrites a later leaf. Anything ambiguous
-is preserved. Downgrade is a no-op because the older binary owns creation of its
-endpoint, which keeps the migration idempotent in both directions without
-manufacturing old runtime state.
+link restores that socket at the exact legacy pathname. Brain retains the
+quarantine link after restoration because a check followed by unlink cannot
+prove safety against an uncooperative writer. The retained owner-only link is
+durable recovery authority: later invocations recognize the same exact inode,
+restore it only into an absent name, or preserve both it and a later leaf.
+Automatic migration never removes that authority. Discovery visits at most 256
+total parent entries and accepts at most eight matching quarantines. Reaching
+either fence fails closed without mutation; recovery resumes when directory
+pressure or the later leaf clears. Anything ambiguous is preserved. Downgrade
+is a no-op because the older binary owns creation of its endpoint, which keeps
+the migration idempotent in both directions without manufacturing old runtime
+state.
 
 ## Shared receiver admission with TUI-only execution
 
@@ -3183,10 +3187,10 @@ any artifact unlink. Recovery promotes a pending directory that contains an
 artifact before unlinking it. A pending empty directory proves interruption
 before the move and can be removed before normal cleanup continues. An active
 or legacy empty directory with a reappeared original name blocks instead of
-deleting the replacement. Recovery
-handles up to eight sorted matching quarantines before returning success.
-Malformed matching names, a
-ninth match, a nonempty recovery rescan, original-name reappearance observed
+deleting the replacement. Recovery visits at most 256 total directory entries
+and handles up to eight sorted matching quarantines before returning success.
+Malformed matching names, a ninth match, the total-entry fence, a nonempty
+recovery rescan, original-name reappearance observed
 before the final success fence (including after `renameat` reports `ENOENT`),
 or either identity differing installs a per-leaf blocked marker and fails
 closed. This keeps substitution at any
