@@ -390,12 +390,15 @@ fn termination_flag() -> Result<Arc<AtomicBool>> {
 }
 
 fn append_log(paths: &ServerPaths, message: &str) {
+    let line = format!("{} {message}\n", chrono::Utc::now().to_rfc3339());
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
         .append(true)
         .open(paths.log())
+        && fs2::FileExt::lock_exclusive(&file).is_ok()
     {
-        let _ = writeln!(file, "{} {message}", chrono::Utc::now().to_rfc3339());
+        let _ = file.write_all(line.as_bytes());
+        let _ = fs2::FileExt::unlock(&file);
     }
 }
 
@@ -412,3 +415,53 @@ fn append_event_log_to(paths: &ServerPaths, message: &str) {
 
 #[cfg(test)]
 mod retry_tests;
+
+#[cfg(test)]
+mod append_log_tests {
+    use std::sync::{Arc, Barrier};
+
+    use super::*;
+
+    #[test]
+    fn concurrent_lifecycle_writers_append_only_complete_lines() {
+        const WRITERS: usize = 16;
+        const LINES_PER_WRITER: usize = 64;
+
+        let temporary = tempfile::tempdir().expect("temporary server log");
+        let paths = ServerPaths::from_directory(temporary.path().to_path_buf());
+        let barrier = Arc::new(Barrier::new(WRITERS));
+        let workers = (0..WRITERS)
+            .map(|writer| {
+                let paths = paths.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for line in 0..LINES_PER_WRITER {
+                        append_log(
+                            &paths,
+                            &format!(
+                                "writer={writer:02} line={line:03} payload={}",
+                                "x".repeat(8 * 1024)
+                            ),
+                        );
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("concurrent log writer");
+        }
+
+        let contents = fs::read_to_string(paths.log()).expect("shared lifecycle log");
+        let lines = contents.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), WRITERS * LINES_PER_WRITER);
+        for line in lines {
+            assert!(
+                line.matches("writer=").count() == 1
+                    && line.matches(" payload=").count() == 1
+                    && line.ends_with(&"x".repeat(8 * 1024)),
+                "shared lifecycle log contains a fragmented line"
+            );
+        }
+    }
+}

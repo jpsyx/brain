@@ -97,6 +97,23 @@ fn every_receiver_reachable_agent_input_and_activity_operation_is_rejected() {
 }
 
 #[test]
+fn newly_introduced_receiver_reachable_agent_controller_method_fails_closed() {
+    let fixture = rust_fixture(&[
+        ("lib.rs", "mod receiver;\n"),
+        (
+            "receiver.rs",
+            "pub fn dispatch(controller: &mut crate::agent::controller::AgentController) { controller.new_typed_operation(); }\n",
+        ),
+    ]);
+
+    assert_violation(
+        fixture.path(),
+        "unclassified AgentController operation",
+        "new typed AgentController method",
+    );
+}
+
+#[test]
 fn every_receiver_reachable_main_or_selected_panel_operation_is_rejected() {
     for (operation, invocation, expected) in [
         (

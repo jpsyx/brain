@@ -6,25 +6,26 @@ use super::*;
 
 use crate::state::{ReceiverJobState, ReceiverNonterminalObservationPhase, ReceiverObservation};
 
-pub(super) fn assert_reconstructs_and_advances(phase: RestartPhase) {
+pub(super) fn assert_reconstructs_and_advances(phase: RestartPhase, departure: Departure) {
     match phase {
         RestartPhase::Queued | RestartPhase::Claimed | RestartPhase::Launching => {
-            assert_pre_spawn_reconstruction(phase);
+            assert_pre_spawn_reconstruction(phase, departure);
         }
         RestartPhase::Launched | RestartPhase::Accepted | RestartPhase::Processing => {
-            assert_post_spawn_reconstruction(phase);
+            assert_post_spawn_reconstruction(phase, departure);
         }
         RestartPhase::Failed | RestartPhase::Done => {
-            assert_terminal_reconstruction(phase);
+            assert_terminal_reconstruction(phase, departure);
         }
         _ => unreachable!("agent reconstruction received a delivery phase"),
     }
 }
 
-fn assert_pre_spawn_reconstruction(phase: RestartPhase) {
+fn assert_pre_spawn_reconstruction(phase: RestartPhase, departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut origin = test_app(&temporary, &cli, AgentKind::Claude);
+    let generic = Departure::install_generic_controller(&mut origin);
     origin.receiver.record_intent(true);
     let clock = ReceiverClock::at_unix_ms(1_000);
     origin
@@ -49,6 +50,17 @@ fn assert_pre_spawn_reconstruction(phase: RestartPhase) {
         clock.advance(std::time::Duration::from_secs(2));
     }
 
+    departure.leave(&mut origin, &generic, phase);
+    assert_eq!(
+        job_state(&db, first.job_id()),
+        match phase {
+            RestartPhase::Queued => ReceiverJobState::Queued,
+            RestartPhase::Claimed => ReceiverJobState::Claimed,
+            RestartPhase::Launching => ReceiverJobState::Launching,
+            _ => unreachable!("pre-spawn immediate outcome received another phase"),
+        },
+        "{phase:?} orderly shutdown changed the immediate durable phase"
+    );
     drop(db);
     drop(origin);
     let (mut restarted, _transport) = reconstructed_app(&temporary, &clock);
@@ -69,10 +81,11 @@ fn assert_pre_spawn_reconstruction(phase: RestartPhase) {
     );
 }
 
-fn assert_post_spawn_reconstruction(phase: RestartPhase) {
+fn assert_post_spawn_reconstruction(phase: RestartPhase, departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut origin = test_app(&temporary, &cli, AgentKind::Claude);
+    let generic = Departure::install_generic_controller(&mut origin);
     origin.receiver.record_intent(true);
     let clock = ReceiverClock::at_unix_ms(10_000);
     origin
@@ -153,6 +166,17 @@ fn assert_post_spawn_reconstruction(phase: RestartPhase) {
         .expect("mark origin process dead");
     clock.advance(std::time::Duration::from_secs(10 * 60));
 
+    departure.leave(&mut origin, &generic, phase);
+    assert!(
+        job_state(&db, first.job_id())
+            == match phase {
+                RestartPhase::Launched => ReceiverJobState::Launched,
+                RestartPhase::Accepted => ReceiverJobState::Accepted,
+                RestartPhase::Processing => ReceiverJobState::Processing,
+                _ => unreachable!("post-spawn immediate outcome received another phase"),
+            },
+        "{phase:?} orderly shutdown changed the immediate durable phase"
+    );
     drop(db);
     drop(origin);
     let (mut restarted, transport) = reconstructed_app(&temporary, &clock);
@@ -174,10 +198,11 @@ fn assert_post_spawn_reconstruction(phase: RestartPhase) {
     );
 }
 
-fn assert_terminal_reconstruction(phase: RestartPhase) {
+fn assert_terminal_reconstruction(phase: RestartPhase, departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
-    let origin = test_app(&temporary, &cli, AgentKind::Claude);
+    let mut origin = test_app(&temporary, &cli, AgentKind::Claude);
+    let generic = Departure::install_generic_controller(&mut origin);
     let db = Db::open(origin.context.workspace()).expect("origin state DB");
     let private_inbound = "private terminal inbound must not replay";
     let first = accept_email_job(&origin, &db, private_inbound, 100);
@@ -195,6 +220,11 @@ fn assert_terminal_reconstruction(phase: RestartPhase) {
             rusqlite::params![state, first.job_id().to_string()],
         )
         .expect("seed terminal phase");
+    departure.leave(&mut origin, &generic, phase);
+    assert!(
+        job_state(&db, first.job_id()) == expected,
+        "{phase:?} orderly shutdown changed terminal authority"
+    );
     drop(db);
     drop(origin);
 

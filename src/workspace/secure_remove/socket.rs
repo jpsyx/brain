@@ -4,38 +4,66 @@ use std::path::Path;
 
 use nix::errno::Errno;
 use nix::fcntl::{AtFlags, renameat};
-use nix::sys::stat::{SFlag, fstat, fstatat};
+use nix::sys::stat::{SFlag, fstatat};
 use nix::unistd::{UnlinkatFlags, linkat, unlinkat};
 
 use super::quarantine::Quarantine;
 use super::{
-    create_quarantine, exact_name_is_absent, fail_closed, identity_changed, io_error,
-    open_absolute_directory, promote_quarantine, recover_socket_quarantines,
-    remove_empty_quarantine,
+    VerifiedDirectory, create_quarantine, exact_name_is_absent, fail_closed, identity_changed,
+    io_error, promote_quarantine, recover_socket_quarantines, remove_empty_quarantine,
 };
 
-pub(crate) fn recover_socket_file_beneath(
-    root: &Path,
-    relative: &Path,
-    expected_uid: u32,
-) -> std::io::Result<bool> {
-    let name = exact_leaf(relative)?;
-    let parent = verified_parent(root, expected_uid)?;
-    recover_socket_quarantines(&parent, name, expected_uid)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SocketFileIdentity {
+    device: u64,
+    inode: u64,
+    uid: u32,
 }
 
-pub(crate) fn remove_socket_file_beneath(
-    root: &Path,
+pub(crate) fn recover_socket_file_in(
+    parent: &VerifiedDirectory,
     relative: &Path,
-    expected_device: u64,
-    expected_inode: u64,
-    expected_uid: u32,
+) -> std::io::Result<bool> {
+    let name = exact_leaf(relative)?;
+    recover_socket_quarantines(parent.descriptor(), name, parent.owner_uid())
+}
+
+pub(crate) fn socket_file_identity_in(
+    parent: &VerifiedDirectory,
+    relative: &Path,
+) -> std::io::Result<Option<SocketFileIdentity>> {
+    let name = exact_leaf(relative)?;
+    let entry = match fstatat(
+        Some(parent.descriptor().raw()),
+        Path::new(name),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) => entry,
+        Err(Errno::ENOENT) => return Ok(None),
+        Err(error) => return Err(io_error(error)),
+    };
+    if !SFlag::from_bits_truncate(entry.st_mode).contains(SFlag::S_IFSOCK)
+        || entry.st_uid != parent.owner_uid()
+        || entry.st_mode & 0o077 != 0
+    {
+        return Ok(None);
+    }
+    Ok(Some(SocketFileIdentity {
+        device: device_value(entry.st_dev),
+        inode: entry.st_ino,
+        uid: entry.st_uid,
+    }))
+}
+
+pub(crate) fn remove_socket_file_in(
+    parent: &VerifiedDirectory,
+    relative: &Path,
+    expected: SocketFileIdentity,
 ) -> std::io::Result<()> {
     let name = exact_leaf(relative)?;
-    let parent = verified_parent(root, expected_uid)?;
-    recover_socket_quarantines(&parent, name, expected_uid)?;
+    recover_socket_quarantines(parent.descriptor(), name, parent.owner_uid())?;
     let entry = match fstatat(
-        Some(parent.raw()),
+        Some(parent.descriptor().raw()),
         Path::new(name),
         AtFlags::AT_SYMLINK_NOFOLLOW,
     ) {
@@ -43,16 +71,16 @@ pub(crate) fn remove_socket_file_beneath(
         Err(Errno::ENOENT) => return Ok(()),
         Err(error) => return Err(io_error(error)),
     };
-    if !matches_socket(entry, expected_device, expected_inode, expected_uid) {
+    if !matches_socket(entry, expected.device, expected.inode, expected.uid) {
         return Ok(());
     }
     remove_verified_socket(
-        &parent,
+        parent.descriptor(),
         relative,
         name,
-        expected_device,
-        expected_inode,
-        expected_uid,
+        expected.device,
+        expected.inode,
+        expected.uid,
     )
 }
 
@@ -65,18 +93,6 @@ fn exact_leaf(relative: &Path) -> std::io::Result<&std::ffi::OsStr> {
         return Err(identity_changed());
     }
     Ok(name)
-}
-
-fn verified_parent(root: &Path, expected_uid: u32) -> std::io::Result<super::OwnedDescriptor> {
-    let parent = open_absolute_directory(root)?;
-    let parent_stat = fstat(parent.raw()).map_err(io_error)?;
-    if !SFlag::from_bits_truncate(parent_stat.st_mode).contains(SFlag::S_IFDIR)
-        || parent_stat.st_uid != expected_uid
-        || parent_stat.st_mode & 0o022 != 0
-    {
-        return Err(identity_changed());
-    }
-    Ok(parent)
 }
 
 fn remove_verified_socket(
@@ -213,10 +229,20 @@ fn matches_socket(
 
 #[cfg(target_os = "macos")]
 fn device_matches(actual: nix::libc::dev_t, expected: u64) -> bool {
-    u64::from(u32::from_ne_bytes(actual.to_ne_bytes())) == expected
+    device_value(actual) == expected
 }
 
 #[cfg(not(target_os = "macos"))]
 fn device_matches(actual: nix::libc::dev_t, expected: u64) -> bool {
     actual == expected
+}
+
+#[cfg(target_os = "macos")]
+fn device_value(actual: nix::libc::dev_t) -> u64 {
+    u64::from(u32::from_ne_bytes(actual.to_ne_bytes()))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn device_value(actual: nix::libc::dev_t) -> u64 {
+    actual
 }

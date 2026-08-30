@@ -18,9 +18,9 @@ use quarantine::{
     remove_empty_quarantine,
 };
 #[cfg(unix)]
-pub(crate) use small_file::read_small_owned_regular_file_beneath;
+pub(crate) use small_file::read_small_owned_regular_file_in;
 #[cfg(unix)]
-pub(crate) use socket::{recover_socket_file_beneath, remove_socket_file_beneath};
+pub(crate) use socket::{recover_socket_file_in, remove_socket_file_in, socket_file_identity_in};
 #[cfg(all(test, unix))]
 use test_seam::recovery_nofollow_chmod_unsupported;
 #[cfg(all(test, unix))]
@@ -61,6 +61,74 @@ impl Drop for OwnedDescriptor {
     fn drop(&mut self) {
         let _ = close(self.0);
     }
+}
+
+#[cfg(unix)]
+pub(crate) struct VerifiedDirectory {
+    descriptor: OwnedDescriptor,
+    owner_uid: u32,
+}
+
+#[cfg(unix)]
+impl VerifiedDirectory {
+    const fn descriptor(&self) -> &OwnedDescriptor {
+        &self.descriptor
+    }
+
+    const fn owner_uid(&self) -> u32 {
+        self.owner_uid
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn open_verified_owned_directory_beneath(
+    root: &Path,
+    relative: &Path,
+    expected_uid: u32,
+) -> std::io::Result<Option<VerifiedDirectory>> {
+    if !root.is_absolute() {
+        return Err(invalid_path());
+    }
+    let mut descriptor = match open(root, directory_flags(), Mode::empty()) {
+        Ok(descriptor) => OwnedDescriptor(descriptor),
+        Err(Errno::ENOENT | Errno::ELOOP | Errno::ENOTDIR) => {
+            return Ok(None);
+        }
+        Err(error) => return Err(io_error(error)),
+    };
+    for component in relative.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(invalid_path());
+        };
+        descriptor = match open_directory_at(&descriptor, name) {
+            Ok(descriptor) => descriptor,
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(code) if code == Errno::ENOENT as i32
+                        || code == Errno::ELOOP as i32
+                        || code == Errno::ENOTDIR as i32
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+    }
+    let metadata = match fstat(descriptor.raw()) {
+        Ok(metadata) => metadata,
+        Err(error) => return Err(io_error(error)),
+    };
+    if !SFlag::from_bits_truncate(metadata.st_mode).contains(SFlag::S_IFDIR)
+        || metadata.st_uid != expected_uid
+        || metadata.st_mode & 0o022 != 0
+    {
+        return Ok(None);
+    }
+    Ok(Some(VerifiedDirectory {
+        descriptor,
+        owner_uid: expected_uid,
+    }))
 }
 
 #[cfg(unix)]

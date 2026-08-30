@@ -52,20 +52,36 @@ pub(in crate::state::receiver::schema) fn finish_v13_cutover(
         } else {
             crate::state::ReceiverDeliveryState::Ready
         };
-        let inserted = super::super::super::store::response_intent::insert_with_state(
-            connection,
-            job_id,
-            token,
+        let inserted = crate::state::render_receiver_delivery(
             &inbound,
             crate::state::ReceiverResponseKind::UnavailableNotice,
+            &inbound.response_sender,
             &notice.text,
-            delivery_state,
-            observed,
-        );
+        )
+        .map_err(anyhow::Error::new)
+        .and_then(|expected_envelope| {
+            super::super::super::store::response_intent::insert_with_state(
+                connection,
+                job_id,
+                token,
+                &inbound,
+                crate::state::ReceiverResponseKind::UnavailableNotice,
+                &notice.text,
+                delivery_state,
+                observed,
+            )
+            .map(|inserted| (inserted, expected_envelope))
+        });
         match inserted {
-            Ok(inserted) => {
+            Ok((inserted, expected_envelope)) => {
                 if !inserted {
-                    ensure_expected_delivery(connection, &job_id, &token, delivery_state)?;
+                    ensure_expected_delivery(
+                        connection,
+                        &job_id,
+                        &token,
+                        delivery_state,
+                        &expected_envelope,
+                    )?;
                 }
                 let changed = connection.execute(
                     "UPDATE receiver_jobs
@@ -123,19 +139,31 @@ fn ensure_expected_delivery(
     job_id: &crate::state::ReceiverJobId,
     token: &crate::state::ReceiverJobToken,
     expected: crate::state::ReceiverDeliveryState,
+    expected_envelope: &crate::state::ReceiverDeliveryEnvelope,
 ) -> Result<()> {
-    let state = connection
+    let stored = connection
         .query_row(
-            "SELECT state FROM receiver_deliveries
+            "SELECT state, envelope_json FROM receiver_deliveries
              WHERE job_id = ?1 AND job_token = ?2
                AND response_kind = 'unavailable-notice'",
             rusqlite::params![job_id.to_string(), token.to_string()],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?;
+    let exact = stored
+        .map(|(state, envelope_json)| {
+            let envelope: crate::state::ReceiverDeliveryEnvelope =
+                serde_json::from_str(&envelope_json).map_err(|_| {
+                    anyhow::anyhow!(
+                        "receiver v13 cutover found invalid unavailable-notice delivery envelope"
+                    )
+                })?;
+            Ok::<bool, anyhow::Error>(state == expected.as_str() && envelope == *expected_envelope)
+        })
+        .transpose()?;
     anyhow::ensure!(
-        state.as_deref() == Some(expected.as_str()),
-        "receiver v13 cutover found conflicting unavailable-notice delivery state"
+        exact == Some(true),
+        "receiver v13 cutover found conflicting unavailable-notice delivery state or envelope"
     );
     Ok(())
 }

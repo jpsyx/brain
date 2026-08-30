@@ -2538,8 +2538,12 @@ recreated.
 The cutover migration is intentionally narrower than ordinary stale-file
 cleanup. It targets only the exact UUID-cache leaf, uses non-following metadata,
 requires matching owner and owner-only socket permissions, and never connects
-to the legacy socket pathname. The sibling singleton is opened relative to the
-held parent with no-follow and nonblocking flags; only an owner-controlled
+to the legacy socket pathname. The cache hierarchy is opened
+descriptor-relative with no-follow, and the validated socket-parent descriptor
+is retained across quarantine recovery, liveness inspection, and removal.
+Replacing the parent pathname therefore cannot redirect any cutover operation.
+The sibling singleton is opened relative to the held parent with no-follow and
+nonblocking flags; only an owner-controlled
 regular file of at most 32 bytes is parsed. A live PID preserves the endpoint,
 while a symlink, FIFO, device, oversized file, malformed value, or read error is
 untrusted and therefore also preserves it.
@@ -5290,7 +5294,10 @@ prevent another send.
 Legacy pending-notice conversion has the same error boundary as same-version
 repair. Only the typed deterministic render or authorization error may clear the
 pending bit and record `notice-no-authorized-destination`; storage failures abort
-the transaction so the exact source can retry without notice loss.
+the transaction so the exact source can retry without notice loss. An existing
+semantic delivery is idempotent only when its typed immutable envelope and state
+exactly equal that render. Invalid serialization and valid-but-different content
+both abort without clearing legacy authority.
 
 ## Why unavailable-notice cleanup gating belongs on the outbox row
 

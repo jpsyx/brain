@@ -609,7 +609,9 @@ One machine-wide process stores its infrastructure below
 `~/.cache/brain/server/`: `process.json`, `control.sock`, `election.lock`, and
 `server.log`. `process.json` is generation-tagged and contains only PID, port,
 generation UUID, and start time. It carries no selected workspace or portable
-payload. A starter must atomically own the election lock, and the hidden
+payload. Lifecycle writers coordinate on the append-only file and submit each
+fully rendered log line with one write, preventing concurrent processes from
+splicing partial records. A starter must atomically own the election lock, and the hidden
 `brain server run --generation <uuid> --port <port>` loop validates that token
 before binding. An advisory lock on the shared server directory serializes
 exact observed-owner reaping and parent-to-child token adoption; the parent
@@ -801,11 +803,14 @@ restoration, and final singleton release. Startup passes one owned
 `AppInit` request, and the resulting `App` retains no borrowed launch data.
 
 The 0.86.2 automatic cutover migration examines only the exact legacy socket
-leaf below each validated workspace UUID cache. It uses non-following metadata,
-requires an owner-controlled directory and owner-only Unix socket, and never
-connects to that pathname. It opens the sibling singleton descriptor-relative
-with no-follow and nonblocking flags and accepts only an owner-controlled
-regular file of at most 32 bytes. A live PID preserves the endpoint; nonregular,
+leaf below each validated workspace UUID cache. It opens and validates the cache
+hierarchy descriptor-relative with no-follow, then retains the exact validated
+parent descriptor across bounded recovery, singleton liveness inspection, and
+socket removal. A parent-path replacement cannot redirect the cutover. It
+requires an owner-only Unix socket and never connects to that pathname. It opens
+the sibling singleton descriptor-relative with no-follow and nonblocking flags
+and accepts only an owner-controlled regular file of at most 32 bytes. A live
+PID preserves the endpoint; nonregular,
 oversized, malformed, raced, or unreadable singleton evidence is untrusted and
 also preserves it.
 
@@ -1376,7 +1381,10 @@ its cleanup effect. A remaining exact cleanup tuple makes that response
 `cleanup-gated`; exact cleanup acknowledgement promotes it to `ready` in the
 same immediate transaction that clears the fence. Upgrade converts v12 pending
 rows by that rule, then rebuilds `receiver_jobs` without the pending bit or two
-notice-claim columns. Downgrade reserves an immediate writer before mutable
+notice-claim columns. If an interrupted upgrade finds the semantic row already
+present, its state and deserialized immutable envelope must exactly equal the
+deterministic render; malformed or valid-but-different envelopes abort while the
+legacy pending authority remains. Downgrade reserves an immediate writer before mutable
 schema inspection, reconstructs v12 pending state for gated rows, retains
 representable delivery state without agent replay, and rebuilds the exact v12
 contracts atomically.

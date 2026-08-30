@@ -2,22 +2,31 @@ use super::receiver_durable_support::{ReceiverClock, accept_email_job, publish_v
 use super::*;
 
 use crate::state::{ReceiverAttemptKind, ReceiverJobState, ReceiverNonterminalObservationPhase};
+use crate::tui::app_brain::tests::receiver_durable_reconstruction_matrix::departure::Departure;
 
 #[test]
 fn every_frontend_reconstructs_then_recovers_through_the_controller_facade() {
-    assert_reconstructed_frontend_recovery_matrix();
+    assert_reconstructed_frontend_recovery_matrix(
+        super::receiver_durable_reconstruction_matrix::departure::Departure::Crash,
+    );
 }
 
-pub(super) fn assert_reconstructed_frontend_recovery_matrix() {
+pub(super) fn assert_reconstructed_frontend_recovery_matrix(
+    departure: super::receiver_durable_reconstruction_matrix::departure::Departure,
+) {
     for kind in AgentKind::ALL {
-        assert_frontend_recovery_lifecycle(kind);
+        assert_frontend_recovery_lifecycle(kind, departure);
     }
 }
 
-fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
+fn assert_frontend_recovery_lifecycle(
+    kind: AgentKind,
+    departure: super::receiver_durable_reconstruction_matrix::departure::Departure,
+) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, kind);
+    let generic = Departure::install_generic_controller(&mut app);
     app.receiver.record_intent(true);
     let clock = ReceiverClock::new();
     app.services
@@ -88,6 +97,19 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     let codex_override = (kind == AgentKind::Codex)
         .then(|| crate::agent::override_codex_sessions_dir_for_test(&codex_sessions_dir));
     let later = accept_email_job(&app, &db, "later reconstruction work", 200);
+    departure.leave(
+        &mut app,
+        &generic,
+        super::receiver_durable_reconstruction_matrix::RestartPhase::Recovery,
+    );
+    assert!(
+        db.receiver_job(stalled.job_id())
+            .expect("load orderly recovery source")
+            .expect("orderly recovery source")
+            .state()
+            == ReceiverJobState::Processing,
+        "{kind:?} orderly shutdown changed the immediate durable recovery phase"
+    );
     rusqlite::Connection::open(app.context.state_db_path())
         .expect("dead-origin fixture connection")
         .execute(
@@ -143,8 +165,11 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     );
     assert_eq!(
         ordinary_transport.shutdowns(),
-        0,
-        "{kind:?} reconstruction depended on the departed controller"
+        usize::from(
+            departure
+                == super::receiver_durable_reconstruction_matrix::departure::Departure::Orderly
+        ),
+        "{kind:?} departure used the wrong controller shutdown path"
     );
     let specifications = recovery_transport.launch_specs();
     assert_eq!(specifications.len(), 1, "{kind:?}");

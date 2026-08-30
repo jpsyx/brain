@@ -146,7 +146,14 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
             "start_new_session" => Some("interactive AgentController start_new_session"),
             "forward_terminal_input" => Some("interactive AgentController forward_terminal_input"),
             "snapshot" | "terminal_screen" => Some("interactive AgentController activity sample"),
-            _ => None,
+            "configured_with_command"
+            | "ensure_available"
+            | "kind"
+            | "launch"
+            | "new"
+            | "resume_candidate_exists"
+            | "shutdown" => None,
+            _ => Some("unclassified AgentController operation"),
         };
     }
     if owner.app || owner.brain_panel {

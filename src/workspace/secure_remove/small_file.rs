@@ -7,23 +7,16 @@ use nix::fcntl::{AtFlags, openat};
 use nix::sys::stat::{SFlag, fstat, fstatat};
 use nix::unistd::read;
 
-use super::{OwnedDescriptor, file_flags, identity_changed, io_error, open_absolute_directory};
+use super::{OwnedDescriptor, VerifiedDirectory, file_flags, identity_changed, io_error};
 
-pub(crate) fn read_small_owned_regular_file_beneath(
-    root: &Path,
+pub(crate) fn read_small_owned_regular_file_in(
+    parent: &VerifiedDirectory,
     relative: &Path,
-    expected_uid: u32,
     max_bytes: usize,
 ) -> std::io::Result<Option<Vec<u8>>> {
     let name = exact_leaf(relative)?;
-    let parent = open_absolute_directory(root)?;
-    let parent_stat = fstat(parent.raw()).map_err(io_error)?;
-    if !SFlag::from_bits_truncate(parent_stat.st_mode).contains(SFlag::S_IFDIR)
-        || parent_stat.st_uid != expected_uid
-        || parent_stat.st_mode & 0o022 != 0
-    {
-        return Err(identity_changed());
-    }
+    let expected_uid = parent.owner_uid();
+    let parent = parent.descriptor();
     let descriptor = match openat(
         Some(parent.raw()),
         Path::new(name),
@@ -38,7 +31,7 @@ pub(crate) fn read_small_owned_regular_file_beneath(
     if !matches_owned_regular(opened, expected_uid, max_bytes) {
         return Err(identity_changed());
     }
-    verify_entry(&parent, name, opened, expected_uid)?;
+    verify_entry(parent, name, opened, expected_uid)?;
     let mut contents = vec![0_u8; max_bytes.checked_add(1).ok_or_else(identity_changed)?];
     let mut used = 0;
     while used < contents.len() {
@@ -56,7 +49,7 @@ pub(crate) fn read_small_owned_regular_file_beneath(
     if held.st_dev != opened.st_dev || held.st_ino != opened.st_ino {
         return Err(identity_changed());
     }
-    verify_entry(&parent, name, held, expected_uid)?;
+    verify_entry(parent, name, held, expected_uid)?;
     contents.truncate(used);
     Ok(Some(contents))
 }

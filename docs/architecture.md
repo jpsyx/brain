@@ -545,7 +545,10 @@ terminalization now inserts the immutable unavailable response in its source
 transaction, using `cleanup-gated` only while an exact cleanup tuple remains.
 The exact cleanup acknowledgement promotes that row to `ready`. Upgrade maps
 v12 pending rows by the same rule and rebuilds `receiver_jobs` without the
-pending bit or its writer lease. Downgrade takes an immediate writer before
+pending bit or its writer lease. An interrupted upgrade accepts an existing row
+only when its typed immutable envelope and state exactly equal the deterministic
+render; decode failures and valid-but-different envelopes roll back with the
+legacy authority intact. Downgrade takes an immediate writer before
 schema inspection, reconstructs exact v12 pending state for gated rows, retains
 representable outbox rows, and rebuilds both table contracts atomically.
 The version stamp lives at
@@ -2011,7 +2014,8 @@ consumer, or agent launcher.
   mutex contention only while the exact parent token remains. Fallible token
   inspection reports filesystem and JSON failures without consuming the
   cleanup capability, so callers may repair and retry;
-  `process.rs` owns detached election orchestration, retained elected-child
+  `process.rs` owns detached election orchestration, coordinated whole-line
+  lifecycle log appends, retained elected-child
   observation through `Child::try_wait`, immediate lifetime-waiter ownership
   for each published elected child before parent handoff cleanup, the hidden
   server loop, and signal
@@ -2291,8 +2295,9 @@ sibling so the two projects share a stack:
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.
 - `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
-  election mutex, avoiding unsafe platform calls while serializing exact owner
-  reaping and parent-to-child adoption.
+  election mutex and lifecycle log, avoiding unsafe platform calls while
+  serializing exact owner reaping, parent-to-child adoption, and complete log
+  line appends.
 - `nix` (`dir`, `fs`, `poll`, `signal`, `socket`): provides safe descriptor
   iteration, filesystem operations, nonblocking Unix-socket setup, readiness
   polling, and socket-error inspection. Cleanup recovery duplicates and
@@ -2312,6 +2317,9 @@ sibling so the two projects share a stack:
   direct cleanup and recovery make one final no-follow observation through the
   held parent descriptor that the original leaf is absent before removing the
   quarantine and reporting success. Legacy socket cutover additionally uses
+  a no-follow descriptor traversal from the cache root and retains the validated
+  socket-parent descriptor across recovery, liveness inspection, and removal,
+  so replacement of the parent pathname cannot redirect any operation. It uses
   atomic no-overwrite `linkat` restoration so a raced socket returns to the
   exact pathname without replacing a later leaf. Once restoration is needed,
   Brain retains the owner-only quarantine hard link as durable recovery

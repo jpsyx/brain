@@ -1,5 +1,5 @@
 use std::fs;
-use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _, PermissionsExt as _};
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -38,16 +38,17 @@ fn legacy_socket_paths(home: &Path) -> Vec<PathBuf> {
 }
 
 fn remove_stale_owned_socket(path: &Path, home: &Path) -> Result<()> {
-    let Some((parent, owner_uid)) = verified_socket_parent(path, home)? else {
+    let Some(parent) = verified_socket_parent(path, home)? else {
         return Ok(());
     };
-    let recovered =
-        crate::workspace::recover_socket_file_beneath(&parent, Path::new("jobs.sock"), owner_uid)
-            .context("recover legacy receiver endpoint")?;
+    let recovered = crate::workspace::recover_socket_file_in(&parent, Path::new("jobs.sock"))
+        .context("recover legacy receiver endpoint")?;
     if recovered {
         return Ok(());
     }
-    let Some(observed) = socket_identity(path, home)? else {
+    let Some(observed) =
+        crate::workspace::socket_file_identity_in(&parent, Path::new("jobs.sock"))?
+    else {
         return Ok(());
     };
     #[cfg(test)]
@@ -55,51 +56,50 @@ fn remove_stale_owned_socket(path: &Path, home: &Path) -> Result<()> {
         crate::workspace::SecureRemoveTestBoundary::LegacySocketIdentityObservedBeforeLiveness,
         Path::new("jobs.sock"),
     );
-    if legacy_endpoint_may_be_live(&parent, observed.uid) {
+    if legacy_endpoint_may_be_live(&parent) {
         return Ok(());
     }
-    crate::workspace::remove_socket_file_beneath(
-        &parent,
-        Path::new("jobs.sock"),
-        observed.device,
-        observed.inode,
-        observed.uid,
-    )
-    .context("unlink stale legacy receiver endpoint")
+    crate::workspace::remove_socket_file_in(&parent, Path::new("jobs.sock"), observed)
+        .context("unlink stale legacy receiver endpoint")
 }
 
-fn verified_socket_parent(path: &Path, home: &Path) -> Result<Option<(PathBuf, u32)>> {
+fn verified_socket_parent(
+    path: &Path,
+    home: &Path,
+) -> Result<Option<crate::workspace::VerifiedDirectory>> {
     let Some(parent) = path.parent() else {
         return Ok(None);
     };
-    let metadata = match fs::symlink_metadata(parent) {
-        Ok(metadata) => metadata,
+    let owner_uid = match fs::metadata(home) {
+        Ok(metadata) => metadata.uid(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("inspect legacy receiver endpoint owner"),
+        Err(error) => return Err(error).context("inspect migration owner"),
     };
-    let owner_uid = fs::metadata(home).context("inspect migration owner")?.uid();
-    if !metadata.file_type().is_dir()
-        || metadata.uid() != owner_uid
-        || metadata.permissions().mode() & 0o022 != 0
-    {
+    let relative = parent
+        .strip_prefix(home)
+        .map_err(|_| anyhow::anyhow!("legacy receiver endpoint is outside migration home"))?;
+    let Some(parent) =
+        crate::workspace::open_verified_owned_directory_beneath(home, relative, owner_uid)
+            .context("inspect legacy receiver endpoint owner")?
+    else {
         return Ok(None);
-    }
-    let parent = fs::canonicalize(parent).context("resolve legacy receiver endpoint owner")?;
-    Ok(Some((parent, owner_uid)))
+    };
+    #[cfg(test)]
+    crate::workspace::observe_secure_remove_test_boundary(
+        crate::workspace::SecureRemoveTestBoundary::LegacySocketParentOpenedBeforeRecovery,
+        Path::new("jobs.sock"),
+    );
+    Ok(Some(parent))
 }
 
-fn legacy_endpoint_may_be_live(parent: &Path, expected_uid: u32) -> bool {
-    !matches!(
-        legacy_tui_status(parent, expected_uid),
-        LegacyTuiStatus::Inactive
-    )
+fn legacy_endpoint_may_be_live(parent: &crate::workspace::VerifiedDirectory) -> bool {
+    !matches!(legacy_tui_status(parent), LegacyTuiStatus::Inactive)
 }
 
-fn legacy_tui_status(parent: &Path, expected_uid: u32) -> LegacyTuiStatus {
-    let singleton = crate::workspace::read_small_owned_regular_file_beneath(
+fn legacy_tui_status(parent: &crate::workspace::VerifiedDirectory) -> LegacyTuiStatus {
+    let singleton = crate::workspace::read_small_owned_regular_file_in(
         parent,
         Path::new("tui.lock"),
-        expected_uid,
         MAX_LEGACY_SINGLETON_BYTES,
     );
     let contents = match singleton {
@@ -125,47 +125,6 @@ enum LegacyTuiStatus {
     Live,
     Inactive,
     Untrusted,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct SocketIdentity {
-    device: u64,
-    inode: u64,
-    uid: u32,
-}
-
-fn socket_identity(path: &Path, home: &Path) -> Result<Option<SocketIdentity>> {
-    let Some(parent) = path.parent() else {
-        return Ok(None);
-    };
-    let parent_metadata = match fs::symlink_metadata(parent) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("inspect legacy receiver endpoint owner"),
-    };
-    let home_uid = fs::metadata(home).context("inspect migration owner")?.uid();
-    if !parent_metadata.file_type().is_dir()
-        || parent_metadata.uid() != home_uid
-        || parent_metadata.permissions().mode() & 0o022 != 0
-    {
-        return Ok(None);
-    }
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("inspect legacy receiver endpoint"),
-    };
-    if !metadata.file_type().is_socket()
-        || metadata.uid() != home_uid
-        || metadata.permissions().mode() & 0o077 != 0
-    {
-        return Ok(None);
-    }
-    Ok(Some(SocketIdentity {
-        device: metadata.dev(),
-        inode: metadata.ino(),
-        uid: metadata.uid(),
-    }))
 }
 
 #[cfg(test)]
@@ -431,6 +390,68 @@ mod tests {
             "replacement socket did not remain at jobs.sock"
         );
         assert!(replacement.lock().expect("replacement owner").is_some());
+    }
+
+    #[test]
+    fn replacing_the_cache_parent_cannot_redirect_quarantine_recovery() {
+        let temporary = tempfile::tempdir().expect("temporary home");
+        let home = temporary.path().canonicalize().expect("canonical home");
+        let parent = home.join("cache");
+        let path = parent.join("jobs.sock");
+        bind_stale(&path);
+
+        let redirected_parent = home.join("redirected-cache");
+        let redirected_path = redirected_parent.join("jobs.sock");
+        bind_stale(&redirected_path);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_secure_remove_test_hook(
+                |boundary, _| {
+                    assert_ne!(
+                        boundary,
+                        SecureRemoveTestBoundary::QuarantineCreatedBeforeOpen,
+                        "simulated interruption after redirected quarantine creation"
+                    );
+                },
+                || remove_stale_owned_socket(&redirected_path, &home),
+            )
+        }));
+        assert!(interrupted.is_err(), "test did not create quarantine");
+        let redirected_entries_before = std::fs::read_dir(&redirected_parent)
+            .expect("redirected entries")
+            .count();
+        assert!(
+            redirected_entries_before > 1,
+            "missing redirected quarantine"
+        );
+
+        let original_parent = home.join("original-cache");
+        let moved_original_parent = original_parent.clone();
+        let raced_parent = parent;
+        let symlink_target = redirected_parent.clone();
+        let result = with_secure_remove_test_hook(
+            move |boundary, _| {
+                if boundary == SecureRemoveTestBoundary::LegacySocketParentOpenedBeforeRecovery {
+                    std::fs::rename(&raced_parent, &moved_original_parent)
+                        .expect("move validated cache parent");
+                    std::os::unix::fs::symlink(&symlink_target, &raced_parent)
+                        .expect("replace cache parent with symlink");
+                }
+            },
+            || remove_stale_owned_socket(&path, &home),
+        );
+
+        assert!(result.is_ok(), "parent race should fail closed: {result:?}");
+        assert_eq!(
+            std::fs::read_dir(&redirected_parent)
+                .expect("redirected entries after migration")
+                .count(),
+            redirected_entries_before,
+            "migration followed the replaced parent into another cache directory"
+        );
+        assert!(
+            std::fs::symlink_metadata(original_parent.join("jobs.sock")).is_err(),
+            "migration did not remove the stale socket from the originally opened parent"
+        );
     }
 
     #[test]

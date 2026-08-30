@@ -336,7 +336,10 @@ first move is a failing test that reproduces it, *then* the fix.
   guards shared call sites against direct frontend branching. Its receiver
   lifecycle guard rejects terminal snapshots, typed text, submit/new-session
   input, and fixed sleep from receiver coordinator modules while leaving those
-  generic interactive operations available to human panel callers. Black-box
+  generic interactive operations available to human panel callers. Its typed
+  `AgentController` classifier uses an explicit receiver-safe lifecycle
+  allowlist, so a newly introduced method fails closed until classified. A
+  mutation fixture proves that unknown-method rejection. Black-box
   integration tests launch all three frontends through `AgentController` and a
   recording transport. The adapter contract table also drives identical
   normalized observation requests through Claude, Codex, and OpenCode, proving
@@ -843,7 +846,9 @@ first move is a failing test that reproduces it, *then* the fix.
   synchronizes SIGTERM immediately after state publication, and an occupied
   HTTP port proves the pre-publication cleanup owner removes an already-bound
   control socket. Barrier-driven unit races prove stale reaping and child
-  adoption exclude contenders through exact identity transfer. A synchronized
+  adoption exclude contenders through exact identity transfer. Concurrent
+  lifecycle writers also prove every complete rendered line remains intact in
+  the shared append-only log. A synchronized
   pre-adoption child-loss race proves the parent retains exact cleanup until
   adoption. A barrier-held advisory mutex proves that cleanup survives brief
   contention after child loss through its explicit bounded operation, while
@@ -1300,15 +1305,17 @@ runtime legacy-notice rollback and exact retry, acknowledged-fallback repair and
 down/up durability with stale-result rejection, and a structural guard that
 keeps the delivery schema coordinator thin.
 
-The BR-18 cutover closes with one compiled restart matrix. For every row, the
-test seeds or drives the durable phase, explicitly drops the originating
-`App` and its runtime-local controller, effect, and queue state, constructs a
-fresh `App`, and drives production receiver decisions from the reopened
+The BR-18 cutover closes with two compiled restart matrices. The orderly matrix
+seeds or drives every durable phase, directly invokes receiver-runtime shutdown
+and generic controller shutdown on the originating `App`, asserts the immediate
+durable outcome and generic shutdown, then constructs a fresh `App` and drives
+production receiver decisions from the reopened
 workspace database. Every nonterminal row proves safe resumption or explicit
 terminalization plus advancement of a later queued job. Every terminal row
 proves no replay plus advancement of a later queued job. Retained fresh-App
 recorders directly distinguish agent launches, provider reservations, and
-provider starts from database-only state changes. The recovery row runs this
+provider starts from database-only state changes. A separate crash matrix drops
+the origin without orderly shutdown and repeats the reconstruction. The recovery row runs this
 reconstruction independently for Claude, Codex, and OpenCode through
 `AgentController`, including exact native-session restoration.
 
@@ -1319,7 +1326,7 @@ reconstruction independently for Claude, Codex, and OpenCode through
 | `launching` | The fresh App waits out durable launch ambiguity, then resumes or terminalizes explicitly without replay and advances later FIFO work. Directly covered by `receiver_durable_reconstruction_matrix`; slow-launch and shutdown-fence suites remain focused support. |
 | `launched` | The fresh App does not launch the original inbound turn, terminalizes the binding-free stale launch through durable policy, and advances later FIFO work. The retained transport recorder directly proves the absence of an original-token recovery or content replay. Directly covered by `receiver_durable_reconstruction_matrix`; process-restart suites remain focused support. |
 | `accepted`, `processing` | The fresh App launches exactly one recovery for the original token, resumes the exact native session, never includes the original inbound content in any launch, and advances later FIFO work after completion. Directly covered by `receiver_durable_reconstruction_matrix`; process-restart suites remain focused support. |
-| recovery | After the origin App is dropped, a fresh App reconstructs Claude, Codex, and OpenCode recovery through `AgentController`, preserves the exact frontend and native session, completes, and advances later FIFO work. Directly covered by `receiver_durable_reconstruction_matrix` and `receiver_recovery_frontend_matrix`. |
+| recovery | After direct orderly receiver and generic controller shutdown, and separately after crash-only drop, a fresh App reconstructs Claude, Codex, and OpenCode recovery through `AgentController`, preserves the exact frontend and native session, completes, and advances later FIFO work. Directly covered by `receiver_durable_reconstruction_matrix` and `receiver_recovery_frontend_matrix`. |
 | `cleanup-gated` response | The fresh App proves the exact cleanup owner stale, acknowledges native/artifact cleanup, promotes the durable response, and advances later FIFO work. Directly covered by `receiver_durable_reconstruction_matrix`; cleanup restart suites remain focused support. |
 | `answer-ready` | A fresh delivery worker performs exactly one provider reservation and start for the immutable response, then later FIFO work advances. Directly covered by `receiver_durable_reconstruction_matrix`; completion-answer and delivery suites remain focused support. |
 | `delivering` | The fresh App reconciles expired durable provider IO by provider policy with zero immediate provider reservations or starts, then advances later FIFO work without the old worker. Directly covered by `receiver_durable_reconstruction_matrix`; delivery-store restart tests remain focused support. |
@@ -1349,7 +1356,9 @@ and the shared helper also substitutes an ancestor above the cache root. They
 prove no outside deletion, retained runtime authority or failed downgrade with
 schema v12 intact, and successful exact cleanup after restoration. Schema-v13
 cutover tests also cover pending-row upgrade from every valid v12 job state,
-cleanup-free and cleanup-fenced gating, conflicting or declined-write rollback,
+cleanup-free and cleanup-fenced gating, exact-envelope idempotence, rollback for
+a different valid envelope with the same token, kind, and state, malformed
+envelope rollback, conflicting or declined-write rollback,
 partial-table down repair, direction-idempotent round trips, private-path-free
 migration errors, exact v12 reconstruction without agent replay,
 obsolete-column removal, and immediate-writer ordering against a concurrent
@@ -1389,7 +1398,9 @@ wins after immediate or restart restoration. Both post-link cases remove that
 later leaf on the next simulated restart and prove the retained quarantine
 authority restores the original socket inode automatically. An interrupted
 moved replacement and an interrupted empty quarantine recover on restart, and
-a raced socket symlink receives no connection. FIFO and symlink singletons must
+a deterministic parent-directory swap proves the held, validated descriptor
+keeps recovery, liveness, and removal in the original directory rather than a
+replacement symlink target. A raced socket symlink receives no connection. FIFO and symlink singletons must
 finish within the test budget, while FIFO, symlink, and 33-byte singleton leaves
 all preserve the socket as untrusted. The process-level migration fixture gives
 a retained older listener its matching live singleton, rather than treating a
@@ -1477,7 +1488,7 @@ nested siblings, proving every current and future split part enters the guard.
 | `tests/multi_workspace_acceptance.rs` + `tests/multi_workspace_acceptance/` | One hermetic personal-plus-family scenario covering selector/default policy, UUID caches and locks, one shared server, authenticated wife assignment through the real task script, deterministic display-ID reconciliation, disabled family triage, registered-frontend advisory capability parity, family unavailability, personal continuity, and final server shutdown. |
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
-| `tui::app_brain::tests::receiver_durable_reconstruction_matrix` + `receiver_recovery_frontend_matrix` | One composed fresh-App restart proof for queued, claimed, launching, launched, accepted, processing, recovery, cleanup-gated response, answer-ready, delivering, retrying, acknowledged, failed, and done. Every row drops the originating App before reconstruction, proves database-authorized resumption or explicit terminalization, and advances a later FIFO job. Retained transport and delivery recorders directly exclude original inbound replay, terminal agent relaunch, and acknowledged provider replay while proving the intended recovery and due-delivery attempts. Recovery repeats reconstruction through `AgentController` for Claude, Codex, and OpenCode while retaining the exact native session. |
+| `tui::app_brain::tests::receiver_durable_reconstruction_matrix` + `receiver_recovery_frontend_matrix` | Composed fresh-App restart proofs for queued, claimed, launching, launched, accepted, processing, recovery, cleanup-gated response, answer-ready, delivering, retrying, acknowledged, failed, and done. The orderly matrix directly invokes receiver-runtime and generic controller shutdown on every originating App and asserts the immediate durable outcome before reconstruction. A separate crash matrix preserves drop-only coverage. Every row proves database-authorized resumption or explicit terminalization and advances a later FIFO job. Retained transport and delivery recorders directly exclude original inbound replay, terminal agent relaunch, and acknowledged provider replay while proving the intended recovery and due-delivery attempts. Recovery repeats reconstruction through `AgentController` for Claude, Codex, and OpenCode while retaining the exact native session. |
 | `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle,receiver_durable_binding_completion,receiver_durable_resume_boundaries,receiver_durable_resume_completion,receiver_durable_shutdown,receiver_durable_attachment_worker}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, atomic native-binding plus terminal evidence commit, exact-session removal after controller validation, expiry and owner replacement after terminal validation, resumed Codex and OpenCode second-run completion when the durable binding already equals the lifecycle-native session, post-validation owner renewal for missing all-frontend history and OpenCode probe errors, post-registration owner renewal for a rejected exact resume claim, live-owner Fresh controls for each fallback, retained planning retry after binding mismatch or SQLite error, barrier-driven lifecycle rotation after validation that preserves the old artifact and active run, successful-spawn owner loss/allocation failure/launch-commit failure fencing, lost ownership without job/retry mutation, progressed stale-state refusal, synchronous spawn retry and post-spawn child-exit fencing, receiver-first claimed/active shutdown, attachment process cancellation and owning cleanup, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. |
 | `workspace::templates` tests | The seeded `AGENTS.md` / `README.md`: written when absent, never overwriting an edited copy, idempotent, cross-referencing each other, carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. |
 | `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |

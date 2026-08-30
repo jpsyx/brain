@@ -9,20 +9,21 @@ use super::*;
 use crate::state::ReceiverJobState;
 use crate::tui::receiver::ReceiverCleanupBoundary;
 
-pub(super) fn assert_reconstructs_and_advances(phase: RestartPhase) {
+pub(super) fn assert_reconstructs_and_advances(phase: RestartPhase, departure: Departure) {
     match phase {
-        RestartPhase::CleanupGated => assert_cleanup_gated_reconstruction(),
-        RestartPhase::AnswerReady => assert_answer_ready_reconstruction(),
-        RestartPhase::Delivering => assert_delivering_reconstruction(),
-        RestartPhase::Retrying => assert_retrying_reconstruction(),
-        RestartPhase::Acknowledged => assert_acknowledged_reconstruction(),
+        RestartPhase::CleanupGated => assert_cleanup_gated_reconstruction(departure),
+        RestartPhase::AnswerReady => assert_answer_ready_reconstruction(departure),
+        RestartPhase::Delivering => assert_delivering_reconstruction(departure),
+        RestartPhase::Retrying => assert_retrying_reconstruction(departure),
+        RestartPhase::Acknowledged => assert_acknowledged_reconstruction(departure),
         _ => unreachable!("delivery reconstruction received an agent phase"),
     }
 }
 
-fn assert_cleanup_gated_reconstruction() {
+fn assert_cleanup_gated_reconstruction(departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut fixture = DueRecoveryFixture::new(&temporary);
+    let generic = Departure::install_generic_controller(&mut fixture.app);
     let first = fixture.accepted;
     let later = accept_email_job(&fixture.app, &fixture.db, "matrix later", 200);
     fixture
@@ -69,6 +70,12 @@ fn assert_cleanup_gated_reconstruction() {
             [&cleanup_instance],
         )
         .expect("mark cleanup owner dead");
+    departure.leave(&mut fixture.app, &generic, RestartPhase::CleanupGated);
+    assert_eq!(
+        delivery_state(&fixture.app, first.job_id()),
+        "cleanup-gated",
+        "cleanup-gated orderly shutdown released delivery before exact cleanup"
+    );
     let clock = fixture.clock.clone();
     drop(fixture);
 
@@ -79,10 +86,10 @@ fn assert_cleanup_gated_reconstruction() {
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::CleanupGated);
 }
 
-fn assert_answer_ready_reconstruction() {
+fn assert_answer_ready_reconstruction(departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let clock = ReceiverClock::at_unix_ms(40_000);
-    let (mut origin, db, first) = active_answer(&temporary, &clock);
+    let (mut origin, db, first, generic) = active_answer(&temporary, &clock);
     publish_valid_completion(&origin, "matrix answer-ready response");
     origin.tick_receiver();
     assert!(
@@ -90,6 +97,11 @@ fn assert_answer_ready_reconstruction() {
         "answer-ready fixture did not reach its durable phase"
     );
     let later = accept_email_job(&origin, &db, "matrix later", 200);
+    departure.leave(&mut origin, &generic, RestartPhase::AnswerReady);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::AnswerReady,
+        "answer-ready orderly shutdown changed durable agent authority"
+    );
     drop(db);
     drop(origin);
 
@@ -113,10 +125,10 @@ fn assert_answer_ready_reconstruction() {
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::AnswerReady);
 }
 
-fn assert_delivering_reconstruction() {
+fn assert_delivering_reconstruction(departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let clock = ReceiverClock::at_unix_ms(50_000);
-    let (mut origin, db, first) = active_answer(&temporary, &clock);
+    let (mut origin, db, first, generic) = active_answer(&temporary, &clock);
     publish_valid_completion(&origin, "matrix delivering response");
     origin.tick_receiver();
     let claim = db
@@ -129,6 +141,11 @@ fn assert_delivering_reconstruction() {
     );
     let later = accept_email_job(&origin, &db, "matrix later", 200);
     clock.advance(std::time::Duration::from_secs(2));
+    departure.leave(&mut origin, &generic, RestartPhase::Delivering);
+    assert!(
+        delivery_state(&origin, first.job_id()) == "delivering",
+        "delivering orderly shutdown changed durable provider authority"
+    );
     drop(db);
     drop(origin);
 
@@ -146,10 +163,10 @@ fn assert_delivering_reconstruction() {
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::Delivering);
 }
 
-fn assert_retrying_reconstruction() {
+fn assert_retrying_reconstruction(departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let clock = ReceiverClock::at_unix_ms(60_000);
-    let (mut origin, db, first) = active_answer(&temporary, &clock);
+    let (mut origin, db, first, generic) = active_answer(&temporary, &clock);
     publish_valid_completion(&origin, "matrix retrying response");
     origin.tick_receiver();
     let connection = rusqlite::Connection::open(origin.context.state_db_path())
@@ -171,6 +188,11 @@ fn assert_retrying_reconstruction() {
         )
         .expect("seed retrying job");
     let later = accept_email_job(&origin, &db, "matrix later", 200);
+    departure.leave(&mut origin, &generic, RestartPhase::Retrying);
+    assert!(
+        delivery_state(&origin, first.job_id()) == "retrying",
+        "retrying orderly shutdown changed frozen retry authority"
+    );
     drop(connection);
     drop(db);
     drop(origin);
@@ -190,10 +212,10 @@ fn assert_retrying_reconstruction() {
     assert_follower_advanced(&reopened, later.job_id(), RestartPhase::Retrying);
 }
 
-fn assert_acknowledged_reconstruction() {
+fn assert_acknowledged_reconstruction(departure: Departure) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let clock = ReceiverClock::at_unix_ms(70_000);
-    let (mut origin, db, first) = active_answer(&temporary, &clock);
+    let (mut origin, db, first, generic) = active_answer(&temporary, &clock);
     publish_valid_completion(&origin, "matrix acknowledged response");
     origin.tick_receiver();
     origin
@@ -210,6 +232,11 @@ fn assert_acknowledged_reconstruction() {
         "acknowledged fixture did not persist provider authority"
     );
     let later = accept_email_job(&origin, &db, "matrix later", 200);
+    departure.leave(&mut origin, &generic, RestartPhase::Acknowledged);
+    assert!(
+        job_state(&db, first.job_id()) == ReceiverJobState::Done,
+        "acknowledged orderly shutdown changed terminal source authority"
+    );
     drop(db);
     drop(origin);
 
@@ -234,9 +261,15 @@ fn assert_acknowledged_reconstruction() {
 fn active_answer(
     temporary: &tempfile::TempDir,
     clock: &ReceiverClock,
-) -> (App, Db, crate::state::ReceiverAcceptance) {
+) -> (
+    App,
+    Db,
+    crate::state::ReceiverAcceptance,
+    TransportRecording,
+) {
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(temporary, &cli, AgentKind::Claude);
+    let generic = Departure::install_generic_controller(&mut app);
     app.receiver.record_intent(true);
     app.services
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
@@ -245,7 +278,7 @@ fn active_answer(
     app.brain
         .replace_receiver_transport(TransportRecording::default().transport());
     app.tick_receiver();
-    (app, db, first)
+    (app, db, first, generic)
 }
 
 fn reconstructed_delivery_app(

@@ -250,7 +250,9 @@ The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
 loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
 `control.sock`, `election.lock`, and `server.log` artifacts are infrastructure,
-not workspace state. The record never contains a workspace UUID or root,
+not workspace state. Lifecycle log writers serialize and append each fully
+rendered line as one operation, so concurrent processes cannot splice partial
+records. The record never contains a workspace UUID or root,
 ingress ID, actor, sender, credential, prompt, log payload, or
 message body. A generation UUID guards cleanup so a stale owner cannot remove a
 new winner's record or socket. The elected process must receive its first
@@ -333,9 +335,13 @@ current diagnostic-log destination.
 
 The former legacy receiver socket is not part of `WorkspacePaths` or live lease
 state. The automatic 0.86.2 cutover may remove only its exact stale,
-owner-controlled Unix socket leaf. It reads only a bounded, regular,
-owner-controlled sibling singleton through a no-follow descriptor and never
-connects through the legacy socket pathname. It preserves live or ambiguous
+owner-controlled Unix socket leaf. It opens the cache hierarchy
+descriptor-relative with no-follow, validates the socket parent through the
+opened descriptor, and retains that descriptor through recovery, liveness
+inspection, and removal. A replacement parent pathname cannot redirect a later
+step. It reads only a bounded, regular, owner-controlled sibling singleton
+through the held descriptor and never connects through the legacy socket
+pathname. It preserves live or ambiguous
 endpoints and removes a proved stale identity only after descriptor-relative
 quarantine and post-rename identity verification. If a raced replacement is
 moved, no-overwrite link restoration keeps or recovers that socket at the exact
@@ -1253,8 +1259,10 @@ tuple remains and to `ready` otherwise. A deterministic render or authorization
 failure records `notice-no-authorized-destination`; storage failures roll back
 the conversion for exact retry. This applies to the pending bit in every valid
 v12 job state. An existing semantic row satisfies an interrupted cutover only
-when its exact job token and delivery state match; a conflict or declined insert
-rolls back without clearing the legacy authority.
+when its exact job token, delivery state, and deserialized immutable envelope
+equal the deterministic render. A different valid envelope, malformed stored
+envelope, conflict, or declined insert rolls back without clearing the legacy
+authority.
 Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
 process-local acknowledgement lease. Missing rows and missing tables receive

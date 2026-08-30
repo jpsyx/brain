@@ -50,8 +50,9 @@ pub(crate) use secure_remove::{
     with_unsupported_recovery_nofollow_chmod,
 };
 pub(crate) use secure_remove::{
-    read_small_owned_regular_file_beneath, recover_socket_file_beneath,
-    remove_regular_file_beneath, remove_socket_file_beneath,
+    VerifiedDirectory, open_verified_owned_directory_beneath, read_small_owned_regular_file_in,
+    recover_socket_file_in, remove_regular_file_beneath, remove_socket_file_in,
+    socket_file_identity_in,
 };
 pub use selector::{STRICT_ENV, WORKSPACE_ENV, suggest};
 
