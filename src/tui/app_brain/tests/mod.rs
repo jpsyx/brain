@@ -97,6 +97,7 @@ mod receiver_durable_process_restart;
 mod receiver_durable_producer_matrix;
 mod receiver_durable_producer_saturation;
 mod receiver_durable_producer_support;
+mod receiver_durable_reconstruction_matrix;
 mod receiver_durable_resume_boundaries;
 mod receiver_durable_resume_completion;
 mod receiver_durable_shutdown;

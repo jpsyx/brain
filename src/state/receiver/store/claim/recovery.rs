@@ -101,8 +101,7 @@ impl Db {
             "UPDATE receiver_jobs
              SET state = 'claimed', claim_owner = ?3, claim_expires_at_unix_ms = ?4,
                  retry_at_unix_ms = NULL, retry_from_state = NULL, last_error = NULL,
-                 launch_expires_at_unix_ms = ?5,
-                 pending_unavailable_notice = 0, updated_at_unix_ms = ?2
+                 launch_expires_at_unix_ms = ?5, updated_at_unix_ms = ?2
              WHERE workspace_id = ?1 AND job_id = ?6 AND job_token = ?7
                AND state = 'retrying' AND attempt_kind = 'recovery'
                AND claim_owner IS NULL AND claim_expires_at_unix_ms IS NULL

@@ -14,7 +14,6 @@ pub(super) fn lease(expires_at: Instant) -> WorkspaceLease {
         canonical_name: WorkspaceName::parse("personal").unwrap(),
         ingress_id: ingress(),
         tui_pid: std::process::id(),
-        job_socket: PathBuf::from("/tmp/jobs.sock"),
         receiver_enabled: true,
         expires_at,
     }

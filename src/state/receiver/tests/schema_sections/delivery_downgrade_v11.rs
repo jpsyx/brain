@@ -17,6 +17,7 @@ fn assert_malformed_v11_shape_rolls_back_delivery_downgrade(alter_schema: &str) 
                 ),
             )
             .expect("accept receiver job");
+        super::super::schema::down_cutover_path(&path).expect("stage exact v12 state");
         db.conn
             .execute(
                 "UPDATE receiver_jobs SET state = 'answer-ready' WHERE job_id = ?1",
@@ -273,6 +274,7 @@ fn v12_down_rejects_malformed_rows_without_stamping_or_dropping_v12_state() {
             ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
         db.accept_receiver_job(&receiver_job(Some("v11-invalid-row"), 100), &identity)
             .expect("accept retained job");
+        super::super::schema::down_cutover_path(&path).expect("stage exact v12 state");
         let sql: String = db
             .conn
             .query_row(
@@ -533,7 +535,7 @@ fn v12_down_restores_the_exact_v11_job_shape_and_round_trips_up_safely() {
             .expect("upgraded legacy sender value"),
     );
     assert!(
-        upgraded == (12, 2, 1, None),
-        "exact v11 state did not upgrade back to repaired v12"
+        upgraded == (13, 2, 1, None),
+        "exact v11 state did not upgrade back to repaired v13"
     );
 }

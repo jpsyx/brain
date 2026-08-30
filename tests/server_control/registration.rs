@@ -75,61 +75,22 @@ fn registration_rejects_a_root_changed_after_tui_resolution() {
 }
 
 #[test]
-fn registration_rejects_another_workspaces_job_socket() {
-    let fixture = ControlFixture::new();
-    let mut registration = fixture.registration();
-    registration.job_socket = brain::workspace::WorkspacePaths::new(
-        fixture.temporary.path(),
-        brain::workspace::WorkspaceId::parse("f825f323-821d-4e96-a16f-2796b1ce5802")
-            .expect("other workspace ID"),
-    )
-    .job_socket();
-    let mut server = ControlServer::new(
-        generation(),
-        fixture.registry_store(),
-        fixture.temporary.path().to_path_buf(),
-    );
-
-    assert!(matches!(
-        server.apply(ControlRequest::Register(registration), Instant::now()),
-        ControlResponse::Rejected { message }
-            if message.contains("job socket does not match the validated workspace")
-    ));
-}
-
-#[test]
-fn registration_rejects_an_unbound_job_socket() {
-    let mut fixture = ControlFixture::new();
-    let registration = fixture.registration();
-    fixture.close_job_socket();
-    let mut server = ControlServer::new(
-        generation(),
-        fixture.registry_store(),
-        fixture.temporary.path().to_path_buf(),
-    );
-
-    assert!(matches!(
-        server.apply(ControlRequest::Register(registration), Instant::now()),
-        ControlResponse::Rejected { message }
-            if message.contains("live workspace job listener")
-    ));
-}
-
-#[test]
-fn registration_job_listener_probe_obeys_the_control_request_deadline() {
+fn registration_accepts_the_live_tui_singleton_without_a_workspace_endpoint() {
     let fixture = ControlFixture::new();
     let mut server = ControlServer::new(
         generation(),
         fixture.registry_store(),
         fixture.temporary.path().to_path_buf(),
     );
-    let now = Instant::now();
-
-    let response = server.apply_until(ControlRequest::Register(fixture.registration()), now, now);
 
     assert!(matches!(
-        response,
-        ControlResponse::Rejected { message }
-            if message.contains("live workspace job listener")
+        server.apply(
+            ControlRequest::Register(fixture.registration()),
+            Instant::now()
+        ),
+        ControlResponse::Accepted {
+            shutdown: false,
+            ..
+        }
     ));
 }

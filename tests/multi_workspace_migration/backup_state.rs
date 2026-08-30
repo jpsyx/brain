@@ -43,7 +43,6 @@ fn backup_copies_only_the_exact_portable_migration_inventory() {
         ".config/credentials.json",
         "messages/inbound.json",
         "cache/state.db",
-        "jobs.sock",
     ] {
         let path = root.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -64,7 +63,6 @@ fn backup_copies_only_the_exact_portable_migration_inventory() {
         ".config/credentials.json",
         "messages/inbound.json",
         "cache/state.db",
-        "jobs.sock",
     ] {
         assert!(
             !backup.join(relative).exists(),

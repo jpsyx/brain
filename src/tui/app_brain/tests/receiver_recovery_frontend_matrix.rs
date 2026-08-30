@@ -2,18 +2,31 @@ use super::receiver_durable_support::{ReceiverClock, accept_email_job, publish_v
 use super::*;
 
 use crate::state::{ReceiverAttemptKind, ReceiverJobState, ReceiverNonterminalObservationPhase};
+use crate::tui::app_brain::tests::receiver_durable_reconstruction_matrix::departure::Departure;
 
 #[test]
-fn every_frontend_recovers_one_stalled_native_session_through_the_controller_facade() {
+fn every_frontend_reconstructs_then_recovers_through_the_controller_facade() {
+    assert_reconstructed_frontend_recovery_matrix(
+        super::receiver_durable_reconstruction_matrix::departure::Departure::Crash,
+    );
+}
+
+pub(super) fn assert_reconstructed_frontend_recovery_matrix(
+    departure: super::receiver_durable_reconstruction_matrix::departure::Departure,
+) {
     for kind in AgentKind::ALL {
-        assert_frontend_recovery_lifecycle(kind);
+        assert_frontend_recovery_lifecycle(kind, departure);
     }
 }
 
-fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
+fn assert_frontend_recovery_lifecycle(
+    kind: AgentKind,
+    departure: super::receiver_durable_reconstruction_matrix::departure::Departure,
+) {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, kind);
+    let generic = Departure::install_generic_controller(&mut app);
     app.receiver.record_intent(true);
     let clock = ReceiverClock::new();
     app.services
@@ -83,12 +96,45 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     }
     let codex_override = (kind == AgentKind::Codex)
         .then(|| crate::agent::override_codex_sessions_dir_for_test(&codex_sessions_dir));
-    let recovery_transport = TransportRecording::default();
-    app.brain
-        .replace_receiver_transport(recovery_transport.transport());
+    let later = accept_email_job(&app, &db, "later reconstruction work", 200);
+    departure.leave(
+        &mut app,
+        &generic,
+        super::receiver_durable_reconstruction_matrix::RestartPhase::Recovery,
+    );
+    assert!(
+        db.receiver_job(stalled.job_id())
+            .expect("load orderly recovery source")
+            .expect("orderly recovery source")
+            .state()
+            == ReceiverJobState::Processing,
+        "{kind:?} orderly shutdown changed the immediate durable recovery phase"
+    );
+    rusqlite::Connection::open(app.context.state_db_path())
+        .expect("dead-origin fixture connection")
+        .execute(
+            "UPDATE brain_sessions SET locked_pid = 999999 WHERE brain_instance_id = ?1",
+            [&ordinary_instance],
+        )
+        .expect("mark origin process dead");
     clock.advance(std::time::Duration::from_secs(5 * 60));
+    drop(app);
 
-    app.tick_receiver();
+    let mut restarted = test_app(&temporary, &cli, reconstructed_default(kind));
+    restarted.receiver.record_intent(true);
+    restarted
+        .services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let recovery_transport = TransportRecording::default();
+    restarted
+        .brain
+        .replace_receiver_transport(recovery_transport.transport());
+    for _ in 0..4 {
+        restarted.tick_receiver();
+        if !recovery_transport.launch_specs().is_empty() {
+            break;
+        }
+    }
 
     let recovered = db.receiver_job(stalled.job_id()).unwrap().unwrap();
     assert!(
@@ -103,25 +149,35 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         recovered.recovery_count() == 1,
         "frontend recovery recorded the wrong recovery count for {kind:?}"
     );
-    let recovery = app.receiver.active_durable_run().expect("active recovery");
+    let recovery = restarted
+        .receiver
+        .active_durable_run()
+        .expect("active reconstructed recovery");
     assert_ne!(
         recovery.attribution.instance(),
         ordinary_instance,
-        "{kind:?} recovery needs a fresh remote instance"
+        "{kind:?} recovery needs a fresh isolated-run instance"
     );
     assert_eq!(
         recovery.attribution.registered_session(),
         &native_session,
         "{kind:?} recovery must retain the exact native session"
     );
-    assert_eq!(ordinary_transport.shutdowns(), 1, "{kind:?}");
+    assert_eq!(
+        ordinary_transport.shutdowns(),
+        usize::from(
+            departure
+                == super::receiver_durable_reconstruction_matrix::departure::Departure::Orderly
+        ),
+        "{kind:?} departure used the wrong controller shutdown path"
+    );
     let specifications = recovery_transport.launch_specs();
     assert_eq!(specifications.len(), 1, "{kind:?}");
     let command = &specifications[0].command;
     match kind {
-        AgentKind::Claude => assert!(command.contains("--resume"), "{command}"),
-        AgentKind::Codex => assert!(command.contains("resume"), "{command}"),
-        AgentKind::OpenCode => assert!(command.contains("--session"), "{command}"),
+        AgentKind::Claude => assert!(command.contains("--resume"), "{kind:?}"),
+        AgentKind::Codex => assert!(command.contains("resume"), "{kind:?}"),
+        AgentKind::OpenCode => assert!(command.contains("--session"), "{kind:?}"),
     }
     assert!(command.contains(native_session.as_str()), "{kind:?}");
     assert!(!command.contains(&private_inbound), "{kind:?}");
@@ -131,7 +187,7 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
     );
 
     write_recovery_snapshot(
-        &app,
+        &restarted,
         &native_session,
         clock.unix_ms(),
         1,
@@ -139,13 +195,13 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         false,
         false,
     );
-    app.tick_receiver();
+    restarted.tick_receiver();
     assert!(
         db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Accepted,
         "{kind:?} recovery recorded the wrong accepted state"
     );
     write_recovery_snapshot(
-        &app,
+        &restarted,
         &native_session,
         clock.unix_ms(),
         2,
@@ -153,13 +209,13 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         true,
         false,
     );
-    app.tick_receiver();
+    restarted.tick_receiver();
     assert!(
         db.receiver_job(stalled.job_id()).unwrap().unwrap().state() == ReceiverJobState::Processing,
         "{kind:?} recovery recorded the wrong processing state"
     );
     write_recovery_snapshot(
-        &app,
+        &restarted,
         &native_session,
         clock.unix_ms(),
         3,
@@ -167,8 +223,8 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         true,
         true,
     );
-    let completion_path = publish_valid_completion(&app, "recorded recovered response");
-    app.tick_receiver();
+    let completion_path = publish_valid_completion(&restarted, "recorded recovered response");
+    restarted.tick_receiver();
 
     let completed = db.receiver_job(stalled.job_id()).unwrap().unwrap();
     assert!(
@@ -179,13 +235,35 @@ fn assert_frontend_recovery_lifecycle(kind: AgentKind) {
         completed.observation_revision() == 3,
         "frontend recovery changed the observation revision"
     );
-    assert!(!completed.pending_unavailable_notice(), "{kind:?}");
     assert!(!completion_path.exists(), "{kind:?}");
-    assert!(app.brain.receiver_run_observations().is_empty(), "{kind:?}");
+    assert!(
+        restarted.brain.receiver_run_observations().is_empty(),
+        "{kind:?}"
+    );
+    restarted.tick_receiver();
+    assert_ne!(
+        db.receiver_job(later.job_id()).unwrap().unwrap().state(),
+        ReceiverJobState::Queued,
+        "{kind:?} recovery reconstruction left FIFO waiting on the departed App"
+    );
+    assert!(
+        restarted
+            .receiver
+            .active_durable_run()
+            .is_some_and(|run| run.claim.job().id() == later.job_id()),
+        "{kind:?} recovery reconstruction launched the wrong FIFO follower"
+    );
 
     drop(codex_override);
     if kind == AgentKind::Codex {
         std::fs::remove_dir_all(codex_sessions_dir).expect("remove Codex recovery matrix");
+    }
+}
+
+const fn reconstructed_default(persisted: AgentKind) -> AgentKind {
+    match persisted {
+        AgentKind::Claude => AgentKind::Codex,
+        AgentKind::Codex | AgentKind::OpenCode => AgentKind::Claude,
     }
 }
 

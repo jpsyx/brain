@@ -79,9 +79,7 @@ pub(super) struct LiveTui {
     ingress_id: IngressId,
     pub(super) lease_id: LeaseId,
     root: std::path::PathBuf,
-    job_socket_path: std::path::PathBuf,
     _guard: brain::tui::singleton::Guard,
-    _job_socket: brain::tui::singleton::JobSocket,
 }
 
 impl LiveTui {
@@ -105,17 +103,13 @@ impl LiveTui {
         )
         .expect("workspace context");
         let guard = brain::tui::singleton::Guard::acquire(&workspace).expect("TUI singleton");
-        let job_socket =
-            brain::tui::singleton::JobSocket::bind(&workspace).expect("job socket listener");
         Self {
             workspace_id,
             canonical_name,
             ingress_id: IngressId::parse(ingress_id).expect("valid ingress ID"),
             lease_id: LeaseId::parse(lease_id).expect("valid lease ID"),
             root,
-            job_socket_path: workspace.paths().job_socket(),
             _guard: guard,
-            _job_socket: job_socket,
         }
     }
 
@@ -128,7 +122,6 @@ impl LiveTui {
             ingress_id: self.ingress_id,
             tui_pid: std::process::id(),
             resolved_root: self.root.clone(),
-            job_socket: self.job_socket_path.clone(),
         }
     }
 }

@@ -60,7 +60,6 @@ fn app_owns_one_receiver_runtime_instead_of_receiver_fields() {
         assert!(!app.contains(forbidden), "App still owns {forbidden}");
     }
     for forbidden_type in [
-        "Option<crate::tui::singleton::JobSocket>",
         "Box<dyn crate::command::server::ReceiverIntentRefresher>",
         "crate::tui::receiver::InboundQueue",
         "std::collections::HashSet<crate::server::receiver::Channel>",
@@ -152,37 +151,6 @@ fn provider_delivery_has_no_direct_send_bypass_api() {
 }
 
 #[test]
-fn legacy_receiver_endpoint_is_representation_only_until_br18() {
-    let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
-    let receiver_root = tui_root.join("receiver");
-    let runtime =
-        std::fs::read_to_string(receiver_root.join("runtime.rs")).expect("read receiver runtime");
-    let singleton =
-        std::fs::read_to_string(tui_root.join("singleton.rs")).expect("read singleton source");
-    assert!(
-        runtime.contains("legacy_job_socket: Option<crate::tui::singleton::JobSocket>"),
-        "BR-18 compatibility must be explicit and narrowly named"
-    );
-    assert!(
-        runtime.contains("fn install_legacy_job_socket"),
-        "the runtime builder must retain only endpoint lifetime ownership"
-    );
-    for forbidden in [
-        "InboundQueue",
-        "poll_jobs(",
-        "process_job_stream(",
-        "receiver_panel_is_warm",
-        "remote_turn_in_flight",
-        "panel_activity",
-    ] {
-        assert!(
-            !runtime.contains(forbidden) && !singleton.contains(forbidden),
-            "legacy endpoint regained consumer or control behavior: {forbidden}"
-        );
-    }
-}
-
-#[test]
 fn receiver_runtime_representation_stays_in_its_module() {
     let tui_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tui");
     let receiver_root = tui_root.join("receiver");
@@ -199,7 +167,6 @@ fn receiver_runtime_representation_stays_in_its_module() {
         }
         let source = std::fs::read_to_string(path).expect("read TUI source");
         for field in [
-            "socket",
             "enabled",
             "intent_refresher",
             "queue",

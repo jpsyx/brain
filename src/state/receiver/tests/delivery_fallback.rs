@@ -503,12 +503,21 @@ fn replay_window_terminalization_uses_only_the_frozen_alternate() {
         )
         .expect("stage delivery-lane retry");
 
-    assert_eq!(
-        fixture
-            .db
-            .reconcile_expired_receiver_deliveries(86_400_101)
-            .expect("reconcile expired replay"),
-        1
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert_eq!(
+            fixture
+                .db
+                .reconcile_expired_receiver_deliveries(86_400_101)
+                .expect("reconcile expired replay"),
+            1
+        );
+    });
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=delivery-result delivery_phase=ambiguous reason=idempotency-window-expired",
+            "receiver lifecycle event=terminal-advancement phase=answer-ready queue_depth=0 reason=idempotency-window-expired",
+        ],
     );
 
     let rows: Vec<(String, String, Option<String>)> = {
@@ -543,6 +552,71 @@ fn replay_window_terminalization_uses_only_the_frozen_alternate() {
     assert_eq!(
         fixture.db.receiver_job(fixture.job_id).unwrap().unwrap().state(),
         ReceiverJobState::AnswerReady
+    );
+}
+
+#[test]
+fn claim_logs_expired_retry_terminalization_after_its_commit() {
+    let fixture = super::binding::completion_fixture(ReceiverJobState::Processing);
+    fixture
+        .db
+        .complete_receiver_job_with_binding(&fixture.request())
+        .expect("record durable answer")
+        .expect("exact completion owner");
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_deliveries
+             SET state = 'retrying', attempt_count = 1,
+                 first_attempt_at_unix_ms = 100, retry_at_unix_ms = 200,
+                 frozen_fallbacks_json = '[]', envelope_json = ?2
+             WHERE job_id = ?1",
+            rusqlite::params![
+                fixture.job_id.to_string(),
+                serde_json::json!({
+                    "channel": "email",
+                    "value": {
+                        "sender": "brain@example.test",
+                        "recipients": ["member@example.test"],
+                        "subject": "Re: Private subject",
+                        "text": "private answer",
+                        "html": "<p>private answer</p>",
+                        "in_reply_to": null,
+                        "references": null,
+                        "provider_email_id": null
+                    }
+                })
+                .to_string(),
+            ],
+        )
+        .expect("stage expired retry without fallback");
+    fixture
+        .db
+        .conn
+        .execute(
+            "UPDATE receiver_jobs SET state = 'retrying' WHERE job_id = ?1",
+            [fixture.job_id.to_string()],
+        )
+        .expect("stage retrying delivery job");
+
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            fixture
+                .db
+                .claim_next_receiver_delivery("later-owner", 86_400_101, 86_430_101)
+                .expect("terminalize expired retry during claim")
+                .is_none(),
+            "expired retry remained claimable"
+        );
+    });
+
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=delivery-result delivery_phase=ambiguous reason=idempotency-window-expired",
+            "receiver lifecycle event=terminal-advancement phase=failed queue_depth=0 reason=idempotency-window-expired",
+        ],
     );
 }
 
@@ -602,11 +676,21 @@ fn final_pre_io_expiry_uses_only_the_frozen_alternate() {
         .expect("claim at exact replay deadline")
         .expect("exact replay deadline remains eligible");
 
-    assert!(
-        !fixture
-            .db
-            .mark_receiver_delivery_io_started(&claim, 86_400_101)
-            .expect("terminalize after exact replay deadline")
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            !fixture
+                .db
+                .mark_receiver_delivery_io_started(&claim, 86_400_101)
+                .expect("terminalize after exact replay deadline")
+        );
+    });
+
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=delivery-result delivery_phase=ambiguous reason=idempotency-window-expired",
+            "receiver lifecycle event=terminal-advancement phase=answer-ready queue_depth=0 reason=idempotency-window-expired",
+        ],
     );
 
     let outcome: (String, Option<String>, i64, String) = fixture

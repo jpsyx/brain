@@ -101,3 +101,22 @@ pub(super) fn rebuild_exact_v11(connection: &Connection) -> Result<()> {
     )?;
     Ok(())
 }
+
+pub(super) fn rebuild_exact_v12(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "CREATE TEMP TABLE receiver_job_response_senders AS
+           SELECT job_id, response_sender FROM receiver_jobs;",
+    )?;
+    rebuild_exact_v11(connection)?;
+    connection.execute_batch(
+        "ALTER TABLE receiver_jobs ADD COLUMN response_sender TEXT;
+         UPDATE receiver_jobs
+         SET response_sender = (
+           SELECT staged.response_sender
+           FROM receiver_job_response_senders AS staged
+           WHERE staged.job_id = receiver_jobs.job_id
+         );
+         DROP TABLE receiver_job_response_senders;",
+    )?;
+    Ok(())
+}

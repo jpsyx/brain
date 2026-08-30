@@ -23,6 +23,7 @@ pub(super) struct ScriptedDeliveryExecution {
 struct ScriptedDeliveryState {
     reserved: Vec<ReceiverDeliveryClaim>,
     results: VecDeque<(ReceiverDeliveryClaim, ReceiverProviderResultClass)>,
+    starts: usize,
     cancellations: usize,
 }
 
@@ -52,6 +53,10 @@ impl ScriptedDeliveryExecution {
             .len()
     }
 
+    pub(super) fn start_count(&self) -> usize {
+        self.state.lock().expect("scripted delivery state").starts
+    }
+
     fn cancellation_count(&self) -> usize {
         self.state
             .lock()
@@ -76,11 +81,10 @@ impl ReceiverDeliveryStart for ScriptedDeliveryStart {
         if self.publication_fails {
             anyhow::bail!("scripted worker disconnected before publication");
         }
-        self.state
-            .lock()
-            .expect("scripted delivery state")
-            .results
-            .push_back((self.claim, self.result));
+        let mut state = self.state.lock().expect("scripted delivery state");
+        state.starts += 1;
+        state.results.push_back((self.claim, self.result));
+        drop(state);
         Ok(())
     }
 }

@@ -111,6 +111,7 @@ fn v11_downgrade_reserves_the_writer_before_reading_schema() {
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
+    super::super::schema::down_delivery_path(&path).expect("stage adjacent v11 state");
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker
@@ -212,7 +213,7 @@ fn v6_upgrade_repairs_missing_receiver_state_before_advancing_to_v12() {
             |row| row.get(0),
         )
         .expect("receiver registration table count");
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     assert_eq!(retry_origin_columns, 1);
     assert_eq!(registration_tables, 1);
 }
@@ -224,6 +225,14 @@ fn v10_upgrade_repairs_a_partial_unavailable_notice_lease() {
     let accepted = db
         .accept_receiver_job(&receiver_job(Some("partial-notice-lease"), 100), &identity)
         .expect("accept receiver job");
+    db.conn
+        .execute_batch(
+            "ALTER TABLE receiver_jobs ADD COLUMN pending_unavailable_notice
+               INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE receiver_jobs ADD COLUMN unavailable_notice_owner TEXT;
+             ALTER TABLE receiver_jobs ADD COLUMN unavailable_notice_expires_at_unix_ms INTEGER;",
+        )
+        .expect("stage legacy notice columns");
     db.conn
         .execute(
             "UPDATE receiver_jobs
@@ -252,6 +261,7 @@ fn v10_upgrade_repairs_a_partial_unavailable_notice_lease() {
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('receiver_jobs')
                  WHERE name IN (
+                   'pending_unavailable_notice',
                    'unavailable_notice_owner',
                    'unavailable_notice_expires_at_unix_ms'
                  )",
@@ -260,19 +270,8 @@ fn v10_upgrade_repairs_a_partial_unavailable_notice_lease() {
             )
             .expect("notice lease columns"),
     );
-    let lease: (Option<String>, Option<i64>) = db
-        .conn
-        .query_row(
-            "SELECT unavailable_notice_owner,
-                    unavailable_notice_expires_at_unix_ms
-             FROM receiver_jobs WHERE job_id = ?1",
-            [accepted.job_id().to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("repaired notice lease");
-    assert_eq!(version, 12);
-    assert_eq!(notice_columns, 2);
-    assert_eq!(lease, (None, None));
+    assert_eq!(version, 13);
+    assert_eq!(notice_columns, 0);
 }
 
 fn stage_v8_receiver_jobs(db: &Db) {
@@ -442,7 +441,7 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
         .conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("receiver schema version");
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     for (provider_id, job_id) in rows {
         let job = db
             .receiver_job(job_id)
@@ -450,7 +449,6 @@ fn v9_upgrade_derives_finite_recovery_metadata_without_trusting_future_evidence(
             .expect("upgraded job");
         assert_eq!(job.attempt_kind(), ReceiverAttemptKind::Ordinary);
         assert_eq!(job.recovery_count(), 0);
-        assert!(!job.pending_unavailable_notice());
         match provider_id {
             "claimed" | "launching" => {
                 assert_eq!(job.launch_expires_at_unix_ms(), Some(0));
@@ -598,12 +596,11 @@ fn current_v10_repair_terminalizes_a_partial_recovery_cleanup_fence() {
         .receiver_job(accepted.job_id())
         .expect("load repaired cleanup row")
         .expect("repaired cleanup row");
-    assert_eq!(repaired.state(), ReceiverJobState::Failed);
+    assert_eq!(repaired.state(), ReceiverJobState::AnswerReady);
     assert_eq!(
         repaired.last_error(),
         Some(ReceiverReconciliationReason::NativeSessionUnavailable.as_str())
     );
-    assert!(repaired.pending_unavailable_notice());
     assert_eq!(repaired.recovery_cleanup_instance(), None);
     assert_eq!(repaired.recovery_cleanup_session_id(), None);
 }

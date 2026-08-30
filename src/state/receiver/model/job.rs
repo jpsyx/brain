@@ -30,7 +30,6 @@ pub struct ReceiverJob {
     absolute_work_expires_at_unix_ms: Option<u64>,
     recovery_count: u32,
     attempt_kind: ReceiverAttemptKind,
-    pending_unavailable_notice: bool,
     recovery_cleanup_instance: Option<String>,
     recovery_cleanup_session_id: Option<String>,
 }
@@ -96,7 +95,6 @@ impl ReceiverJob {
             absolute_work_expires_at_unix_ms: recovery.absolute_work_expires_at_unix_ms,
             recovery_count: recovery.recovery_count,
             attempt_kind: recovery.attempt_kind,
-            pending_unavailable_notice: recovery.pending_unavailable_notice,
             recovery_cleanup_instance: recovery.cleanup_instance,
             recovery_cleanup_session_id: recovery.cleanup_session_id,
         }
@@ -228,10 +226,6 @@ impl ReceiverJob {
         self.attempt_kind
     }
     #[must_use]
-    pub const fn pending_unavailable_notice(&self) -> bool {
-        self.pending_unavailable_notice
-    }
-    #[must_use]
     pub fn recovery_cleanup_instance(&self) -> Option<&str> {
         self.recovery_cleanup_instance.as_deref()
     }
@@ -277,7 +271,6 @@ pub(in crate::state::receiver) struct ReceiverRecoveryMetadata {
     pub(in crate::state::receiver) absolute_work_expires_at_unix_ms: Option<u64>,
     pub(in crate::state::receiver) recovery_count: u32,
     pub(in crate::state::receiver) attempt_kind: ReceiverAttemptKind,
-    pub(in crate::state::receiver) pending_unavailable_notice: bool,
     pub(in crate::state::receiver) cleanup_instance: Option<String>,
     pub(in crate::state::receiver) cleanup_session_id: Option<String>,
 }

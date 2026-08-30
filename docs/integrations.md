@@ -155,8 +155,7 @@ TuiRuntime
     │   └── AgentController
     │       └── frontend registry -> Claude | Codex | OpenCode adapter -> transport
     ├── AppServices (session DB, runners, receiver sync adapter)
-    └── ReceiverRuntime (intent, freshness gate, durable-run handle,
-                         and BR-18 legacy endpoint lifetime)
+    └── ReceiverRuntime (intent, freshness gate, durable-run handle)
 ```
 
 Launch, receiver completion/delivery, and cross-feature coordination stay on
@@ -610,7 +609,9 @@ One machine-wide process stores its infrastructure below
 `~/.cache/brain/server/`: `process.json`, `control.sock`, `election.lock`, and
 `server.log`. `process.json` is generation-tagged and contains only PID, port,
 generation UUID, and start time. It carries no selected workspace or portable
-payload. A starter must atomically own the election lock, and the hidden
+payload. Lifecycle writers coordinate on the append-only file and submit each
+fully rendered log line with one write, preventing concurrent processes from
+splicing partial records. A starter must atomically own the election lock, and the hidden
 `brain server run --generation <uuid> --port <port>` loop validates that token
 before binding. An advisory lock on the shared server directory serializes
 exact observed-owner reaping and parent-to-child token adoption; the parent
@@ -668,8 +669,8 @@ ingress lookup, routing, and availability transitions also opportunistically
 discard expired leases. Status probes never prune or advance lifecycle state.
 
 The externally observable lifetime is exact. Personal and family TUIs can hold
-two leases in the same generation and receive one message through their own
-job sockets. Closing family unregisters it; if personal remains, a family
+two leases in the same generation and receive messages through their own
+durable workspace queues. Closing family unregisters it; if personal remains, a family
 request receives one unavailable response and is discarded while personal
 stays routable. Closing personal then removes the final lease and the process
 exits immediately. If the final TUI crashes, its heartbeat expires at TTL and
@@ -688,16 +689,20 @@ Register, heartbeat, receiver-enable refresh, and unregister requests carry the
 target process generation; stale generations are rejected before lease state
 can change. The read-only workspace-ingress lookup is also generation-bound and
 returns a value only for the exact requested live workspace lease. Snapshot is
-read-only and returns only generation plus live-lease count. Registration supplies the TUI-resolved root only for an ephemeral,
+read-only and returns only the exact protocol version, generation, and
+live-lease count. A new TUI that decodes an older snapshot treats it as a
+protocol fence pinned to that live generation, waits only inside the bounded
+startup handshake, and never enters election while that generation remains
+live. It either continues election after the old generation exits or reports
+that every Brain TUI must be closed and restarted. It sends no legacy
+registration and changes no lease state. Registration supplies the TUI-resolved root only for an ephemeral,
 normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
-manifest, and verifies its workspace and ingress UUIDs. It derives the expected
-job socket from its own machine paths plus the validated UUID, then requires a
-matching live TUI singleton PID and probes the job listener within the same
-control-request deadline. Neither the root nor the client-supplied socket
-selects stored state. Receiver intent comes from the registry record rather
+manifest, and verifies its workspace and ingress UUIDs. It then requires a
+matching live TUI singleton PID within the same control-request deadline. The
+root does not select stored state. Receiver intent comes from the registry record rather
 than the TUI. If an accepted response is lost, retrying the exact same
-generation, lease, workspace identity, PID, and derived endpoint is accepted
+generation, lease, workspace identity, ingress, root, and PID is accepted
 idempotently and renews the lease deadline. A competing lease or changed
 identity is still rejected.
 
@@ -709,7 +714,7 @@ a generation-bound workspace UUID notification and reloads that record before
 changing live routing authority. Missing processes and missing live leases are
 valid: persistent intent governs the next registration, and the short-lived
 caller never elects or hosts ingress. Startup applies `--with-receiver` before
-the selected TUI binds its job socket and registers its lease.
+the selected TUI registers its lease.
 Persistence is the commit point for these mutations. If the optional live
 refresh cannot be delivered afterward, the CLI or palette reports a warning
 while retaining and displaying the committed intent instead of claiming that
@@ -778,27 +783,52 @@ ingress. Neither path reselects an ingress from a later manifest read.
 
 TUI startup flows through named `TuiRuntime` builder stages. They order
 ownership as workspace readiness, UUID singleton, hook/skill refresh,
-UUID-local `jobs.sock`, bounded connect/elect/register handshake, heartbeat
+bounded connect/elect/register handshake, heartbeat
 worker, assignment, terminal, App/session state, initial agent panel, startup
 sync, watcher, and periodic puller. If the selected generation exits between discovery and
 registration, the handshake re-enters election and registers with the winner;
 an authoritative workspace rejection returns immediately.
-After registration, a partial-start boundary retains the heartbeat lease before
-the bound job socket across every remaining fallible stage: assignment and
+After registration, a partial-start boundary retains the heartbeat lease across
+every remaining fallible stage: assignment and
 terminal setup, DB/config/App initialization, initial-panel launch, and startup
-workers. A startup error drops and unregisters the lease before removing the
-socket. Only an otherwise-complete runtime installs the socket into the App, and
-that transfer has no fallible work after it.
+workers. A startup error drops and unregisters the lease.
 The worker sends one heartbeat per second. Missing transport, a stale
 generation, or a lost lease triggers bounded election/reuse and re-registration;
 concurrent TUIs use the same election path so only one replacement wins.
 The runtime tick drains health events before skill-session, receiver, sync, and
 triage work. Orderly exit stops the worker and unregisters before agent
 shutdown, periodic-puller and watcher drop, session-lock release, terminal
-restoration, and final singleton release. The receiver-owned `jobs.sock` stays
-inside the App for the complete live runtime. Startup passes one owned
+restoration, and final singleton release. Startup passes one owned
 `TuiLaunch` request to `run_tui`; the runtime converts it to one internal
 `AppInit` request, and the resulting `App` retains no borrowed launch data.
+
+The 0.86.2 automatic cutover migration examines only the exact legacy socket
+leaf below each validated workspace UUID cache. It opens and validates the cache
+hierarchy descriptor-relative with no-follow, then retains the exact validated
+parent descriptor across bounded recovery, singleton liveness inspection, and
+socket removal. A parent-path replacement cannot redirect the cutover. It
+requires an owner-only Unix socket and never connects to that pathname. It opens
+the sibling singleton descriptor-relative with no-follow and nonblocking flags
+and accepts only an owner-controlled regular file of at most 32 bytes. A live
+PID preserves the endpoint; nonregular,
+oversized, malformed, raced, or unreadable singleton evidence is untrusted and
+also preserves it.
+
+After proving there is no live older singleton, the migration moves the
+observed socket with a descriptor-relative rename into an owner-only quarantine
+and rechecks device, inode, owner, type, and mode through that descriptor before
+unlinking. A raced replacement is restored to the exact legacy pathname with an
+atomic no-overwrite hard link. The quarantine link then remains as durable
+recovery authority because no later pathname observation can prove that an
+uncooperative writer will not replace the restored name. Interrupted,
+post-link-raced, or temporarily blocked restoration is retried from the bounded
+quarantine inventory on every ordinary invocation, before a missing pathname
+can short-circuit migration. Discovery visits at most 256 total parent entries,
+not merely eight matching entries; pressure at that fence fails closed without
+mutation and recovery resumes automatically after the pressure clears. A later
+leaf is never overwritten. Symlinks, regular files, replacements, and ambiguous
+evidence are preserved fail-closed. Its explicit downgrade is an idempotent
+no-op; an older binary creates its own endpoint when it starts.
 
 The nudge's **Skip** button takes a different route entirely. Skipping is
 deterministic — it only marks today's protected Morning Triage occurrence done
@@ -1345,6 +1375,19 @@ Current schema-v12 repair also adds a nullable `receiver_jobs.response_sender`
 without modifying `inbound_json`, preserving same-version reader compatibility.
 Authenticated ingress fills it with the canonical receiving identity actually
 proved by signature and destination confirmation before acknowledgement;
+the automatic 0.86.0 boundary then advances receiver state to schema v13.
+Terminal recovery persists an immutable unavailable response before returning
+its cleanup effect. A remaining exact cleanup tuple makes that response
+`cleanup-gated`; exact cleanup acknowledgement promotes it to `ready` in the
+same immediate transaction that clears the fence. Upgrade converts v12 pending
+rows by that rule, then rebuilds `receiver_jobs` without the pending bit or two
+notice-claim columns. If an interrupted upgrade finds the semantic row already
+present, its state and deserialized immutable envelope must exactly equal the
+deterministic render; malformed or valid-but-different envelopes abort while the
+legacy pending authority remains. Downgrade reserves an immediate writer before mutable
+schema inspection, reconstructs v12 pending state for gated rows, retains
+representable delivery state without agent replay, and rebuilds the exact v12
+contracts atomically.
 completion uses only that value. Defensive rendering, serialized-envelope
 decoding, and repair require an email sender already equal to its normalized
 bare lowercase mailbox, so legacy NULL, display-name, case-variant, or malformed
@@ -1360,6 +1403,35 @@ Repair adds optional columns before
 managed indexes, rebuilds stale index signatures, fails closed on duplicate
 semantic responses, converts blank acknowledgements to explicit ambiguity,
 retains conversation transcripts, and drops the outbox last on downgrade.
+
+Receiver diagnostics have one frontend-neutral durable boundary. A read-only
+deferred SQLite snapshot aggregates finite job and delivery state, counts, the
+oldest active phase, recovery ordinal and limit, and cleanup-gated responses.
+Delivery rows enter that aggregation only through a matching job in the
+selected workspace. Unknown job or delivery lifecycle values fail closed at
+their typed boundary instead of being mapped to a terminal state.
+It does not deserialize any inbound, transcript, answer, completion evidence,
+delivery envelope, recipient, sender, provider response, credential, root, or
+database path. Bare `brain receiver`, `brain receiver status`, and the TUI
+receiver-status action consume the same summary and formatting decisions;
+missing peer state remains explicitly unavailable.
+
+Committed receiver transitions publish typed lifecycle lines to the ordinary
+diagnostic logger and the machine-wide server log viewed by `brain server logs`.
+The append happens after the corresponding durable commit at ingress, claim,
+launch, acceptance or progress, recovery, answer readiness, cleanup promotion,
+delivery result, and terminal advancement. Only finite event names, phases,
+recovery ordinals, queue or cleanup counts, delivery phases, and stable reason
+codes cross that boundary. The event type has no identity, content, or path
+field, so all three registered frontends share the same redacted contract.
+Combined acceptance-plus-progress observations emit both committed boundaries;
+control acknowledgements emit answer readiness; malformed semantic responses
+and expired delivery retries emit both delivery-result and terminal-advancement
+records. Callers retain those finite facts until commit, and a failed secondary
+summary read degrades only the count or recovery enrichment to `unavailable`.
+The compiled integration path drives a real committed transition and then reads
+the same record through `brain server logs`, covering both the writer and its
+user-facing reader.
 After draining private cleanup authority, the downgrade also removes the v12
 `receiver_jobs.response_sender` column and both v12-only tables while retaining
 the exact schema-v11 job rows and column order. It records `user_version = 11`
@@ -1434,10 +1506,7 @@ handoff duration already installed as SQLite's busy timeout. Schema
 reconciliation and the atomic acceptance transaction therefore cannot inherit
 the ordinary five-second lock wait. Provider and exact-job deduplication run
 before the atomic 64-row `queued` capacity check. Provider success follows only
-the commit or an existing durable match. The mode-`0600`
-`<workspace-cache>/jobs.sock` remains part of live-lease validation and is held
-only by a narrowly named legacy lifetime field until BR-18; it has no receiver
-read, poll, dispatch, or in-memory queue behavior.
+the commit or an existing durable match.
 One private `ReceiverRuntime` owns persisted intent, the sync-freshness gate,
 and a `DurableReceiverRun` handle that distinguishes ordinary claims, recovery
 claims, active controllers, and cleanup-pending authority. The one
@@ -1454,10 +1523,12 @@ and enabled, it claims the oldest durable job by
 `(received_at_unix_ms, job_id)`, loads the immutable job and conversation,
 plans through the selected `AgentController`, and reauthorizes that exact claim
 after each potentially slow capability, validation, registration, spawn, and
-allocation boundary. It then registers a unique remote instance and spawns a
-new controller and PTY for Claude, Codex, or OpenCode. The new receiver tab is inserted in the
+allocation boundary. It then registers a unique isolated-run instance and spawns a
+new controller and PTY for Claude, Codex, or OpenCode. Fresh and native-resume
+prompts are part of that controller's initial launch request; no post-launch
+typing or submission is involved. The new receiver tab is inserted in the
 background without selecting it or changing view, visibility, or focus. No
-receiver path types into, submits through, or otherwise injects the main panel.
+receiver path selects, borrows, types into, submits through, or otherwise injects the main panel.
 The tab collection rejects and shuts down a second simultaneous receiver
 controller before insertion, without moving the user.
 
@@ -1520,7 +1591,7 @@ that case Brain uses flags-zero `fchmodat` relative to the held parent, opens
 the directory no-follow, and revalidates device, inode, type, and owner. This
 portable recovery does not require path-based no-follow chmod. Before ordinary
 removal, a retry duplicates the held
-parent descriptor and completely scans that descriptor for matching
+parent descriptor and scans at most 256 total entries for matching
 quarantines. It recovers at most eight sorted matches, opens each directory
 no-follow, compares that descriptor with the parent-relative identity and
 owner, and applies later mode correction through the verified descriptor. An
@@ -1530,9 +1601,10 @@ descriptor after the artifact move and before any artifact unlink, validating
 the held inode on both sides. Recovery promotes pending artifacts before
 unlink. A pending empty directory can be removed and retried; an active or
 legacy empty directory plus original-name reappearance fails closed.
-A malformed match, a ninth match, or any match remaining after the recovery
-rescan fails closed. A final no-follow inode check immediately before unlink
-rejects an observable replacement of the quarantine entry.
+A malformed match, a ninth match, reaching the total-entry fence, or any match
+remaining after the recovery rescan fails closed. A final no-follow inode check
+immediately before unlink rejects an observable replacement of the quarantine
+entry.
 A replacement at the original leaf is never unlinked. Any observed identity
 mismatch, original-name reappearance before the final success fence (including
 after `renameat` reports `ENOENT`), or ambiguous recovery leaves the quarantine
@@ -1643,7 +1715,7 @@ and shell services stay outside that module. The removed schema-v11 notice
 lease columns are migration-only compatibility state.
 
 Terminal notices, `/new` and `/restart` acknowledgements, and dropped-job
-notices use the schema-v12 outbox. Their source-job transition and immutable
+notices use the schema-v13 outbox. Their source-job transition and immutable
 provider envelope commit in one immediate transaction. A legacy BR-16 pending
 notice remains behind its exact cleanup fence; same-version repair or the next
 enabled delivery reconciliation converts it to one `unavailable-notice` row
@@ -1659,9 +1731,12 @@ enabled tick executes the schema-v10 recovery policy first.
 BR-15 owns exact accepted/progress observations, and BR-17 now owns atomic
 answer persistence, generic delivery-only retry, durable semantic notices and
 controls, frozen-authority fallback, schema reconciliation, and content-free
-delivery status and diagnostics. BR-18 retains deletion of the legacy endpoint
-representation; receiver injection, warm-panel reuse, activity inference, and
-the second execution cursor are already absent.
+delivery status and diagnostics. BR-18 makes that absence structural:
+syntax-aware mutation guards reject receiver-owned endpoint and inbound-consumer
+representations, warm-panel leases, main- or selected-panel takeover,
+screen/activity waits, and interactive `AgentController` input or prompt queues.
+Generic interactive controller input, bounded provider-result and cleanup
+queues, and the server watchdog remain valid.
 The shared HTTP listener uses four
 blocking workers, a 1 MiB body limit, constant-time HMAC verification, and a
 bounded provider-ID coordinator keyed by workspace, channel, and provider ID.
@@ -1672,7 +1747,7 @@ retained as a permanent discard in a separate 1024-key set. If that exact ID is
 already in flight, Brain defers the discard, preserves the reservation, and
 returns 503 until the pending acceptance resolves. Known unavailable ingress is
 resolved before selecting that exact workspace's signing credential, and no
-root, user, prompt, or job socket is opened for this verification. A later live
+root, user, or prompt is opened for this verification. A later live
 replay is rejected before Receiving API access. Persisted disable uses this
 same exact-workspace path even when live refresh is blocked or fails. Dispatch retains the original
 route ticket, reserves five seconds for

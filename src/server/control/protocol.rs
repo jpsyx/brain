@@ -25,9 +25,10 @@ pub struct LeaseRegistration {
     pub tui_pid: u32,
     /// TUI-resolved root used only to compare with current machine state.
     pub resolved_root: PathBuf,
-    /// UUID-scoped socket on which the TUI accepts jobs.
-    pub job_socket: PathBuf,
 }
+
+/// Current machine-local shared-server control protocol.
+pub const CONTROL_PROTOCOL_VERSION: u16 = 2;
 
 /// One newline-delimited control request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +97,8 @@ impl ControlRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerSnapshot {
+    /// Exact control protocol understood by this server generation.
+    pub protocol_version: u16,
     /// Current process generation.
     pub generation: ServerGeneration,
     /// Number of unexpired live TUI leases.

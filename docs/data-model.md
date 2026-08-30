@@ -133,7 +133,7 @@ The shared process receives only live TUI registrations. Its pure
 `LeaseTable` records each `WorkspaceLease` by stable `WorkspaceId` and keeps a
 separate catalog of previously seen opaque `IngressId` values. A lease contains
 its unique `LeaseId`, canonical workspace name, ingress ID, TUI PID,
-workspace-local job socket, receiver-enable snapshot, and monotonic expiry.
+receiver-enable snapshot, and monotonic expiry.
 It contains no root, registry environment, user identity, credential, prompt,
 log, or inbound message data.
 
@@ -179,14 +179,13 @@ performs the admission CAS within one control-mutex operation.
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration
 contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
-TUI-resolved root plus UUID-local job socket. The root is an ephemeral
+TUI-resolved root. The root is an ephemeral
 comparison value, never a lease field or state selector. The server reloads the
-registry and manifest to verify the identity tuple and normalized root, derives
-the authoritative socket path from machine state and workspace UUID, and
-requires both the singleton PID and job listener to be live. Only that derived
-socket enters the lease, and its liveness probe shares the control request's
-absolute deadline. Enablement comes from the authoritative registry. The
-read-only snapshot exposes only the generation and live-lease count. The
+registry and manifest to verify the identity tuple and normalized root, and
+requires the singleton PID to identify a live process. No workspace-local
+endpoint enters the lease. Enablement comes from the authoritative registry.
+The read-only snapshot exposes only the protocol version, generation, and
+live-lease count. The
 generation-bound workspace-ingress query exposes only an optional ingress for
 the exact requested live workspace UUID. It prunes expiry first and never falls
 back to a known historical ingress or another workspace's lease.
@@ -211,8 +210,8 @@ constructing the immutable `WorkspaceContext`. A heartbeat renews expiry without
 the revision. Registration and receiver enablement refreshes advance the
 workspace's remembered revision. Removal or expiry leaves no accepting
 authority, and any later registration advances that remembered revision, so
-even a later lease that reuses the same ID, workspace, ingress, TUI PID, and
-job socket cannot match a ticket from before revocation. An unregister,
+even a later lease that reuses the same ID, workspace, ingress, and TUI PID
+cannot match a ticket from before revocation. An unregister,
 disable, replacement, or expiry makes the ticket stale. An address no workspace
 publishes, or a workspace this process has never leased, maps to 404; a known
 workspace with receiver disabled or no live TUI maps to 503; one address
@@ -237,7 +236,7 @@ For Resend only, a known unavailable ingress can yield its remembered workspace
 UUID without yielding a live route ticket. That UUID selects exactly one
 registry record for signature verification and bounded in-memory provider-ID
 deduplication. It never constructs `WorkspaceContext`, loads portable users, or
-opens the state DB or job socket. A verified unavailable ID is a permanent
+opens the state DB. A verified unavailable ID is a permanent
 discard in the 1024-key workspace/channel set, not a queued job or durable
 replay item. If that exact ID is already being admitted, the verified discard
 is deferred without releasing the in-flight reservation and receives 503 until
@@ -251,8 +250,10 @@ The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
 loopback HTTP port, generation UUID, and RFC3339 start time. Sibling
 `control.sock`, `election.lock`, and `server.log` artifacts are infrastructure,
-not workspace state. The record never contains a workspace UUID or root,
-ingress ID, job socket, actor, sender, credential, prompt, log payload, or
+not workspace state. Lifecycle log writers serialize and append each fully
+rendered line as one operation, so concurrent processes cannot splice partial
+records. The record never contains a workspace UUID or root,
+ingress ID, actor, sender, credential, prompt, log payload, or
 message body. A generation UUID guards cleanup so a stale owner cannot remove a
 new winner's record or socket. The elected process must receive its first
 registration within two seconds or it exits and removes its generation
@@ -268,9 +269,8 @@ durable without blocking a new slot. Zero live TUIs still means zero server and
 no Brain response because routing requires a live enabled lease. The shared
 process owns no execution cursor or headless agent. The live TUI consumes these
 accepted rows through one durable receiver tick. No socket or in-memory receiver
-queue remains as an acceptance or execution path. The UUID-local job-socket
-object is retained only as a narrowly named live-endpoint lifetime marker until
-BR-18 removes that representation.
+queue remains as an acceptance or execution path. The live lease is the sole
+TUI liveness and route-authority representation.
 
 Receiver controls are durable jobs. An exact claimed `/new` atomically retires
 only its logical conversation key, creates an empty unbound conversation under
@@ -303,7 +303,6 @@ state; watchdog expiry remains a separate mutation.
 ~/.cache/brain/workspaces/<workspace-uuid>/
 ├── state.db
 ├── tui.lock
-├── jobs.sock              (live TUI only, mode 0600)
 ├── users.transaction.lock
 ├── tasks.transaction.lock
 ├── inbox/
@@ -322,7 +321,7 @@ state; watchdog expiry remains a separate mutation.
     └── baselines/
 ```
 
-Its state database, transaction/TUI locks, live job socket, inbox, responses,
+Its state database, transaction/TUI locks, inbox, responses,
 capability material, migration journal/backups, reserved log path, and sync
 working data are all children of that base. `cache_dir()` borrows the stored
 base; each child accessor derives an owned path. Distinct IDs therefore cannot
@@ -333,6 +332,25 @@ are created exclusively with mode `0600`, and receive only centrally redacted
 argv values.
 `WorkspacePaths::logs_dir` is reserved and unused; it does not describe the
 current diagnostic-log destination.
+
+The former legacy receiver socket is not part of `WorkspacePaths` or live lease
+state. The automatic 0.86.2 cutover may remove only its exact stale,
+owner-controlled Unix socket leaf. It opens the cache hierarchy
+descriptor-relative with no-follow, validates the socket parent through the
+opened descriptor, and retains that descriptor through recovery, liveness
+inspection, and removal. A replacement parent pathname cannot redirect a later
+step. It reads only a bounded, regular, owner-controlled sibling singleton
+through the held descriptor and never connects through the legacy socket
+pathname. It preserves live or ambiguous
+endpoints and removes a proved stale identity only after descriptor-relative
+quarantine and post-rename identity verification. If a raced replacement is
+moved, no-overwrite link restoration keeps or recovers that socket at the exact
+legacy name without replacing a later leaf. The quarantine link remains as
+durable recovery authority after restoration, so a post-link replacement cannot
+orphan the moved socket. Bound recovery runs before missing-leaf reconciliation
+on later startups, visits at most 256 total parent entries, and retains at most
+eight matching authorities per successful recovery pass. The cutover does not
+introduce a new schema field or change state-database schema v13.
 
 Machine startup migrations have one separate version record:
 `$XDG_CONFIG_HOME/brain/migrations/version`, falling back to
@@ -1093,11 +1111,9 @@ receiver_jobs(
   absolute_work_expires_at_unix_ms INTEGER,
   recovery_count            INTEGER NOT NULL,
   attempt_kind              TEXT NOT NULL,  -- ordinary | recovery
-  pending_unavailable_notice INTEGER NOT NULL, -- 0 | 1
   recovery_cleanup_instance TEXT,
   recovery_cleanup_session_id TEXT,
-  unavailable_notice_owner TEXT,
-  unavailable_notice_expires_at_unix_ms INTEGER,
+  response_sender           TEXT,
   UNIQUE(workspace_id, channel, provider_id)
 )
 
@@ -1109,7 +1125,7 @@ receiver_deliveries(
   envelope_json               TEXT NOT NULL,
   completion_evidence_json    TEXT,
   frozen_fallbacks_json       TEXT NOT NULL,
-  state                       TEXT NOT NULL,
+  state                       TEXT NOT NULL, -- cleanup-gated | ready | delivering | retrying | acknowledged | failed | ambiguous
   attempt_id                  TEXT,
   attempt_count               INTEGER NOT NULL,
   retry_at_unix_ms            INTEGER,
@@ -1189,6 +1205,33 @@ sender, provider reference, and answer content. Status groups terminal rows into
 stable content-free reason categories and remains read-only when the database or
 newer delivery columns do not exist.
 
+`ReceiverWorkSummary` is a transient frontend-neutral projection, not a new
+table. One deferred read transaction executes one aggregate query over finite
+job and delivery states, counts, recovery attempts, and the ordering columns
+needed to select the oldest active row. It returns agent queue depth, oldest
+active phase, recovery attempt and fixed limit, cleanup-gated response count,
+and `ReceiverDeliveryCounts`. Delivery rows are joined to `receiver_jobs` and
+filtered by the selected workspace UUID before counting. Unknown finite states
+fail the read as malformed;
+an absent database or required table returns unavailable. No content-bearing
+column is selected or decoded, and the read-only path neither creates nor
+migrates state. The oldest row's `attempt_kind` is the authority for recovery:
+an ordinal and limit are present only for an active `recovery` attempt, never
+for ordinary work whose persisted recovery count happens to be zero.
+
+Lifecycle diagnostics are another typed projection of committed state. Their
+schema is limited to a finite event name, optional finite agent or delivery
+phase, queue or cleanup count, recovery ordinal and limit, and stable reason
+code. The model deliberately has no actor, workspace, job, token, session,
+prompt, transcript, answer, envelope, recipient, sender, provider body,
+credential, root, or path field.
+After a successful commit, summary-derived counts may be unavailable because a
+different malformed finite row in the selected workspace prevents aggregation. That condition is encoded
+as `unavailable` enrichment and never suppresses the transition record itself.
+The delivery lifecycle mapper is finite too: every accepted delivery and job
+state is named explicitly, and an unknown value returns an error rather than
+falling through to `failed` or to no terminal fact.
+
 Same-version reconciliation compares the normalized full canonical CREATE TABLE
 contract for `receiver_deliveries` and `receiver_answer_cleanups`, not selected
 clauses. Any drift in state, lease, provider-IO, foreign-key, uniqueness, or
@@ -1206,11 +1249,20 @@ not invoke this repair.
 `fallback-notice` use the same state machine. `/new` persists its acknowledgement
 in the exact conversation-roll transaction. `/restart` persists its
 acknowledgement and one unavailable notice for every dropped job in the exact
-queue-cut transaction. Same-version repair and normal delivery reconciliation
-convert a legacy `pending_unavailable_notice = 1` row to the same immutable lane
-before clearing the bit. A deterministic render or authorization failure clears
-the bit with `notice-no-authorized-destination`; a SQLite or storage failure
-rolls back the whole conversion and leaves the source pending for exact retry.
+queue-cut transaction. Schema v13 adds the unavailable-notice-only
+`cleanup-gated` state and removes the pending bit and its two writer-lease
+columns from `receiver_jobs`. Terminal recovery freezes its semantic response
+in the same transaction as the source transition. Exact cleanup acknowledgement
+promotes that row to `ready`; provider retry then proceeds without agent replay.
+The v12 upgrade converts pending rows to `cleanup-gated` when an exact cleanup
+tuple remains and to `ready` otherwise. A deterministic render or authorization
+failure records `notice-no-authorized-destination`; storage failures roll back
+the conversion for exact retry. This applies to the pending bit in every valid
+v12 job state. An existing semantic row satisfies an interrupted cutover only
+when its exact job token, delivery state, and deserialized immutable envelope
+equal the deterministic render. A different valid envelope, malformed stored
+envelope, conflict, or declined insert rolls back without clearing the legacy
+authority.
 Downgrade maps unfinished semantic deliveries to the
 deterministic `downgrade-no-replay` terminal rather than restoring a
 process-local acknowledgement lease. Missing rows and missing tables receive
@@ -1482,13 +1534,12 @@ the launch deadline and never rediscovers accepted work or increments recovery
 count. An unclaimed recovery remains a reconciliation candidate and becomes
 `failed` at exact recovery or absolute expiry. Exhaustion, missing resume
 evidence, incomplete legacy completion, and exact recovery planning,
-registration, spawn, or shutdown failure also become `failed` with a
-content-free stable reason and `pending_unavailable_notice = 1`; terminal rows
+registration, spawn, or shutdown failure also freeze an unavailable response
+with a content-free stable reason; terminal rows
 do not block FIFO. The existing launch-retry mutation accepts only ordinary
 attempts.
-The cleanup fence and terminal notice have independent authority. The legacy
-pending bit is migration input only; repair freezes the notice body and accepted
-routing authority into a semantic delivery row. Exact delivery ownership then
+The cleanup fence and terminal notice have independent authority. Schema v13
+stores notice gating on the semantic delivery row itself. Exact delivery ownership then
 uses the delivery ID, job, token, attempt, owner, and finite expiry. Terminal
 rows and response-delivery leases never participate in ordinary agent FIFO
 blocking or the workspace live-job-claim predicate.
@@ -1516,12 +1567,14 @@ and done rows are terminal and cannot be reclaimed. Retry counters are checked
 against `u32::MAX` before SQLite can increment them, and every `u64`
 millisecond value is range-checked before it is stored as an SQLite integer.
 
-The TUI keeps at most one durable receiver run locally. Its local state
+The TUI keeps at most one durable receiver run locally. This is transient effect
+state, not an inbound work queue or scheduling authority; every later boundary
+revalidates the durable owner in the state DB. Its local state
 distinguishes ordinary claimed, recovery claimed, active, answer cleanup, and
 recovery cleanup. Recovery cleanup remembers whether controller shutdown and
 artifact removal already succeeded, so retries do not re-enter active renewal
 or repeat completed steps. Answer cleanup uses its separate state row after the
-answer transaction releases agent ownership. A separate bounded FIFO holds up
+answer transaction releases agent ownership. A separate bounded cleanup FIFO holds up
 to eight exact controllers awaiting confirmed shutdown, independent of the one
 durable receiver run. One cleanup controller is retried per cleanup pass and a failure
 rotates to the back; a ninth completed run stays in its exact tab until capacity
@@ -1652,7 +1705,9 @@ table. Schema v9 adds the opaque job token, post-spawn `launched` state, four
 lifecycle evidence timestamps, exact observation instance/session identity,
 and monotonic revision. Schema v10 adds recovery deadlines, attempt identity,
 notice intent, and the exact cleanup fence. Schema v11 adds the all-or-none
-finite unavailable-notice owner and expiry. Every DB open reconciles the tables and managed
+finite unavailable-notice owner and expiry. Schema v12 adds immutable response
+delivery. Schema v13 moves terminal-notice cleanup gating into the outbox row
+and removes the three obsolete job columns. Every DB open reconciles the tables and managed
 columns for new, partially repaired, damaged, and already-current workspaces.
 Token reconciliation parses UUID identity, chooses one canonical spelling per
 identity, regenerates invalid or semantically colliding rows through the bounded

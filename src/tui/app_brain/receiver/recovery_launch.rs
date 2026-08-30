@@ -165,7 +165,7 @@ impl App {
             let registration_result = ReceiverSessionRegistration::claim_resume(
                 &self.services,
                 claimed.claim.job().conversation_id(),
-                &claimed.remote,
+                &claimed.identity,
                 &session,
                 pid,
                 &scope,

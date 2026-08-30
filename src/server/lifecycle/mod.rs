@@ -21,6 +21,8 @@ pub use lease::{
     WorkspaceAvailability, WorkspaceLease,
 };
 pub use paths::ServerPaths;
+#[cfg(not(test))]
+pub(crate) use process::append_event_log;
 pub(crate) use process::connect_or_elect_until_with_publication_hook;
 pub use process::{
     choose_port, connect_or_elect, connect_or_elect_background, logs, run_process, status,

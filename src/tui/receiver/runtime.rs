@@ -1,4 +1,4 @@
-//! Durable receiver scheduling state and the legacy endpoint lifetime owner.
+//! Bounded receiver effects; the state DB remains the scheduling authority.
 
 use std::time::Instant;
 
@@ -54,11 +54,11 @@ struct ReceiverSyncGate {
 }
 
 pub(crate) struct ReceiverRuntime {
-    #[allow(dead_code)] // BR-18 removes this builder-compatible endpoint owner.
-    legacy_job_socket: Option<crate::tui::singleton::JobSocket>,
     enabled: bool,
     sync_gate: Option<ReceiverSyncGate>,
+    // This effect state is revalidated against durable ownership on later ticks.
     durable_run: DurableReceiverRun,
+    // Cleanup is bounded separately so completed answers cannot block the next claim.
     answer_controller_cleanups: std::collections::VecDeque<ReceiverAnswerControllerCleanup>,
     #[cfg(test)]
     after_restart_scan_hook: Option<Box<dyn FnOnce()>>,
@@ -88,7 +88,6 @@ impl ReceiverRuntime {
     #[must_use]
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
-            legacy_job_socket: None,
             enabled,
             sync_gate: None,
             durable_run: DurableReceiverRun::Idle,
@@ -360,10 +359,6 @@ impl ReceiverRuntime {
             | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
-    }
-
-    pub(crate) fn install_legacy_job_socket(&mut self, socket: crate::tui::singleton::JobSocket) {
-        self.legacy_job_socket = Some(socket);
     }
 
     #[must_use]

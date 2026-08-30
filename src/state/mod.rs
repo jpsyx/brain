@@ -120,6 +120,7 @@ mod database;
 mod receiver;
 mod session_store;
 pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
+pub(crate) use receiver::schema::down_cutover_path as receiver_notice_cutover_schema_down;
 pub(crate) use receiver::schema::down_delivery_path as receiver_delivery_schema_down;
 pub(crate) use receiver::schema::down_observation_to_registration_path as receiver_observation_schema_down;
 pub(crate) use receiver::schema::down_path as receiver_schema_down;
@@ -145,11 +146,11 @@ pub use receiver::{
     ReceiverReconciliationReason, ReceiverRecoveryCleanupOutcome, ReceiverRecoveryDecision,
     ReceiverRecoveryFailure, ReceiverRecoverySnapshot, ReceiverResponseKind, ReceiverRunClaim,
     ReceiverSessionAttribution, ReceiverSessionBinding, ReceiverSessionBindingError,
-    ReceiverSessionPlan, ReceiverSmsEnvelope, decide_receiver_delivery, decide_receiver_recovery,
-    plan_receiver_fallback, receiver_acceptance_expires_at,
-    receiver_delivery_replay_window_is_expired, receiver_delivery_retry_is_due,
-    receiver_launch_expires_at, receiver_recovery_expires_at, receiver_transcript_has_exact_turn,
-    render_receiver_delivery, render_receiver_transcript,
+    ReceiverSessionPlan, ReceiverSmsEnvelope, ReceiverWorkPhase, ReceiverWorkSummary,
+    decide_receiver_delivery, decide_receiver_recovery, plan_receiver_fallback,
+    receiver_acceptance_expires_at, receiver_delivery_replay_window_is_expired,
+    receiver_delivery_retry_is_due, receiver_launch_expires_at, receiver_recovery_expires_at,
+    receiver_transcript_has_exact_turn, render_receiver_delivery, render_receiver_transcript,
 };
 #[cfg(test)]
 mod tests;

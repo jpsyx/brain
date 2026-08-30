@@ -17,6 +17,7 @@ mod observation;
 mod reconciliation;
 pub(in crate::state::receiver) mod response_intent;
 mod session;
+mod work_summary;
 
 use load::{load_receiver_conversation, load_receiver_job};
 
@@ -155,6 +156,11 @@ impl Db {
             ],
         )?;
         transaction.commit()?;
+        self.log_receiver_summary(|summary| {
+            crate::logging::ReceiverLifecycleEvent::ingress(
+                summary.map(crate::state::ReceiverWorkSummary::agent_queue_depth),
+            )
+        });
         Ok(ReceiverAcceptance::new(job_id, conversation_id, true))
     }
 

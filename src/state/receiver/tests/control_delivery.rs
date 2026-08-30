@@ -33,10 +33,12 @@ fn new_session_commits_its_boundary_and_acknowledgement_intent_atomically() {
         .expect("claim new-session command")
         .expect("new-session claim");
 
-    assert!(
-        db.complete_receiver_new_session(command.job_id(), claim.claim().owner(), 102)
-            .expect("commit new-session boundary")
-    );
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            db.complete_receiver_new_session(command.job_id(), claim.claim().owner(), 102)
+                .expect("commit new-session boundary")
+        );
+    });
 
     assert_eq!(
         db.receiver_job(command.job_id()).unwrap().unwrap().state(),
@@ -45,6 +47,10 @@ fn new_session_commits_its_boundary_and_acknowledgement_intent_atomically() {
     assert_eq!(
         response_kinds(&db),
         vec![("control-acknowledgement".to_owned(), "ready".to_owned())]
+    );
+    assert_receiver_lifecycle_records(
+        &records,
+        &["receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=0"],
     );
 }
 
@@ -55,10 +61,11 @@ fn restart_commits_one_ack_and_one_notice_for_each_dropped_job_atomically() {
     let second = accept_control(&db, "second waiting message", 150);
     let restart = accept_control(&db, " /restart ", 200);
 
-    let plan = db
-        .apply_next_receiver_restart(201)
-        .expect("commit restart cut")
-        .expect("restart plan");
+    let mut plan = None;
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        plan = db.apply_next_receiver_restart(201).expect("commit restart cut");
+    });
+    let plan = plan.expect("restart plan");
 
     assert_eq!(plan.dropped.len(), 2);
     for job_id in [first.job_id(), second.job_id(), restart.job_id()] {
@@ -82,6 +89,10 @@ fn restart_commits_one_ack_and_one_notice_for_each_dropped_job_atomically() {
             .filter(|(kind, state)| kind == "control-acknowledgement" && state == "ready")
             .count(),
         1
+    );
+    assert_receiver_lifecycle_records(
+        &records,
+        &["receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=0"],
     );
 }
 

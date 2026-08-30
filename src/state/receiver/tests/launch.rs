@@ -191,10 +191,12 @@ fn one_newer_snapshot_applies_missed_accepted_and_progress_boundaries_atomically
         authorized_at_unix_ms: 1_500,
     };
 
-    assert!(fixture
-        .db
-        .apply_receiver_observation_set(fixture.job_id, "owner", &observation)
-        .expect("apply complete observation snapshot"));
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(fixture
+            .db
+            .apply_receiver_observation_set(fixture.job_id, "owner", &observation)
+            .expect("apply complete observation snapshot"));
+    });
 
     let job = persisted_observation_job(&fixture);
     assert_eq!(job.state(), ReceiverJobState::Processing);
@@ -202,6 +204,13 @@ fn one_newer_snapshot_applies_missed_accepted_and_progress_boundaries_atomically
     assert_eq!(job.progressing_at_unix_ms(), Some(1_400));
     assert_eq!(job.completed_at_unix_ms(), None);
     assert_eq!(job.observation_revision(), 2);
+    assert_receiver_lifecycle_records(
+        &records,
+        &[
+            "receiver lifecycle event=acceptance phase=accepted",
+            "receiver lifecycle event=progress phase=processing",
+        ],
+    );
 }
 
 #[test]

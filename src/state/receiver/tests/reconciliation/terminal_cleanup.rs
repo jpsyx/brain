@@ -86,16 +86,22 @@ fn terminal_cleanup_survives_restart_redrives_and_acknowledges_exactly() {
             .expect("reject wrong terminal cleanup acknowledgement")
     );
     assert_cleanup_pending(&redrive_store, job_id, conversation_id, true);
-    assert!(
-        redrive_store
-            .acknowledge_receiver_recovery_cleanup(
-                job_id,
-                token,
-                "ordinary-instance",
-                "native-session",
-                601_403,
-            )
-            .expect("acknowledge exact terminal cleanup")
+    let cleanup_records = crate::logging::capture_receiver_lifecycle(|| {
+        assert!(
+            redrive_store
+                .acknowledge_receiver_recovery_cleanup(
+                    job_id,
+                    token,
+                    "ordinary-instance",
+                    "native-session",
+                    601_403,
+                )
+                .expect("acknowledge exact terminal cleanup")
+        );
+    });
+    assert_receiver_lifecycle_records(
+        &cleanup_records,
+        &["receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=0"],
     );
     assert_cleanup_pending(&redrive_store, job_id, conversation_id, false);
     assert!(
@@ -116,8 +122,14 @@ fn assert_cleanup_pending(
         .receiver_job(job_id)
         .expect("load cleanup job")
         .expect("cleanup job");
-    assert_eq!(job.state(), ReceiverJobState::Failed);
-    assert!(job.pending_unavailable_notice());
+    assert_eq!(
+        job.state(),
+        if expected_pending {
+            ReceiverJobState::Failed
+        } else {
+            ReceiverJobState::AnswerReady
+        }
+    );
     assert_eq!(
         job.recovery_cleanup_instance(),
         expected_pending.then_some("ordinary-instance")
@@ -150,4 +162,21 @@ fn assert_cleanup_pending(
         )
         .expect("load cleanup session lock");
     assert_eq!(locked_pid, expected_pending.then_some(42));
+    let delivery_state: String = db
+        .conn
+        .query_row(
+            "SELECT state FROM receiver_deliveries
+             WHERE job_id = ?1 AND response_kind = 'unavailable-notice'",
+            [job_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("load cleanup-gated unavailable response");
+    assert_eq!(
+        delivery_state,
+        if expected_pending {
+            "cleanup-gated"
+        } else {
+            "ready"
+        }
+    );
 }

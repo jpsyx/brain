@@ -33,7 +33,7 @@ pub(super) fn validate_registration_with(
     runtime_home: &Path,
     registration: &LeaseRegistration,
     now: Instant,
-    deadline: Instant,
+    _deadline: Instant,
 ) -> Result<WorkspaceLease> {
     let registry = RegistryStore::load_from(registry_store.path())
         .context("reopening the machine workspace registry")?;
@@ -65,11 +65,7 @@ pub(super) fn validate_registration_with(
     }
     let runtime_paths =
         crate::workspace::WorkspacePaths::new(runtime_home, registration.workspace_id);
-    let expected_job_socket = runtime_paths.job_socket();
-    if registration.job_socket != expected_job_socket {
-        anyhow::bail!("job socket does not match the validated workspace");
-    }
-    validate_live_tui(&runtime_paths, registration.tui_pid, deadline)?;
+    validate_live_tui(&runtime_paths, registration.tui_pid)?;
     let expires_at = now
         .checked_add(LEASE_TTL)
         .context("lease expiry exceeds the monotonic clock range")?;
@@ -79,7 +75,6 @@ pub(super) fn validate_registration_with(
         canonical_name: WorkspaceName::parse(&registration.canonical_name)?,
         ingress_id: registration.ingress_id,
         tui_pid: registration.tui_pid,
-        job_socket: expected_job_socket,
         receiver_enabled: record.receiver_enabled,
         expires_at,
     })
@@ -113,7 +108,6 @@ pub(super) fn validate_background_with(
         canonical_name: WorkspaceName::parse(&registration.canonical_name)?,
         ingress_id: registration.ingress_id,
         tui_pid: 0,
-        job_socket: std::path::PathBuf::new(),
         receiver_enabled: record.receiver_enabled,
         expires_at: now + std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60),
     })
@@ -122,7 +116,6 @@ pub(super) fn validate_background_with(
 fn validate_live_tui(
     runtime_paths: &crate::workspace::WorkspacePaths,
     expected_pid: u32,
-    deadline: Instant,
 ) -> Result<()> {
     let lock_pid = fs::read_to_string(runtime_paths.tui_lock())
         .context("reading the workspace TUI singleton")?
@@ -132,7 +125,5 @@ fn validate_live_tui(
     if lock_pid != expected_pid || !crate::server::lifecycle::pid_alive(expected_pid) {
         anyhow::bail!("workspace TUI singleton does not match a live process");
     }
-    crate::server::control::connect::connect_until(&runtime_paths.job_socket(), deadline)
-        .context("connecting to the live workspace job listener")?;
     Ok(())
 }

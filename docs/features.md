@@ -1506,10 +1506,9 @@ numbers use exact E.164 matching, including the leading `+` and country code. A 
 SMS number produces a persistent yellow warning in the TUI status line. The
 former generic `/webhooks/capture` route has been removed.
 
-Each ready TUI binds a UUID-scoped job socket for lease validation, registers a
-validated live lease, heartbeats it, recovers the shared process after a crash,
-and unregisters before removing its socket. Provider ingress no longer sends
-accepted jobs through that socket. It commits the complete immutable job and
+Each ready TUI registers a validated live lease, heartbeats it, recovers the
+shared process after a crash, and unregisters on orderly shutdown. Provider
+ingress commits the complete immutable job and
 logical conversation to the addressed workspace DB, and only that commit or a
 durable dedup hit permits provider success. Disabled, missing, storage-failed,
 and full durable-queue targets receive the existing channel-appropriate
@@ -1548,11 +1547,13 @@ the interactive main panel. The one recurring TUI tick keeps at most one live
 receiver run for the workspace process, launches it in a background tab with a
 dedicated `AgentController` and PTY, and leaves later arrivals durable and
 unclaimed. Claude, Codex, and OpenCode use the same launch, lifecycle,
-completion, and shutdown facade. Receiver launch and terminal close never
+completion, and shutdown facade. Fresh and native-resume prompts are passed in
+the isolated controller's initial launch request, never as interactive input to
+that controller or the selected main-panel controller. Receiver launch and terminal close never
 change the current main view, selected tab, panel visibility, or keyboard
 focus; ordinary interactive input remains available on the user's selected
-tab. There is no receiver screen sampling, panel-activity wait, warm-panel
-lease, or local-input lock.
+tab. There is no receiver socket, in-memory inbound queue, screen sampling,
+panel-activity wait, warm-panel lease, or local-input lock.
 
 Each active tick renews the exact claim, resolves the lifecycle-owned native
 session for the isolated receiver tab, and asks that tab's `AgentController`
@@ -1682,10 +1683,17 @@ The same tick reconciles malformed or missing semantic-response authority before
 claiming the oldest due row. It records only content-free phase and stable
 terminal-reason counts (`retry-exhausted`, `permanent-rejection`,
 `ambiguous-acknowledgement`, `idempotency-window-expired`, and
-`no-safe-fallback`). `brain receiver status` reads and themes those counts
-without creating a database or running a migration. BR-18 retains only the
-narrow legacy job-socket lifetime representation; it no longer owns notice,
-control, delivery-status, or outbox reconciliation work.
+`no-safe-fallback`). `brain receiver status`, bare `brain receiver`, and the TUI
+receiver-status action read and theme the same durable snapshot without creating
+a database or running a migration. The snapshot also reports agent queue depth,
+the oldest active finite phase, the active recovery ordinal and limit, and the
+cleanup-gated response count. Missing, unreadable, or not-yet-created peer state
+is shown as `unavailable`, never as invented zero work. Delivery counts join
+through jobs in the selected workspace, so foreign rows cannot inflate or
+invalidate them. BR-18 removes the final
+legacy endpoint lifetime representation; receiver liveness and routing use only
+the elected server lease. A recovery ordinal appears only while the oldest work
+is an active recovery attempt; ordinary work is shown as not active.
 
 ### Durable receiver model foundation
 
@@ -1736,8 +1744,8 @@ existing three-attempt launch retry budget. One immediate store transaction
 evaluates the oldest blocking snapshot and applies at most one transition. It
 safely requeues an unaccepted timeout, persists one accepted stall as an
 ownerless due recovery, or terminalizes exhaustion, absolute expiry, missing
-native evidence, and legacy completion ambiguity with a pending
-unavailable-notice intent. The accepted transition preserves lifetime identity
+native evidence, and legacy completion ambiguity with an immutable
+unavailable-notice response. The accepted transition preserves lifetime identity
 and first facts, resets only the superseded attempt cursor, binds the exact
 observed native session, records an exact cleanup-pending instance/session
 fence, and spends the recovery budget before any claim. Recovery discovery
@@ -1750,8 +1758,9 @@ across later ticks and restarts. Exact acknowledgement then releases
 the retained registration and native-session lock from either the due recovery
 or any cleanup-fenced terminal failed state, but only while its
 registration/session attribution still matches the exact job and durable
-conversation. The pending notice becomes one semantic durable outbox row
-independently from cleanup progress. Local cleanup remembers
+conversation. That response remains `cleanup-gated` while the exact cleanup
+tuple exists and becomes `ready` in the exact acknowledgement transaction.
+Local cleanup remembers
 successful shutdown and artifact removal so a later tick can finish the
 remaining step before later FIFO work launches. Pre-spawn owner-store failures
 also remain distinct from proven owner loss. They clean only the exact
@@ -1791,11 +1800,13 @@ while receiver intent is disabled, but neither an ordinary nor recovery claim
 may start a new process until intent is enabled again. The claim remains
 renewed so re-enable continues the same FIFO work.
 
-Terminal notice intent uses the schema-v12 durable response lane. Same-version
-repair and enabled-tick reconciliation convert a legacy BR-16 pending bit into
-one immutable `unavailable-notice` envelope and clear the obsolete local lease.
-A storage failure preserves the pending source transaction for an exact later
-retry; only a deterministic authorization or render failure clears the bit.
+Terminal notice intent uses the schema-v13 durable response lane. Terminal
+recovery freezes one immutable `unavailable-notice` envelope in its source
+transaction. Exact cleanup gates provider visibility on the row itself, and
+acknowledgement promotes it without replaying the agent. The v12 upgrade maps
+the legacy BR-16 pending bit into the same representation and removes its local
+lease columns. Storage failure rolls back the migration transaction; only a
+deterministic authorization or render failure records the stable no-destination outcome.
 `/new` and `/restart` acknowledgements, plus one notice for every dropped job,
 commit atomically with their source-job and conversation changes. Final answers,
 notices, and acknowledgements share exact claims, provider-result policy, retry
@@ -1845,9 +1856,9 @@ admission onto it, and BR-14 made the isolated TUI coordinator its sole
 execution consumer. Provider success follows durable insert or deduplication;
 the shared process still requires a live enabled lease and owns no execution.
 BR-15 added acceptance/progress evidence. BR-16 added one accepted same-session
-recovery and pending unavailable-notice intent. BR-17 now migrates that intent
-and every receiver-owned reply to the durable delivery outbox; BR-18 retains
-final representation cleanup.
+recovery and pending unavailable-notice intent. BR-17 moved every receiver-owned
+reply to the durable delivery outbox. BR-18 schema v13 now makes the outbox row
+itself express cleanup gating and removes the legacy job representation.
 
 ### Steering the receiver from SMS or email
 
@@ -1936,12 +1947,16 @@ the listing spans every workspace. A workspace whose record
 cannot be read reports `unavailable` with its repair command instead of taking
 the whole listing down, and a shared process that cannot be asked reports
 `live state unavailable` rather than claiming the server is stopped. Selected
-`receiver status` also prints content-free counts for `answer-ready`,
+`receiver status`, bare `brain receiver`, and the TUI status action use one
+content-free durable-work formatter. It reports agent queue depth, oldest active
+phase, recovery ordinal and limit, cleanup-gated responses, and counts for `answer-ready`,
 `delivering`, `retrying`, `ambiguous`, `failed`, and `done`, followed by stable
 terminal-reason counts for retry exhaustion, permanent rejection, ambiguous
 acknowledgement, idempotency-window expiry, and no safe fallback. These rows never
 include sender, recipient, answer, envelope, transcript, provider response, or
-credential material. The listing prints the receiver's own published addresses; it never prints a
+credential material. The TUI flash uses these same finite labels, including
+`answer-ready` and every terminal-reason count, rather than a reduced status
+vocabulary. The listing prints the receiver's own published addresses; it never prints a
 provider credential.
 
 `brain receiver email` and `brain receiver phone` print just that address, on
@@ -1982,8 +1997,14 @@ process, but already committed jobs survive for the later durable consumer.
 - `brain server status` reports process reachability and the live TUI lease
   count only, or says that no process is running. It neither elects a starter
   nor exposes workspace message data and needs no selected workspace.
-- `brain server logs` prints the machine-wide infrastructure log, or says that
-  no log exists. It is likewise read-only and workspace-independent.
+- `brain server logs` prints the machine-wide infrastructure log, including
+  post-commit receiver lifecycle records, or says that no log exists. Receiver
+  records use only finite event names, phases, ordinals, counts, delivery state,
+  and stable reason codes. They never include actor, workspace, job, prompt,
+  answer, envelope, recipient, provider body, credential, root, or path values.
+  An unknown durable lifecycle state is rejected instead of being reported as
+  failed.
+  The command is read-only and workspace-independent.
 - `brain server run --generation <uuid> --port <p>` is the hidden blocking
   loop used only by an elected starter. A matching token must already own
 `election.lock`; direct or tokenless startup is rejected.
@@ -2001,14 +2022,20 @@ registers before launching its agent through one bounded handshake. If the
 selected generation exits before registration, the handshake re-enters election
 and registers against the winner; authoritative identity rejection is not
 retried. Registration compares the normalized TUI-resolved root to the reopened
-registry, derives the UUID-local job socket from machine paths, and verifies the
-live singleton plus a deadline-bounded listener probe before accepting the
-lease. A retry after an accepted response is lost succeeds only when generation,
-lease, workspace identity, PID, and derived endpoint are unchanged; competing
+registry and verifies the live singleton before accepting the lease. A retry
+after an accepted response is lost succeeds only when generation, lease,
+workspace identity, ingress, root, PID, receiver intent, heartbeat, and expiry
+authority are unchanged; competing
 registrations remain rejected. The TUI then heartbeats
 once per second, re-elects and re-registers after a missing or stale generation,
-and unregisters before its workspace job socket is removed. Two workspaces may
+and unregisters on orderly shutdown. Two workspaces may
 hold leases concurrently; the last orderly exit shuts the shared process down.
+
+The shared control protocol carries an exact version in every snapshot. During
+an upgrade, a new TUI waits within the existing bounded startup handshake for
+older live TUIs to close. If they remain, startup reports a themed instruction
+to close every Brain TUI and restart Brain; it never falls back to the removed
+workspace endpoint or mutates the older generation's leases.
 
 `brain receiver setup` walks through the selected channel's provider
 credentials, the machine's one public base URL (machine-global, so setting it

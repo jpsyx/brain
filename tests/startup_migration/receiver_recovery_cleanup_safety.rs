@@ -119,7 +119,10 @@ fn assert_unique_conversation_mismatch_fails_closed(
     let connection = rusqlite::Connection::open(&family).expect("fail-closed cleanup state");
     let repaired: (String, Option<String>, i64, Option<String>, Option<String>) = connection
         .query_row(
-            "SELECT state, last_error, pending_unavailable_notice,
+            "SELECT state, last_error,
+                    (SELECT COUNT(*) FROM receiver_deliveries
+                     WHERE job_id = receiver_jobs.job_id
+                       AND response_kind = 'unavailable-notice'),
                     recovery_cleanup_instance, recovery_cleanup_session_id
              FROM receiver_jobs
              WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",
@@ -258,7 +261,10 @@ fn assert_unprovable_cleanup_fails_closed(damage: UnprovableCleanup) {
     let connection = rusqlite::Connection::open(&family).expect("repaired cleanup state");
     let repaired: (String, i64, Option<String>, Option<String>) = connection
         .query_row(
-            "SELECT state, pending_unavailable_notice,
+            "SELECT state,
+                    (SELECT COUNT(*) FROM receiver_deliveries
+                     WHERE job_id = receiver_jobs.job_id
+                       AND response_kind = 'unavailable-notice'),
                     recovery_cleanup_instance, recovery_cleanup_session_id
              FROM receiver_jobs
              WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",

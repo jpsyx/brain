@@ -36,7 +36,7 @@ impl App {
                 self.services
                     .cancel_receiver_attachment_stage(claimed.claim.job().id());
                 if self
-                    .cleanup_receiver_instance_files_checked(claimed.remote.instance())
+                    .cleanup_receiver_instance_files_checked(claimed.identity.instance())
                     .is_err()
                 {
                     self.receiver
@@ -49,7 +49,7 @@ impl App {
                 self.services
                     .cancel_receiver_attachment_stage(claimed.claim.job().id());
                 if self
-                    .cleanup_receiver_instance_files_checked(claimed.remote.instance())
+                    .cleanup_receiver_instance_files_checked(claimed.identity.instance())
                     .is_err()
                 {
                     self.receiver
@@ -282,7 +282,7 @@ fn effect_matches_claimed(
 ) -> bool {
     claimed.claim.job().id() == effect.job_id()
         && claimed.claim.job().token() == effect.token()
-        && effect.cleanup_instance() == Some(claimed.remote.instance())
+        && effect.cleanup_instance() == Some(claimed.identity.instance())
         && effect.cleanup_session_id().is_none()
 }
 

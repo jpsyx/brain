@@ -17,11 +17,20 @@ use crate::workspace::{CommandContext, WorkspaceId, WorkspaceName, WorkspaceReco
 use super::enablement::ReceiverStatus;
 use super::identity;
 
+mod work;
+
+#[cfg(test)]
+pub(super) use work::delivery_rows;
+pub(crate) use work::{ReceiverWorkState, receiver_status_flash, work_rows};
+
 /// Label column width for the listing, from its longest label.
 const DETAIL_LABEL_WIDTH: usize = 10;
 
 /// Label column width for `brain receiver status`, from its longest label.
 const STATUS_LABEL_WIDTH: usize = 9;
+
+/// Label width for the durable work block.
+const WORK_LABEL_WIDTH: usize = 14;
 
 /// What the machine-wide URL block calls this machine's configured origin.
 const PUBLIC_URL_LABEL: &str = "Public URL";
@@ -32,6 +41,7 @@ pub(crate) struct ReceiverDetails {
     pub(crate) enabled: bool,
     /// `None` when the live shared process could not be asked.
     pub(crate) live: Option<ReceiverStatus>,
+    pub(crate) work: ReceiverWorkState,
     pub(crate) email: Option<String>,
     pub(crate) phone: Option<String>,
 }
@@ -93,47 +103,6 @@ pub(super) fn status_rows(status: ReceiverStatus, theme: Theme) -> String {
     liveness_rows(status, STATUS_LABEL_WIDTH, theme)
 }
 
-/// Redacted durable delivery phases for `brain receiver status`. Pure.
-#[must_use]
-pub(super) fn delivery_rows(counts: crate::state::ReceiverDeliveryCounts, theme: Theme) -> String {
-    let phases = [
-        ("answer-ready", counts.answer_ready()),
-        ("delivering", counts.delivering()),
-        ("retrying", counts.retrying()),
-        ("ambiguous", counts.ambiguous()),
-        ("failed", counts.failed()),
-        ("done", counts.done()),
-    ]
-    .into_iter()
-    .map(|(phase, count)| format!("{} {}", theme.muted(phase), theme.value(&count.to_string())))
-    .collect::<Vec<_>>()
-    .join("  ");
-    let reasons = [
-        ("retry-exhausted", counts.retry_exhausted()),
-        ("permanent-rejection", counts.permanent_rejection()),
-        (
-            "ambiguous-acknowledgement",
-            counts.ambiguous_acknowledgement(),
-        ),
-        (
-            "idempotency-window-expired",
-            counts.idempotency_window_expired(),
-        ),
-        ("no-safe-fallback", counts.no_safe_fallback()),
-    ]
-    .into_iter()
-    .map(|(reason, count)| {
-        format!(
-            "{} {}",
-            theme.muted(reason),
-            theme.value(&count.to_string())
-        )
-    })
-    .collect::<Vec<_>>()
-    .join("  ");
-    format!("{phases}\n{reasons}")
-}
-
 /// One workspace's receiver block. Pure.
 #[must_use]
 pub(crate) fn report_block(report: &WorkspaceReport, theme: Theme) -> String {
@@ -179,6 +148,7 @@ fn liveness_block(details: &ReceiverDetails, theme: Theme) -> Vec<String> {
 
 fn details_block(details: &ReceiverDetails, theme: Theme) -> String {
     let mut body = liveness_block(details, theme);
+    body.push(work_rows(&details.work, theme));
     body.push(address_row(
         identity::address_label(Channel::Email),
         details.email.as_deref(),
@@ -322,9 +292,20 @@ fn workspace_report(
         workspace,
         enabled: record.receiver_enabled,
         live: live_status(record.receiver_enabled, record.workspace_id),
+        work: read_work_state(context),
         email: identity::address(context, Channel::Email),
         phone: identity::address(context, Channel::Sms),
     }))
+}
+
+pub(crate) fn read_work_state(context: &CommandContext) -> ReceiverWorkState {
+    crate::state::Db::receiver_work_summary_read_only(
+        &context.workspace.paths().state_db(),
+        context.workspace.id(),
+    )
+    .ok()
+    .flatten()
+    .map_or(ReceiverWorkState::Unavailable, ReceiverWorkState::Available)
 }
 
 /// One workspace's live receiver state, or `None` when nobody could answer.

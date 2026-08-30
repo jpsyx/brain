@@ -71,7 +71,6 @@ fn run_late_revocation(revocation: LateRevocation) {
         })
         .expect("machine registry");
     let _guard = crate::tui::singleton::Guard::acquire(&workspace).expect("TUI singleton");
-    let _socket = crate::tui::singleton::JobSocket::bind(&workspace).expect("job socket");
     let now = Instant::now();
     let generation = ServerGeneration::new();
     let lease_id = LeaseId::new();
@@ -84,7 +83,6 @@ fn run_late_revocation(revocation: LateRevocation) {
         ingress_id: ingress,
         tui_pid: std::process::id(),
         resolved_root: workspace.root().to_path_buf(),
-        job_socket: workspace.paths().job_socket(),
     };
     assert!(matches!(
         server.apply(ControlRequest::Register(registration), now),

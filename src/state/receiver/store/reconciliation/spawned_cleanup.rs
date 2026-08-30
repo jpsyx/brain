@@ -99,6 +99,14 @@ impl Db {
         {
             return Ok(ReceiverRecoveryCleanupOutcome::Changed);
         }
+        if !super::terminal::insert_unavailable_notice(
+            &transaction,
+            &job,
+            crate::state::ReceiverDeliveryState::CleanupGated,
+            now,
+        )? {
+            return Ok(ReceiverRecoveryCleanupOutcome::Changed);
+        }
         let sql = format!(
             "UPDATE receiver_jobs
              SET state = 'failed', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
@@ -107,7 +115,7 @@ impl Db {
                  observation_revision = 0, attempt_accepted_at_unix_ms = NULL,
                  attempt_progressing_at_unix_ms = NULL, latest_progress_at_unix_ms = NULL,
                  launch_expires_at_unix_ms = NULL, acceptance_expires_at_unix_ms = NULL,
-                 progress_expires_at_unix_ms = NULL, pending_unavailable_notice = 1,
+                 progress_expires_at_unix_ms = NULL,
                  recovery_cleanup_instance = ?6, recovery_cleanup_session_id = ?7,
                  updated_at_unix_ms = ?8
              WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
@@ -132,6 +140,13 @@ impl Db {
             return Ok(ReceiverRecoveryCleanupOutcome::Changed);
         }
         transaction.commit()?;
+        self.log_receiver_summary(|summary| {
+            crate::logging::ReceiverLifecycleEvent::terminal(
+                crate::logging::ReceiverLifecyclePhase::Failed,
+                summary.map(crate::state::ReceiverWorkSummary::agent_queue_depth),
+                super::terminal::lifecycle_reason(ReceiverReconciliationReason::RecoveryShutdown),
+            )
+        });
         Ok(ReceiverRecoveryCleanupOutcome::Exact(cleanup_effect(
             &job,
             ReceiverReconciliationReason::RecoveryShutdown,

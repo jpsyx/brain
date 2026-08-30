@@ -27,7 +27,7 @@ pub(super) fn load_receiver_job(
                     launch_expires_at_unix_ms, acceptance_expires_at_unix_ms,
                     progress_expires_at_unix_ms, recovery_expires_at_unix_ms,
                     absolute_work_expires_at_unix_ms, recovery_count, attempt_kind,
-                    pending_unavailable_notice, recovery_cleanup_instance,
+                    recovery_cleanup_instance,
                     recovery_cleanup_session_id, response_sender
              FROM receiver_jobs WHERE workspace_id = ?1 AND job_id = ?2",
             rusqlite::params![workspace_id, job_id.to_string()],
@@ -58,10 +58,9 @@ pub(super) fn load_receiver_job(
                     row.get::<_, Option<i64>>(22)?,
                     row.get::<_, i64>(23)?,
                     row.get::<_, String>(24)?,
-                    row.get::<_, bool>(25)?,
+                    row.get::<_, Option<String>>(25)?,
                     row.get::<_, Option<String>>(26)?,
                     row.get::<_, Option<String>>(27)?,
-                    row.get::<_, Option<String>>(28)?,
                 ))
             },
         )
@@ -92,7 +91,6 @@ pub(super) fn load_receiver_job(
         absolute_work_expires,
         recovery_count,
         attempt_kind,
-        pending_unavailable_notice,
         recovery_cleanup_instance,
         recovery_cleanup_session_id,
         response_sender,
@@ -171,7 +169,6 @@ pub(super) fn load_receiver_job(
                 attempt_kind: ReceiverAttemptKind::parse(&attempt_kind).ok_or_else(|| {
                     anyhow::anyhow!("unknown receiver attempt kind {attempt_kind:?}")
                 })?,
-                pending_unavailable_notice,
                 cleanup_instance: recovery_cleanup_instance,
                 cleanup_session_id: recovery_cleanup_session_id,
             },

@@ -1,16 +1,14 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AcquisitionStage {
     WorkspaceSingleton,
-    ReceiverEndpoint,
     ServerLease,
     Terminal,
     Application,
     BackgroundServices,
 }
 
-const ACQUISITION_ORDER: [AcquisitionStage; 6] = [
+const ACQUISITION_ORDER: [AcquisitionStage; 5] = [
     AcquisitionStage::WorkspaceSingleton,
-    AcquisitionStage::ReceiverEndpoint,
     AcquisitionStage::ServerLease,
     AcquisitionStage::Terminal,
     AcquisitionStage::Application,
@@ -38,55 +36,44 @@ const SHUTDOWN_ORDER: [ShutdownStage; 7] = [
     ShutdownStage::RestoreTerminal,
 ];
 
-pub(super) struct StartupResources<ServerLease, JobSocket> {
-    // Rust drops fields in declaration order, so unregister precedes socket removal.
+pub(super) struct StartupResources<ServerLease> {
     server_lease: ServerLease,
-    job_socket: JobSocket,
 }
 
-impl<ServerLease, JobSocket> StartupResources<ServerLease, JobSocket> {
-    pub(super) const fn new(server_lease: ServerLease, job_socket: JobSocket) -> Self {
-        Self {
-            server_lease,
-            job_socket,
-        }
+impl<ServerLease> StartupResources<ServerLease> {
+    pub(super) const fn new(server_lease: ServerLease) -> Self {
+        Self { server_lease }
     }
 
     pub(super) fn prepare<Prepared>(
         self,
         prepare: impl FnOnce(&ServerLease) -> anyhow::Result<Prepared>,
-    ) -> anyhow::Result<PreparedStartup<Prepared, ServerLease, JobSocket>> {
+    ) -> anyhow::Result<PreparedStartup<Prepared, ServerLease>> {
         let prepared = prepare(&self.server_lease)?;
-        let Self {
-            server_lease,
-            job_socket,
-        } = self;
+        let Self { server_lease } = self;
         Ok(PreparedStartup {
             prepared,
             server_lease,
-            job_socket,
         })
     }
 }
 
-pub(super) struct PreparedStartup<Prepared, ServerLease, JobSocket> {
+pub(super) struct PreparedStartup<Prepared, ServerLease> {
     prepared: Prepared,
-    // Prepared state unwinds first, then the lease, then the socket.
+    // Prepared state unwinds before the registered lease.
     server_lease: ServerLease,
-    job_socket: JobSocket,
 }
 
-impl<Prepared, ServerLease, JobSocket> PreparedStartup<Prepared, ServerLease, JobSocket> {
+impl<Prepared, ServerLease> PreparedStartup<Prepared, ServerLease> {
     pub(super) fn finish<Runtime>(
         self,
-        finish: impl FnOnce(Prepared, ServerLease, JobSocket) -> Runtime,
+        finish: impl FnOnce(Prepared, ServerLease) -> Runtime,
     ) -> Runtime {
         let Self {
             prepared,
             server_lease,
-            job_socket,
         } = self;
-        finish(prepared, server_lease, job_socket)
+        finish(prepared, server_lease)
     }
 }
 
@@ -149,7 +136,6 @@ mod tests {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum PartialStartupDrop {
         ServerLease,
-        JobSocket,
     }
 
     struct RecordedResource {
@@ -176,7 +162,6 @@ mod tests {
         let mut lifecycle = RuntimeLifecycle::new();
         for stage in [
             AcquisitionStage::WorkspaceSingleton,
-            AcquisitionStage::ReceiverEndpoint,
             AcquisitionStage::ServerLease,
             AcquisitionStage::Terminal,
             AcquisitionStage::Application,
@@ -233,12 +218,12 @@ mod tests {
     }
 
     #[test]
-    fn application_setup_failure_drops_server_lease_before_job_socket() {
+    fn application_setup_failure_drops_the_acquired_server_lease() {
         let events = Arc::new(Mutex::new(Vec::new()));
-        let resources = StartupResources::new(
-            RecordedResource::new(PartialStartupDrop::ServerLease, &events),
-            RecordedResource::new(PartialStartupDrop::JobSocket, &events),
-        );
+        let resources = StartupResources::new(RecordedResource::new(
+            PartialStartupDrop::ServerLease,
+            &events,
+        ));
 
         let result: anyhow::Result<()> = resources
             .prepare(|_| -> anyhow::Result<()> {
@@ -252,10 +237,7 @@ mod tests {
         );
         assert_eq!(
             *events.lock().unwrap(),
-            vec![
-                PartialStartupDrop::ServerLease,
-                PartialStartupDrop::JobSocket,
-            ]
+            vec![PartialStartupDrop::ServerLease]
         );
     }
 }

@@ -2,7 +2,6 @@
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -213,8 +212,6 @@ pub struct WorkspaceLease {
     pub ingress_id: IngressId,
     /// PID of the registered TUI, used only by later process integration.
     pub tui_pid: u32,
-    /// Workspace-local socket that receives acknowledged jobs.
-    pub job_socket: PathBuf,
     /// Receiver intent captured with this live TUI registration.
     pub receiver_enabled: bool,
     /// Monotonic deadline after which this lease is stale.

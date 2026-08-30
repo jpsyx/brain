@@ -124,8 +124,8 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
  │   TaskViewOptions, then moves the resolved view, task rows, selector state,
  │   and workspace context into TuiLaunch
  └─→ TuiRuntime::start(TuiLaunch)
-      ├─→ named startup stages own singleton, receiver endpoint, server lease,
-      │   terminal, App/session state, watcher, and periodic puller
+      ├─→ named startup stages own singleton, server lease, terminal,
+      │   App/session state, watcher, and periodic puller
       ├─→ command_context.workspace.root()   (immutable selected root snapshot)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
       └─→ tick → draw → poll/read → application update
@@ -184,8 +184,8 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and the thin `schema/delivery.rs` coordinator delegates v12 contract, repair, legacy-notice, fallback-success, index, cleanup, and downgrade work to focused modules under `schema/delivery/`; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,status}.rs` own generic exact response claims, typed row decoding, result CAS, and content-free counts; the thin `store/delivery/reconciliation.rs` coordinator delegates semantic repair and retry/requeue work to focused children; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns receiver intent, freshness, and the durable-run handle; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
-| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only agent and cleanup authority. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local reply or unavailable-notice handoff remains. |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns bounded effects for the durably authorized run, never endpoint or queue authority; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only one transient agent effect plus bounded cleanup effects, revalidated against the state DB across ticks. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local inbound queue, endpoint, warm-panel lease, or reply handoff remains. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
 The delivery schema coordinator delegates table contracts, row repair, legacy
@@ -219,9 +219,14 @@ and reverses only that exact IO-start CAS and attempt increment.
 loop, bounds response capture, and returns content-free result classes.
 
 The durable receiver model is split beneath the thin `model.rs` coordinator:
-`model/{identity,conversation,observation,job,claim,effect}.rs` separately own
-opaque identity, continuity, lifecycle evidence, persisted rows, claims, and
-typed effects. The schema coordinator delegates schema-v11 notice repair and
+`model/{identity,conversation,observation,job,claim,effect,work_summary}.rs`
+separately own opaque identity, continuity, lifecycle evidence, persisted rows,
+claims, typed effects, and the content-free status snapshot. Its store uses one
+deferred read transaction and one aggregate query over finite state, count,
+attempt, and ordering columns. Delivery aggregation joins through the selected
+workspace's jobs, so a foreign row in the same database cannot change that
+workspace's status. It never decodes inbound, transcript, answer,
+envelope, recipient, provider-body, credential, root, or path data. The schema coordinator delegates schema-v11 notice repair and
 downgrade to `schema/notice.rs`, the older adjacent downgrade steps to
 `schema/downgrade.rs`, and recovery-specific repair to `schema/recovery.rs`.
 Observation persistence computes its progress and immutable absolute deadlines
@@ -334,7 +339,7 @@ targeted and discovery claims also require the recovery to be the workspace's
 globally oldest claimable or blocking row. Exhaustion, ownerless recovery or
 absolute expiry, missing resume evidence, incomplete legacy completion, and
 any claimed-recovery planning, registration, spawn, or shutdown failure become
-terminal with a pending unavailable-notice intent. Every terminalized live run
+terminal with an immutable unavailable-notice outbox row. Every terminalized live run
 with an exact instance/session pair retains that tuple, registration, and
 session lock; recurring
 reconciliation redrives the same content-free cleanup identifiers across
@@ -345,11 +350,25 @@ when the exact original fresh registration, current session lock, cleanup tuple,
 and dead recorded PID all still agree. Recovery and bound lineages retain the
 native-conversation requirement. Cleanup tracks successful shutdown and artifact
 removal independently, so a later tick
-resumes only the remaining step before FIFO advances. Notice acknowledgement
-is independent and cannot invalidate the cleanup acknowledgement. Controller
+resumes only the remaining step before FIFO advances. The response remains
+`cleanup-gated` until exact cleanup acknowledgement promotes it to `ready`.
+Provider acknowledgement is independent and cannot invalidate cleanup authority. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
 The state layer separately leases a pending terminal notice to one finite writer
-without reusing claim or cleanup ownership.
+without reusing claim or cleanup ownership. Every durable receiver boundary
+publishes a typed, content-free lifecycle event only after its transaction
+commits. Ingress, claim, launch, acceptance, progress, recovery, answer
+readiness, cleanup promotion, delivery result, and terminal advancement share
+finite event, phase, ordinal, count, and reason fields. The logger cannot accept
+actor, workspace, job, prompt, answer, envelope, provider body, credential,
+root, or filesystem path fields. These events append to the same machine-wide
+infrastructure stream read by `brain server logs`. A transaction that crosses
+more than one boundary retains each finite event fact through commit and emits
+each record afterward. Summary-derived counts are optional enrichment: when the
+post-commit read fails, the core transition is still emitted with an explicit
+`unavailable` metric. Delivery lifecycle construction accepts only known
+durable delivery and job states; an unknown persisted value is an error rather
+than an invented failed transition.
 `app_brain/receiver/resume.rs` treats that binding only as a candidate. It asks
 the selected `AgentController` to validate the native history, then renews the
 exact durable owner before interpreting missing history or a validation error
@@ -373,8 +392,9 @@ effects and before retry mutation. `attachment_dispatch.rs` owns nonblocking
 staging-result decisions; `active.rs` owns exact-claim renewal and polling,
 while `active/terminal.rs` owns terminal authorization and cleanup;
 `artifact.rs` owns content-free exact completion correlation;
-and `reply.rs` preserves immutable provider delivery. No receiver branch injects
-the main panel.
+and `reply.rs` preserves immutable provider delivery. Fresh and native-resume
+prompts for Claude, Codex, and OpenCode are initial launch data for the isolated
+controller. No receiver branch can select, borrow, or inject the main panel.
 
 Authenticated provider ingress now uses this foundation as its acceptance
 boundary. After final workspace and lease authority revalidation, the shared
@@ -434,8 +454,10 @@ on disk: `receiver/mod.rs` owns dispatch, `receiver/setup/` owns selected-record
 provider planning plus portable-user mapping, `receiver/url.rs` owns the webhook
 URLs, `receiver/identity.rs` owns the configured per-channel address behind
 `receiver email` / `receiver phone`, and `receiver/details.rs` owns the bare
-`brain receiver` listing (including the shared intent-and-liveness rows
-`receiver status` prints). The listing builds a read-only context per registered
+`brain receiver` listing. Its `details/work.rs` child owns the shared redacted
+durable-work formatter used by the listing, `receiver status`, and the TUI
+receiver-status action, including the same answer-ready, delivery-phase, and
+terminal-reason labels. The listing builds a read-only context per registered
 record through `workspace::peer_context`, the same helper `workspace list` uses,
 so one unreadable peer degrades to a themed note instead of failing the run. Its `setup/transaction.rs` owns
 bounded rollback orchestration across the selected machine record, portable
@@ -518,6 +540,17 @@ transcripts, and only then removes the cleanup table and outbox. It rebuilds
 only retained v11 columns and recreating its checks, uniqueness, foreign key,
 and managed indexes before recording version 11. Rows that cannot satisfy that
 contract abort without stamping or dropping the v12 database state.
+The 0.86.0 receiver-notice cutover advances state to schema v13. Recovery
+terminalization now inserts the immutable unavailable response in its source
+transaction, using `cleanup-gated` only while an exact cleanup tuple remains.
+The exact cleanup acknowledgement promotes that row to `ready`. Upgrade maps
+v12 pending rows by the same rule and rebuilds `receiver_jobs` without the
+pending bit or its writer lease. An interrupted upgrade accepts an existing row
+only when its typed immutable envelope and state exactly equal the deterministic
+render; decode failures and valid-but-different envelopes roll back with the
+legacy authority intact. Downgrade takes an immediate writer before
+schema inspection, reconstructs exact v12 pending state for gated rows, retains
+representable outbox rows, and rebuilds both table contracts atomically.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
@@ -1508,8 +1541,7 @@ TuiRuntime (process lifetime)
     ├── AppServices      runners, state DB, session store, receiver intent refresh,
     │                    sync effects, and bounded attachment staging
     ├── StatusState      triage gate, live toggle, messages, and sync status
-    └── ReceiverRuntime  enabled intent, freshness gate, durable-run handle,
-                         and BR-18 legacy endpoint lifetime
+    └── ReceiverRuntime  enabled intent, freshness gate, and durable-run handle
 ```
 
 The context is replaced as a complete immutable snapshot when portable config
@@ -1527,8 +1559,7 @@ simultaneous receiver controller before it can mutate tab state.
 `Overlay` remains a top-level field because it mediates mutually exclusive
 modals spanning tasks, search, status, and the brain panel. `ReceiverRuntime`
 also remains top-level because it holds receiver intent, freshness, and the one
-durable run across ticks. Its narrowly named legacy job socket only preserves
-builder/lifetime compatibility until BR-18 and has no consumer behavior. The injected receiver intent refresher is a
+durable run across ticks. The injected receiver intent refresher is a
 cross-feature server-control effect owned behind `AppServices`; App invokes its
 semantic receiver-action operation without obtaining the adapter. Cross-feature
 launch, database, receiver lifecycle, task refresh, and focus changes remain App
@@ -1662,11 +1693,15 @@ prevents an unrelated owner from becoming an accidental public surface.
 
 `run_tui()` only starts `TuiRuntime`, runs it, and requests orderly shutdown.
 The runtime's named builder stages acquire the workspace UUID singleton,
-refresh hooks and skills, bind the UUID-scoped `jobs.sock`, complete a bounded
-connect/elect/register handshake with the machine-wide server, and start its
+refresh hooks and skills, complete a bounded connect/elect/register handshake
+with the machine-wide server, and start its
 heartbeat worker. The
 handshake retries only stale or missing generations, while authoritative
-workspace rejection ends startup. It next resolves assignment state, acquires
+workspace rejection ends startup. A protocol-version mismatch remains pinned
+to that live generation within the same bounded budget; the client does not
+enter election or change lease state while it remains live. At the deadline,
+startup returns a restart diagnostic. If the old generation exits first,
+election and registration continue normally. Startup next resolves assignment state, acquires
 the terminal, opens the state DB, builds the brain-search picker
 (`build_search`), and assembles
 one internal `AppInit` request. `App::new(AppInit)` initializes the
@@ -1692,15 +1727,13 @@ returns focus to the tasks main view so `j`/`k` work at once. The sync-services
 stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
 workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
-identity, and the App state that holds the session lock and the legacy receiver
-endpoint lifetime.
+identity, and the App state that holds the session lock.
 From successful server registration through final runtime assembly, one partial-
-startup owner retains the heartbeat lease before the bound job socket. Assignment
+startup owner retains the heartbeat lease. Assignment
 resolution, terminal acquisition, DB/config/model construction, initial-panel
 launch, startup workers, and the lifecycle-completeness check all run inside that
-boundary. Any fallible return therefore unwinds its newer resources, unregisters
-and drops the server lease, and only then removes the job socket. The socket moves
-into the App only during the final infallible runtime assembly.
+boundary. Any fallible return therefore unwinds its newer resources and
+unregisters the server lease.
 
 One runtime tick coordinates the established order: close an exited agent panel
 and refresh tasks if needed, drain heartbeat/server-health events, tick skill
@@ -1830,7 +1863,7 @@ model is scoped lock + recency behind `agent::session::SessionStore`
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since
 it's the persisted value. `receiver/` separately owns durable logical
 conversations, immutable inbound jobs, explicit lifecycle and retry state,
-expiring owner fences, transcript/native-session bindings, and schema v12
+expiring owner fences, transcript/native-session bindings, and schema v13
 recovery, notice, and response-delivery metadata. Schema v7 added the retry origin required to distinguish
 pre-acceptance launch retries from progressed recovery work; schema v8 added
 exact receiver-session registrations; schema v9 added opaque job tokens,
@@ -1840,9 +1873,10 @@ observation split, the pending unavailable-notice intent, and the exact
 superseded instance/session cleanup fence; schema v11 added the independent
 finite unavailable-notice writer lease; schema v12 added immutable response
 envelopes, exact delivery attempts, finite delivery claims, provider result
-classification, and retry or ambiguity state. The state contracts, nonblocking
-provider executor, and App tick consumer are active for every semantic response
-kind.
+classification, and retry or ambiguity state. Schema v13 moved cleanup gating
+into unavailable-notice outbox rows and removed
+the obsolete job columns. The state contracts, nonblocking provider executor,
+and App tick consumer are active for every semantic response kind.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
 
@@ -1853,9 +1887,9 @@ durably admits receiver requests only for enabled workspaces with live TUI
 leases.
 
 The lifecycle is closed around those TUIs except for the explicit browser-only
-habits lease. Startup binds the workspace-local
-job socket before election and registration; heartbeats renew only the
-registered lease; recovery re-enters the election after a stale generation.
+habits lease. Startup registers lease authority after singleton acquisition;
+heartbeats renew only the registered lease; recovery re-enters the election
+after a stale generation.
 The final orderly unregister stops the process immediately, while the watchdog
 stops it when the final crashed lease reaches TTL. A background habits lease
 keeps the process alive without a TUI until `brain habits kill`; a TUI
@@ -1964,8 +1998,7 @@ consumer, or agent launcher.
   returns only the ingress from that workspace's exact live accepted registration.
   `server.rs` copies validation capabilities under the state mutex, reopens registry plus
   manifest identity, compares the TUI-resolved root without retaining it,
-  derives the UUID-local job socket, and verifies the live singleton and
-  listener through the request's bounded connector without that mutex, then
+  verifies the live singleton without that mutex, then
   rechecks generation and deadline before creating a lease. An
   exact replay of an already-accepted registration is idempotent, while any
   competing lease or changed identity remains rejected. `heartbeat.rs` renews or generation-safely
@@ -1981,7 +2014,8 @@ consumer, or agent launcher.
   mutex contention only while the exact parent token remains. Fallible token
   inspection reports filesystem and JSON failures without consuming the
   cleanup capability, so callers may repair and retry;
-  `process.rs` owns detached election orchestration, retained elected-child
+  `process.rs` owns detached election orchestration, coordinated whole-line
+  lifecycle log appends, retained elected-child
   observation through `Child::try_wait`, immediate lifetime-waiter ownership
   for each published elected child before parent handoff cleanup, the hidden
   server loop, and signal
@@ -2002,8 +2036,8 @@ consumer, or agent launcher.
   the expected UUID before saving. After persistence, a generation-bound
   control refresh names only the workspace UUID; the shared process reloads
   the authoritative record and updates a matching live lease if present. This
-  path never elects a process. The UUID-local job socket is only a live-endpoint
-  validation marker; the TUI does not read or dispatch jobs from it. Receiver command
+  path never elects a process. The elected lease is the sole live-TUI route
+  authority. Receiver command
   dispatch and setup remain in `command/server/receiver/mod.rs`; the exact
   mutation, refresh-warning, and status decisions live in its focused
   `enablement.rs` child, with their tests under `enablement/tests.rs`.
@@ -2261,15 +2295,17 @@ sibling so the two projects share a stack:
   The accept loop observes the flag and lets its generation owner remove only
   the matching process record and control socket, without unsafe signal code.
 - `fs2`: provides Rust-1.85-compatible advisory locking for the shared-server
-  election mutex, avoiding unsafe platform calls while serializing exact owner
-  reaping and parent-to-child adoption.
+  election mutex and lifecycle log, avoiding unsafe platform calls while
+  serializing exact owner reaping, parent-to-child adoption, and complete log
+  line appends.
 - `nix` (`dir`, `fs`, `poll`, `signal`, `socket`): provides safe descriptor
   iteration, filesystem operations, nonblocking Unix-socket setup, readiness
   polling, and socket-error inspection. Cleanup recovery duplicates and
   iterates its held parent descriptor, so a swapped parent path cannot redirect
-  discovery. The directory iterator rewinds the shared stream after every
-  complete scan, so the required recovery rescan also starts from the first
-  entry. Quarantine recovery validates directory type and ownership without
+  discovery. Each scan visits at most 256 directory entries, including
+  unrelated entries, and fails closed at that fence. A recovery rescan starts
+  from the first entry. Quarantine recovery validates directory type and
+  ownership without
   following links, opens no-follow when permissions allow, and changes mode
   through the verified descriptor. If a restrictive umask made a newly created
   quarantine unopenable, recovery first uses portable flags-zero `fchmodat`
@@ -2280,7 +2316,18 @@ sibling so the two projects share a stack:
   after moving the artifact and before any artifact unlink. After unlink,
   direct cleanup and recovery make one final no-follow observation through the
   held parent descriptor that the original leaf is absent before removing the
-  quarantine and reporting success.
+  quarantine and reporting success. Legacy socket cutover additionally uses
+  a no-follow descriptor traversal from the cache root and retains the validated
+  socket-parent descriptor across recovery, liveness inspection, and removal,
+  so replacement of the parent pathname cannot redirect any operation. It uses
+  atomic no-overwrite `linkat` restoration so a raced socket returns to the
+  exact pathname without replacing a later leaf. Once restoration is needed,
+  Brain retains the owner-only quarantine hard link as durable recovery
+  authority instead of trying to prove safety with a later pathname check. It
+  relinks from that authority whenever the exact name becomes absent and never
+  unlinks the authority during automatic migration. Its
+  sibling singleton proof uses a no-follow, nonblocking descriptor read capped
+  at 32 bytes, and never reopens the legacy socket for a connection probe.
   Stable `std` does not expose that Unix directory stream or a cancellable
   Unix-domain `connect`; enabling the existing crate's `dir` feature avoids
   unsafe code and adds no dependency.

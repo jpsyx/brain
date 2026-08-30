@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::super::{
@@ -122,7 +121,6 @@ fn tui_registration_replaces_the_browser_only_background_lease() {
     let mut table = LeaseTable::default();
     let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
     background.tui_pid = 0;
-    background.job_socket = PathBuf::new();
     background.expires_at = now + Duration::from_secs(100);
     table.register(background, now).unwrap();
 
@@ -145,7 +143,6 @@ fn tui_takeover_keeps_honoring_the_superseded_background_capability() {
     let mut table = LeaseTable::default();
     let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
     background.tui_pid = 0;
-    background.job_socket = PathBuf::new();
     background.expires_at = now + Duration::from_secs(100);
     table.register(background, now).unwrap();
 
@@ -175,7 +172,6 @@ fn live_tui_count_excludes_a_browser_only_background_lease() {
     let mut table = LeaseTable::default();
     let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(3), now, true);
     background.tui_pid = 0;
-    background.job_socket = PathBuf::new();
     table.register(background, now).unwrap();
 
     assert_eq!(table.live_tui_count_at(now), 0);
@@ -362,7 +358,6 @@ fn lease(
         canonical_name: WorkspaceName::parse(name).unwrap(),
         ingress_id: ingress(ingress_id),
         tui_pid: 42,
-        job_socket: PathBuf::from("/tmp/brain-job.sock"),
         receiver_enabled: enabled,
         expires_at: now + Duration::from_secs(5),
     }

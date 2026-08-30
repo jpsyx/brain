@@ -58,7 +58,7 @@ pub(super) fn decide<'services>(
     let registration = ReceiverSessionRegistration::claim_resume(
         services,
         claimed.claim.job().conversation_id(),
-        &claimed.remote,
+        &claimed.identity,
         &session,
         pid,
         scope,

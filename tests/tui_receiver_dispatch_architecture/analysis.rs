@@ -120,6 +120,18 @@ pub(super) fn classify_operation(owner: &TypeFact, method: &str) -> Option<&'sta
         .find_map(|variant| classify_single_operation(variant, method))
 }
 
+pub(super) fn classify_method_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
+    if matches!(
+        method,
+        "park_timeout" | "wait_timeout" | "wait_timeout_while"
+    ) && !owner.any_variant(|variant| variant.condition_variable)
+    {
+        Some("blocking activity wait")
+    } else {
+        classify_operation(owner, method)
+    }
+}
+
 fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static str> {
     if owner.unresolved_glob {
         return Some("unresolved glob-owned type operation");
@@ -134,7 +146,14 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
             "start_new_session" => Some("interactive AgentController start_new_session"),
             "forward_terminal_input" => Some("interactive AgentController forward_terminal_input"),
             "snapshot" | "terminal_screen" => Some("interactive AgentController activity sample"),
-            _ => None,
+            "configured_with_command"
+            | "ensure_available"
+            | "kind"
+            | "launch"
+            | "new"
+            | "resume_candidate_exists"
+            | "shutdown" => None,
+            _ => Some("unclassified AgentController operation"),
         };
     }
     if owner.app || owner.brain_panel {
@@ -142,6 +161,12 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
             "open_or_focus_brain" => Some("interactive main-panel focus"),
             "take_main" | "install_main" | "main_controller" | "main_controller_mut" => {
                 Some("interactive main-panel controller access")
+            }
+            "active_brain_controller" | "active_brain_controller_mut" => {
+                Some("interactive selected-panel controller access")
+            }
+            "focus_brain" | "select_brain_tab" | "select_brain_tab_slot" | "cycle_brain_tab" => {
+                Some("interactive selected-panel takeover")
             }
             _ => None,
         };
@@ -159,6 +184,15 @@ fn classify_single_operation(owner: &TypeFact, method: &str) -> Option<&'static 
         return Some("in-memory receiver queue consume");
     }
     None
+}
+
+pub(super) fn classify_function_call(target: Option<&str>) -> Option<&'static str> {
+    match target {
+        Some("std::thread::sleep" | "tokio::time::sleep" | "std::thread::park_timeout") => {
+            Some("blocking activity wait")
+        }
+        _ => None,
+    }
 }
 
 pub(super) fn is_global_inbound_consumer(owner: &TypeFact, method: &str) -> bool {

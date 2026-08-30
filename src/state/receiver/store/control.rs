@@ -128,6 +128,11 @@ impl Db {
             return Ok(false);
         }
         transaction.commit()?;
+        self.log_receiver_summary(|summary| {
+            crate::logging::ReceiverLifecycleEvent::answer_ready(
+                summary.map(crate::state::ReceiverWorkSummary::cleanup_gated_responses),
+            )
+        });
         Ok(true)
     }
 
@@ -308,6 +313,11 @@ impl Db {
             return Ok(None);
         }
         transaction.commit()?;
+        self.log_receiver_summary(|summary| {
+            crate::logging::ReceiverLifecycleEvent::answer_ready(
+                summary.map(crate::state::ReceiverWorkSummary::cleanup_gated_responses),
+            )
+        });
         Ok(Some(RestartPlan {
             command,
             dropped: dropped.into_iter().map(|job| job.inbound).collect(),

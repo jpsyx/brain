@@ -31,8 +31,8 @@ fn v12_repair_fingerprints_every_delivery_table_invariant_and_survives_down_up()
             "job_id                      TEXT NOT NULL",
         ),
         (
-            "'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'",
-            "'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous', 'damaged'",
+            "'cleanup-gated', 'ready', 'delivering', 'retrying',\n             'acknowledged', 'failed', 'ambiguous'",
+            "'cleanup-gated', 'ready', 'delivering', 'retrying',\n             'acknowledged', 'failed', 'ambiguous', 'damaged'",
         ),
         (
             "UNIQUE (job_id, response_kind),",

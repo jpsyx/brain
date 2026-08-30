@@ -72,6 +72,9 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             let cli = Cli::parse_from(["tasks"]);
             let mut app = test_app(&temporary, &cli, kind);
             app.receiver.record_intent(true);
+            let (main, main_recording) = recording_controller(&app, true, "busy main");
+            app.brain.install_main(main);
+            app.brain.mark_turn_started();
             let paths = long_staged_paths(&app);
             let mut inbound = receiver_job(&app, sms_actor(), Channel::Sms, &message);
             inbound.attachments = paths
@@ -186,6 +189,16 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
 
             let specifications = transport.launch_specs();
             assert_eq!(specifications.len(), 1, "{} with {history:?}", kind.label());
+            assert!(
+                transport.inputs().is_empty(),
+                "{} with {history:?} injected its prompt after launch",
+                kind.label()
+            );
+            assert!(
+                main_recording.events().is_empty(),
+                "{} with {history:?} touched the main controller",
+                kind.label()
+            );
             let prompt = prompt_from_command(kind, &specifications[0].command);
             assert!(
                 prompt.len() <= crate::tui::receiver::planning::RECOVERY_PROMPT_BUDGET_BYTES,

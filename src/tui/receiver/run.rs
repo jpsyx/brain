@@ -1,4 +1,4 @@
-//! App-local ownership of one durable receiver run between event-loop ticks.
+//! Transient local effects for the durably authorized receiver run between ticks.
 
 use crate::agent::AgentController;
 use crate::state::{ReceiverReconciliationEffect, ReceiverRunClaim, ReceiverSessionAttribution};
@@ -23,7 +23,7 @@ pub(crate) enum DurableReceiverRun {
 
 pub(crate) struct ClaimedReceiverRun {
     pub(crate) claim: ReceiverRunClaim,
-    pub(crate) remote: super::ReceiverRemoteSession,
+    pub(crate) identity: super::ReceiverRunIdentity,
     pub(crate) freshness_ready: bool,
 }
 

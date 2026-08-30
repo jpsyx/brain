@@ -1,8 +1,8 @@
 use anyhow::{Context as _, Result};
 
 use crate::state::{
-    ReceiverDeliveryId, ReceiverJobId, ReceiverJobToken, ReceiverResponseKind,
-    render_receiver_delivery,
+    ReceiverDeliveryId, ReceiverDeliveryState, ReceiverJobId, ReceiverJobToken,
+    ReceiverResponseKind, render_receiver_delivery,
 };
 
 pub(in crate::state::receiver) fn insert(
@@ -14,6 +14,29 @@ pub(in crate::state::receiver) fn insert(
     content: &str,
     observed_at_unix_ms: i64,
 ) -> Result<bool> {
+    insert_with_state(
+        connection,
+        job_id,
+        token,
+        inbound,
+        kind,
+        content,
+        ReceiverDeliveryState::Ready,
+        observed_at_unix_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::state::receiver) fn insert_with_state(
+    connection: &rusqlite::Connection,
+    job_id: ReceiverJobId,
+    token: ReceiverJobToken,
+    inbound: &crate::server::receiver::InboundJob,
+    kind: ReceiverResponseKind,
+    content: &str,
+    state: ReceiverDeliveryState,
+    observed_at_unix_ms: i64,
+) -> Result<bool> {
     let envelope = render_receiver_delivery(inbound, kind, &inbound.response_sender, content)?;
     let envelope_json =
         serde_json::to_string(&envelope).context("serialize durable receiver response envelope")?;
@@ -21,13 +44,14 @@ pub(in crate::state::receiver) fn insert(
         "INSERT OR IGNORE INTO receiver_deliveries
            (delivery_id, job_id, job_token, response_kind, envelope_json,
             state, attempt_count, created_at_unix_ms, updated_at_unix_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'ready', 0, ?6, ?6)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?7)",
         rusqlite::params![
             ReceiverDeliveryId::new().to_string(),
             job_id.to_string(),
             token.to_string(),
             kind.as_str(),
             envelope_json,
+            state.as_str(),
             observed_at_unix_ms,
         ],
     )? == 1)

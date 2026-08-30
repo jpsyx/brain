@@ -108,16 +108,30 @@ fn connect_or_elect_until_with_publication_hook_and_mode(
     after_publication: &mut impl FnMut(&ProcessRecord),
     background: bool,
 ) -> Result<ProcessRecord> {
+    let mut legacy_protocol_observed = false;
     loop {
         let record = super::state::read_record(client.paths());
         let process_live = record.as_ref().is_some_and(|state| pid_alive(state.pid));
-        let socket_live = record.as_ref().is_some_and(|state| {
-            client
-                .connect_existing_until(deadline)
-                .is_ok_and(|found| found == *state)
-        });
+        let socket_live =
+            record
+                .as_ref()
+                .is_some_and(|state| match client.connect_existing_until(deadline) {
+                    Ok(found) => found == *state,
+                    Err(error) => {
+                        legacy_protocol_observed |=
+                            crate::server::control::is_protocol_mismatch(&error);
+                        false
+                    }
+                });
         if process_live && socket_live {
             return Ok(record.expect("live probes require a process record"));
+        }
+        if process_live && legacy_protocol_observed {
+            if Instant::now() >= deadline {
+                return Err(anyhow::Error::new(crate::server::control::ProtocolMismatch));
+            }
+            std::thread::park_timeout(POLL_INTERVAL);
+            continue;
         }
 
         let generation = ServerGeneration::new();
@@ -163,6 +177,9 @@ fn connect_or_elect_until_with_publication_hook_and_mode(
             }
         }
         if Instant::now() >= deadline {
+            if legacy_protocol_observed {
+                return Err(anyhow::Error::new(crate::server::control::ProtocolMismatch));
+            }
             anyhow::bail!("brain server did not come up within {STARTUP_TIMEOUT:?}");
         }
     }
@@ -373,14 +390,78 @@ fn termination_flag() -> Result<Arc<AtomicBool>> {
 }
 
 fn append_log(paths: &ServerPaths, message: &str) {
+    let line = format!("{} {message}\n", chrono::Utc::now().to_rfc3339());
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
         .append(true)
         .open(paths.log())
+        && fs2::FileExt::lock_exclusive(&file).is_ok()
     {
-        let _ = writeln!(file, "{} {message}", chrono::Utc::now().to_rfc3339());
+        let _ = file.write_all(line.as_bytes());
+        let _ = fs2::FileExt::unlock(&file);
     }
+}
+
+/// Append one already-redacted event to the stream viewed by `brain server logs`.
+#[cfg(not(test))]
+pub(crate) fn append_event_log(message: &str) {
+    append_event_log_to(&ServerPaths::default(), message);
+}
+
+#[cfg(not(test))]
+fn append_event_log_to(paths: &ServerPaths, message: &str) {
+    append_log(paths, message);
 }
 
 #[cfg(test)]
 mod retry_tests;
+
+#[cfg(test)]
+mod append_log_tests {
+    use std::sync::{Arc, Barrier};
+
+    use super::*;
+
+    #[test]
+    fn concurrent_lifecycle_writers_append_only_complete_lines() {
+        const WRITERS: usize = 16;
+        const LINES_PER_WRITER: usize = 64;
+
+        let temporary = tempfile::tempdir().expect("temporary server log");
+        let paths = ServerPaths::from_directory(temporary.path().to_path_buf());
+        let barrier = Arc::new(Barrier::new(WRITERS));
+        let workers = (0..WRITERS)
+            .map(|writer| {
+                let paths = paths.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for line in 0..LINES_PER_WRITER {
+                        append_log(
+                            &paths,
+                            &format!(
+                                "writer={writer:02} line={line:03} payload={}",
+                                "x".repeat(8 * 1024)
+                            ),
+                        );
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("concurrent log writer");
+        }
+
+        let contents = fs::read_to_string(paths.log()).expect("shared lifecycle log");
+        let lines = contents.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), WRITERS * LINES_PER_WRITER);
+        for line in lines {
+            assert!(
+                line.matches("writer=").count() == 1
+                    && line.matches(" payload=").count() == 1
+                    && line.ends_with(&"x".repeat(8 * 1024)),
+                "shared lifecycle log contains a fragmented line"
+            );
+        }
+    }
+}

@@ -8,6 +8,13 @@ use std::sync::{Mutex, OnceLock};
 
 use chrono::{Local, SecondsFormat};
 
+mod receiver_lifecycle;
+
+pub(crate) use receiver_lifecycle::{
+    ReceiverDeliveryPhase, ReceiverLifecycleEvent, ReceiverLifecyclePhase, ReceiverLifecycleReason,
+    ReceiverLifecycleRecovery,
+};
+
 static LOGGER: OnceLock<Mutex<Logger>> = OnceLock::new();
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static STDOUT_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -72,6 +79,45 @@ pub fn log(message: impl AsRef<str>) {
     if stdout_enabled() {
         println!("{line}");
     }
+}
+
+/// Emit one stable content-free receiver transition record.
+pub(crate) fn log_receiver_lifecycle(event: ReceiverLifecycleEvent) {
+    let line = event.to_string();
+    #[cfg(test)]
+    RECEIVER_LIFECYCLE_CAPTURE.with(|capture| {
+        if let Some(records) = capture.borrow_mut().as_mut() {
+            records.push(line.clone());
+        }
+    });
+    #[cfg(not(test))]
+    crate::server::lifecycle::append_event_log(&line);
+    log(line);
+}
+
+#[cfg(test)]
+thread_local! {
+    static RECEIVER_LIFECYCLE_CAPTURE: std::cell::RefCell<Option<Vec<String>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+#[cfg(test)]
+pub(crate) fn capture_receiver_lifecycle(operation: impl FnOnce()) -> Vec<String> {
+    RECEIVER_LIFECYCLE_CAPTURE.with(|capture| {
+        assert!(
+            capture.borrow().is_none(),
+            "nested receiver lifecycle capture"
+        );
+        *capture.borrow_mut() = Some(Vec::new());
+    });
+    operation();
+    RECEIVER_LIFECYCLE_CAPTURE.with(|capture| {
+        capture
+            .borrow_mut()
+            .take()
+            .expect("receiver lifecycle capture was active")
+    })
 }
 
 /// Redact private command-line values before they cross the logging boundary.
@@ -158,6 +204,141 @@ pub(crate) fn log_path_for(timestamp: &str) -> PathBuf {
 mod tests {
     use super::*;
     use std::io::Read as _;
+
+    #[test]
+    fn receiver_lifecycle_records_have_stable_content_free_fields() {
+        use super::{
+            ReceiverDeliveryPhase, ReceiverLifecycleEvent, ReceiverLifecyclePhase,
+            ReceiverLifecycleReason,
+        };
+
+        let cases = [
+            (
+                ReceiverLifecycleEvent::ingress(Some(4)),
+                "receiver lifecycle event=ingress phase=queued queue_depth=4",
+            ),
+            (
+                ReceiverLifecycleEvent::claim(Some(3)),
+                "receiver lifecycle event=claim phase=claimed queue_depth=3",
+            ),
+            (
+                ReceiverLifecycleEvent::launch(ReceiverLifecycleRecovery::NotActive),
+                "receiver lifecycle event=launch phase=launched recovery=not-active",
+            ),
+            (
+                ReceiverLifecycleEvent::observation(ReceiverLifecyclePhase::Accepted),
+                "receiver lifecycle event=acceptance phase=accepted",
+            ),
+            (
+                ReceiverLifecycleEvent::observation(ReceiverLifecyclePhase::Processing),
+                "receiver lifecycle event=progress phase=processing",
+            ),
+            (
+                ReceiverLifecycleEvent::recovery(
+                    ReceiverLifecyclePhase::Retrying,
+                    ReceiverLifecycleRecovery::Active {
+                        ordinal: 2,
+                        limit: 3,
+                    },
+                    ReceiverLifecycleReason::AcceptedStall,
+                ),
+                "receiver lifecycle event=recovery phase=retrying recovery=2/3 reason=accepted-stall",
+            ),
+            (
+                ReceiverLifecycleEvent::answer_ready(Some(1)),
+                "receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=1",
+            ),
+            (
+                ReceiverLifecycleEvent::cleanup_promotion(Some(0)),
+                "receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=0",
+            ),
+            (
+                ReceiverLifecycleEvent::delivery_result(
+                    ReceiverDeliveryPhase::Retrying,
+                    ReceiverLifecycleReason::TransportUnavailable,
+                ),
+                "receiver lifecycle event=delivery-result delivery_phase=retrying reason=transport-unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::terminal(
+                    ReceiverLifecyclePhase::Done,
+                    Some(0),
+                    ReceiverLifecycleReason::ProviderAcknowledged,
+                ),
+                "receiver lifecycle event=terminal-advancement phase=done queue_depth=0 reason=provider-acknowledged",
+            ),
+        ];
+
+        for (event, expected) in cases {
+            assert_eq!(event.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn receiver_lifecycle_enrichment_failure_is_explicit_without_losing_core_events() {
+        use super::{ReceiverLifecycleEvent, ReceiverLifecyclePhase, ReceiverLifecycleReason};
+
+        let cases = [
+            (
+                ReceiverLifecycleEvent::ingress(None),
+                "receiver lifecycle event=ingress phase=queued queue_depth=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::launch(ReceiverLifecycleRecovery::Unavailable),
+                "receiver lifecycle event=launch phase=launched recovery=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::recovery(
+                    ReceiverLifecyclePhase::Retrying,
+                    ReceiverLifecycleRecovery::Unavailable,
+                    ReceiverLifecycleReason::AcceptedStall,
+                ),
+                "receiver lifecycle event=recovery phase=retrying recovery=unavailable reason=accepted-stall",
+            ),
+            (
+                ReceiverLifecycleEvent::answer_ready(None),
+                "receiver lifecycle event=answer-readiness phase=answer-ready cleanup_gated=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::cleanup_promotion(None),
+                "receiver lifecycle event=cleanup-promotion delivery_phase=ready cleanup_gated=unavailable",
+            ),
+            (
+                ReceiverLifecycleEvent::terminal(
+                    ReceiverLifecyclePhase::Failed,
+                    None,
+                    ReceiverLifecycleReason::InvalidRequest,
+                ),
+                "receiver lifecycle event=terminal-advancement phase=failed queue_depth=unavailable reason=invalid-request",
+            ),
+        ];
+
+        for (event, expected) in cases {
+            assert_eq!(event.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn receiver_lifecycle_types_cannot_carry_private_identity_or_content() {
+        let rendered = format!(
+            "{:?}",
+            super::ReceiverLifecycleEvent::delivery_result(
+                super::ReceiverDeliveryPhase::Acknowledged,
+                super::ReceiverLifecycleReason::ProviderAcknowledged,
+            )
+        );
+
+        for private in [
+            "private-workspace",
+            "private-actor",
+            "private-job-id",
+            "private-prompt",
+            "private-answer",
+            "/private/state.db",
+        ] {
+            assert!(!rendered.contains(private));
+        }
+    }
 
     #[test]
     fn log_path_uses_tmp_and_the_exact_timestamp_as_filename() {

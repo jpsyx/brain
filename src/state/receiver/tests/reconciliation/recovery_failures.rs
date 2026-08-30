@@ -118,10 +118,9 @@ fn every_claimed_recovery_launch_failure_terminalizes_with_notice_intent() {
             .receiver_job(fixture.job_id)
             .expect("load terminal recovery")
             .expect("terminal recovery");
-        assert_eq!(terminal.state(), ReceiverJobState::Failed);
+        assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
         assert_eq!(terminal.retry_count(), before.retry_count());
         assert_eq!(terminal.recovery_count(), 1);
         assert_eq!(terminal.last_error(), Some(reason.as_str()));
-        assert!(terminal.pending_unavailable_notice());
     }
 }

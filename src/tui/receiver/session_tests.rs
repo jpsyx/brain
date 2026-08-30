@@ -2,7 +2,7 @@ use crate::agent::{AgentSession, SessionScope, SessionStore};
 use crate::state::Db;
 
 use super::test_support::FailingReleaseStore;
-use super::{ReceiverRemoteSession, ReceiverSessionRegistration};
+use super::{ReceiverRunIdentity, ReceiverSessionRegistration};
 
 fn scope(frontend: crate::agent::AgentKind) -> SessionScope {
     let users = crate::users::Users {
@@ -61,9 +61,9 @@ fn conversation_id(db: &Db, scope: &SessionScope) -> crate::state::ReceiverConve
 }
 
 #[test]
-fn remote_session_owners_are_unique_and_never_reuse_the_interactive_instance() {
-    let first = ReceiverRemoteSession::new("interactive-shell");
-    let second = ReceiverRemoteSession::new("interactive-shell");
+fn isolated_run_identities_are_unique_and_never_reuse_the_interactive_instance() {
+    let first = ReceiverRunIdentity::new("interactive-shell");
+    let second = ReceiverRunIdentity::new("interactive-shell");
 
     assert_ne!(first.instance(), "interactive-shell");
     assert_ne!(second.instance(), "interactive-shell");
@@ -79,27 +79,32 @@ fn remote_session_owners_are_unique_and_never_reuse_the_interactive_instance() {
 }
 
 #[test]
-fn fresh_registration_guard_releases_only_the_exact_remote_owner_unless_committed() {
+fn fresh_registration_guard_releases_only_the_exact_run_owner_unless_committed() {
     let db = Db::open_in_memory().expect("state DB");
     let scope = scope(crate::agent::AgentKind::Codex);
     let main_session = AgentSession::new("main-session").expect("main session");
     SessionStore::register(&db, &main_session, "interactive-shell", 41, &scope)
         .expect("register main session");
     let conversation_id = conversation_id(&db, &scope);
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
     {
-        let guard =
-            ReceiverSessionRegistration::register_fresh(&db, conversation_id, &remote, 42, &scope)
-                .expect("register remote placeholder");
+        let guard = ReceiverSessionRegistration::register_fresh(
+            &db,
+            conversation_id,
+            &identity,
+            42,
+            &scope,
+        )
+        .expect("register isolated-run placeholder");
         assert_eq!(
-            db.locked_session_for_instance(remote.instance(), &scope)
+            db.locked_session_for_instance(identity.instance(), &scope)
                 .as_deref(),
-            Some(remote.placeholder().as_str())
+            Some(identity.placeholder().as_str())
         );
         drop(guard);
     }
     assert!(
-        db.locked_session_for_instance(remote.instance(), &scope)
+        db.locked_session_for_instance(identity.instance(), &scope)
             .is_none()
     );
     assert_eq!(
@@ -108,7 +113,7 @@ fn fresh_registration_guard_releases_only_the_exact_remote_owner_unless_committe
         Some("main-session")
     );
 
-    let committed = ReceiverRemoteSession::new("interactive-shell");
+    let committed = ReceiverRunIdentity::new("interactive-shell");
     ReceiverSessionRegistration::register_fresh(&db, conversation_id, &committed, 43, &scope)
         .expect("register committed placeholder")
         .commit();
@@ -134,12 +139,12 @@ fn resume_registration_claims_only_the_exact_matching_native_session() {
         .expect("seed exact receiver binding");
     SessionStore::register(&db, &candidate, "old-owner", 10, &scope).expect("register candidate");
     SessionStore::release(&db, "old-owner").expect("release candidate");
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
 
     let guard = ReceiverSessionRegistration::claim_resume(
         &db,
         conversation_id,
-        &remote,
+        &identity,
         &candidate,
         42,
         &scope,
@@ -147,7 +152,7 @@ fn resume_registration_claims_only_the_exact_matching_native_session() {
     .expect("claim resume session")
     .expect("exact candidate is free");
     assert_eq!(
-        db.locked_session_for_instance(remote.instance(), &scope)
+        db.locked_session_for_instance(identity.instance(), &scope)
             .as_deref(),
         Some("native-session")
     );
@@ -155,7 +160,7 @@ fn resume_registration_claims_only_the_exact_matching_native_session() {
         ReceiverSessionRegistration::claim_resume(
             &db,
             conversation_id,
-            &remote,
+            &identity,
             &candidate,
             42,
             &scope,
@@ -171,10 +176,10 @@ fn explicit_registration_cleanup_surfaces_release_failure_before_drop_fallback()
     let store = FailingReleaseStore::new();
     let scope = scope(crate::agent::AgentKind::Codex);
     let conversation_id = conversation_id(store.db(), &scope);
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
     let guard =
-        ReceiverSessionRegistration::register_fresh(&store, conversation_id, &remote, 42, &scope)
-            .expect("register remote placeholder");
+        ReceiverSessionRegistration::register_fresh(&store, conversation_id, &identity, 42, &scope)
+            .expect("register isolated-run placeholder");
 
     let error = guard.cleanup().expect_err("surface release failure");
 
@@ -187,15 +192,15 @@ fn committed_registration_returns_the_exact_durable_attribution() {
     let db = Db::open_in_memory().expect("state DB");
     let scope = scope(crate::agent::AgentKind::Codex);
     let conversation_id = conversation_id(&db, &scope);
-    let remote = ReceiverRemoteSession::new("interactive-shell");
+    let identity = ReceiverRunIdentity::new("interactive-shell");
     let registration =
-        ReceiverSessionRegistration::register_fresh(&db, conversation_id, &remote, 42, &scope)
-            .expect("register remote placeholder");
+        ReceiverSessionRegistration::register_fresh(&db, conversation_id, &identity, 42, &scope)
+            .expect("register isolated-run placeholder");
 
     let attribution = registration.commit();
 
     assert_eq!(attribution.conversation_id(), conversation_id);
-    assert_eq!(attribution.instance(), remote.instance());
-    assert_eq!(attribution.registered_session(), remote.placeholder());
+    assert_eq!(attribution.instance(), identity.instance());
+    assert_eq!(attribution.registered_session(), identity.placeholder());
     assert_eq!(attribution.scope(), &scope);
 }

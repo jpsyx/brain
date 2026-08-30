@@ -123,7 +123,7 @@ fn terminalize_invalid_active_envelopes(connection: &Connection) -> Result<()> {
     let invalid = {
         let mut statement = connection.prepare(
             "SELECT delivery_id, envelope_json FROM receiver_deliveries
-             WHERE state IN ('ready', 'delivering', 'retrying')",
+             WHERE state IN ('cleanup-gated', 'ready', 'delivering', 'retrying')",
         )?;
         statement
             .query_map([], |row| {
@@ -147,7 +147,7 @@ fn terminalize_invalid_active_envelopes(connection: &Connection) -> Result<()> {
                  error_category = 'invalid-request', ambiguity_reason = NULL,
                  fallback_decision = 'no-safe-fallback'
              WHERE delivery_id = ?1
-               AND state IN ('ready', 'delivering', 'retrying')",
+               AND state IN ('cleanup-gated', 'ready', 'delivering', 'retrying')",
             [delivery_id],
         )?;
     }

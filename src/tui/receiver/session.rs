@@ -92,12 +92,12 @@ impl ReceiverSessionStore for AppServices {
 }
 
 /// Fresh hook lineage and placeholder for one isolated receiver process.
-pub(crate) struct ReceiverRemoteSession {
+pub(crate) struct ReceiverRunIdentity {
     instance: String,
     placeholder: AgentSession,
 }
 
-impl ReceiverRemoteSession {
+impl ReceiverRunIdentity {
     pub(crate) fn new(interactive_instance: &str) -> Self {
         loop {
             let id = uuid::Uuid::new_v4();
@@ -123,7 +123,7 @@ impl ReceiverRemoteSession {
     }
 }
 
-/// Releases an exact remote owner unless its controller accepted ownership.
+/// Releases an exact isolated-run owner unless its controller accepted ownership.
 pub(crate) struct ReceiverSessionRegistration<'store, Store: ReceiverSessionStore> {
     store: &'store Store,
     attribution: ReceiverSessionAttribution,
@@ -138,15 +138,15 @@ impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, St
     pub(crate) fn register_fresh(
         store: &'store Store,
         conversation_id: ReceiverConversationId,
-        remote: &ReceiverRemoteSession,
+        identity: &ReceiverRunIdentity,
         pid: i32,
         scope: &SessionScope,
     ) -> anyhow::Result<Self> {
         let attribution = ReceiverSessionStore::register_receiver_session(
             store,
             conversation_id,
-            remote.placeholder(),
-            remote.instance(),
+            identity.placeholder(),
+            identity.instance(),
             pid,
             scope,
         )?;
@@ -160,7 +160,7 @@ impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, St
     pub(crate) fn claim_resume(
         store: &'store Store,
         conversation_id: ReceiverConversationId,
-        remote: &ReceiverRemoteSession,
+        identity: &ReceiverRunIdentity,
         session: &AgentSession,
         pid: i32,
         scope: &SessionScope,
@@ -169,7 +169,7 @@ impl<'store, Store: ReceiverSessionStore> ReceiverSessionRegistration<'store, St
             store,
             conversation_id,
             session,
-            remote.instance(),
+            identity.instance(),
             pid,
             scope,
         )?

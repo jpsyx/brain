@@ -9,6 +9,8 @@ mod identity;
 mod setup;
 mod url;
 
+pub(crate) use details::{read_work_state, receiver_status_flash};
+
 pub(crate) use enablement::{
     ReceiverActionOutcome, ReceiverIntentRefresher, apply_receiver_action_with,
     apply_startup_receiver_flag, read_receiver_status, receiver_enabled,

@@ -2,7 +2,10 @@ pub(super) fn seed_cleanup_pending_recovery(path: &Path) {
     rusqlite::Connection::open(path)
         .expect("cleanup-fence state")
         .execute_batch(
-            r#"CREATE TABLE IF NOT EXISTS brain_sessions (
+            r#"ALTER TABLE receiver_jobs ADD COLUMN pending_unavailable_notice
+                 INTEGER NOT NULL DEFAULT 0
+                 CHECK (pending_unavailable_notice IN (0, 1));
+             CREATE TABLE IF NOT EXISTS brain_sessions (
                agent_kind        TEXT NOT NULL,
                agent_session_id  TEXT NOT NULL,
                brain_instance_id TEXT NOT NULL,
@@ -215,9 +218,18 @@ fn assert_adjacent_cleanup_fence_upgrade(missing: MissingCleanupHalf) {
         String::from_utf8_lossy(&upgraded.stderr)
     );
     let connection = rusqlite::Connection::open(&family).expect("repaired cleanup state");
-    let repaired: (String, Option<String>, i64, Option<String>, Option<String>) = connection
+    let repaired: (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = connection
         .query_row(
-            "SELECT state, last_error, pending_unavailable_notice,
+            "SELECT state, last_error,
+                    (SELECT state FROM receiver_deliveries
+                     WHERE job_id = receiver_jobs.job_id
+                       AND response_kind = 'unavailable-notice'),
                     recovery_cleanup_instance, recovery_cleanup_session_id
              FROM receiver_jobs
              WHERE job_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'",
@@ -236,9 +248,9 @@ fn assert_adjacent_cleanup_fence_upgrade(missing: MissingCleanupHalf) {
     assert_eq!(repaired.0, "failed");
     assert_eq!(
         repaired.1.as_deref(),
-        Some("recovery-native-session-unavailable")
+        Some("notice-no-authorized-destination")
     );
-    assert_eq!(repaired.2, 1);
+    assert_eq!(repaired.2, None);
     assert_eq!(repaired.3.as_deref(), Some("ordinary-instance"));
     assert_eq!(repaired.4.as_deref(), Some("native-session"));
     drop(connection);
@@ -260,7 +272,7 @@ fn assert_adjacent_cleanup_fence_upgrade(missing: MissingCleanupHalf) {
     );
     assert_eq!(
         effect.reason(),
-        brain::state::ReceiverReconciliationReason::NativeSessionUnavailable
+        brain::state::ReceiverReconciliationReason::NoticeNoAuthorizedDestination
     );
     assert_eq!(effect.cleanup_instance(), Some("ordinary-instance"));
     assert_eq!(effect.cleanup_session_id(), Some("native-session"));

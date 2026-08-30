@@ -172,6 +172,7 @@ impl ControlServer {
             ControlRequest::Snapshot => {
                 let live_leases = self.leases.live_tui_count_at(now);
                 ControlOutcome::Snapshot(ServerSnapshot {
+                    protocol_version: super::CONTROL_PROTOCOL_VERSION,
                     generation: self.generation,
                     live_leases,
                 })

@@ -332,7 +332,7 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
         )
         .expect("answer cleanup schema");
 
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     for column in [
         "delivery_id",
         "job_id",
@@ -758,14 +758,12 @@ fn v12_down_preserves_transcripts_and_maps_acknowledged_and_unacknowledged_jobs(
 fn v12_down_keeps_the_outbox_when_the_v11_shape_is_not_valid() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = temporary.path().join("state.db");
-    {
-        let db = Db::open_path(&path).expect("receiver state");
-        db.conn
-            .execute_batch(
-                "ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;",
-            )
-            .expect("damage v11 receiver shape");
-    }
+    drop(Db::open_path(&path).expect("receiver state"));
+    super::super::schema::down_cutover_path(&path).expect("stage v12 receiver state");
+    rusqlite::Connection::open(&path)
+        .expect("v12 receiver state")
+        .execute_batch("ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;")
+        .expect("damage v11 receiver shape");
 
     let error = super::super::schema::down_delivery_path(&path)
         .expect_err("invalid v11 shape must block downgrade");

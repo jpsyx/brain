@@ -11,7 +11,7 @@ use crate::state::{
 mod repair;
 mod retry;
 
-use repair::{migrate_legacy_unavailable_notices, terminalize_invalid_semantic_responses};
+use repair::terminalize_invalid_semantic_responses;
 pub(super) use retry::terminalize_expired_due_retry;
 use retry::{requeue_pre_spawn, terminalize_expired_due_retries};
 
@@ -24,10 +24,9 @@ impl Db {
         )?;
         let structurally_invalid =
             crate::state::receiver::schema::repair_structurally_malformed_deliveries(&transaction)?;
-        let migrated = migrate_legacy_unavailable_notices(&transaction, &self.workspace_id, now)?;
-        let invalid =
+        let invalid_lifecycle =
             terminalize_invalid_semantic_responses(&transaction, &self.workspace_id, now)?;
-        let terminalized =
+        let terminalized_lifecycle =
             terminalize_expired_due_retries(&transaction, &self.workspace_id, now_unix_ms)?;
         let expired = {
             let mut statement = transaction.prepare(
@@ -49,6 +48,10 @@ impl Db {
                 )?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
+        let invalid = invalid_lifecycle.len();
+        let terminalized = terminalized_lifecycle.len();
+        let mut lifecycle = invalid_lifecycle;
+        lifecycle.extend(terminalized_lifecycle);
         for delivery in &expired {
             if delivery.provider_io_started {
                 let decision = decide_receiver_delivery(ReceiverDeliveryPolicySnapshot {
@@ -60,7 +63,7 @@ impl Db {
                         ReceiverDeliveryAmbiguity::ProviderAcceptanceUnknown,
                     ),
                 });
-                apply_decision(
+                lifecycle.push(apply_decision(
                     &transaction,
                     &self.workspace_id,
                     delivery.delivery_id,
@@ -70,14 +73,16 @@ impl Db {
                     Some(&delivery.owner),
                     decision,
                     now_unix_ms,
-                )?;
+                )?);
             } else {
                 requeue_pre_spawn(&transaction, &self.workspace_id, delivery, now_unix_ms)?;
             }
         }
         transaction.commit()?;
-        Ok(migrated
-            .saturating_add(structurally_invalid)
+        for event in lifecycle {
+            event.log(self);
+        }
+        Ok(structurally_invalid
             .saturating_add(invalid)
             .saturating_add(terminalized)
             .saturating_add(expired.len()))

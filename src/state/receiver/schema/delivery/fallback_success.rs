@@ -57,10 +57,7 @@ pub(super) fn restore_acknowledged_jobs(connection: &Connection) -> Result<usize
         restored = restored.saturating_add(connection.execute(
             "UPDATE receiver_jobs
              SET state = 'done', claim_owner = NULL, claim_expires_at_unix_ms = NULL,
-                 retry_at_unix_ms = NULL, retry_from_state = NULL, last_error = NULL,
-                 pending_unavailable_notice = 0,
-                 unavailable_notice_owner = NULL,
-                 unavailable_notice_expires_at_unix_ms = NULL
+                 retry_at_unix_ms = NULL, retry_from_state = NULL, last_error = NULL
              WHERE job_id = ?1 AND job_token = ?2",
             rusqlite::params![job_id, token],
         )?);

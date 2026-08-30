@@ -114,12 +114,12 @@ fn print_receiver_refresh_warning(outcome: &ReceiverActionOutcome) {
 pub(super) fn print_receiver_status(context: &crate::workspace::CommandContext) -> Result<()> {
     let status = read_receiver_status(context)?;
     print_receiver_status_snapshot(status);
-    let counts = crate::state::Db::receiver_delivery_counts_read_only(
-        &context.workspace.paths().state_db(),
-    )?;
     println!(
         "{}",
-        super::details::delivery_rows(counts, crate::theme::Theme::active())
+        super::details::work_rows(
+            &super::details::read_work_state(context),
+            crate::theme::Theme::active(),
+        )
     );
     // The provider portals need these whether or not ingress is live, so status
     // reports them alongside intent rather than only at the end of setup.

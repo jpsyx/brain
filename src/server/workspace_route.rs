@@ -301,7 +301,6 @@ fn same_authority(current: &WorkspaceLease, ticket: &WorkspaceLease) -> bool {
         && current.canonical_name == ticket.canonical_name
         && current.ingress_id == ticket.ingress_id
         && current.tui_pid == ticket.tui_pid
-        && current.job_socket == ticket.job_socket
 }
 
 /// A public route could not be mapped safely to one live workspace.

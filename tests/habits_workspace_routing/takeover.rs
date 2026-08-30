@@ -69,7 +69,6 @@ struct BackgroundFixture {
 /// The TUI-side artifacts a live registration is validated against.
 struct TuiRegistration {
     _guard: brain::tui::singleton::Guard,
-    _job_socket: brain::tui::singleton::JobSocket,
 }
 
 impl BackgroundFixture {
@@ -129,7 +128,6 @@ impl BackgroundFixture {
             ingress_id: ingress,
             tui_pid: 0,
             resolved_root: root.clone(),
-            job_socket: std::path::PathBuf::new(),
         };
         wait_for_background_start(&client, &background);
         let record = client
@@ -153,7 +151,6 @@ impl BackgroundFixture {
     fn register_tui(&self) -> TuiRegistration {
         let workspace = workspace(self.home.path(), "family", FAMILY_ID, &self.root);
         let guard = brain::tui::singleton::Guard::acquire(&workspace).expect("family TUI");
-        let job_socket = brain::tui::singleton::JobSocket::bind(&workspace).expect("family jobs");
         let tui = registration(
             &workspace,
             self.ingress,
@@ -161,10 +158,7 @@ impl BackgroundFixture {
             self.generation,
         );
         wait_for_registration(&self.client, &tui);
-        TuiRegistration {
-            _guard: guard,
-            _job_socket: job_socket,
-        }
+        TuiRegistration { _guard: guard }
     }
 
     fn get(&self, capability: LeaseId, suffix: &str) -> String {

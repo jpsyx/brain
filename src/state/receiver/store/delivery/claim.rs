@@ -25,6 +25,7 @@ impl Db {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
+        let mut lifecycle: Vec<super::result::DeliveryLifecycle> = Vec::new();
         let due = loop {
             let due = transaction
                 .query_row(
@@ -46,9 +47,15 @@ impl Db {
                 .optional()?;
             let Some(due) = due else {
                 transaction.commit()?;
+                for event in lifecycle {
+                    event.log(self);
+                }
                 return Ok(None);
             };
-            if terminalize_expired_due_retry(&transaction, &self.workspace_id, &due, now_unix_ms)? {
+            if let Some(event) =
+                terminalize_expired_due_retry(&transaction, &self.workspace_id, &due, now_unix_ms)?
+            {
+                lifecycle.push(event);
                 continue;
             }
             break due;
@@ -93,6 +100,9 @@ impl Db {
             return Ok(None);
         }
         transaction.commit()?;
+        for event in lifecycle {
+            event.log(self);
+        }
         Ok(Some(ReceiverDeliveryClaim::new(
             due.delivery_id,
             attempt_id,
@@ -117,13 +127,14 @@ impl Db {
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        if terminalize_expired_claim_before_io(
+        if let Some(lifecycle) = terminalize_expired_claim_before_io(
             &transaction,
             &self.workspace_id,
             claim,
             observed_at_unix_ms,
         )? {
             transaction.commit()?;
+            lifecycle.log(self);
             return Ok(false);
         }
         let changed = transaction.execute(
@@ -346,14 +357,14 @@ fn terminalize_expired_claim_before_io(
     workspace_id: &str,
     claim: &ReceiverDeliveryClaim,
     observed_at_unix_ms: u64,
-) -> Result<bool> {
+) -> Result<Option<super::result::DeliveryLifecycle>> {
     if !crate::state::receiver_delivery_replay_window_is_expired(
         claim.provider(),
         claim.attempt_count().saturating_sub(1),
         claim.first_attempt_at_unix_ms(),
         observed_at_unix_ms,
     ) {
-        return Ok(false);
+        return Ok(None);
     }
     let observed = to_i64(
         observed_at_unix_ms,
@@ -390,7 +401,7 @@ fn terminalize_expired_claim_before_io(
         ],
     )?;
     if delivery_changed == 0 {
-        return Ok(false);
+        return Ok(None);
     }
     fallback.insert_notice(transaction, claim.job_id(), claim.token(), observed)?;
     let job_changed = transaction.execute(
@@ -411,5 +422,9 @@ fn terminalize_expired_claim_before_io(
         job_changed == 1,
         "receiver delivery replay-window terminalization lost exact job authority"
     );
-    Ok(true)
+    Ok(Some(super::result::DeliveryLifecycle::new(
+        "ambiguous",
+        fallback.job_state(),
+        crate::logging::ReceiverLifecycleReason::IdempotencyWindowExpired,
+    )?))
 }

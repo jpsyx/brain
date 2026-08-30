@@ -179,9 +179,8 @@ fn claimed_recovery_with_unsafe_native_history_terminalizes_durably() {
         .receiver_job(fixture.job_id)
         .expect("load unsafe terminal job")
         .expect("unsafe terminal job");
-    assert_eq!(terminal.state(), ReceiverJobState::Failed);
+    assert_eq!(terminal.state(), ReceiverJobState::AnswerReady);
     assert_eq!(terminal.recovery_count(), 1);
-    assert!(terminal.pending_unavailable_notice());
 }
 
 #[test]
@@ -303,7 +302,6 @@ fn accepted_recovery_stalling_again_terminalizes_at_its_bound() {
         .expect("second-stall terminal job");
     assert_eq!(terminal.state(), ReceiverJobState::Failed);
     assert_eq!(terminal.recovery_count(), 1);
-    assert!(terminal.pending_unavailable_notice());
     assert_eq!(
         terminal.recovery_cleanup_instance(),
         Some("recovery-instance")

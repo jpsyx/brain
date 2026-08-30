@@ -12,6 +12,60 @@ const CREATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_deliveries (
            completion_evidence_json    TEXT,
            frozen_fallbacks_json       TEXT NOT NULL DEFAULT '[]',
            state                       TEXT NOT NULL CHECK (state IN (
+             'cleanup-gated', 'ready', 'delivering', 'retrying',
+             'acknowledged', 'failed', 'ambiguous'
+           )),
+           attempt_id                  TEXT,
+           attempt_count               INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+           retry_at_unix_ms             INTEGER,
+           claim_owner                 TEXT,
+           claim_expires_at_unix_ms    INTEGER,
+           provider_io_started         INTEGER NOT NULL DEFAULT 0
+             CHECK (provider_io_started IN (0, 1)),
+           first_attempt_at_unix_ms    INTEGER,
+           provider_reference          TEXT,
+           error_category              TEXT CHECK (error_category IN (
+             'authorization', 'credentials', 'invalid-request', 'provider-rejected',
+             'transport-unavailable', 'retry-exhausted', 'idempotency-window-expired'
+           )),
+           ambiguity_reason            TEXT CHECK (ambiguity_reason IN (
+             'provider-acceptance-unknown', 'provider-acknowledgement-malformed',
+             'result-commit-unknown', 'idempotency-window-expired'
+           )),
+           fallback_decision           TEXT CHECK (fallback_decision IN (
+             'fallback-planned', 'no-safe-fallback'
+           )),
+           created_at_unix_ms          INTEGER NOT NULL,
+           updated_at_unix_ms          INTEGER NOT NULL,
+           UNIQUE (job_id, response_kind),
+           CHECK ((claim_owner IS NULL) = (claim_expires_at_unix_ms IS NULL)),
+           CHECK (state != 'cleanup-gated' OR response_kind = 'unavailable-notice'),
+           CHECK (state = 'delivering' OR claim_owner IS NULL),
+           CHECK (state != 'delivering' OR (
+             attempt_id IS NOT NULL AND claim_owner IS NOT NULL
+           )),
+           CHECK (state = 'delivering' OR provider_io_started = 0),
+           CHECK (provider_io_started = 0 OR first_attempt_at_unix_ms IS NOT NULL),
+           CHECK (state = 'retrying' OR retry_at_unix_ms IS NULL),
+           CHECK (state != 'retrying' OR retry_at_unix_ms IS NOT NULL),
+           CHECK (state != 'acknowledged' OR (
+             provider_reference IS NOT NULL AND length(trim(provider_reference)) > 0
+           )),
+           CHECK (state != 'ambiguous' OR ambiguity_reason IS NOT NULL),
+           CHECK (state NOT IN ('failed', 'ambiguous') OR fallback_decision IS NOT NULL)
+         );";
+
+pub(super) const CREATE_V12_TABLE: &str = "CREATE TABLE receiver_deliveries (
+           delivery_id                 TEXT PRIMARY KEY,
+           job_id                      TEXT NOT NULL REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
+           job_token                   TEXT NOT NULL,
+           response_kind               TEXT NOT NULL CHECK (response_kind IN (
+             'final-answer', 'unavailable-notice', 'control-acknowledgement', 'fallback-notice'
+           )),
+           envelope_json               TEXT NOT NULL,
+           completion_evidence_json    TEXT,
+           frozen_fallbacks_json       TEXT NOT NULL DEFAULT '[]',
+           state                       TEXT NOT NULL CHECK (state IN (
              'ready', 'delivering', 'retrying', 'acknowledged', 'failed', 'ambiguous'
            )),
            attempt_id                  TEXT,

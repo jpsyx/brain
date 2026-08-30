@@ -10,7 +10,7 @@ use crate::sync::watch::WatcherHandle;
 use crate::tui::app_state::AppInit;
 use crate::tui::search_view::build_search;
 use crate::tui::shell::ZshFunctionRunner;
-use crate::tui::singleton::{Guard, JobSocket};
+use crate::tui::singleton::Guard;
 use crate::tui::{App, TuiLaunch};
 
 use super::TuiRuntime;
@@ -70,7 +70,6 @@ fn register_server_lease(
         ingress_id: manifest.receiver_ingress_id().into(),
         tui_pid: std::process::id(),
         resolved_root: command_context.workspace.root().to_path_buf(),
-        job_socket: command_context.workspace.paths().job_socket(),
     };
     client.connect_and_register(&mut registration)?;
     Ok(HeartbeatWorker::start(client, registration))
@@ -99,21 +98,19 @@ impl RuntimeBuilder {
 
     pub(super) fn start(mut self) -> Result<TuiRuntime> {
         let singleton = self.acquire_workspace_boundary()?;
-        let job_socket = self.bind_receiver_endpoint()?;
         let server_lease = self.start_server_lease()?;
-        let startup_resources = StartupResources::new(server_lease, job_socket);
+        let startup_resources = StartupResources::new(server_lease);
         let prepared =
             startup_resources.prepare(|server_lease| self.prepare_runtime(server_lease))?;
         let lifecycle = self.lifecycle;
-        Ok(prepared.finish(|prepared, server_lease, job_socket| {
+        Ok(prepared.finish(|prepared, server_lease| {
             let PreparedRuntime {
                 terminal,
-                mut app,
+                app,
                 watcher,
                 periodic_puller,
                 instance,
             } = prepared;
-            app.receiver.install_legacy_job_socket(job_socket);
             TuiRuntime {
                 terminal,
                 app,
@@ -161,13 +158,6 @@ impl RuntimeBuilder {
         self.lifecycle
             .record_acquired(AcquisitionStage::WorkspaceSingleton)?;
         Ok(singleton)
-    }
-
-    fn bind_receiver_endpoint(&mut self) -> Result<JobSocket> {
-        let socket = JobSocket::bind(&self.launch()?.command_context.workspace)?;
-        self.lifecycle
-            .record_acquired(AcquisitionStage::ReceiverEndpoint)?;
-        Ok(socket)
     }
 
     fn start_server_lease(&mut self) -> Result<HeartbeatWorker> {
@@ -270,7 +260,7 @@ impl RuntimeBuilder {
     }
 
     fn launch_initial_agent_panel(app: &mut App) {
-        crate::logging::log("workspace job socket and shared-server lease ready");
+        crate::logging::log("workspace shared-server lease ready");
         app.open_or_focus_brain(None);
         app.focus_tasks();
     }

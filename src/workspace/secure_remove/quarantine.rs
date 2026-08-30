@@ -7,7 +7,7 @@ use nix::{
     errno::Errno,
     fcntl::{AtFlags, openat},
     sys::stat::{FchmodatFlags, Mode, SFlag, fchmod, fchmodat, fstat, fstatat, mkdirat},
-    unistd::{UnlinkatFlags, dup, unlinkat},
+    unistd::{UnlinkatFlags, dup, linkat, unlinkat},
 };
 
 #[cfg(test)]
@@ -19,6 +19,7 @@ use super::{
 use phase::{BoundQuarantine, QuarantinePhase, parse_bound_name, pending_name};
 
 const MAX_BOUND_QUARANTINES: usize = 8;
+const MAX_DIRECTORY_ENTRY_VISITS: usize = 256;
 
 pub(super) struct Quarantine {
     pub(super) name: OsString,
@@ -99,6 +100,107 @@ pub(super) fn recover_bound_quarantines(
     }
 }
 
+pub(super) fn recover_socket_quarantines(
+    parent: &OwnedDescriptor,
+    target: &std::ffi::OsStr,
+    expected_uid: u32,
+) -> std::io::Result<bool> {
+    let names = discover_bound_quarantines(parent, target)?;
+    let mut restored = false;
+    for bound in names {
+        restored |= recover_one_socket(parent, target, expected_uid, bound)?;
+    }
+    Ok(restored)
+}
+
+fn recover_one_socket(
+    parent: &OwnedDescriptor,
+    target: &std::ffi::OsStr,
+    expected_uid: u32,
+    bound: BoundQuarantine,
+) -> std::io::Result<bool> {
+    let descriptor = open_verified_quarantine(parent, &bound.name)?;
+    let mut quarantine = Quarantine {
+        name: bound.name,
+        descriptor,
+        phase: bound.phase,
+    };
+    let artifact = match fstatat(
+        Some(quarantine.descriptor.raw()),
+        Path::new("artifact"),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(artifact) => artifact,
+        Err(Errno::ENOENT) => {
+            remove_empty_quarantine(parent, &quarantine)?;
+            return Ok(false);
+        }
+        Err(error) => return Err(io_error(error)),
+    };
+    if !SFlag::from_bits_truncate(artifact.st_mode).contains(SFlag::S_IFSOCK)
+        || artifact.st_uid != expected_uid
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
+    if let Err(error) = promote_quarantine(parent, &mut quarantine) {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(error);
+    }
+    match fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    ) {
+        Ok(entry) if entry.st_dev == artifact.st_dev && entry.st_ino == artifact.st_ino => {}
+        Ok(_) => {
+            fail_closed(parent, target, &quarantine)?;
+            return Err(identity_changed());
+        }
+        Err(Errno::ENOENT) => linkat(
+            Some(quarantine.descriptor.raw()),
+            Path::new("artifact"),
+            Some(parent.raw()),
+            Path::new(target),
+            AtFlags::empty(),
+        )
+        .map_err(io_error)?,
+        Err(error) => return Err(io_error(error)),
+    }
+    let restored = fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
+    if restored.st_dev != artifact.st_dev
+        || restored.st_ino != artifact.st_ino
+        || !SFlag::from_bits_truncate(restored.st_mode).contains(SFlag::S_IFSOCK)
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
+    #[cfg(test)]
+    super::observe_test_boundary(
+        super::SecureRemoveTestBoundary::SocketRestoredBeforeAuthorityRetention,
+        Path::new(target),
+    );
+    let final_entry = fstatat(
+        Some(parent.raw()),
+        Path::new(target),
+        AtFlags::AT_SYMLINK_NOFOLLOW,
+    )
+    .map_err(io_error)?;
+    if final_entry.st_dev != artifact.st_dev
+        || final_entry.st_ino != artifact.st_ino
+        || !SFlag::from_bits_truncate(final_entry.st_mode).contains(SFlag::S_IFSOCK)
+    {
+        fail_closed(parent, target, &quarantine)?;
+        return Err(identity_changed());
+    }
+    Ok(true)
+}
+
 fn discover_bound_quarantines(
     parent: &OwnedDescriptor,
     target: &std::ffi::OsStr,
@@ -107,8 +209,19 @@ fn discover_bound_quarantines(
     let duplicate = dup(parent.raw()).map_err(io_error)?;
     let mut directory = Dir::from_fd(duplicate).map_err(io_error)?;
     let mut names = Vec::new();
+    let mut visited = 0;
     for entry in directory.iter() {
         let entry = entry.map_err(io_error)?;
+        visited += 1;
+        #[cfg(test)]
+        super::observe_test_boundary(
+            super::SecureRemoveTestBoundary::QuarantineDirectoryEntryVisited,
+            Path::new(target),
+        );
+        if visited == MAX_DIRECTORY_ENTRY_VISITS {
+            mark_cleanup_blocked(parent, target)?;
+            return Err(identity_changed());
+        }
         let bytes = entry.file_name().to_bytes();
         if !bytes.starts_with(prefix.as_bytes()) {
             continue;

@@ -1,6 +1,5 @@
 //! Which lease capabilities a local `/local/<lease>/...` route accepts.
 
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::WorkspaceRouteAuthority;
@@ -20,7 +19,6 @@ fn a_page_opened_under_the_background_lease_survives_a_tui_takeover() {
     let mut table = LeaseTable::default();
     let mut background = lease(lease_id(1), now);
     background.tui_pid = 0;
-    background.job_socket = PathBuf::new();
     table.register(background, now).unwrap();
     table.register(lease(lease_id(2), now), now).unwrap();
 
@@ -53,7 +51,6 @@ fn lease(id: LeaseId, now: Instant) -> WorkspaceLease {
         canonical_name: WorkspaceName::parse("family").unwrap(),
         ingress_id: ingress(),
         tui_pid: 42,
-        job_socket: PathBuf::from("/tmp/brain-job.sock"),
         receiver_enabled: true,
         expires_at: now + Duration::from_secs(5),
     }

@@ -98,6 +98,7 @@ fn process_snapshot_does_not_reap_or_latch_an_expired_final_lease() {
     assert_eq!(
         response,
         ControlResponse::Snapshot(ServerSnapshot {
+            protocol_version: crate::server::control::CONTROL_PROTOCOL_VERSION,
             generation,
             live_leases: 0,
         })

@@ -12,6 +12,9 @@ pub use client::{RegistrationGate, ServerClient};
 pub use heartbeat::{
     HeartbeatClock, HeartbeatDisposition, HeartbeatEvent, HeartbeatWorker, heartbeat_disposition,
 };
-pub use protocol::{ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot};
+pub use protocol::{
+    CONTROL_PROTOCOL_VERSION, ControlRequest, ControlResponse, LeaseRegistration, ServerSnapshot,
+};
 pub use server::{ControlListener, ControlServer};
 pub use status::WorkspaceStatusSnapshot;
+pub(crate) use status::{ProtocolMismatch, is_protocol_mismatch};

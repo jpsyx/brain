@@ -28,7 +28,6 @@ pub(super) struct ControlFixture {
     pub(super) root: PathBuf,
     pub(super) ingress_id: IngressId,
     _guard: brain::tui::singleton::Guard,
-    job_socket: Option<brain::tui::singleton::JobSocket>,
 }
 
 impl ControlFixture {
@@ -66,13 +65,11 @@ impl ControlFixture {
         )
         .expect("workspace context");
         let guard = brain::tui::singleton::Guard::acquire(&workspace).expect("TUI singleton");
-        let job_socket = brain::tui::singleton::JobSocket::bind(&workspace).expect("job socket");
         Self {
             temporary,
             root,
             ingress_id: manifest.receiver_ingress_id().into(),
             _guard: guard,
-            job_socket: Some(job_socket),
         }
     }
 
@@ -89,15 +86,6 @@ impl ControlFixture {
             ingress_id: self.ingress_id,
             tui_pid: std::process::id(),
             resolved_root: self.root.clone(),
-            job_socket: brain::workspace::WorkspacePaths::new(
-                self.temporary.path(),
-                workspace_id(),
-            )
-            .job_socket(),
         }
-    }
-
-    pub(super) fn close_job_socket(&mut self) {
-        drop(self.job_socket.take());
     }
 }

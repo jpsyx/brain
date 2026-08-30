@@ -16,7 +16,6 @@ fn register_request_round_trips_as_newline_delimited_json() {
         ingress_id: super::support::ingress_id(),
         tui_pid: 101,
         resolved_root: PathBuf::from("/tmp/brain-test/workspace"),
-        job_socket: PathBuf::from("/tmp/brain-test/jobs.sock"),
     });
 
     let encoded = brain::server::control::codec::encode(&request).expect("encode request");
@@ -67,6 +66,7 @@ fn codec_read_rejects_multiple_frames_from_a_real_stream() {
 fn deadline_read_succeeds_after_the_client_half_closes_its_write_side() {
     let (mut reader, mut writer) = UnixStream::pair().expect("Unix stream pair");
     let response = ControlResponse::Snapshot(brain::server::control::ServerSnapshot {
+        protocol_version: brain::server::control::CONTROL_PROTOCOL_VERSION,
         generation: generation(),
         live_leases: 0,
     });
@@ -83,4 +83,17 @@ fn deadline_read_succeeds_after_the_client_half_closes_its_write_side() {
     .expect("read response after request EOF");
 
     assert_eq!(decoded, response);
+}
+
+#[test]
+fn snapshot_without_the_current_protocol_version_is_rejected() {
+    let legacy = format!(
+        "{{\"result\":\"snapshot\",\"generation\":\"{}\",\"live_leases\":1}}\n",
+        generation()
+    );
+
+    let error = brain::server::control::codec::decode::<ControlResponse>(legacy.as_bytes())
+        .expect_err("a legacy server response must not cross the protocol fence");
+
+    assert!(error.to_string().contains("decoding server control frame"));
 }

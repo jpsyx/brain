@@ -190,7 +190,46 @@ impl Db {
         {
             return Ok(false);
         }
+        let mut cleanup_promoted = false;
+        if candidate.state == ReceiverJobState::Failed {
+            let promoted = transaction.execute(
+                "UPDATE receiver_deliveries
+                 SET state = 'ready', updated_at_unix_ms = ?3
+                 WHERE job_id = ?1 AND job_token = ?2
+                   AND response_kind = 'unavailable-notice'
+                   AND state = 'cleanup-gated'",
+                rusqlite::params![job_id.to_string(), token.to_string(), now],
+            )?;
+            if promoted == 1 {
+                cleanup_promoted = true;
+                let changed = transaction.execute(
+                    "UPDATE receiver_jobs
+                     SET state = 'answer-ready', updated_at_unix_ms = ?4
+                     WHERE workspace_id = ?1 AND job_id = ?2 AND job_token = ?3
+                       AND state = 'failed'
+                       AND recovery_cleanup_instance IS NULL
+                       AND recovery_cleanup_session_id IS NULL",
+                    rusqlite::params![
+                        self.workspace_id,
+                        job_id.to_string(),
+                        token.to_string(),
+                        now,
+                    ],
+                )?;
+                anyhow::ensure!(
+                    changed == 1,
+                    "receiver cleanup-gated notice promotion lost source authority"
+                );
+            }
+        }
         transaction.commit()?;
+        if cleanup_promoted {
+            self.log_receiver_summary(|summary| {
+                crate::logging::ReceiverLifecycleEvent::cleanup_promotion(
+                    summary.map(crate::state::ReceiverWorkSummary::cleanup_gated_responses),
+                )
+            });
+        }
         Ok(true)
     }
 }

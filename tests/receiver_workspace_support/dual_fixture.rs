@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use brain::server::receiver::InboundJob;
-use brain::tui::singleton::JobSocket;
 use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
 use super::provider_request::{FAMILY_PHONE, PERSONAL_PHONE, PUBLIC_URL, post, signed_sms};
@@ -12,8 +11,6 @@ pub struct DualWorkspaceReceiverFixture {
     home: tempfile::TempDir,
     pub personal: WorkspaceContext,
     pub family: WorkspaceContext,
-    personal_socket: Option<JobSocket>,
-    family_socket: Option<JobSocket>,
     personal_guard: Option<brain::tui::singleton::Guard>,
     family_guard: Option<brain::tui::singleton::Guard>,
     client: brain::server::control::ServerClient,
@@ -67,9 +64,7 @@ impl DualWorkspaceReceiverFixture {
         save_user(&family, "family-member");
 
         let personal_guard = brain::tui::singleton::Guard::acquire(&personal).unwrap();
-        let personal_socket = JobSocket::bind(&personal).unwrap();
         let family_guard = brain::tui::singleton::Guard::acquire(&family).unwrap();
-        let family_socket = JobSocket::bind(&family).unwrap();
         let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
         let generation = brain::server::lifecycle::ServerGeneration::new();
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
@@ -89,8 +84,6 @@ impl DualWorkspaceReceiverFixture {
             home,
             personal,
             family,
-            personal_socket: Some(personal_socket),
-            family_socket: Some(family_socket),
             personal_guard: Some(personal_guard),
             family_guard: Some(family_guard),
             client,
@@ -188,7 +181,6 @@ impl DualWorkspaceReceiverFixture {
             self.family_heartbeat = None;
             self.family_registered = false;
         }
-        self.family_socket.take();
         self.family_guard.take();
     }
 
@@ -202,7 +194,6 @@ impl DualWorkspaceReceiverFixture {
             self.personal_heartbeat = None;
             self.personal_registered = false;
         }
-        self.personal_socket.take();
         self.personal_guard.take();
     }
 

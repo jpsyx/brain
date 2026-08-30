@@ -23,10 +23,6 @@ const COLUMNS: &[(&str, &str)] = &[
         "attempt_kind",
         "TEXT NOT NULL DEFAULT 'ordinary' CHECK (attempt_kind IN ('ordinary', 'recovery'))",
     ),
-    (
-        "pending_unavailable_notice",
-        "INTEGER NOT NULL DEFAULT 0 CHECK (pending_unavailable_notice IN (0, 1))",
-    ),
     ("recovery_cleanup_instance", "TEXT"),
     ("recovery_cleanup_session_id", "TEXT"),
 ];
@@ -46,6 +42,29 @@ pub(super) fn ensure_columns(connection: &Connection) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub(super) fn ensure_legacy_notice_column(connection: &Connection) -> Result<()> {
+    if !has_column(connection, "pending_unavailable_notice")? {
+        connection.execute_batch(
+            "ALTER TABLE receiver_jobs ADD COLUMN pending_unavailable_notice
+               INTEGER NOT NULL DEFAULT 0
+               CHECK (pending_unavailable_notice IN (0, 1));",
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn has_partial_cleanup_fence(connection: &Connection) -> Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM receiver_jobs
+           WHERE (recovery_cleanup_instance IS NULL)
+              != (recovery_cleanup_session_id IS NULL)
+         )",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 pub(super) fn migrate_v9_metadata(connection: &Connection) -> Result<()> {

@@ -257,6 +257,32 @@ fn recovery_claim_preserves_identity_resets_the_cursor_and_consumes_only_recover
 }
 
 #[test]
+fn committed_recovery_schedule_logs_only_phase_ordinal_and_reason() {
+    let fixture = stalled_run("private-recovery-provider");
+    let effect = std::cell::RefCell::new(None);
+
+    let records = crate::logging::capture_receiver_lifecycle(|| {
+        *effect.borrow_mut() = fixture
+            .db
+            .reconcile_next_receiver_job(301_400)
+            .expect("reconcile stalled work");
+    });
+
+    assert_eq!(
+        effect
+            .borrow()
+            .as_ref()
+            .map(ReceiverReconciliationEffect::action),
+        Some(ReceiverReconciliationAction::ScheduleRecovery),
+    );
+    assert_receiver_lifecycle_records(
+        &records,
+        &["receiver lifecycle event=recovery phase=retrying recovery=1/1 reason=accepted-stall"],
+    );
+    assert!(!records.join("\n").contains("private-recovery-provider"));
+}
+
+#[test]
 fn recovery_claim_cas_failure_leaves_the_complete_job_and_claim_unchanged() {
     let fixture = stalled_run("failed-recovery-claim");
     let before_job = fixture.ordinary.clone();

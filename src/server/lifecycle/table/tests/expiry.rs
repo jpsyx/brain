@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::super::AuthorityRevision;
@@ -165,7 +164,6 @@ fn expiring_the_superseding_lease_retires_the_inherited_capability() {
     let mut table = LeaseTable::default();
     let mut background = lease("family", FAMILY_ID, FAMILY_INGRESS, lease_id(1), now, true);
     background.tui_pid = 0;
-    background.job_socket = PathBuf::new();
     background.expires_at = now + Duration::from_secs(100);
     table.register(background, now).unwrap();
     table
@@ -213,7 +211,6 @@ fn lease(
         canonical_name: WorkspaceName::parse(name).unwrap(),
         ingress_id: ingress(ingress_id),
         tui_pid: 42,
-        job_socket: PathBuf::from("/tmp/brain-job.sock"),
         receiver_enabled: enabled,
         expires_at: now + Duration::from_secs(5),
     }
