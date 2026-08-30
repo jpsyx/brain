@@ -1,7 +1,7 @@
 ---
 id: BR-18
 title: Remove receiver injection and complete the cutover
-status: in-progress
+status: done
 priority: high
 assignee: jpsyx
 labels: [tech-debt, server]
@@ -33,27 +33,27 @@ done without leaking private message contents.
 
 ## Acceptance criteria
 
-- [ ] No receiver code injects text or submit keys into an existing Claude,
+- [x] No receiver code injects text or submit keys into an existing Claude,
       Codex, OpenCode, or main-panel process.
-- [ ] The in-memory `VecDeque` and warm receiver lease are no longer queue or
+- [x] The in-memory `VecDeque` and warm receiver lease are no longer queue or
       conversation authority.
-- [ ] Legacy receiver state migrates automatically with tested `up` and `down`
+- [x] Legacy receiver state migrates automatically with tested `up` and `down`
       operations; help and version remain side-effect free.
-- [ ] Receiver status and logs report durable queue depth, active job phase,
+- [x] Receiver status and logs report durable queue depth, active job phase,
       recovery attempt, and delivery state using themed, redacted output.
-- [ ] Shutdown and restart at each lifecycle phase leave jobs recoverable and
+- [x] Shutdown and restart at each lifecycle phase leave jobs recoverable and
       never block later jobs indefinitely.
-- [ ] Existing receiver routing, authorization, control commands, attachments,
+- [x] Existing receiver routing, authorization, control commands, attachments,
       sync freshness, completion push, task reload, and response behavior remain
       supported or are deliberately redefined in docs and tests.
-- [ ] The obsolete BR-10 watchdog and old receiver dispatch/completion tests are
+- [x] The obsolete BR-10 watchdog and old receiver dispatch/completion tests are
       removed or rewritten around the durable lifecycle rather than retained as
       a dormant parallel path.
-- [ ] All applicable files under `docs/` are updated in the same change,
+- [x] All applicable files under `docs/` are updated in the same change,
       including architecture, features, integrations, decisions, data model,
       glossary, keybindings, config, and testing where relevant.
-- [ ] `cargo test --release` passes.
-- [ ] `cargo clippy --release --all-targets -- -D warnings` passes.
+- [x] `cargo test --release` passes.
+- [x] `cargo clippy --release --all-targets -- -D warnings` passes.
 
 ## Notes
 
@@ -305,3 +305,13 @@ The green implementation must:
   replaced the stale removal-only outline with a five-task plan for schema-v13
   notice cutover, lease-only server authority, permanent no-injection guards,
   redacted durable status and logs, and full restart characterization.
+- 2026-08-29 completed in Brain 0.86.13. Schema v13 now provides a reversible
+  cleanup-gated outbox cutover; server routing uses lease-only authority with a
+  protocol fence; structural guards prohibit receiver injection and
+  process-local queue authority; receiver status and lifecycle logs are
+  content-free; and fresh-App recovery is characterized across all 14 durable
+  lifecycle phases for Claude, Codex, and OpenCode.
+- 2026-08-29 final whole-branch review found no critical, important, or minor
+  findings after correction. Release tests, strict Clippy, formatting, privacy,
+  structural, version, and documentation gates passed. Merged to `main` in
+  `074b14a` and installed as Brain 0.86.13.

@@ -1,7 +1,7 @@
 ---
 id: PROJ-1
 name: Rearchitect receiver processing
-status: in-progress
+status: completed
 health: on-track
 lead: jpsyx
 members: []
@@ -9,7 +9,7 @@ initiative:
 target_date:
 github:
 created: 2026-08-23
-updated: 2026-08-27
+updated: 2026-08-29
 ---
 
 # PROJ-1: Rearchitect receiver processing
@@ -68,14 +68,14 @@ Out of scope:
 
 ## Milestones
 
-- **MS-1: Durable jobs and conversations** (target: unplanned): establish the
+- **MS-1: Durable jobs and conversations** (completed 2026-08-23): establish the
   persistent job, claim, conversation, transcript, and ingress contracts.
-- **MS-2: Isolated resumable execution** (target: unplanned): run queued jobs
+- **MS-2: Isolated resumable execution** (completed 2026-08-26): run queued jobs
   in dedicated ephemeral tabs without receiver injection.
-- **MS-3: Verifiable lifecycle and recovery** (target: unplanned): prove job
+- **MS-3: Verifiable lifecycle and recovery** (completed 2026-08-29): prove job
   acceptance and progress, recover one stalled attempt, and isolate response
   delivery retries.
-- **MS-4: Injection-free cutover** (target: unplanned): remove the legacy path,
+- **MS-4: Injection-free cutover** (completed 2026-08-29): remove the legacy path,
   migrate existing state, and complete documentation and hardening.
 
 ## Task sequence
@@ -128,3 +128,12 @@ Out of scope:
   accepted recovery, restart reconciliation, terminal unavailable notice, and
   FIFO advancement across cleanup failure. BR-17 is unblocked and will make
   answer persistence and provider delivery independently recoverable.
+- **2026-08-29: on-track**: BR-17 shipped in Brain 0.85.28. Exact completion now
+  atomically records the answer and transcript before independently claimed,
+  immutable provider delivery. Retry, ambiguity, fallback, and restart
+  reconciliation cannot rerun agent work, completing MS-3.
+- **2026-08-29: on-track**: BR-18 shipped in Brain 0.86.13. Schema v13 removed
+  the final legacy notice bridge, server routing moved to lease-only authority,
+  permanent guards prohibit receiver injection, status and logs expose only
+  redacted durable state, and restart recovery covers every lifecycle phase.
+  MS-4 and PROJ-1 are complete.
