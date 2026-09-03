@@ -5001,6 +5001,14 @@ SQLite, locking, and atomic publication without a second compiled artifact or
 installer path. OpenCode would still need its JavaScript event adapter. Python 3
 is treated as an explicit prerequisite and checked by the installers.
 
+Workspace-local registration does not mean every process opened in that
+workspace belongs to Brain. Claude and Codex may load the project hooks when
+started directly, but those sessions have no Brain instance or response
+authority. Their hook commands therefore test for the `BRAIN_ROOT` value that
+`AgentController` injects and exit successfully before starting Python when it
+is absent. This preserves project-scoped installation without making direct
+frontend prompts depend on Brain's runtime environment.
+
 Migration cannot be a release-note chore. Every command except help and version
 runs the ordered machine migration table before ordinary dispatch. Each entry
 has an `up` and `down` operation, removes superseded state, transforms retained

@@ -5,10 +5,8 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 const PREVIOUS_OPENCODE_PLUGIN: &str = include_str!("assets/opencode_brain_plugin_0_80.js");
-const CLAUDE_OBSERVATION_COMMAND: &str =
-    r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#;
-const CODEX_OBSERVATION_COMMAND: &str =
-    r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#;
+const CLAUDE_OBSERVATION_COMMAND: &str = r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#;
+const CODEX_OBSERVATION_COMMAND: &str = r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#;
 
 pub(super) fn up(_home: &Path) -> Result<()> {
     for root in super::lifecycle::workspace_roots() {

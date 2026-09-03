@@ -23,35 +23,35 @@ fn concurrent_workspace_installs_keep_every_codex_config_inside_its_root() {
     for root in [&family, &work] {
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "SessionStart"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "Stop"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "UserPromptSubmit"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
         );
         assert_eq!(
             configured_command(&root.join(".claude/settings.json"), "PostToolUse"),
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py""#
         );
         assert_eq!(
             configured_command(&root.join(".codex/hooks.json"), "SessionStart"),
-            r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".codex/hooks.json"), "Stop"),
-            r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
         );
         assert_eq!(
             configured_command(&root.join(".codex/hooks.json"), "UserPromptSubmit"),
-            r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
         );
         assert_eq!(
             configured_command(&root.join(".codex/hooks.json"), "PostToolUse"),
-            r#"python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py""#
         );
         assert!(root.join(".brain/hooks/receiver_observation_bridge.py").is_file());
     }
@@ -209,14 +209,14 @@ fn installed_codex_start_and_stop_hooks_complete_one_attributed_lifecycle() {
         codex_schema["hooks"]["SessionStart"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\""
+            "command": "test -z \"${BRAIN_ROOT-}\" || python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\""
         }]}])
     );
     assert_eq!(
         codex_schema["hooks"]["Stop"],
         json!([{"hooks": [{
             "type": "command",
-            "command": "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""
+            "command": "test -z \"${BRAIN_ROOT-}\" || python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""
         }]}])
     );
     let start = configured_command(&codex_hooks, "SessionStart");
@@ -352,4 +352,42 @@ fn reinstalling_replaces_the_broken_relative_command_instead_of_duplicating_it()
         settings["permissions"]["allow"][0], "Read",
         "unrelated settings must survive the repair"
     );
+}
+
+#[test]
+fn reinstalling_replaces_unguarded_codex_commands_instead_of_duplicating_them() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let root = temp.path().join("brain");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(root.join(".codex")).unwrap();
+    std::fs::write(
+        root.join(".codex/hooks.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\""}]}],"Stop":[{"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\""}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""}]}],"PostToolUse":[{"hooks":[{"type":"command","command":"python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""}]}]}}"#,
+    )
+    .unwrap();
+
+    install_for_home(&root, &home).unwrap();
+
+    let hooks = root.join(".codex/hooks.json");
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&hooks).unwrap()).unwrap();
+    for (event, script) in [
+        ("SessionStart", "agent_session_start_hook.py"),
+        ("Stop", "agent_session_stop_hook.py"),
+        ("UserPromptSubmit", "receiver_observation_bridge.py"),
+        ("PostToolUse", "receiver_observation_bridge.py"),
+    ] {
+        assert_eq!(
+            configured_command(&hooks, event),
+            format!(
+                r#"test -z "${{BRAIN_ROOT-}}" || python3 "${{BRAIN_ROOT}}/.brain/hooks/{script}""#
+            )
+        );
+        assert_eq!(
+            settings["hooks"][event].as_array().unwrap().len(),
+            1,
+            "{event} retained the unguarded command"
+        );
+    }
 }

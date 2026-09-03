@@ -179,22 +179,26 @@ fn ordinary_startup_removes_global_hooks_and_installs_every_workspace_frontend()
         assert_eq!(
             configured_commands(&root.join(".claude/settings.json"), "SessionStart"),
             vec![
-                r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
+                r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#
             ]
         );
         assert_eq!(
             configured_commands(&root.join(".claude/settings.json"), "Stop"),
             vec![
-                r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+                r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
             ]
         );
         assert_eq!(
             configured_commands(&root.join(".codex/hooks.json"), "SessionStart"),
-            vec![r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#]
+            vec![
+                r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#
+            ]
         );
         assert_eq!(
             configured_commands(&root.join(".codex/hooks.json"), "Stop"),
-            vec![r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#]
+            vec![
+                r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
+            ]
         );
     }
 }

@@ -5,8 +5,12 @@ use anyhow::{Context, Result};
 const BRAIN_HOOK_COMMANDS: &[&str] = &[
     r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
     r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
+    r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
+    r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
     r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#,
     r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#,
+    r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py""#,
+    r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#,
     "python3 .brain/hooks/agent_session_start_hook.py",
     "python3 .brain/hooks/agent_session_stop_hook.py",
     r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py""#,
@@ -381,6 +385,12 @@ mod tests {
 
     #[test]
     fn cleanup_identifies_only_exact_current_and_known_legacy_brain_commands() {
+        assert!(is_brain_hook_command(
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+        ));
+        assert!(is_brain_hook_command(
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
+        ));
         assert!(is_brain_hook_command(
             r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
         ));

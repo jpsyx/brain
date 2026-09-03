@@ -638,7 +638,9 @@ before workspace bootstrap. On upgrade Brain removes superseded global
 lifecycle hooks and installs or repairs the workspace-local Claude, Codex, and
 OpenCode lifecycle artifacts in every existing configured workspace. Matching
 versions reconcile the same target state, so a deleted managed hook comes back
-on the next command. Workspace-local compatibility shims keep hook commands
+on the next command. Direct Claude and Codex sessions short-circuit Brain-owned
+project hooks before Python starts because they lack Brain's launch environment.
+Workspace-local compatibility shims keep hook commands
 cached by already-running agent processes forwarding to the new generic hooks;
 current frontend settings never register those legacy paths. The version stamp
 is best-effort during ordinary startup:

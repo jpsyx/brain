@@ -1281,22 +1281,25 @@ one namespace. Registry-driven installation deploys the three generic scripts in
 
 **Hook commands are root-anchored, never working-directory-relative.** The
 registered Claude command is
-`python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/<script>.py"`.
+`test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/<script>.py"`.
 Claude runs a hook in the session's *current* working directory, not the
 project root, and its Bash tool's `cd` persists for the rest of the session, so
 a project-relative command stops resolving the moment an agent changes
 directory. `CLAUDE_PROJECT_DIR` is the project root Claude exports for exactly
-this purpose; `BRAIN_ROOT` covers a session Brain launched. The Rust installer
-and `install_hook.sh` emit the same
+this purpose. `BRAIN_ROOT` both identifies a session Brain launched and guards
+the command, so a direct frontend session short-circuits without starting
+Python. The Rust installer and `install_hook.sh` emit the same
 command, and reinstallation replaces a stale relative command in place (stale
 entries are recognized only by exact canonical or explicitly known legacy
 commands). A user command at another path remains untouched even when its
 script has the same basename.
 
 Codex reads the selected workspace's `.codex/hooks.json`, so Brain emits
-`python3 "${BRAIN_ROOT}/.brain/hooks/<script>.py"`. `BRAIN_ROOT` selects the
-workspace explicitly. No absolute path is baked into either hook file, because
-both are read on every synced machine.
+`test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/<script>.py"`.
+`BRAIN_ROOT` selects the workspace explicitly when Brain launches Codex and
+makes every Brain-owned hook a clean no-op when Codex is started directly. No
+absolute path is baked into either hook file, because both are read on every
+synced machine.
 
 `scripts/install_hook.sh` deploys the generic session-start, session-stop, and
 receiver-observation bridges, Claude/Codex workspace hook settings, and the

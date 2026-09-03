@@ -740,7 +740,9 @@ declares every managed event and exact source health check for Claude, Codex,
 and OpenCode, so startup reconciliation replaces stale bridges without
 discarding unrelated user hooks. Hook entries are managed by exact canonical or
 explicitly known legacy command values, never by a basename shared with a user
-script.
+script. Claude and Codex commands first require Brain's explicit `BRAIN_ROOT`
+launch environment, which makes project hooks inert in direct frontend
+sessions before any Python process starts.
 
 ### `access/`
 

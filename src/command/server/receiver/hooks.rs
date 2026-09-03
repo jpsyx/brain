@@ -48,15 +48,18 @@ fn replace_entry<Command: AsRef<str>>(
 /// Claude runs a hook in the session's *current* working directory, and its
 /// Bash tool's `cd` persists, so a project-relative command silently stops
 /// resolving as soon as an agent changes directory. `CLAUDE_PROJECT_DIR` is the
-/// project root Claude itself exports for exactly this; `BRAIN_ROOT` covers a
-/// session Brain launched. No machine-specific absolute path is written,
-/// because the settings file is synced and read on every machine.
+/// project root Claude itself exports for exactly this. The `BRAIN_ROOT` guard
+/// keeps the Brain-owned bridge inert in a direct Claude session. No
+/// machine-specific absolute path is written, because the settings file is
+/// synced and read on every machine.
 fn claude_project_dir_command(hook_path: &Path) -> String {
     let relative = hook_path
         .to_string_lossy()
         .trim_start_matches('/')
         .to_owned();
-    format!(r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT}}}}/{relative}""#)
+    format!(
+        r#"test -z "${{BRAIN_ROOT-}}" || python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT}}}}/{relative}""#
+    )
 }
 
 fn portable_root_command(hook_path: &Path) -> String {
@@ -64,7 +67,7 @@ fn portable_root_command(hook_path: &Path) -> String {
         .to_string_lossy()
         .trim_start_matches('/')
         .to_owned();
-    format!(r#"python3 "${{BRAIN_ROOT}}/{relative}""#)
+    format!(r#"test -z "${{BRAIN_ROOT-}}" || python3 "${{BRAIN_ROOT}}/{relative}""#)
 }
 
 fn historical_home_command(script: &str) -> Option<&'static str> {
@@ -88,13 +91,28 @@ fn legacy_hook_command(style: crate::agent::HookCommandStyle, script: &str) -> S
     }
 }
 
+fn unguarded_workspace_hook_command(style: crate::agent::HookCommandStyle, script: &str) -> String {
+    match style {
+        crate::agent::HookCommandStyle::ClaudeProjectDir => {
+            format!(r#"python3 "${{CLAUDE_PROJECT_DIR:-${{BRAIN_ROOT}}}}/{script}""#)
+        }
+        crate::agent::HookCommandStyle::PortableBrainRoot => {
+            format!(r#"python3 "${{BRAIN_ROOT}}/{script}""#)
+        }
+    }
+}
+
 fn managed_hook_commands(
     style: crate::agent::HookCommandStyle,
     current_script: &str,
     canonical: String,
     legacy_scripts: &[&str],
 ) -> Vec<String> {
-    let mut commands = vec![canonical, format!("python3 {current_script}")];
+    let mut commands = vec![
+        canonical,
+        unguarded_workspace_hook_command(style, current_script),
+        format!("python3 {current_script}"),
+    ];
     commands.extend(legacy_scripts.iter().flat_map(|script| {
         [
             legacy_hook_command(style, script),
@@ -216,20 +234,21 @@ pub(super) fn install_for_home_with(
                             stop.clone(),
                             legacy_completion_scripts,
                         );
+                        let observation_commands = managed_hook_commands(
+                            style,
+                            observation_script,
+                            observation.clone(),
+                            &[],
+                        );
                         replace_entry(settings, "SessionStart", &session_commands, &session);
                         replace_entry(settings, "Stop", &completion_commands, &stop);
                         replace_entry(
                             settings,
                             "UserPromptSubmit",
-                            std::slice::from_ref(&observation),
+                            &observation_commands,
                             &observation,
                         );
-                        replace_entry(
-                            settings,
-                            "PostToolUse",
-                            std::slice::from_ref(&observation),
-                            &observation,
-                        );
+                        replace_entry(settings, "PostToolUse", &observation_commands, &observation);
                     },
                     || after_step(LifecycleInstallStep::Lock(installation)),
                 )?;

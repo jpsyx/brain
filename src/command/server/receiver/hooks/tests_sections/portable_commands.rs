@@ -9,7 +9,7 @@ fn claude_command_is_cwd_independent_because_hooks_run_wherever_the_agent_left_o
     let command = claude_project_dir_command(Path::new(".brain/hooks/agent_session_stop_hook.py"));
     assert_eq!(
         command,
-        r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
+        r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#
     );
     assert!(
         !command.contains("python3 .claude"),
@@ -31,11 +31,52 @@ fn claude_command_stays_identical_across_machines_and_workspace_roots() {
 }
 
 #[test]
+fn claude_hook_is_inert_outside_a_brain_launched_session() {
+    let command = claude_project_dir_command(Path::new(
+        ".brain/hooks/receiver_observation_bridge.py",
+    ));
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .env("CLAUDE_PROJECT_DIR", "/missing-project")
+        .env_remove("BRAIN_ROOT")
+        .output()
+        .expect("run generated Claude hook command");
+
+    assert!(
+        output.status.success(),
+        "direct Claude hook was not a clean no-op: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn portable_root_command_uses_brain_root_and_is_cwd_independent() {
     let command = portable_root_command(Path::new(".brain/hooks/agent_session_stop_hook.py"));
     assert_eq!(
         command,
-        r#"python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
+        r#"test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py""#
+    );
+}
+
+#[test]
+fn codex_hook_is_inert_outside_a_brain_launched_session() {
+    let command = portable_root_command(Path::new(
+        ".brain/hooks/receiver_observation_bridge.py",
+    ));
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .env_remove("BRAIN_ROOT")
+        .output()
+        .expect("run generated Codex hook command");
+
+    assert!(
+        output.status.success(),
+        "direct Codex hook was not a clean no-op: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

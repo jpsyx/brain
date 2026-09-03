@@ -108,7 +108,7 @@ fn merge_replaces_exact_managed_hooks_but_preserves_user_same_basename_commands(
             "python3 /opt/user/agent_session_start_hook.py",
             "python3 /opt/user/claude_session_start_hook.py",
             "python3 /keep/unrelated.py",
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py""#,
         ]
     );
     let stop_commands = settings["hooks"]["Stop"]
@@ -122,7 +122,7 @@ fn merge_replaces_exact_managed_hooks_but_preserves_user_same_basename_commands(
         stop_commands,
         vec![
             "python3 /opt/user/claude_stop_hook.py",
-            r#"python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
+            r#"test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py""#,
         ]
     );
 }

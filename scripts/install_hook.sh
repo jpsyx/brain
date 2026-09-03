@@ -55,12 +55,12 @@ codex_settings_path="${codex_settings_dir}/hooks.json"
 # Anchored to Claude's own project root: hooks run in the session's current
 # working directory, which the agent's `cd` moves, so a relative path breaks.
 # Naming no absolute root keeps the synced settings file machine-portable.
-sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py"'
-stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py"'
-codex_sess_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py"'
-codex_stop_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py"'
-observe_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py"'
-codex_observe_cmd='python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py"'
+sess_cmd='test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py"'
+stop_cmd='test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py"'
+codex_sess_cmd='test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py"'
+codex_stop_cmd='test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py"'
+observe_cmd='test -z "${BRAIN_ROOT-}" || python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py"'
+codex_observe_cmd='test -z "${BRAIN_ROOT-}" || python3 "${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py"'
 legacy_sess_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_session_start_hook.py"'
 legacy_sess_alias_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/claude_session_start_hook.py"'
 legacy_stop_cmd='python3 "${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT:-$HOME/brain}}/.claude/brain-hooks/agent_turn_complete_hook.py"'
@@ -166,13 +166,13 @@ install_hook_settings() {
       map(.hooks |= map(select((.command // "") as $command | ($commands | index($command)) == null)))
       | map(select((.hooks | length) > 0));
     .hooks //= {}
-    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip([$sess, $legacy_sess, $legacy_sess_alias, "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py", "python3 .brain/hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/claude_session_start_hook.py"]))
+    | .hooks.SessionStart = ((.hooks.SessionStart // []) | strip([$sess, $legacy_sess, $legacy_sess_alias, "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_start_hook.py\"", "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_start_hook.py\"", "python3 ~/brain/.claude/brain-hooks/claude_session_start_hook.py", "python3 .brain/hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/agent_session_start_hook.py", "python3 .claude/brain-hooks/claude_session_start_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $sess}]}]
-    | .hooks.Stop = ((.hooks.Stop // []) | strip([$stop, $legacy_stop, $legacy_stop_alias, "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py", "python3 .brain/hooks/agent_session_stop_hook.py", "python3 .claude/brain-hooks/agent_turn_complete_hook.py", "python3 .claude/brain-hooks/claude_stop_hook.py"]))
+    | .hooks.Stop = ((.hooks.Stop // []) | strip([$stop, $legacy_stop, $legacy_stop_alias, "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/agent_session_stop_hook.py\"", "python3 \"${BRAIN_ROOT}/.brain/hooks/agent_session_stop_hook.py\"", "python3 ~/brain/.claude/brain-hooks/claude_stop_hook.py", "python3 .brain/hooks/agent_session_stop_hook.py", "python3 .claude/brain-hooks/agent_turn_complete_hook.py", "python3 .claude/brain-hooks/claude_stop_hook.py"]))
         + [{"hooks": [{"type": "command", "command": $stop}]}]
-    | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | strip([$observe]))
+    | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // []) | strip([$observe, "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py\"", "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""]))
         + [{"hooks": [{"type": "command", "command": $observe}]}]
-    | .hooks.PostToolUse = ((.hooks.PostToolUse // []) | strip([$observe]))
+    | .hooks.PostToolUse = ((.hooks.PostToolUse // []) | strip([$observe, "python3 \"${CLAUDE_PROJECT_DIR:-${BRAIN_ROOT}}/.brain/hooks/receiver_observation_bridge.py\"", "python3 \"${BRAIN_ROOT}/.brain/hooks/receiver_observation_bridge.py\""]))
         + [{"hooks": [{"type": "command", "command": $observe}]}]
   ' "$target_path" > "$tmp"
   mv "$tmp" "$target_path"
