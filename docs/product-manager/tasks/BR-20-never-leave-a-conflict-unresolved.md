@@ -57,6 +57,25 @@ The workspace must contain **zero** `(conflict …)` copies and zero
 `__brainconflict__` markers after a completed sync. `Outcome::Clean` becomes an
 honest claim rather than "nothing conflicted."
 
+**Two measured rclone constraints the implementation must respect** (verified
+against rclone v1.75.0 on 2026-09-05, during the sync investigation):
+
+- **Do not reach for `--conflict-loser delete`.** It resolves by *deleting the
+  loser with no copy anywhere*, and rclone still reports `Bisync successful`, so
+  `verify::classify` would journal `Outcome::Clean` on a run that silently
+  destroyed an edit — the exact opposite of this task's intent, and it would
+  remove the very bytes the ledger exists to preserve. Brain must keep
+  `--conflict-loser pathname`, **record** the loser, and delete it itself.
+- **rclone has a "no winner" state, and it renames *both* sides.** With
+  `--conflict-resolve newer` and equal mtimes, rclone logs `Winner cannot be
+  determined as times are equal` → `A winner could not be determined`, then
+  suffixes *both* files (`__brainconflict__1` and `__brainconflict__2`) and the
+  canonical name disappears from both sides. The tier ladder must handle this as
+  a first-class case: it is both a source of the recurring self-conflict loop and
+  precisely where `lww-register` has no timestamp to order by, so the
+  deterministic tiebreak (not side ordering) is load-bearing rather than
+  defensive.
+
 **The ledger.** A tier-3 resolution is a forced, possibly lossy decision, so it
 must be reversible. Brain keeps an append-only SQLite ledger at
 `<brain-root>/.conflict-resolutions.sqlite` recording enough to reconstruct and
@@ -126,14 +145,42 @@ proposes a semantic merge for rows already resolved by `lww-register`, which the
 ledger makes safe because the losing bytes are still recoverable). Decide that
 rescope before starting either one.
 
+**Note on a prerequisite that outranks this task.** Brain's sync lock is
+**machine-local** (`WorkspacePaths::sync_lock()` resolves under
+`~/.cache/brain/workspaces/<uuid>/`), so two machines can run the CSV lane
+concurrently, and that lane is an uncoordinated read-modify-write on one shared
+remote object (`csv_sync/transport.rs` `batch_download` → merge →
+`batch_upload`) with no compare-and-swap. A lost update there feeds
+`csv_merge/merge.rs`'s `(Some(base), Some(side == base), None)` arm, which reads
+"present in my baseline, unchanged locally, absent remotely" as a remote delete
+and **drops the row locally**. That is silent task loss, and no amount of
+conflict-resolution policy in this task prevents it. It needs its own task
+(a remote lease, or single-writer-per-object state files with explicit
+tombstones) and it should be treated as higher priority than this one.
+
 **Note on the false-positive conflicts.** The largest source of tier-3
-resolutions today is not real divergence — it is Brain conflicting with itself
-over its own machine-installed artifacts (see the sync accuracy investigation of
-2026-09-05: 1,019 of 1,019 conflict renames on 2026-08-31 and 2026-09-03 were
-`.brain/hooks/*`, `.opencode/plugins/brain.js`, `.codex/hooks.json`, and
-`.claude/settings.json`). Fixing those at the source is separate work and should
-land **first**, so this task's ledger records real user divergence rather than
-thousands of Brain-vs-Brain rows.
+resolutions today is not real divergence — it is Brain conflicting with itself.
+Of 1,378 conflict renames in the 2026-09-05 investigation, 1,376 were the five
+Brain-installed lifecycle artifacts (`.opencode/plugins/brain.js` 430,
+`.brain/hooks/agent_session_stop_hook.py` 430,
+`.brain/hooks/agent_session_start_hook.py` 430, `.codex/hooks.json` 43,
+`.claude/settings.json` 43), and 36 of the 44 surviving conflict copies are
+byte-identical to the file they conflict with.
+
+The mechanism is *not* that those files are machine-local — they are portable
+and their writers are already byte-idempotent. It is that (a) rclone's own
+conflict rename evicts the canonical path from **both** saved baselines, so the
+path reads as "new on both sides" until the two sides converge, and (b) the
+five-minute automatic reconcile runs `--conflict-resolve path2`, so the stale
+remote copy wins that comparison. Add brain re-rendering files inside the root
+*during its own bisync* (which fails rclone's listing validation, is
+misclassified as a missing baseline, and triggers a `path1`-wins resync), and
+the episode sustains itself.
+
+Fixing those at the source is separate work and must land **first**, so this
+task's ledger records real user divergence rather than thousands of
+Brain-vs-Brain rows. Until it does, this task would faithfully log Brain's own
+noise.
 
 ## Acceptance criteria
 
@@ -141,6 +188,7 @@ thousands of Brain-vs-Brain rows.
 - [ ] Every detected conflict is resolved through the tier ladder (semantic merge → provable convergence → `lww-register`), and the ladder is a pure, unit-tested decision function.
 - [ ] The `lww-register` fallback is convergent: two machines resolving the same pair independently pick the same winner, and re-resolving an already-resolved pair is a no-op. Both are asserted as tests, mirroring `csv_merge`'s convergence/idempotency tests.
 - [ ] Timestamp ties resolve by an explicit deterministic total order (never by side ordering, never by which machine ran the sync), and the tiebreak used is recorded in `tiebreak`.
+- [ ] rclone's "a winner could not be determined" state (equal mtimes, both sides suffixed, canonical name gone from both) is handled explicitly by the ladder and covered by a test; `--conflict-loser` stays `pathname` and brain performs the deletion itself after recording.
 - [ ] Tier 1 and tier 2 resolutions write **no** ledger row; every tier-3 resolution writes exactly one.
 - [ ] The ledger is created on first forced resolution, is append-only in practice (no `UPDATE` except `rolled_back_at`, no `DELETE`), and survives a crash mid-run without a partial row.
 - [ ] For a text loser, the row carries the verbatim losing text and the differing line ranges — not the whole-file diff — and a binary or oversized loser spills to a content-addressed blob the row references.
