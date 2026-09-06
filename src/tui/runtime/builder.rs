@@ -85,7 +85,6 @@ struct PreparedRuntime {
     app: App,
     watcher: Option<WatcherHandle>,
     periodic_puller: Option<PeriodicPullHandle>,
-    instance: String,
 }
 
 impl RuntimeBuilder {
@@ -109,7 +108,6 @@ impl RuntimeBuilder {
                 app,
                 watcher,
                 periodic_puller,
-                instance,
             } = prepared;
             TuiRuntime {
                 terminal,
@@ -117,7 +115,6 @@ impl RuntimeBuilder {
                 server_lease: Some(server_lease),
                 watcher,
                 periodic_puller,
-                instance,
                 lifecycle,
                 singleton,
             }
@@ -127,8 +124,8 @@ impl RuntimeBuilder {
     fn prepare_runtime(&mut self, server_lease: &HeartbeatWorker) -> Result<PreparedRuntime> {
         let assignment = self.prepare_assignment()?;
         let terminal = self.acquire_terminal()?;
-        let (mut app, instance) = self.build_application(server_lease, assignment)?;
-        Self::launch_initial_agent_panel(&mut app);
+        let mut app = self.build_application(server_lease, assignment)?;
+        Self::launch_initial_agent_sessions(&mut app);
         let (watcher, periodic_puller) = self.start_sync_services(&mut app)?;
         anyhow::ensure!(
             self.lifecycle.is_running(),
@@ -139,7 +136,6 @@ impl RuntimeBuilder {
             app,
             watcher,
             periodic_puller,
-            instance,
         })
     }
 
@@ -198,7 +194,7 @@ impl RuntimeBuilder {
             crate::tasks::task::AssignmentContext,
             Option<crate::users::UserId>,
         ),
-    ) -> Result<(App, String)> {
+    ) -> Result<App> {
         let launch = self
             .launch
             .take()
@@ -219,7 +215,23 @@ impl RuntimeBuilder {
         let db = Db::open(&command_context.workspace)?;
         let config = load_startup_config(&command_context.workspace)?;
         let _ = crate::agent::SessionStore::reap_dead_locks(&db);
-        let instance = uuid::Uuid::new_v4().to_string();
+        let scope = crate::agent::SessionScope::new(
+            agent_kind,
+            command_context.workspace.id(),
+            command_context.actor.clone(),
+        );
+        let manual_sessions = db.manual_sessions(&scope)?;
+        let instance = manual_sessions
+            .iter()
+            .find(|record| record.role == crate::manual_session::ManualSessionRole::Main)
+            .map_or_else(
+                || {
+                    crate::manual_session::ManualSessionId::new()
+                        .as_str()
+                        .to_owned()
+                },
+                |record| record.id.as_str().to_owned(),
+            );
         let brain_root = command_context.workspace.root().to_path_buf();
         let panel_side = db.get_panel_side();
         let search = build_search(&brain_root);
@@ -245,7 +257,8 @@ impl RuntimeBuilder {
             open_runner: Box::new(ZshFunctionRunner::new("")),
             config,
             agent_kind,
-            instance: instance.clone(),
+            instance,
+            manual_sessions,
             db,
             search,
             panel_side,
@@ -256,12 +269,12 @@ impl RuntimeBuilder {
         });
         self.lifecycle
             .record_acquired(AcquisitionStage::Application)?;
-        Ok((app, instance))
+        Ok(app)
     }
 
-    fn launch_initial_agent_panel(app: &mut App) {
+    fn launch_initial_agent_sessions(app: &mut App) {
         crate::logging::log("workspace shared-server lease ready");
-        app.open_or_focus_brain(None);
+        app.restore_manual_sessions();
         app.focus_tasks();
     }
 

@@ -1,10 +1,12 @@
 //! `TaskPalette` behavior: contextual catalog construction around the shared
 //! command-palette state used by both TUI surfaces.
 
+use super::sessions::session_actions;
 use crate::tasks::task::AssignmentUiMode;
 use crate::tui::action::GlobalAction;
 use crate::tui::links::LinkKind;
 use crate::tui::modal_state::TaskPalette;
+use crate::tui::state::SessionPaletteEntry;
 
 use super::command::{PALETTE_COMMANDS, PaletteCommand, PaletteScope, TaskAction, shortcut_for};
 use super::model::{CommandPalette, PaletteControls, PaletteRow, PaletteStep};
@@ -18,8 +20,6 @@ impl TaskPalette {
         context_has_notes: bool,
         context_notes_expanded: bool,
         context_links: LinkKind,
-        brain_open: bool,
-        _logs_available: bool,
     ) -> Self {
         Self {
             palette: empty_palette(),
@@ -30,10 +30,9 @@ impl TaskPalette {
             context_notes_expanded,
             context_links,
             task_actions_modal: false,
-            brain_open,
             receiver_enabled: false,
             runnable_skill_sessions: Vec::new(),
-            open_skill_sessions: Vec::new(),
+            user_sessions: Vec::new(),
             logs_view: false,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -61,12 +60,9 @@ impl TaskPalette {
             context_notes_expanded,
             context_links,
             task_actions_modal: true,
-            // The task actions modal only shows task-scoped commands, so the
-            // global "Close brain" never appears here regardless.
-            brain_open: false,
             receiver_enabled: false,
             runnable_skill_sessions: Vec::new(),
-            open_skill_sessions: Vec::new(),
+            user_sessions: Vec::new(),
             logs_view: false,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -84,10 +80,9 @@ impl TaskPalette {
             context_notes_expanded: false,
             context_links: LinkKind::None,
             task_actions_modal: false,
-            brain_open: false,
             receiver_enabled,
             runnable_skill_sessions: Vec::new(),
-            open_skill_sessions: Vec::new(),
+            user_sessions: Vec::new(),
             logs_view: true,
             daily_triage_alert_disabled: false,
             assignment_mode: hidden_assignment_mode(),
@@ -108,12 +103,12 @@ impl TaskPalette {
         receiver_enabled: bool,
         daily_triage_alert_disabled: bool,
         runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
-        open_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+        user_sessions: Vec<SessionPaletteEntry>,
     ) -> Self {
         self.receiver_enabled = receiver_enabled;
         self.daily_triage_alert_disabled = daily_triage_alert_disabled;
         self.runnable_skill_sessions = runnable_skill_sessions;
-        self.open_skill_sessions = open_skill_sessions;
+        self.user_sessions = user_sessions;
         self.rebuild_palette()
     }
 
@@ -208,12 +203,8 @@ impl TaskPalette {
     /// (so the digit a user types always points at the same row, mirroring the
     /// brain menu's numbered rows).
     ///
-    /// The workspace's skill-session rows are spliced into the brain group: the
-    /// sessions that can be *started* now sit right after **Message brain** (an
-    /// always-present anchor, so their position doesn't move when a session
-    /// opens), and each running session's tab switch follows **Show main brain
-    /// session**. A running session contributes no start row, so the same session
-    /// can never be launched twice.
+    /// The shared session group follows Message brain, preserving identical
+    /// labels and stable tab identities in the task and search catalogs.
     fn catalog_rows(&self) -> Vec<PaletteRow<TaskAction>> {
         let mut rows: Vec<PaletteRow<TaskAction>> = Vec::new();
         for command in PALETTE_COMMANDS
@@ -221,26 +212,12 @@ impl TaskPalette {
             .filter(|c| self.command_in_scope(c) && (c.is_visible)(self))
         {
             push_row(&mut rows, self.label_for(command), command.action);
-            match command.action {
-                TaskAction::Global(GlobalAction::MessageBrain) => {
-                    for (key, label) in &self.runnable_skill_sessions {
-                        push_row(
-                            &mut rows,
-                            label.clone(),
-                            TaskAction::Global(GlobalAction::RunSkillSession(*key)),
-                        );
-                    }
+            if command.action == TaskAction::Global(GlobalAction::MessageBrain) {
+                for (label, action) in
+                    session_actions(&self.runnable_skill_sessions, &self.user_sessions)
+                {
+                    push_row(&mut rows, label, TaskAction::Global(action));
                 }
-                TaskAction::Global(GlobalAction::ShowMainBrainSession) => {
-                    for (key, title) in &self.open_skill_sessions {
-                        push_row(
-                            &mut rows,
-                            format!("Show {title} session"),
-                            TaskAction::Global(GlobalAction::ShowSkillSession(*key)),
-                        );
-                    }
-                }
-                _ => {}
             }
         }
         rows

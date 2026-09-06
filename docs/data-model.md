@@ -96,6 +96,20 @@ holds the target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete
 file in place and Delete trashes it; the picker refreshes and the shell stays
 open.
 
+At palette open, App supplies both task `TaskPalette` and search `Targets` with
+the same `Vec<SessionPaletteEntry>` projection from
+`BrainPanelState::user_session_rows()`. Each entry holds a `SessionTabId` and
+title for an open Manual or Skill tab. The shared session catalog maps them
+to `GlobalAction::ShowSessionTab(id)` and `CloseSessionTab(id)`; display order
+and skill configuration indices never serve as action identities. Main's Show
+row is conditional on this list being nonempty; Main has no Close action and
+Receiver contributes no entries.
+
+`ManualSessionNameState` holds a single-line `buffer` and optional inline
+`error` in `Overlay::ManualSessionName`. Enter parses against `Brain` plus
+open manual titles, preserves invalid input, and removes the overlay before
+starting the validated session through App.
+
 ## Workspace identity (`workspace/`)
 
 `WorkspaceContext` is the immutable in-memory identity for one workspace:
@@ -179,7 +193,7 @@ performs the admission CAS within one control-mutex operation.
 Every mutating control request is tagged with the process generation. A stale
 generation yields `StaleGeneration` without touching the table. Registration
 contains workspace, lease, and ingress UUIDs, canonical name, TUI PID, and the
-TUI-resolved root. The root is an ephemeral
+TUI-resolved root. The root is a transient
 comparison value, never a lease field or state selector. The server reloads the
 registry and manifest to verify the identity tuple and normalized root, and
 requires the singleton PID to identify a live process. No workspace-local
@@ -1379,7 +1393,7 @@ The reconciler preserves the prior binding and any null-or-prior
 instance/session cleanup tuple only under the separate exact Fresh-conflict
 proof. Missing or mismatched attribution records no new cleanup tuple.
 
-**Ephemeral observation cursor.** `AgentObservationCursor` is returned by the
+**Transient observation cursor.** `AgentObservationCursor` is returned by the
 frontend-neutral controller and is never persisted as provider grammar. It
 retains the highest parsed revision, represented lifecycle phases, the exact
 accepted/progressing/completed timestamps already observed, and the latest
@@ -1795,10 +1809,11 @@ without a manual `brain skills sync`.
   claimed while freshness completes, recovery claimed for exact native resume,
   active with the exact claim and tab attribution, or cleanup pending with
   successful-step proof. It never aliases the interactive main-panel session.
-- `SessionStore::release` → when the panel closes (the agent exits) or the shell quits, clear
-  this instance's locks and stamp `last_active` (floats it to the top of the
-  next resume — so re-opening with "Message brain" picks it back up, and a
-  second terminal could too).
+- Manual teardown uses `Db::release_manual_session` with the immutable scope
+  and manual ID to release only its mapped native session. Shell shutdown
+  shuts down all controllers first, then releases every manual mapping's lock
+  without deleting the mappings. Explicit Additional close removes only that
+  mapping and releases its native row; Main cannot be closed.
 - `SessionStore::reap_dead_locks` → on startup, free exact scoped rows whose PID is no
   longer alive (`kill -0`), so a crashed shell doesn't strand its session.
   Equal opaque IDs in other frontend/workspace/actor/channel scopes remain
@@ -1810,30 +1825,75 @@ bridge frees the instance's others on every start, handling `/new`). The
 `PanelSide` enum (`Left` / `Right`, default `Right`) lives in `state/`
 because it's the persisted layout value.
 
-**Skill-session tabs are deliberately *absent* from this table.** Each ephemeral
+### Persistent Manual session mappings (schema v14)
+
+`manual_sessions` records the ordered set separately from native-session
+history. The workspace state database owns both tables, with an exact foreign
+key from each mapping to its `brain_sessions` row.
+
+| Column | Contract |
+| --- | --- |
+| `manual_session_id` | Stable `ManualSessionId`, generated as a UUID and passed as this tab's `BRAIN_INSTANCE_ID`. It survives native-session replacement. |
+| `agent_kind`, `workspace_id`, `actor_id`, `channel` | Immutable lookup scope; frontend is Claude, Codex, or OpenCode, and channel must be `interactive`. |
+| `agent_session_id` | The exact current native conversation, including the fresh placeholder before the frontend's first accepted start event. |
+| `title` | Trimmed nonblank name. Uniqueness uses ASCII case-insensitive comparison, matching SQLite `NOCASE`; Main reserves `Brain`. |
+| `position` | Nonnegative saved order, unique within scope. Main is 0; Additional positions are positive and compact after a close. |
+| `role` | `main` or `additional`; a partial unique index allows only one Main row in each scope. |
+
+The composite primary key is scope plus manual ID. Registration inserts the
+fresh native row and mapping in one immediate transaction; attaching an
+existing native row first proves its exact claimed manual owner. Replacement
+keeps identity, title, role, and position while atomically registering the new
+native row, repointing the mapping, and releasing the old row. Close refuses
+Main; for Additional it deletes one mapping, releases its exact native lock,
+and compacts later positions without changing their IDs. Release alone keeps
+the mapping, making shell shutdown different from an explicit user Close.
+
+The generic session-start bridge updates only the mapping matching the accepted
+instance and full scope in the same transaction that rotates `brain_sessions`.
+An older database without this table keeps its existing hook behavior. Schema
+up creates the mapping table and index without choosing a historical Main;
+down removes only those objects and preserves native history and receiver v13
+state. Current-version reconciliation repairs missing managed objects without
+rewriting an already-healthy database. Startup without a Main mapping may adopt one eligible recent native
+session, excluding mapped Additional conversations. Once saved, each mapping
+uses only its exact native ID, with fresh replacement under the same identity
+when resume evidence is absent or the frontend refuses it.
+
+**Skill-session tabs are deliberately *absent* from both tables.** Each ephemeral
 skill session in `BrainPanelState` is launched by an `AgentController` from a
 fresh `LaunchRequest`. Its hook metadata carries the session-done URL and token
 but no `BRAIN_INSTANCE_ID`, `BRAIN_STATE_DB`, or `BRAIN_RESPONSE_ID`. The
 session-start bridge no-ops without the tracking values, so no `brain_sessions`
 row is ever written and it is never a resume candidate. A tab lives only in
-process memory: the shared ephemeral collection owns its `SessionTabId`, title,
+process memory: the shared session-tab collection owns its `SessionTabId`, title,
 kind-specific metadata, and controller, while `ShellState` owns the active
 `BrainTab`. Skill metadata remains the `SkillSessionKey` plus completion token.
 Receiver metadata is a separate variant containing the durable `ReceiverJobId`
 plus remote instance identity; it is never represented as a configured skill.
-The single counter spans both kinds and never reuses an ID after removal.
+Manual metadata is a third variant holding its durable `ManualSessionId` and
+the optional native ID used for resume, plus a shared startup state
+(`Starting`, `Established`, or `Failed`). Fresh restoration and refusal recovery
+are both guarded generations; a failed generation cannot become a normal exit
+just because time passes. Manual liveness observations preserve probe errors
+as unknown rather than treating them as alive or exited. The single counter spans all three
+kinds and never reuses an ID after removal. Main remains outside this collection
+and owns a durable `ManualSessionId` even when its controller is unavailable.
+The panel therefore always remains visible. Ordered records travel through
+`AppInit` into one-shot startup restoration; a replacement native conversation
+retains the same manual ID, title, position, and live tab ID.
 Each receiver launch also owns a unique canonical UUID `BRAIN_INSTANCE_ID`,
 never the main TUI instance. A fresh launch registers a
 unique placeholder before spawning; a resume launch claims only its exact
 validated native session. An armed registration guard releases that exact
 remote owner on early return, while the main interactive lineage is untouched.
 
-Main, skill-session, and receiver-run values are `AgentController` instances,
+Main, Additional manual, skill-session, and receiver-run values are `AgentController` instances,
 not raw PTYs.
 Their shared semantic API owns launch, input, session, completion, terminal,
 and shutdown behavior; only frontend adapters translate those operations.
 Whole-shell teardown explicitly shuts down every controller before releasing
-the session-store lock. The durable tick joins receiver state to this shared tab
+the exact manual-session locks. The durable tick joins receiver state to this shared tab
 collection. It inserts and removes receiver tabs in the background, so the
 active main view, effective tab, panel visibility, and keyboard focus do not
 change at launch or terminal close.

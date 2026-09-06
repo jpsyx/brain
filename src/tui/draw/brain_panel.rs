@@ -12,13 +12,13 @@ use ratatui::{
 use tui_term::widget::PseudoTerminal;
 
 use crate::agent::AgentController;
-use crate::tui::model::BrainTab;
+use crate::tui::model::{BrainTab, SessionCloseKind};
 
 pub(crate) struct BrainPanelContext<'a> {
     pub(super) focused: bool,
     pub(super) tab_titles: Vec<String>,
     pub(super) active_tab: BrainTab,
-    pub(super) active_is_skill_session: bool,
+    pub(super) active_close_kind: Option<SessionCloseKind>,
     pub(super) active_index: usize,
     pub(super) workspace_name: String,
     pub(super) session_title: Option<String>,
@@ -67,7 +67,7 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // With any ephemeral tab open, the top inner row is a tab strip; the
+    // With any additional tab open, the top inner row is a tab strip; the
     // bottom row is always the help / status footer. The PTY fills what's left.
     let mut term_y = inner.y;
     let mut body_h = inner.height;
@@ -142,17 +142,9 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
                 .fg(Color::Rgb(255, 199, 119))
                 .add_modifier(Modifier::BOLD),
         )),
-        None if alive => footer_hint(
-            active_tab,
-            has_tabs,
-            context.active_is_skill_session,
-            key,
-            dim,
-        ),
-        // The event loop closes the panel as soon as the agent exits, so this
-        // shows for at most one frame before tasks goes full-width.
+        None if alive => footer_hint(active_tab, has_tabs, context.active_close_kind, key, dim),
         None => Line::from(Span::styled(
-            format!(" {agent} exited: closing panel..."),
+            format!(" {agent} unavailable"),
             Style::default()
                 .fg(Color::Rgb(255, 199, 119))
                 .add_modifier(Modifier::BOLD),
@@ -161,7 +153,7 @@ pub(crate) fn draw_brain(f: &mut Frame, context: &mut BrainPanelContext<'_>, are
     f.render_widget(Paragraph::new(vec![footer]), footer_area);
 }
 
-/// The tab strip shown at the top of the brain panel while any ephemeral tab is
+/// The tab strip shown at the top of the brain panel while any additional tab is
 /// open: the main session, then one numbered tab per open tab, in the
 /// order they were opened (matching their `Alt+<digit>` slots). The active tab is
 /// bright; the others are dimmed.
@@ -188,12 +180,12 @@ fn tab_bar_line(titles: &[String], active_index: usize) -> Line<'static> {
 }
 
 /// The normal (agent-alive) footer hint. Names the reliable way back to tasks
-/// and, when an ephemeral tab is open, the tab-switch key. Skill sessions keep
-/// their tab-specific close action (`^X` from the selected skill tab).
+/// and, when an additional tab is open, the tab-switch key. Manual and Skill
+/// kinds carry the selected tab's close action.
 fn footer_hint(
     active: BrainTab,
     has_tabs: bool,
-    active_is_skill_session: bool,
+    active_close_kind: Option<SessionCloseKind>,
     key: Style,
     dim: Style,
 ) -> Line<'static> {
@@ -211,17 +203,10 @@ fn footer_hint(
             dim,
         ));
     }
-    if !on_session || active_is_skill_session {
+    if on_session && active_close_kind.is_some() {
         spans.push(Span::styled("   ", dim));
         spans.push(Span::styled("^X", key));
-        spans.push(Span::styled(
-            if active_is_skill_session {
-                " close tab"
-            } else {
-                " close brain"
-            },
-            dim,
-        ));
+        spans.push(Span::styled(" close tab", dim));
     }
     Line::from(spans)
 }
@@ -284,11 +269,26 @@ mod tests {
     }
 
     #[test]
+    fn main_never_advertises_a_close_shortcut() {
+        for has_tabs in [false, true] {
+            let footer = footer_hint(
+                BrainTab::Main,
+                has_tabs,
+                None,
+                Style::default(),
+                Style::default(),
+            );
+            assert!(!footer.to_string().contains("^X"));
+            assert!(!footer.to_string().contains("close brain"));
+        }
+    }
+
+    #[test]
     fn receiver_tabs_do_not_advertise_the_skill_session_close_shortcut() {
         let footer = footer_hint(
             BrainTab::Session(SessionTabId(7)),
             true,
-            false,
+            None,
             Style::default(),
             Style::default(),
         );
@@ -296,5 +296,21 @@ mod tests {
         assert!(footer.to_string().contains("Alt+[ ]"));
         assert!(!footer.to_string().contains("^X"));
         assert!(!footer.to_string().contains("close tab"));
+    }
+
+    #[test]
+    fn manual_and_skill_tabs_advertise_their_typed_close_action() {
+        use crate::tui::model::SessionCloseKind;
+        for kind in [SessionCloseKind::Manual, SessionCloseKind::Skill] {
+            let footer = footer_hint(
+                BrainTab::Session(SessionTabId(3)),
+                true,
+                Some(kind),
+                Style::default(),
+                Style::default(),
+            );
+            assert!(footer.to_string().contains("^X close tab"));
+            assert!(!footer.to_string().contains("close brain"));
+        }
     }
 }

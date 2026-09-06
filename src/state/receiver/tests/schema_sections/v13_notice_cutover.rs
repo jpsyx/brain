@@ -29,7 +29,7 @@ fn current_schema_moves_notice_gating_to_the_delivery_outbox() {
         )
         .expect("delivery table contract");
 
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
     assert_eq!(obsolete_job_columns, 0);
     assert!(delivery_contract.contains("'cleanup-gated'"));
 }
@@ -66,7 +66,7 @@ fn v12_upgrade_converts_pending_notices_to_cleanup_gated_or_ready_outbox_rows() 
                 .expect("accept receiver job");
             accepted.job_id().to_string()
         };
-        super::super::schema::down_cutover_path(&path).expect("stage exact v12 schema");
+        stage_receiver_v12(&path);
         let connection = rusqlite::Connection::open(&path).expect("v12 receiver state");
         connection
             .execute(
@@ -153,6 +153,7 @@ fn v13_down_reconstructs_the_v12_pending_notice_without_agent_replay() {
         accepted.job_id().to_string()
     };
 
+    stage_receiver_v13(&path);
     super::super::schema::down_cutover_path(&path).expect("downgrade v13 to v12");
 
     let connection = rusqlite::Connection::open(&path).expect("downgraded state");
@@ -196,6 +197,7 @@ fn v13_down_reserves_the_writer_before_inspecting_mutable_schema() {
     let temporary = tempfile::tempdir().expect("temporary receiver state");
     let path = temporary.path().join("state.db");
     drop(Db::open_path(&path).expect("v13 receiver state"));
+    stage_receiver_v13(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker

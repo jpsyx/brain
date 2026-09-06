@@ -99,6 +99,12 @@ pub const fn alt_opens_help(code: KeyCode, alt: bool) -> bool {
     alt && matches!(code, KeyCode::Char('s' | 'S'))
 }
 
+/// Esc acknowledges a pending error after any captive modal has handled input.
+#[must_use]
+pub(crate) const fn esc_dismisses_error(code: KeyCode) -> bool {
+    matches!(code, KeyCode::Esc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

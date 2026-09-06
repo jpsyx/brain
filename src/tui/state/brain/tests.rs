@@ -10,6 +10,9 @@ use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 use super::{BrainPanelState, BrainPanelStateInit};
 use crate::tui::model::SessionTabId;
 
+#[path = "sessions/tests.rs"]
+mod typed_sessions;
+
 struct DormantTransport;
 
 impl AgentTransport for DormantTransport {
@@ -92,6 +95,7 @@ fn brain_state_owns_main_controller_actor_and_turn_lifecycle() {
     let actor = crate::actor::test_actor("tester");
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
+        manual_sessions: Vec::new(),
         interactive_actor: actor,
         configured_skill_sessions: None,
     });
@@ -128,6 +132,7 @@ fn brain_state_owns_main_controller_actor_and_turn_lifecycle() {
 fn brain_state_assigns_monotonic_skill_tab_ids_and_keeps_session_identity() {
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
+        manual_sessions: Vec::new(),
         interactive_actor: crate::actor::test_actor("tester"),
         configured_skill_sessions: None,
     });
@@ -163,6 +168,7 @@ fn brain_state_assigns_monotonic_skill_tab_ids_and_keeps_session_identity() {
 fn skill_and_receiver_tabs_share_monotonic_ids_and_one_stable_strip_order() {
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
+        manual_sessions: Vec::new(),
         interactive_actor: crate::actor::test_actor("tester"),
         configured_skill_sessions: None,
     });
@@ -199,7 +205,7 @@ fn skill_and_receiver_tabs_share_monotonic_ids_and_one_stable_strip_order() {
 
     assert_eq!(receiver, SessionTabId(1));
     assert_eq!(second_skill, SessionTabId(2));
-    assert_eq!(brain.ephemeral_tab_ids(), [receiver, second_skill]);
+    assert_eq!(brain.session_tab_ids(), [receiver, second_skill]);
     assert_eq!(brain.tab_titles(), ["Brain", "Receiver · SMS", "Inbox"]);
     assert_eq!(brain.skill_session_tab_ids(), [second_skill]);
     let observations = brain.receiver_run_observations();
@@ -219,6 +225,7 @@ fn skill_and_receiver_tabs_share_monotonic_ids_and_one_stable_strip_order() {
 fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
+        manual_sessions: Vec::new(),
         interactive_actor: crate::actor::test_actor("tester"),
         configured_skill_sessions: None,
     });
@@ -268,6 +275,7 @@ fn skill_tab_id_exhaustion_is_fallible_and_does_not_mutate_state() {
 fn rejected_receiver_allocation_shuts_down_and_leaves_tabs_and_counter_unchanged() {
     let mut brain = BrainPanelState::new(BrainPanelStateInit {
         instance: "shell-under-test".to_owned(),
+        manual_sessions: Vec::new(),
         interactive_actor: crate::actor::test_actor("tester"),
         configured_skill_sessions: None,
     });
@@ -280,7 +288,7 @@ fn rejected_receiver_allocation_shuts_down_and_leaves_tabs_and_counter_unchanged
         )
         .expect("skill tab");
     brain.set_next_session_tab_id(u32::MAX);
-    let tabs_before = brain.ephemeral_tab_ids();
+    let tabs_before = brain.session_tab_ids();
     let shutdown = Arc::new(AtomicBool::new(false));
     let controller = AgentController::for_workspace_with_command(
         workspace(),
@@ -303,7 +311,7 @@ fn rejected_receiver_allocation_shuts_down_and_leaves_tabs_and_counter_unchanged
         .expect_err("an exhausted identity space must reject the receiver tab");
 
     assert_eq!(error.to_string(), "receiver-run tab identity exhausted");
-    assert_eq!(brain.ephemeral_tab_ids(), tabs_before);
+    assert_eq!(brain.session_tab_ids(), tabs_before);
     assert_eq!(brain.skill_session_tab_ids(), [skill]);
     assert!(brain.receiver_run_observations().is_empty());
     assert_eq!(brain.next_session_tab_id(), u32::MAX);

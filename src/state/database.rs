@@ -216,6 +216,7 @@ impl Db {
             )?;
         }
         super::receiver::schema::up(&self.conn, version)?;
+        super::manual_session::schema::up(&self.conn, version)?;
         Ok(())
     }
 

@@ -8,4 +8,5 @@ include!("palette_sections/visibility_and_shortcuts.rs");
 include!("palette_sections/logs_and_habit_links.rs");
 include!("palette_sections/persistent_toggles.rs");
 include!("palette_sections/skill_session_actions.rs");
+include!("palette_sections/session_actions.rs");
 include!("palette_sections/row_numbering.rs");

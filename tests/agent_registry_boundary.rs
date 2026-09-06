@@ -139,27 +139,27 @@ fn receiver_observation_guard_rejects_provider_branches_literals_and_bypasses() 
     for (label, relative, mutation) in [
         (
             "provider branch",
-            "tui/state/brain/ephemeral.rs",
+            "tui/state/brain/sessions/receiver.rs",
             "match kind { AgentKind::Claude => observe() }",
         ),
         (
             "provider literal",
-            "tui/state/brain/ephemeral.rs",
+            "tui/state/brain/sessions/receiver.rs",
             r#"let provider = "codex";"#,
         ),
         (
             "concrete adapter",
-            "tui/state/brain/ephemeral.rs",
+            "tui/state/brain/sessions/receiver.rs",
             "OpenCodeFrontend::new(command)",
         ),
         (
             "concrete parser",
-            "tui/state/brain/ephemeral.rs",
+            "tui/state/brain/sessions/receiver.rs",
             "read_normalized_snapshot(request)",
         ),
         (
             "path ownership",
-            "tui/state/brain/ephemeral.rs",
+            "tui/state/brain/sessions/receiver.rs",
             "paths.receiver_observations_dir()",
         ),
         (
@@ -193,10 +193,12 @@ fn receiver_observation_guard_rejects_provider_branches_literals_and_bypasses() 
 fn receiver_observation_coordination_cannot_name_provider_or_snapshot_grammar() {
     let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut paths = vec![
-        source_root.join("tui/state/brain/ephemeral.rs"),
+        source_root.join("tui/state/brain/receiver.rs"),
+        source_root.join("tui/state/brain/sessions.rs"),
         source_root.join("tui/state/services.rs"),
     ];
     for root in [
+        source_root.join("tui/state/brain/sessions"),
         source_root.join("tui/receiver"),
         source_root.join("tui/app_brain/receiver"),
     ] {

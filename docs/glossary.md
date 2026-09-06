@@ -27,8 +27,8 @@ here to find the code. Keep this in sync when you rename a concept.
 ## The two-axis layout model
 
 The merged `brain` shell has **three main views** and **one app-level panel**.
-At most one main view shows at a time; the brain panel can be open alongside
-it (split) or closed (main view full-width).
+At most one main view shows at a time; the permanent brain panel stays alongside
+it. Main remains present even when its controller is temporarily unavailable.
 
 | Plain English | What it means | Code |
 | --- | --- | --- |
@@ -37,12 +37,24 @@ it (split) or closed (main view full-width).
 | **brain directory view** / **brain search view** | The fuzzy-search-over-the-selected-workspace surface (this was *bare `brain`* before the merge). | `MainView::BrainSearch`; `src/picker/`, `src/entry.rs` |
 | **logs view** | The scrollable diagnostic-log surface reached through the palette or the three-view cycle. | `MainView::Logs`; `tui::state::ShellState`; `src/tui/logs_view.rs` |
 | **brain panel** | The live agent chat session in a PTY. Claude is the default; `--codex` / `-cx` selects Codex and `--open-code` / `-oc` selects OpenCode. App-level: the panel does **not** belong to a main view and stays open across a view switch. (Formerly called the *claude panel* in the `tasks` project.) | `src/agent/controller/` (`AgentController`); `src/pty_pane.rs` (`PtyPane` transport); controller ownership in `tui::state::BrainPanelState`; frontend configuration in `tui::state::AppContext` |
-| **brain-panel tab** | Which session the brain panel is showing: the main session (`BrainTab::Main`) or one open ephemeral skill-session or receiver-run tab (`BrainTab::Session(SessionTabId)`). Every ephemeral tab shares one lifetime-monotonic ID order, while its kind-specific metadata stays distinct. | generic storage in `tui::state::brain::ephemeral`; active identity in `tui::state::ShellState`; navigation in `src/tui/app_brain_tab.rs` |
+| **brain-panel tab** | Which session the brain panel is showing: the main session (`BrainTab::Main`) or one additional manual, skill-session, or receiver-run tab (`BrainTab::Session(SessionTabId)`). Every additional tab shares one lifetime-monotonic ID order, while its kind-specific metadata stays distinct. | generic storage in `tui::state::brain::sessions`; active identity in `tui::state::ShellState`; navigation in `src/tui/app_brain_tab.rs` |
+| **manual session** | A persistent interactive conversation, either permanent Main or a named Additional tab. Its durable ID, title, order, and native-session mapping survive shell shutdown; closing an Additional session removes its mapping. | `manual_session::ManualSessionRecord`; `state::manual_session`; `tui::app_manual_session` |
 | **skill session** | A dedicated ephemeral agent session for **one prompt**, run in its own brain-panel tab and auto-closed when the run signals completion. Daily triage is the builtin one; a workspace declares its own in the `skill_sessions` env array (`title`, `prompt`, `command_label`). Nothing requires the prompt to be a skill; that is just the intent. | `src/skill_session/` (`SkillSessionSpec`, `SkillSessionKey`, `signal`, `prompt`); `src/tui/app_skill_session/` |
-| **receiver-run tab** | A distinct ephemeral brain-panel tab reserved for one claimed durable receiver job, unique isolated-run instance, and dedicated `AgentController`. Its fresh or native-resume prompt is initial launch data, never injected interactive input. A workspace process admits at most one at a time and shuts down a rejected duplicate. The event-loop coordinator inserts it in the background, so launch and terminal close never select a tab, reveal the panel, change the main view, or move keyboard focus. | coordinator in `tui::app_brain::receiver`; metadata and controller in `tui::state::brain::ephemeral` |
+| **receiver-run tab** | A background brain-panel tab reserved for one claimed durable receiver job, unique isolated-run instance, and dedicated `AgentController`. Its fresh or native-resume prompt is initial launch data, never injected interactive input. A workspace process admits at most one at a time and shuts down a rejected duplicate. The event-loop coordinator inserts it in the background, so launch and terminal close never select a tab, change the main view, or move keyboard focus. | coordinator in `tui::app_brain::receiver`; metadata and controller in `tui::state::brain::sessions` |
 | **panel** | Generic term; in this app the only panel is the brain panel. | — |
 | **sub-view** | One of the tabbed modes *inside* the tasks view (`today`, `mit`, `past_due`, `week`, `habits`, `backlog`, `all`). These were called "views" in the old `tasks` project. `Tab` / `Shift+Tab` cycle them; only meaningful in the tasks view. | `view::View` + `View::CYCLE` (`src/tasks/view/`) |
 | **focus** | Which surface receives keystrokes: the active main view, or the brain panel. `Alt+H`/`Alt+L` move focus between the spatial left/right halves. | `tui::state::ShellState` |
+
+## Session taxonomy
+
+| Category | Subtype | Lifetime and ownership |
+| --- | --- | --- |
+| **Receiver session** | **Email session** | A receiver-owned Email conversation, with each claimed job running in a background tab. It has no user Close action or session palette row. |
+| **Receiver session** | **SMS session** | A receiver-owned SMS conversation with the same background launch, exact cleanup, and user-close exclusions. |
+| **Skill session** | **Daily triage session** | The builtin ephemeral single-prompt run, keyed by `SkillSessionKey::DailyTriage`. Completion or user Close removes its tab; it is never persisted. |
+| **Skill session** | **User-specified skill session** | An ephemeral run from the machine's `skill_sessions` array, keyed by `SkillSessionKey::Custom(index)`, with the same completion protocol. |
+| **Manual session** | **Main session** | The permanent `Brain` tab at internal tab 0 (display slot 1). `BrainTab::Main` has its own controller slot and `ManualSessionRole::Main` mapping. It cannot be user-closed. |
+| **Manual session** | **Additional manual session** | A named persistent conversation with `ManualSessionRole::Additional` and a stable runtime `SessionTabId`. Closing it removes its durable mapping; quitting the shell preserves it for ordered restoration. |
 
 ## View switching vs. panel focus (two different axes)
 
@@ -64,6 +76,9 @@ These are deliberately distinct and use different modifiers:
 | **status line `?` hint** | The dim `Alt+S  all shortcuts` pointer at the end of the compact footer. | `shortcuts::footer_subset`, footer renderer |
 | **confirm modal** | The Yes/No (or Yes/No/Skip) overlay for destructive or expensive actions. | `confirm` / `ConfirmState` |
 | **brain-input modal** | The multi-line compose box that seeds a message into the brain panel. | `BrainInputState` |
+| **session naming modal** | The captive single-line name prompt opened by Start new brain session. Validation stays inline until Enter succeeds or Esc/Ctrl+C cancels. | `ManualSessionNameState`; `Overlay::ManualSessionName` |
+| **error banner** | Persistent failure feedback below both panels in every main view. Typing and navigation preserve it; Esc dismisses it after any active modal has closed. | `StatusState::error`; `tui::draw::error` |
+| **session palette entry** | A snapshot of an open manual or skill tab's stable ID and title, shared by the task and search palettes. Receiver tabs are excluded. | `SessionPaletteEntry`; `BrainPanelState::user_session_rows` |
 | **link picker** | The numbered list of a task's openable links (`Ctrl+O`). | `LinkPickerState` |
 
 ## Infrastructure shared by both views
@@ -75,7 +90,7 @@ These are deliberately distinct and use different modifiers:
 | **frontend registry** | The exhaustive metadata table for functional frontends: identity, configured command key/default, constructor, command builder, lifecycle installations, health checks, capability evidence, and any compatibility probe. Shared callers iterate it instead of adding Claude/Codex/OpenCode branches. | `src/agent/registry.rs`; `src/agent/registry/contract.rs` |
 | **the launch command** / **`claude_cmd` / `codex_cmd` / `opencode_cmd`** | The machine-local configured base command for a frontend. Its adapter adds frontend arguments, while the transport applies the selected workspace as cwd. | `agent::configured_command`; `ClaudeFrontend`; `CodexFrontend`; `OpenCodeFrontend` |
 | **capability enforcement level** | The evidence Brain can honestly claim for a requested MCP or skill: `strictly-selected`, `advisory-only`, or `unavailable`. Logical allowlisting alone never upgrades the level. | `access::CapabilityEnforcement`; `brain skills status` |
-| **session store** / **state DB** | The workspace-UUID-scoped SQLite DB (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`) that tracks every registered frontend by frontend, workspace, actor, and channel (lock + recency). Claude validates transcripts and rejects an id a live process still holds, OpenCode validates live root sessions from the selected workspace, and Codex validates that its own rollout file for the id is still on disk. Each frontend resumes only with its evidence and starts fresh otherwise. | `WorkspacePaths::state_db`; `src/state.rs`; `src/agent/opencode/session.rs` |
+| **session store** / **state DB** | The workspace-UUID-scoped SQLite DB (`~/.cache/brain/workspaces/<workspace-uuid>/state.db`) that tracks scoped native-session locks in `brain_sessions` and ordered Manual mappings in `manual_sessions`. A saved mapping resumes only its exact native conversation with frontend evidence; Main uses recency only on first adoption. Claude validates transcripts and live claims, Codex validates its exact on-disk rollout, and OpenCode validates live root sessions in the selected workspace. Missing evidence starts fresh under the same Manual identity. | `WorkspacePaths::state_db`; `src/state/`; `src/agent/opencode/session.rs` |
 | **shared server** | The single machine-wide HTTP process elected by live TUIs. It has no independent daemon lifetime and exits after the final orderly unregister or final crashed-lease TTL. | `server::lifecycle`; `~/.cache/brain/server/` |
 | **workspace lease** | A renewable, generation-bound claim that one exact workspace TUI is live. Receiver intent comes from the authoritative machine record. | `WorkspaceLease`; `LeaseTable`; `server::control` |
 | **receiver ingress** | The portable opaque UUID in a local `/local/<lease>/w/<ingress>/...` path, and the lease-table key a routed provider request resolves through, before any root, credential, user, prompt, or log is read. It no longer appears in a provider URL. | `IngressId`; `.config/workspace.json` |

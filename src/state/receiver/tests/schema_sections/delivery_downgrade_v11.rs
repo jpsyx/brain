@@ -17,7 +17,7 @@ fn assert_malformed_v11_shape_rolls_back_delivery_downgrade(alter_schema: &str) 
                 ),
             )
             .expect("accept receiver job");
-        super::super::schema::down_cutover_path(&path).expect("stage exact v12 state");
+        stage_receiver_v12(&path);
         db.conn
             .execute(
                 "UPDATE receiver_jobs SET state = 'answer-ready' WHERE job_id = ?1",
@@ -176,6 +176,7 @@ fn v12_down_rebuilds_every_v11_job_constraint_and_managed_index() {
                 .expect("accept first retained job");
             db.accept_receiver_job(&receiver_job(Some("v11-contract-two"), 101), &identity)
                 .expect("accept second retained job");
+            stage_receiver_v12(&path);
             damage_receiver_jobs_contract(&db.conn, damage);
         }
 
@@ -274,7 +275,7 @@ fn v12_down_rejects_malformed_rows_without_stamping_or_dropping_v12_state() {
             ReceiverConversationIdentity::sms(receiver_workspace_id(), receiver_user_id());
         db.accept_receiver_job(&receiver_job(Some("v11-invalid-row"), 100), &identity)
             .expect("accept retained job");
-        super::super::schema::down_cutover_path(&path).expect("stage exact v12 state");
+        stage_receiver_v12(&path);
         let sql: String = db
             .conn
             .query_row(
@@ -399,6 +400,7 @@ fn v12_down_restores_the_exact_v11_job_shape_and_round_trips_up_safely() {
         (accepted.job_id().to_string(), private_text_proof(&inbound_json))
     };
 
+    stage_receiver_v12(&path);
     super::super::schema::down_delivery_path(&path).expect("downgrade exact v11 shape");
 
     let connection = rusqlite::Connection::open(&path).expect("downgraded state");
@@ -535,7 +537,7 @@ fn v12_down_restores_the_exact_v11_job_shape_and_round_trips_up_safely() {
             .expect("upgraded legacy sender value"),
     );
     assert!(
-        upgraded == (13, 2, 1, None),
-        "exact v11 state did not upgrade back to repaired v13"
+        upgraded == (14, 2, 1, None),
+        "exact v11 state did not upgrade back to the latest repaired schema"
     );
 }

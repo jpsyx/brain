@@ -209,6 +209,7 @@ fn acknowledged_fallback_remains_done_across_v12_down_v11_reopen_and_reupgrade()
     assert_acknowledged_fallback_audit(&fixture.db, job_id);
     drop(fixture);
 
+    crate::state::manual_session_schema_down(&path).expect("stage exact v13 state");
     super::super::schema::down_delivery_path(&path).expect("downgrade acknowledged fallback");
     let downgraded = rusqlite::Connection::open(&path).expect("reopen v11 state");
     let version: i64 = downgraded

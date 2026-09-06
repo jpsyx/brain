@@ -24,7 +24,6 @@ pub(crate) struct TuiRuntime {
     server_lease: Option<HeartbeatWorker>,
     watcher: Option<WatcherHandle>,
     periodic_puller: Option<PeriodicPullHandle>,
-    instance: String,
     lifecycle: RuntimeLifecycle,
     // Declared last so Rust drops the singleton after every other field.
     singleton: Guard,
@@ -79,8 +78,8 @@ impl TuiRuntime {
                 }
                 ShutdownStage::StopPeriodicPuller => drop(self.periodic_puller.take()),
                 ShutdownStage::StopWatcher => drop(self.watcher.take()),
-                ShutdownStage::ReleaseSessionLock => {
-                    if let Err(error) = self.app.services.release_session_lock(&self.instance) {
+                ShutdownStage::ReleaseSessionLocks => {
+                    if let Err(error) = self.app.release_manual_session_locks() {
                         crate::logging::log(format!("session lock release failed: {error:#}"));
                     }
                 }

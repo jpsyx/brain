@@ -5,6 +5,7 @@
 //!     modal centering
 
 mod brain_panel;
+mod error;
 pub(crate) mod layout;
 pub(super) mod tasks_panel;
 
@@ -20,19 +21,24 @@ use crate::tui::draw::brain_panel::{BrainPanelContext, draw_brain};
 use crate::tui::draw::tasks_panel::{TasksPanelContext, draw_tasks};
 use crate::tui::draw_assignee::draw_assignee_filter;
 use crate::tui::draw_help::draw_help;
-use crate::tui::draw_modals::{draw_brain_input, draw_confirm, draw_link_picker};
+use crate::tui::draw_modals::{
+    draw_brain_input, draw_confirm, draw_link_picker, draw_manual_session_name,
+};
 use crate::tui::draw_palette::draw_palette;
 use crate::tui::draw_sync_log::draw_sync_log;
 use crate::tui::logs_view::draw_logs;
-use crate::tui::model::Panel;
+use crate::tui::model::{Panel, SessionCloseKind};
 use crate::tui::overlay::Overlay;
 
 pub(crate) fn draw(f: &mut Frame, app: &mut App) {
-    let area = f.area();
+    let area = if let Some(error) = app.status.error() {
+        error::draw_error(f, error, app.overlay.is_none(), f.area())
+    } else {
+        f.area()
+    };
 
-    // Top-level split: if the brain panel is open, it takes half the width on
-    // its configured side; the active main view fills the rest. Closed → the
-    // main view owns the full width.
+    // The permanent brain panel takes half the width on its configured side,
+    // including while Main's controller is unavailable.
     let (main_area, brain_area) = if app.brain.any_panel_visible() {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
@@ -46,8 +52,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         (area, None)
     };
 
-    // Record the brain panel's rect so the mouse handler can hit-test the
-    // wheel against it (None when the main view owns the full width).
+    // Record the brain panel's rect so the mouse handler can hit-test the wheel.
     app.shell.record_brain_rect(brain_area);
 
     match app.shell.main_view() {
@@ -75,7 +80,13 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             focused: app.shell.focus() == Panel::Brain,
             tab_titles: app.brain.tab_titles(),
             active_tab,
-            active_is_skill_session: app.brain.is_skill_session_tab(active_tab),
+            active_close_kind: if app.brain.is_manual_session_tab(active_tab) {
+                Some(SessionCloseKind::Manual)
+            } else if app.brain.is_skill_session_tab(active_tab) {
+                Some(SessionCloseKind::Skill)
+            } else {
+                None
+            },
             active_index: app.active_brain_tab_index(),
             workspace_name,
             session_title: app.active_brain_tab_title().map(str::to_owned),
@@ -92,6 +103,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     match app.overlay.as_ref() {
         Some(Overlay::TaskPalette(state)) => draw_palette(f, state, area),
         Some(Overlay::BrainInput(state)) => draw_brain_input(f, state, area),
+        Some(Overlay::ManualSessionName(state)) => draw_manual_session_name(f, state, area),
         Some(Overlay::TaskConfirmation(state)) => draw_confirm(f, state, area),
         Some(Overlay::SearchPalette(state)) => crate::menu::draw_modal(f, state, main_area),
         Some(Overlay::SearchConfirmation(state)) => {

@@ -16,14 +16,14 @@ impl App {
         &self,
         side: crate::state::PanelSide,
         include_msg: bool,
-        receiver_enabled: bool,
+        runtime_targets: menu::Targets,
     ) -> menu::SearchPalette {
         let targets = menu::Targets {
-            receiver_enabled: Some(receiver_enabled),
             pdf: self.selected_markdown_filename(),
             open_file: self.selected_file_filename(),
             open_dir: self.selected_dir_reldisplay(),
             delete: self.selected_filename(),
+            ..runtime_targets
         };
         CommandPalette::new(
             "Command palette",

@@ -4,8 +4,7 @@ fn cleanup_fence_downgrade_reserves_the_writer_before_reading_schema() {
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_unavailable_notice_path(&path)
-        .expect("stage adjacent v10 receiver state");
+    stage_receiver_v10(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker
@@ -83,8 +82,7 @@ fn v10_downgrade_reserves_the_writer_before_reading_schema() {
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_unavailable_notice_path(&path)
-        .expect("stage adjacent v10 receiver state");
+    stage_receiver_v10(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker

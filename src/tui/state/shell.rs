@@ -109,11 +109,20 @@ impl ShellState {
 
     pub(crate) fn search_palette(
         &self,
-        include_message_brain: bool,
         receiver_enabled: bool,
+        runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+        user_sessions: Vec<crate::tui::state::SessionPaletteEntry>,
     ) -> SearchPalette {
-        self.search
-            .search_palette(self.panel_side, include_message_brain, receiver_enabled)
+        self.search.search_palette(
+            self.panel_side,
+            true,
+            crate::menu::Targets {
+                receiver_enabled: Some(receiver_enabled),
+                runnable_skill_sessions,
+                user_sessions,
+                ..crate::menu::Targets::default()
+            },
+        )
     }
 
     pub(crate) fn render_search(&mut self, frame: &mut Frame, area: Rect) {

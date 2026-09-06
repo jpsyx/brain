@@ -56,12 +56,11 @@ fn receiver_job(
     }
 }
 
-use super::launch::register_fresh_before_launch;
-
 mod fixtures;
 mod input;
 mod launch;
 mod lifecycle;
+mod manual_session;
 mod opencode_launch;
 mod opencode_receiver;
 mod overlay_draw;

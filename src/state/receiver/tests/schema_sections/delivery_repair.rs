@@ -417,6 +417,7 @@ fn v12_down_never_maps_a_blank_acknowledgement_to_done() {
             .expect("accept receiver job");
         let job_id = accepted.job_id().to_string();
         let job_token = persisted_job_token(&db, accepted.job_id()).to_string();
+        stage_receiver_v12(&path);
         db.conn
             .execute(
                 "UPDATE receiver_jobs SET state = 'answer-ready' WHERE job_id = ?1",
@@ -474,6 +475,7 @@ fn v12_same_version_repair_terminalizes_completed_retry_without_delivery_row() {
                 ),
             )
             .expect("accept receiver job");
+        stage_receiver_v12(&path);
         db.conn
             .execute(
                 "UPDATE receiver_jobs
@@ -531,6 +533,7 @@ fn v12_down_up_terminalizes_completed_retry_when_delivery_table_is_missing() {
                 ),
             )
             .expect("accept receiver job");
+        stage_receiver_v12(&path);
         db.conn
             .execute(
                 "UPDATE receiver_jobs
@@ -744,6 +747,7 @@ fn v12_down_up_terminalizes_every_semantic_retry_when_delivery_table_is_missing(
                 .expect("stage semantic response retry");
             job_ids.push(accepted.job_id().to_string());
         }
+        stage_receiver_v12(&path);
         db.conn
             .execute_batch(
                 "DROP INDEX IF EXISTS receiver_deliveries_due;
@@ -834,6 +838,7 @@ fn v12_down_up_maps_every_valid_generic_response_without_replay() {
             );
             job_ids.push(accepted.job_id().to_string());
         }
+        stage_receiver_v12(&path);
         job_ids
     };
 

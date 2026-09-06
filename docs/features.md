@@ -24,9 +24,9 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
   running this machine's `default_agent_frontend` (Claude unless set), or the
   frontend named by `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` /
   `-oc` for one run, open at startup and shared by all
-  main views. It does not belong to a view: switching views leaves it open;
-  closing it (`Ctrl+X`, or the agent
-  exiting) makes the active main view full-width.
+  main views. Main is permanent at internal tab 0; switching views or exiting
+  its controller does not hide the panel. Additional Manual, Skill, and Receiver
+  sessions share the ordered tab strip beside Main.
 
 Switch main views with `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T` (tasks) /
 `Ctrl+B` (brain directory). `Alt+S` opens the keyboard-shortcuts help modal
@@ -43,38 +43,67 @@ shell.
 the focused panel's border brightens and the unfocused one dims. The shell
 starts focused on the tasks view so task navigation works immediately; the
 brain panel is still spawned at startup with the selected frontend ready
-one `Alt+`-switch away. It resumes your most recent conversation in that
-workspace, skipping any the frontend can't reopen — one that never got a real
+one `Alt+`-switch away. Main resumes its saved conversation in that workspace;
+only its first launch without a saved mapping scans recent conversations,
+skipping any the frontend can't reopen, including one that never got a real
 exchange, one another live agent is still in, and any belonging to a background
 agent you started from the panel. If a resume is refused anyway the agent quits
 at once, so brain opens a fresh session in its place and tells you *"couldn't
-resume your last conversation; started a new brain chat"*: you always get a live
-panel, never a dead one. `Alt+U` / `Alt+D` scroll the focused panel a half-page
+resume your last conversation; started a new brain chat"*. A fresh startup
+failure leaves the permanent tab visible with an unavailable status.
+`Alt+U` / `Alt+D` scroll the focused panel a half-page
 up / down (the brain panel by half its visible rows, the search panel by a page
 of its match list): a keyboard-only alternative to the wheel that fires even
 while the selected agent has focus or the filter is being typed. macOS
 Option-produced equivalents are accepted too, so richer keyboard reporting in
 embedded frontends does not strand the scroll binding.
 
-Every live main or ephemeral-tab session sits behind an `AgentController`.
+Every live main or additional-tab session sits behind an `AgentController`.
 Keyboard, render, scroll, completion, receiver-run, and close paths call semantic
 operations on that facade; only the Claude, Codex, and OpenCode adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
 explicitly shuts down all controllers before their transports are dropped.
 
-**Closing vs quitting.** Exiting the agent (for Claude, `Ctrl-C` to end the
-turn, then `Ctrl-C` again to exit) **closes the brain panel** — the main view goes
-full-width and the shell keeps running. It does *not* quit `brain`. To
-**re-open** the panel, run **Message brain** (`Ctrl-M`, or the palette row —
-which only appears while the panel is closed); it resumes your latest
-session. To **quit `brain`** entirely, press `Esc` or `Ctrl-c` from the
-**search** panel.
+**Closing vs quitting.** Main is a Manual session fixed at internal tab 0
+(display slot 1): a normal agent exit relaunches its controller in the same tab
+without moving focus or the selected tab. A launch
+failure leaves Main and its status visible. `Ctrl+X` never closes Main or a
+receiver run. It closes only the selected Additional manual or skill session.
+To **quit `brain`** entirely, press `Esc` or `Ctrl-c` from the **search** panel.
 
-**Start a new session.** `Ctrl+N` starts a fresh agent conversation in the
-brain panel: it sends `/new` to the running frontend for you. It fires
-from either panel while the panel is open (no need to focus the brain panel
-first). When the panel is closed, `Ctrl+N` keeps its search meaning (move the
-selection down).
+Manual sessions retain their identity, title, order, and native-session mapping
+across shell restarts. Startup restores Main first, then Additional manual
+sessions in their saved order. A missing transcript or refused resume starts a
+fresh native conversation under the same manual identity. A failed restore
+retains its saved record for the next restart, including a child that spawns
+successfully but exits during startup. Every manual launch must be observed
+alive after its five-second startup grace period before a later exit counts as
+normal. An early fresh exit leaves the saved session unavailable, without
+repeated respawns; Main remains visible. Closing an Additional manual
+session (including a normal agent exit) removes its saved mapping; quitting the
+shell preserves every mapping and releases each exact manual-session lock
+after shutting down all controllers.
+
+**Start a named session.** Both task and brain-search command palettes offer
+**Start new brain session** immediately after **Message brain**. The captive
+single-line modal asks **What would you like to name this session?** Enter
+starts a fresh Additional manual session with the trimmed title; blank names
+and ASCII case-insensitive duplicates of Main's `Brain` title or another open
+manual title show an inline error and keep the input visible. Backspace edits,
+`Ctrl+U` clears, and Esc or `Ctrl+C` cancels. These palette rows have no direct
+shortcut annotations.
+
+Manual-session launch, persistence, and close failures appear in a red error
+banner below both panels, visible in Tasks, Brain Search, and Logs. The message
+wraps to the terminal width and survives typing, focus changes, and view
+switches until Esc dismisses it. An open modal keeps its own input and Esc
+behavior; the error remains available after that modal closes.
+
+**Start a new conversation in the selected tab.** `Ctrl+N` starts a fresh agent
+conversation in the brain panel: it sends `/new` to the running frontend for you. It fires
+from either panel when the selected Manual or Skill session has a live
+controller. It preserves a Manual session's name and position; Receiver
+sessions ignore the action.
 
 **Skill sessions: one tab per single-prompt run.** A **skill session** is a
 dedicated, ephemeral agent session for *one* prompt — typically a slash command
@@ -114,16 +143,20 @@ twice. Several *different* skill sessions can run at once, each in its own tab.
 
 **Switching tabs.** Cycle with **`Alt+[`** / **`Alt+]`** (previous / next) from
 either panel; the panel shows a `1 Brain` · `2 Daily triage` · `3 Email triage` …
-strip while any ephemeral tab is live, in the order tabs were opened. The **command
-palette** also carries **Show main brain session** and one **Show <title>
-session** row per open skill tab (the works-anywhere alternative). (`Alt+1` selects the
-main session and `Alt+<n>` the nth ephemeral tab directly too, but terminal
+strip while any additional tab is live, in the order tabs were opened. The **command
+palettes** in tasks and brain search carry **Show main brain session** while
+any manual or skill tab is open, followed by paired **Show <title> session**
+and **Close <title> session** rows in stable tab order. Main has no Close row;
+receiver tabs have neither Show nor Close palette rows. The task-actions and
+logs palettes keep their existing scopes. (`Alt+1` selects the
+main session and `Alt+<n>` the nth additional tab directly too, but terminal
 `Alt+digit` handling is unreliable, so the bracket cycle and palette rows are the
 dependable paths.)
 
 The same strip and slot order can hold a distinct background receiver-run tab.
-Receiver insertion never selects that tab, reveals a hidden panel, changes the
-main view, or moves keyboard focus. When receiver intent is enabled, the single
+Receiver sessions have Email and SMS subtypes and remain receiver-owned.
+Insertion never selects that tab, changes the main view, or moves keyboard
+focus. When receiver intent is enabled, the single
 event-loop consumer preserves the sync-freshness gate, claims the oldest ready
 durable job, and launches a new PTY and frontend-neutral `AgentController` in
 that background tab even while the main panel is busy. Later arrivals remain
@@ -173,21 +206,25 @@ and touches nothing. The agenda refreshes in place and a `✓ daily triage
 skipped` flash confirms it. (Contrast **Yes**, which is agent-driven because a
 real pass involves judgement.)
 
-**Session resume.** On startup Claude resumes the most recent candidate whose
-workspace transcript exists. OpenCode asks the configured command for
+**Session resume.** Startup restores each saved Manual session's exact native
+conversation. Only Main's first launch without a mapping searches recency,
+excluding conversations already mapped to Additional sessions. Claude requires
+a real conversation in the workspace transcript that no live process holds.
+OpenCode asks the configured command for
 `session list --format json` in the selected root and resumes only a live,
 non-archived, non-deleted root session whose reported directory is that exact
 root. If a stale DB row no longer has matching frontend evidence, Brain skips
 it and starts a fresh chat with a status-line explanation. Codex resumes when it
 still holds the session's rollout on disk, and starts fresh when it does not. If you type `/new` (or `/clear`) inside an agent, or press
-`Ctrl+N`, the generic lifecycle bridge records the new root-session ID when
-the frontend emits its start event. Brain permits one live TUI per workspace UUID:
+`Ctrl+N`, the generic lifecycle bridge atomically records the new root-session
+ID and updates that Manual session's exact mapping when the frontend emits its
+start event. Brain permits one live TUI per workspace UUID:
 a second TUI for the same UUID receives a clear
 already-running message, while TUIs for different workspace UUIDs may run at
 the same time. If the
 candidate is stale, Brain starts a fresh chat and says so in the status line.
 See [integrations.md](integrations.md) and
-[data-model.md](data-model.md) for the lock-and-recency model.
+[data-model.md](data-model.md) for saved mappings and scoped native-session locks.
 
 Claude is selected per run with `--claude` / `-cl`; Codex with `--codex` /
 `-cx`; OpenCode with `--open-code` / `-oc`. The selectors may appear before or
@@ -263,19 +300,21 @@ a direct keystroke show it dimmed in `[…]`):
   never shows the absolute path or the filename: it leads with the bucket
   category (`projects/`, `areas/`, `resources/`, `archive/`) and, when too
   long, elides the *middle* keeping the tail (`resources/.../final/parts`).
-1. **Message brain** `[^M]` — open the brain panel (resume your latest
-   session), or focus it if already open. Shown **only while the panel is
-   closed**.
-2. **Open tasks** `[^T]` — switch to the tasks main view (task management,
+1. **Message brain** `[^M]`: select and focus Main, launching it if unavailable.
+   Always present in both main-view palettes.
+2. **Start new brain session** opens the naming modal. Configured **Run**
+   skill rows follow, then **Show main brain session** and paired **Show** /
+   **Close** rows for each open manual or skill tab.
+3. **Open tasks** `[^T]`: switch to the tasks main view (task management,
    agenda, triage), in-process.
-3. **Search projects:** rescope search to the selected workspace's `projects/`.
-4. **Search areas:** rescope search to the selected workspace's `areas/`.
-5. **Search resources:** rescope search to the selected workspace's `resources/`.
-6. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
-7. **Global search** — search across projects, areas, resources, and archive.
-8. **Enable receiver / Disable receiver** toggles persistent intent for the
+4. **Search projects:** rescope search to the selected workspace's `projects/`.
+5. **Search areas:** rescope search to the selected workspace's `areas/`.
+6. **Search resources:** rescope search to the selected workspace's `resources/`.
+7. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
+8. **Global search**: search across projects, areas, resources, and archive.
+9. **Enable receiver / Disable receiver** toggles persistent intent for the
    selected workspace without starting or stopping the shared process.
-9. **Move brain panel to the left / right**: swap the layout (label names
+10. **Move brain panel to the left / right**: swap the layout (label names
    the direction the panel would move).
 - **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
   directory) to the Trash. **Shown whenever something is highlighted**, and it
@@ -1766,7 +1805,7 @@ Local cleanup remembers
 successful shutdown and artifact removal so a later tick can finish the
 remaining step before later FIFO work launches. Pre-spawn owner-store failures
 also remain distinct from proven owner loss. They clean only the exact
-ephemeral controller and registration, retain cleanup authority if either
+temporary controller and registration, retain cleanup authority if either
 operation fails, and then retry the same persisted recovery claim without
 replaying inbound content or selecting a different frontend. Ordinary retry recording rejects recovery
 attempts; planning, registration, spawn, or shutdown failure for an exact live
@@ -2245,10 +2284,11 @@ list.
   workspace's other machines. Because a TUI can stay open across day
   rollovers, this flips the daily-triage nudge on or off for the current session
   without a persistent config change; enabling it re-checks immediately, so an
-  outstanding triage surfaces the modal at once. The tasks-view palette also
-  carries one **Run \<label\>** row per skill session the workspace offers (see
-  "Skill sessions" above) and, while any is running, **Show main brain session**
-  plus a **Show \<title\> session** row per open tab. None of these has a direct
+  outstanding triage surfaces the modal at once. Both main-view palettes also
+  carry one **Run \<label\>** row per skill session the workspace offers (see
+  "Skill sessions" above), **Start new brain session**, and, while a manual or
+  skill tab is open, **Show main brain session** plus paired **Show \<title\>
+  session** / **Close \<title\> session** rows. None of these has a direct
   shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 

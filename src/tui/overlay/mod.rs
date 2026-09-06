@@ -3,8 +3,8 @@
 use crate::confirm::Confirm;
 use crate::menu::SearchPalette;
 use crate::tui::modal_state::{
-    AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState, SyncLogState,
-    TaskPalette,
+    AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
+    ManualSessionNameState, SyncLogState, TaskPalette,
 };
 
 /// The only modal state the shell can represent. Each variant owns exactly the
@@ -12,6 +12,7 @@ use crate::tui::modal_state::{
 pub(crate) enum Overlay {
     TaskPalette(TaskPalette),
     BrainInput(BrainInputState),
+    ManualSessionName(ManualSessionNameState),
     TaskConfirmation(ConfirmState),
     SearchPalette(SearchPalette),
     SearchConfirmation(Confirm),
@@ -26,6 +27,7 @@ pub(crate) enum Overlay {
 pub(crate) enum ModalInput {
     TaskPalette,
     BrainInput,
+    ManualSessionName,
     TaskConfirmation,
     SearchPalette,
     SearchConfirmation,
@@ -40,6 +42,7 @@ pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
     match active {
         Some(Overlay::TaskPalette(_)) => ModalInput::TaskPalette,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
+        Some(Overlay::ManualSessionName(_)) => ModalInput::ManualSessionName,
         Some(Overlay::TaskConfirmation(_)) => ModalInput::TaskConfirmation,
         Some(Overlay::SearchPalette(_)) => ModalInput::SearchPalette,
         Some(Overlay::SearchConfirmation(_)) => ModalInput::SearchConfirmation,
@@ -88,15 +91,7 @@ mod tests {
     use crate::tui::palette::PaletteControls;
 
     fn task_palette() -> Overlay {
-        Overlay::TaskPalette(TaskPalette::new(
-            None,
-            false,
-            false,
-            false,
-            LinkKind::None,
-            false,
-            false,
-        ))
+        Overlay::TaskPalette(TaskPalette::new(None, false, false, false, LinkKind::None))
     }
 
     #[test]

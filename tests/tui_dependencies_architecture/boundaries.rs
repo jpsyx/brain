@@ -94,7 +94,6 @@ fn direct_global_shortcuts_cross_the_application_mediator() {
     assert_eq!(
         audit.mediated,
         BTreeSet::from([
-            "CloseBrain".to_owned(),
             "MessageBrain".to_owned(),
             "OpenAgenda".to_owned(),
             "ShowTasks".to_owned(),
@@ -112,7 +111,7 @@ struct DirectShortcutAudit {
 impl<'ast> Visit<'ast> for DirectShortcutAudit {
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         let method = call.method.to_string();
-        if matches!(method.as_str(), "close_brain" | "open_or_focus_brain") {
+        if method == "open_or_focus_brain" {
             self.bypasses.push(method.clone());
         }
         if method == "show_main_view" && call.args.iter().any(expr_names_tasks_view) {

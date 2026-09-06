@@ -64,28 +64,15 @@ pub(crate) fn handle_mouse(app: &mut App, me: crossterm::event::MouseEvent) {
 }
 
 /// Forward a keystroke into the PTY's stdin. Alt+H / Alt+L are handled
-/// upstream in `event_loop` and never reach here. When the child has
-/// exited, a Ctrl-C / q / Esc closes the panel instead of being forwarded
-/// (there's no process to receive it).
-pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ctrl: bool) -> bool {
+/// upstream in `event_loop` and never reach here. Main remains visible when
+/// its child has exited; input waits for its lifecycle relaunch.
+pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, _ctrl: bool) -> bool {
     let mut alive = app
         .brain
         .main_controller()
         .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
-        // Child gone: close the panel on Ctrl-C / Esc / q so the user can
-        // get back to a full-width tasks view without re-spawning.
-        match k.code {
-            KeyCode::Char('c') if ctrl => {
-                app.close_brain();
-                return false;
-            }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
-                app.close_brain();
-                return false;
-            }
-            _ => return false,
-        }
+        return false;
     }
 
     let Some(bytes) = key_to_bytes(k) else {
@@ -117,12 +104,9 @@ pub(crate) fn handle_brain_key(app: &mut App, k: &crossterm::event::KeyEvent, ct
     false
 }
 
-/// Forward a keystroke into the active skill-session PTY. A skill-session tab is
-/// deliberately outside the receiver/turn machinery (it is untracked and
-/// self-closing), so this is a plain forwarder: encode the key and write it.
-/// When that session has exited, a Ctrl-C / Esc / q closes the tab so the user
-/// can get back to the main session.
-pub(crate) fn handle_skill_session_key(
+/// Forward input to an Additional Manual, Skill, or selected Receiver tab.
+/// Only Manual metadata can mark an interactive session active.
+pub(crate) fn handle_session_tab_key(
     app: &mut App,
     k: &crossterm::event::KeyEvent,
     ctrl: bool,
@@ -132,8 +116,8 @@ pub(crate) fn handle_skill_session_key(
         .is_some_and(|controller| controller.is_alive().unwrap_or(false));
     if !alive {
         match k.code {
-            KeyCode::Char('c') if ctrl => app.close_active_skill_session(),
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => app.close_active_skill_session(),
+            KeyCode::Char('c') if ctrl => app.close_active_user_session(),
+            KeyCode::Esc | KeyCode::Char('q' | 'Q') => app.close_active_user_session(),
             _ => {}
         }
         return false;
@@ -147,7 +131,11 @@ pub(crate) fn handle_skill_session_key(
                 controller.forward_terminal_input(bytes)
             };
             if let Err(error) = result {
-                crate::logging::log(format!("skill session input failed: {error}"));
+                crate::logging::log(format!("session input failed: {error}"));
+            } else if brain_key_starts_turn(k.code)
+                && let crate::tui::model::BrainTab::Session(id) = app.effective_brain_tab()
+            {
+                app.mark_manual_session_turn_started(id);
             }
         }
     }

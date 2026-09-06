@@ -2,4 +2,5 @@
 
 mod global;
 
+pub(crate) use crate::tui::model::SessionTabId;
 pub(crate) use global::GlobalAction;

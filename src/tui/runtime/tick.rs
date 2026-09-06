@@ -4,7 +4,7 @@ use crate::tui::modal_state::FlashKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecurringStage {
-    CloseExitedPanelAndRefreshTasks,
+    TickManualSessionsAndRefreshTasks,
     DrainServerHealthEvents,
     TickSkillSessions,
     TickReceiver,
@@ -14,7 +14,7 @@ pub(super) enum RecurringStage {
 
 pub(super) const fn recurring_stages() -> [RecurringStage; 6] {
     [
-        RecurringStage::CloseExitedPanelAndRefreshTasks,
+        RecurringStage::TickManualSessionsAndRefreshTasks,
         RecurringStage::DrainServerHealthEvents,
         RecurringStage::TickSkillSessions,
         RecurringStage::TickReceiver,
@@ -26,8 +26,8 @@ pub(super) const fn recurring_stages() -> [RecurringStage; 6] {
 pub(super) fn tick(app: &mut App, server_lease: &HeartbeatWorker) {
     for stage in recurring_stages() {
         match stage {
-            RecurringStage::CloseExitedPanelAndRefreshTasks => {
-                app.close_exited_brain_panel();
+            RecurringStage::TickManualSessionsAndRefreshTasks => {
+                app.tick_manual_sessions();
             }
             RecurringStage::DrainServerHealthEvents => {
                 for event in server_lease.poll() {
@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(
             recurring_stages(),
             [
-                RecurringStage::CloseExitedPanelAndRefreshTasks,
+                RecurringStage::TickManualSessionsAndRefreshTasks,
                 RecurringStage::DrainServerHealthEvents,
                 RecurringStage::TickSkillSessions,
                 RecurringStage::TickReceiver,

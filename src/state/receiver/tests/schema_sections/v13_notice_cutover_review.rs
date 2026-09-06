@@ -33,7 +33,7 @@ fn v12_upgrade_converts_pending_notice_from_every_valid_job_state() {
             .job_id()
             .to_string()
         };
-        super::super::schema::down_cutover_path(&path).expect("stage exact v12 schema");
+        stage_receiver_v12(&path);
         let connection = rusqlite::Connection::open(&path).expect("v12 receiver state");
         connection
             .execute(
@@ -79,6 +79,7 @@ fn partial_v13_down_up_recreates_exact_delivery_contract_idempotently() {
         .execute_batch("DROP TABLE receiver_deliveries;")
         .expect("stage partial v13 state");
     drop(db);
+    stage_receiver_v13(&path);
 
     super::super::schema::down_cutover_path(&path).expect("first v13 downgrade");
     super::super::schema::down_cutover_path(&path).expect("idempotent v12 downgrade");
@@ -155,7 +156,7 @@ fn v12_upgrade_rejects_a_conflicting_terminal_semantic_row_without_losing_pendin
         );
         accepted.job_id().to_string()
     };
-    super::super::schema::down_cutover_path(&path).expect("stage exact v12 schema");
+    stage_receiver_v12(&path);
     let connection = rusqlite::Connection::open(&path).expect("v12 receiver state");
     connection
         .execute_batch(
@@ -266,7 +267,7 @@ fn v12_upgrade_rejects_a_different_valid_notice_envelope_without_losing_pending_
             .expect("replace with another valid envelope");
         accepted.job_id().to_string()
     };
-    super::super::schema::down_cutover_path(&path).expect("stage exact v12 schema");
+    stage_receiver_v12(&path);
     let connection = rusqlite::Connection::open(&path).expect("v12 receiver state");
     connection
         .execute(

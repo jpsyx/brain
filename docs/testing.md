@@ -218,9 +218,14 @@ first move is a failing test that reproduces it, *then* the fix.
   and preserve their exact shared or contextual label/shortcut metadata. Task
   palette tests also pin globally scoped habits and agenda rows to
   `GlobalAction`, preventing them from bypassing the one global executor. A
-  direct-shortcut architecture guard requires Close brain, Show tasks, Message
-  brain, and Open agenda to enter `App::execute_global_action`, while preserving
-  the active skill-session close route.
+  direct-shortcut architecture guard requires Show tasks, Message brain, and
+  Open agenda to enter `App::execute_global_action`; `Ctrl+X` uses the same
+  kind-gated close path as exact-ID palette closes.
+  Manual-session modal tests route real key events through App to cover blank
+  and duplicate input, editing, cancellation, captive accelerators, rendering,
+  and trimmed fresh launches for Claude, Codex, and OpenCode. Catalog and runtime
+  tests compare stable manual/skill Show/Close actions in both palettes, reserve
+  Main from Close, exclude receiver tabs, and keep task-actions/log scopes intact.
   Search structural guards keep the layout toggle last and ensure every
   `SearchAction` appears exactly once when applicable (including `CreatePdf`
   when a markdown target is present). The two contextual rows: "Create PDF"
@@ -369,7 +374,7 @@ first move is a failing test that reproduces it, *then* the fix.
   validation and proves the state transaction still refuses a nonterminal
   observation. A structural
   receiver scan covers both coordination trees, the services conversion path,
-  plus ephemeral receiver-tab
+  plus background receiver-tab
   ownership and rejects provider enum branches and literals, concrete adapter
   or parser ownership, transcript/rollout/event grammar, raw revision access,
   direct normalized-reader
@@ -505,22 +510,49 @@ first move is a failing test that reproduces it, *then* the fix.
   editor, quoting) and `iterm_new_tab_applescript` (embeds the command,
   escapes `"`/`\`).
 - **The brain shell's pure bits** (`tui/`). `startup_focus` (the shell
-  lands in the search panel at startup), `focus_left`/`focus_right`
+  lands in the tasks view at startup), `focus_left`/`focus_right`
   (focus follows the layout swap), `panel_borders` (the right panel owns the
   divider), and `key_to_bytes` (non-semantic key → terminal byte encoding).
   Recording frontend/transport tests under `tui/app_brain/tests/` cover
   `AgentController` and its App consumers: failed fresh registration prevents
   launch, Enter calls semantic submit and reactivates the scoped store row,
   injected work uses the selected adapter's semantic busy-turn sequence,
-  `Ctrl-N` targets the effective main or skill-session tab, shutdown fires once, and
-  agent exit closes only the panel. It also proves half-page scroll targets the
+  `Ctrl-N` targets the effective Manual or Skill tab, shutdown fires once, and
+  Main remains visible when its controller exits. It also proves half-page scroll targets the
   visible skill-session controller and whole-shell teardown explicitly shuts down
   every controller. The actual `App::open_skill_session` path uses
   the selected adapter, includes only ephemeral hook metadata, and creates no
   session row. Prelaunch validation tests prove capability and response
   identity errors happen before a resumable claim and clear the attempted
-  response identity. Main-panel teardown refreshes the frontend-rotated native
-  session binding before releasing the exact interactive session owner.
+  response identity. Manual teardown releases the frontend-rotated native
+  binding by its exact persisted manual ID and interactive scope.
+- **Persistent Manual sessions.** `manual_session::tests` covers trimmed,
+  nonblank, ASCII case-insensitive unique names and role invariants.
+  `state::manual_session::tests` uses real SQLite transactions to cover scoped
+  ordering, uniqueness, exact registration/attachment/replacement, close
+  compaction, Main protection, foreign-key rollback, lock release without
+  mapping deletion, and schema up/down preservation of native history.
+  `tui::app_brain::tests::manual_session` composes real App and state-store code
+  with recording transports and an injected clock for all three frontends:
+  fresh launch, exact saved restore, first Main adoption, refusal replacement,
+  early-exit guards, permanent Main, Additional close, shutdown persistence,
+  captive naming, and shared palette identities. Wrong-kind close paths prove
+  they preserve the unrelated tab and do not shut down its controller.
+  `manual_session::failure_feedback` drives the real search palette, naming
+  handler, App, and renderer through spawn, SQLite persistence, close, and
+  early-startup failures. It proves visible feedback survives the next key,
+  view navigation, and an active naming modal, and that Esc acknowledges only
+  the current input owner. These tests use real temporary SQLite databases;
+  the external agent transport and startup clock are injected test boundaries.
+  `hook_integration` runs the real lifecycle bridge against isolated databases
+  to prove exact manual mapping rotation for Claude, Codex, and OpenCode,
+  rejection/rollback isolation, and compatibility without the mapping table.
+  `startup_migration::manual_session` runs the real binary's installer migration
+  route to prove idempotent v14 downgrade preserves native history and leaves
+  receiver v13 intact for the existing downgrade chain. It also proves upgrade
+  and current-version reconciliation restore missing managed tables/indexes
+  without creating a database for an unused workspace or rewriting a healthy
+  database. The existing tasks-doctor snapshot regression remains byte-exact.
 - **Focused TUI state owners** (`tui/state/`). `AppContext` tests pin immutable
   workspace, path, config, and frontend identity, including whole-snapshot
   config replacement. `BrainPanelState` tests pin main-controller and
@@ -1203,8 +1235,10 @@ first move is a failing test that reproduces it, *then* the fix.
   application logic it calls (`handle_key`, `App::*`, `focus_*`,
   `panel_borders`, `key_to_bytes`, the render helpers); we don't drive a real
   terminal or a live Claude/Codex/OpenCode provider process.
-- **Ratatui frame output.** We assert on the `Line`s we build, not on
-  which cell ratatui painted them into.
+- **Exhaustive Ratatui frame snapshots.** We normally assert on the `Line`s we
+  build. Narrow App/render regressions additionally prove modal containment and
+  cross-view failure visibility, since testing a styled line alone cannot
+  catch a message sent to a surface the active view never renders.
 - **`std::process::Command` / system `open` / `osascript`.** Spawning
   Finder, the editor tab, or the agent CLI is not a unit. We test the pure builders
   (`finder_target`, `edit_shell_command`, `iterm_new_tab_applescript`,
@@ -1462,6 +1496,7 @@ nested siblings, proving every current and future split part enters the guard.
 | `tui::receiver::planning_tests` + `tui::app_brain::tests::receiver_durable_attachment_prompt` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode rendering from an already-authorized Fresh/Resume choice: empty transcript, UTF-8-safe newest-context truncation, complete localized path records with honest omission, composed post-staging prompt and shell-command bounds, and both fresh/resume command translations with a non-blank initial prompt. The all-frontend matrix also proves no transport input follows launch and a busy main controller remains untouched. |
 | `tui::receiver::{session_tests,failure_tests}` | Unique isolated-run identities distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for planning, registration, and proved synchronous spawn failure. The retryable failure type excludes post-spawn allocation. |
 | `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9/v10/v11 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. Adjacent 0.84.7/0.84.8 tests prove upgrade reconstructs either missing cleanup identifier only from one exact registration/session and conversation/job attribution match, preserves terminal redrive and exact acknowledgement across reopen, refuses wrong acknowledgement, and releases the exact registration and lock only after the right acknowledgement. Ambiguity, effective-session mismatch, and every unique frontend, actor, or channel mismatch for both missing halves fail closed without redrive or resource release. Downgrade makes cleanup-pending recovery non-replayable while retaining its exact tuple and locks. The adjacent 0.84.11/0.84.12 boundary owns only the finite notice lease columns. The state receiver suite separately proves v11 notice down to v10, v10 recovery down to v9, and the v9 every-state down-to-v8 old-claim round trip. |
+| `tests/startup_migration/manual_session.rs` | Real installer dispatch for v14 upgrade, current-version table/index repair, byte-identical healthy-state reconciliation, idempotent v14-to-v13 downgrade, preserved native history and receiver v13 DDL, composition with the receiver v13-to-v12 chain, and absent workspace DB preservation. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::{url,details}::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and bare receiver plus `receiver status` reporting the same redacted durable summary. Missing peer state renders unavailable and an available seeded database remains byte-identical. Pure tests cover channel selection, semantic-theme and deterministic plain work rendering, TUI flash parity, privacy, the routing rule, and trailing-slash normalization. |

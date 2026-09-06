@@ -8,7 +8,7 @@ fn receiver_label(state: &TaskPalette) -> Option<String> {
 
 #[test]
 fn receiver_toggle_label_names_the_next_persistent_action() {
-    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None);
     assert_eq!(receiver_label(&state).as_deref(), Some("Enable receiver"));
 
     let state = state.with_runtime_context(true, false, Vec::new(), Vec::new());
@@ -19,7 +19,7 @@ fn receiver_toggle_label_names_the_next_persistent_action() {
 fn daily_triage_toggle_is_globally_available() {
     // A long-running TUI needs to flip the alert mid-session, so the toggle is
     // a global command shown regardless of selection.
-    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None);
     assert!(
         action_order(&state).contains(&TaskAction::Global(GlobalAction::ToggleDailyTriageAlert))
     );
@@ -28,7 +28,7 @@ fn daily_triage_toggle_is_globally_available() {
 #[test]
 fn daily_triage_toggle_reads_disable_when_alert_enabled() {
     // Default state: the alert is enabled, so the command offers to disable it.
-    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None);
     assert_eq!(
         daily_triage_label(&state).as_deref(),
         Some("Disable daily triage alert")

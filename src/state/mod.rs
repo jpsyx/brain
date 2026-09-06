@@ -6,14 +6,17 @@
 //! clobbering or busy-waiting. Mirrors the `tasks` sibling project's state
 //! layer, scoped to what brain needs.
 //!
-//! Seven tables:
+//! Eight tables:
 //! - `brain_sessions` stores frontend sessions with immutable workspace,
 //!   actor, and channel attribution. `locked_pid` is the PID of the live brain shell currently
-//!   driving that session (NULL when free). The session-resume model is
-//!   "lock + recency": on startup we resume the most-recently-active free
-//!   session and lock it; on exit we release the lock; stale locks (dead
-//!   PIDs) are reaped on the next startup. This keeps two terminals off the
-//!   same conversation thread while still resuming your latest work.
+//!   driving that session (NULL when free). Manual sessions resume their exact
+//!   saved native mapping; only unmapped Main adopts the most-recent eligible
+//!   free session. Exit releases each manual identity's exact lock, and stale
+//!   locks (dead PIDs) are reaped on startup. Scoped locks keep two terminals
+//!   off the same conversation thread.
+//! - `manual_sessions` gives user-managed brain-panel sessions stable Brain
+//!   identities, unique titles, and ordered Main/additional roles while
+//!   linking each one to its current `brain_sessions` row.
 //! - `meta` is a small key/value store; today just the `panel_side` layout
 //!   preference (which side the brain panel sits on).
 //! - `receiver_conversations` stores one logical workspace/user/channel
@@ -117,8 +120,10 @@ pub struct Db {
 }
 
 mod database;
+mod manual_session;
 mod receiver;
 mod session_store;
+pub(crate) use manual_session::schema::down_path as manual_session_schema_down;
 pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
 pub(crate) use receiver::schema::down_cutover_path as receiver_notice_cutover_schema_down;
 pub(crate) use receiver::schema::down_delivery_path as receiver_delivery_schema_down;

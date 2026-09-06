@@ -43,9 +43,6 @@ pub(crate) struct TaskPalette {
     /// When true, hide global commands so only task-scoped actions show.
     /// Set by Enter-on-task to give a focused task actions modal.
     pub(super) task_actions_modal: bool,
-    /// Whether the brain panel is currently open. Gates the "Close brain"
-    /// command — there's nothing to close when no panel is up.
-    pub(super) brain_open: bool,
     /// Persistent receiver intent for the selected workspace.
     pub(super) receiver_enabled: bool,
     /// The skill sessions that can be started right now, each with the
@@ -53,11 +50,8 @@ pub(crate) struct TaskPalette {
     /// absent, which is what stops a user starting the same one twice. Seeded at
     /// open time like `receiver_enabled`.
     pub(super) runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
-    /// The skill-session tabs currently open, each with its tab `title`. Gates
-    /// the "Show main brain session" row and contributes one focus row per open
-    /// tab — they only make sense while there is more than one tab to switch
-    /// between.
-    pub(super) open_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+    /// Open manual and skill tabs captured with stable identities at palette open.
+    pub(super) user_sessions: Vec<crate::tui::state::SessionPaletteEntry>,
     pub(super) logs_view: bool,
     /// Whether the daily-triage startup nudge is currently suppressed for this
     /// session (mirrors `App::skip_daily_triage_check`). Seeded at open time
@@ -153,6 +147,12 @@ pub(crate) struct BrainInputState {
     pub(super) buffer: String,
     pub(super) about_task: Option<String>,
     pub(super) task_label: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct ManualSessionNameState {
+    pub(super) buffer: String,
+    pub(super) error: Option<String>,
 }
 
 pub(crate) enum FlashKind {

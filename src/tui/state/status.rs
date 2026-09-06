@@ -17,6 +17,7 @@ pub(crate) struct StatusState {
     triage_gate: Option<TriageGate>,
     skip_daily_triage_check: bool,
     flash: Option<FlashKind>,
+    error: Option<String>,
     persistent_warning: Option<String>,
     alert: Option<String>,
     sync_status: Option<String>,
@@ -37,6 +38,7 @@ impl StatusState {
             triage_gate: None,
             skip_daily_triage_check: init.skip_daily_triage_check,
             flash: None,
+            error: None,
             persistent_warning: init.persistent_warning,
             alert: None,
             sync_status: None,
@@ -133,6 +135,19 @@ impl StatusState {
 
     pub(crate) fn clear_flash(&mut self) {
         self.flash = None;
+    }
+
+    #[must_use]
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn set_error(&mut self, message: String) {
+        self.error = Some(message);
+    }
+
+    pub(crate) fn dismiss_error(&mut self) -> bool {
+        self.error.take().is_some()
     }
 
     #[must_use]

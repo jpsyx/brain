@@ -30,6 +30,7 @@ pub(crate) mod action;
 mod app_actions;
 mod app_brain;
 mod app_brain_tab;
+mod app_manual_session;
 mod app_skill_session;
 mod app_state;
 mod app_sync;

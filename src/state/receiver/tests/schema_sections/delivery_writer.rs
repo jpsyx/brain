@@ -4,7 +4,7 @@ fn v11_upgrade_reserves_the_writer_before_inspecting_delivery_schema() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = temporary.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_delivery_path(&path).expect("stage adjacent v11 state");
+    stage_receiver_v11(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker
@@ -64,7 +64,7 @@ fn v12_downgrade_reserves_the_writer_before_inspecting_v11_shape() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = temporary.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_cutover_path(&path).expect("stage adjacent v12 state");
+    stage_receiver_v12(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker

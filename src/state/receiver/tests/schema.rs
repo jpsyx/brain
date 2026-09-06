@@ -20,6 +20,26 @@ fn report_schema_busy(_attempt: i32) -> bool {
     true
 }
 
+fn stage_receiver_v13(path: &std::path::Path) {
+    crate::state::manual_session_schema_down(path)
+        .expect("stage exact v13 state");
+}
+
+fn stage_receiver_v12(path: &std::path::Path) {
+    stage_receiver_v13(path);
+    super::super::schema::down_cutover_path(path).expect("stage exact v12 state");
+}
+
+fn stage_receiver_v11(path: &std::path::Path) {
+    stage_receiver_v12(path);
+    super::super::schema::down_delivery_path(path).expect("stage exact v11 state");
+}
+
+fn stage_receiver_v10(path: &std::path::Path) {
+    stage_receiver_v11(path);
+    super::super::schema::down_unavailable_notice_path(path).expect("stage exact v10 state");
+}
+
 #[test]
 fn receiver_schema_enforces_conversation_foreign_keys() {
     let db = Db::open_in_memory().expect("receiver state");
@@ -50,8 +70,7 @@ fn v10_reconciliation_reserves_the_writer_before_reading_schema() {
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_unavailable_notice_path(&path)
-        .expect("stage adjacent v10 receiver state");
+    stage_receiver_v10(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker
@@ -111,7 +130,7 @@ fn v11_downgrade_reserves_the_writer_before_reading_schema() {
     let temp = tempfile::TempDir::new().expect("temporary state directory");
     let path = temp.path().join("state.db");
     drop(Db::open_path(&path).expect("current receiver state"));
-    super::super::schema::down_delivery_path(&path).expect("stage adjacent v11 state");
+    stage_receiver_v11(&path);
 
     let mut blocker = rusqlite::Connection::open(&path).expect("blocking connection");
     let blocker_transaction = blocker

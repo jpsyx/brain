@@ -1,6 +1,105 @@
 use super::*;
 
 #[test]
+fn native_rotation_updates_the_matching_manual_mapping_for_every_frontend() {
+    for agent_kind in ["claude", "codex", "opencode"] {
+        let (_temporary, db) = fresh_db();
+        register_manual_session(&db, agent_kind, "manual-id", "pending", "Atlas", 1);
+        let payload = if agent_kind == "codex" {
+            serde_json::json!({"thread_id":"rotated","source":"startup"})
+        } else {
+            serde_json::json!({"session_id":"rotated","source":"startup"})
+        };
+
+        let output = run_scoped_hook(&db, agent_kind, "pablo", "manual-id", &payload.to_string());
+
+        assert!(output.status.success());
+        assert_eq!(
+            read_manual_native_id(&db, agent_kind, "manual-id"),
+            Some("rotated".to_owned())
+        );
+    }
+}
+
+#[test]
+fn native_rotation_remains_compatible_without_the_manual_sessions_table() {
+    for agent_kind in ["claude", "codex", "opencode"] {
+        let (_temporary, db) = fresh_db();
+        register_session(&db, agent_kind, "pablo", "pending", "old-instance", 4242);
+        Connection::open(&db)
+            .unwrap()
+            .execute_batch("DROP TABLE manual_sessions; PRAGMA user_version = 13;")
+            .unwrap();
+
+        let output = run_scoped_hook(
+            &db,
+            agent_kind,
+            "pablo",
+            "old-instance",
+            &start_input("rotated"),
+        );
+
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+        assert_eq!(read_session(&db, "pending").unwrap().1, None);
+        assert_eq!(read_session(&db, "rotated").unwrap().1, Some(4242));
+    }
+}
+
+#[test]
+fn manual_rotation_preserves_peer_sessions_and_metadata_for_every_frontend() {
+    for agent_kind in ["claude", "codex", "opencode"] {
+        let (_temporary, db) = fresh_db();
+        register_manual_session(&db, agent_kind, "manual-id", "pending", "Atlas", 1);
+        register_manual_session(&db, agent_kind, "peer-id", "peer-native", "Beacon", 2);
+        let connection = Connection::open(&db).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER require_mapping_before_unlock
+             BEFORE UPDATE OF locked_pid ON brain_sessions
+             WHEN OLD.agent_session_id = 'pending' AND NEW.locked_pid IS NULL
+             BEGIN
+               SELECT CASE WHEN (
+                 SELECT agent_session_id FROM manual_sessions WHERE manual_session_id = 'manual-id'
+               ) != 'rotated' THEN RAISE(ABORT, 'mapping must rotate before unlock') END;
+             END;",
+            )
+            .unwrap();
+
+        for _ in 0..2 {
+            let output = run_scoped_hook(
+                &db,
+                agent_kind,
+                "pablo",
+                "manual-id",
+                &start_input("rotated"),
+            );
+            assert!(output.status.success());
+            assert!(output.stdout.is_empty());
+            assert!(output.stderr.is_empty());
+        }
+
+        assert_eq!(read_session(&db, "pending").unwrap().1, None);
+        assert_eq!(read_session(&db, "rotated").unwrap().1, Some(4242));
+        assert_eq!(read_session(&db, "peer-native").unwrap().1, Some(4242));
+        assert_eq!(
+            read_manual_native_id(&db, agent_kind, "manual-id"),
+            Some("rotated".to_owned())
+        );
+        assert_eq!(
+            read_manual_native_id(&db, agent_kind, "peer-id"),
+            Some("peer-native".to_owned())
+        );
+        let metadata = connection.query_row(
+            "SELECT title, position, role FROM manual_sessions WHERE manual_session_id = 'manual-id'",
+            [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+        ).unwrap();
+        assert_eq!(metadata, ("Atlas".to_owned(), 1, "additional".to_owned()));
+    }
+}
+
+#[test]
 fn hook_without_instance_env_is_noop() {
     let (_tmp, db) = fresh_db();
     let out = run_hook(&db, None, &start_input("claude-xyz"));

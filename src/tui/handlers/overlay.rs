@@ -6,9 +6,78 @@ use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::tui::App;
 use crate::tui::keymap::enter_inserts_newline;
-use crate::tui::modal_state::{ConfirmChoice, ConfirmKind, ConfirmState};
-use crate::tui::overlay::{Overlay, close_overlay};
+use crate::tui::modal_state::{ConfirmChoice, ConfirmKind, ConfirmState, ManualSessionNameState};
+use crate::tui::overlay::{Overlay, close_overlay, open_overlay};
 use crate::tui::palette::PaletteStep;
+
+impl App {
+    pub(crate) fn open_manual_session_name_modal(&mut self) {
+        open_overlay(
+            &mut self.overlay,
+            Overlay::ManualSessionName(ManualSessionNameState::default()),
+        );
+    }
+}
+
+pub(crate) fn handle_manual_session_name_key(app: &mut App, key: &crossterm::event::KeyEvent) {
+    let Some(Overlay::ManualSessionName(state)) = app.overlay.as_mut() else {
+        return;
+    };
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c' | 'C') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Enter => {
+            let titles: Vec<String> =
+                std::iter::once(crate::manual_session::MAIN_SESSION_TITLE.to_owned())
+                    .chain(
+                        app.brain
+                            .manual_session_rows()
+                            .into_iter()
+                            .map(|row| row.title),
+                    )
+                    .collect();
+            match crate::manual_session::ManualSessionName::parse(&state.buffer, &titles) {
+                Ok(name) => {
+                    close_overlay(&mut app.overlay);
+                    app.start_manual_session(name);
+                }
+                Err(crate::manual_session::ManualSessionNameError::Blank) => {
+                    state.error = Some("Session name cannot be blank".to_owned());
+                }
+                Err(crate::manual_session::ManualSessionNameError::Duplicate) => {
+                    let title = titles
+                        .iter()
+                        .find(|title| title.eq_ignore_ascii_case(state.buffer.trim()))
+                        .map_or_else(|| state.buffer.trim(), String::as_str);
+                    state.error = Some(format!("A session named {title} is already open"));
+                }
+            }
+        }
+        KeyCode::Char('u' | 'U') if ctrl => {
+            state.buffer.clear();
+            state.error = None;
+        }
+        KeyCode::Backspace => {
+            state.buffer.pop();
+            state.error = None;
+        }
+        KeyCode::Char(character)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+                && !character.is_control() =>
+        {
+            state.buffer.push(character);
+            state.error = None;
+        }
+        _ => {}
+    }
+}
 
 pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, _ctrl: bool) {
     let Some(Overlay::TaskPalette(palette)) = app.overlay.as_mut() else {
@@ -89,6 +158,7 @@ pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, 
                 Overlay::TaskConfirmation(confirm) => Some(confirm.focus),
                 Overlay::TaskPalette(_)
                 | Overlay::BrainInput(_)
+                | Overlay::ManualSessionName(_)
                 | Overlay::SearchPalette(_)
                 | Overlay::SearchConfirmation(_)
                 | Overlay::LinkPicker(_)

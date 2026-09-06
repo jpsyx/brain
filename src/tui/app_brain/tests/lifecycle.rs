@@ -41,8 +41,8 @@ fn controller_drives_interactive_submit_queued_work_and_single_shutdown() {
         ]
     );
 
-    app.close_brain();
-    app.close_brain();
+    assert!(app.shutdown_agent_controllers().is_empty());
+    assert!(app.shutdown_agent_controllers().is_empty());
 
     assert_eq!(
         recording.events(),
@@ -110,7 +110,7 @@ fn a_resume_the_frontend_refuses_reopens_as_a_fresh_session() {
 }
 
 #[test]
-fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
+fn stopping_main_retains_the_frontend_rotated_session_id() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
@@ -130,6 +130,9 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
     let connection =
         rusqlite::Connection::open(app.context.state_db_path()).expect("state connection");
     connection
+        .execute_batch("BEGIN; PRAGMA defer_foreign_keys = ON;")
+        .unwrap();
+    connection
         .execute(
             "UPDATE brain_sessions SET agent_session_id = ?1
              WHERE agent_kind = 'opencode' AND agent_session_id = ?2
@@ -137,9 +140,16 @@ fn closing_an_opencode_panel_refreshes_the_frontend_rotated_session_id() {
             rusqlite::params![rotated, placeholder, app.brain.instance()],
         )
         .expect("simulate lifecycle rotation");
+    connection
+        .execute(
+            "UPDATE manual_sessions SET agent_session_id = ?1 WHERE agent_session_id = ?2",
+            rusqlite::params![rotated, placeholder],
+        )
+        .unwrap();
+    connection.execute_batch("COMMIT;").unwrap();
     drop(connection);
 
-    app.close_brain();
+    assert!(app.stop_main_controller());
 
     assert_eq!(app.brain.interactive_agent_session_id(), Some(rotated));
 }
@@ -162,7 +172,17 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
     assert_eq!(recording.inputs(), [b"/new\r".to_vec()]);
     run_new_session_plugin_bridge(&app);
 
-    app.close_brain();
+    let scope = SessionScope::new(
+        AgentKind::OpenCode,
+        app.context.workspace().id(),
+        app.brain.interactive_actor().clone(),
+    );
+    let mappings = app.services.manual_sessions(&scope).unwrap();
+    assert_eq!(mappings.len(), 1);
+    assert_eq!(mappings[0].id(), app.brain.main_manual_session_id());
+    assert_eq!(mappings[0].agent_session().as_str(), "root-after-new");
+
+    assert!(app.stop_main_controller());
 
     assert_eq!(
         app.brain.interactive_agent_session_id(),
@@ -183,14 +203,19 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
 }
 
 #[test]
-fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
+fn agent_exit_relaunches_main_and_preserves_the_live_skill_tab() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::OpenCode);
+    let clock = receiver_durable_support::ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
     let main_recording = TransportRecording::default();
     app.brain
         .replace_brain_transport(main_recording.transport());
     assert!(app.open_or_focus_brain(None));
+    clock.advance(std::time::Duration::from_secs(6));
+    assert!(!app.close_exited_brain_panel());
     let triage_recording = TransportRecording::default();
     app.brain
         .replace_session_done_url("http://127.0.0.1:4773/session/done".to_owned());
@@ -207,21 +232,26 @@ fn agent_exit_closes_only_the_panel_and_returns_to_the_live_tui() {
     );
     main_recording.set_alive(false);
     app.shell.focus_brain();
+    let relaunched = TransportRecording::default();
+    app.brain.replace_brain_transport(relaunched.transport());
+    let active = app.effective_brain_tab();
 
     assert!(app.close_exited_brain_panel());
 
-    assert!(app.brain.main_controller().is_none());
+    assert!(app.brain.main_controller().unwrap().is_alive().unwrap());
     assert!(
         app.brain
             .has_skill_session(crate::skill_session::SkillSessionKey::DailyTriage)
     );
-    assert_eq!(app.shell.focus(), Panel::Tasks);
+    assert_eq!(app.shell.focus(), Panel::Brain);
+    assert_eq!(app.effective_brain_tab(), active);
+    assert_eq!(relaunched.launch_specs().len(), 1);
     assert_eq!(main_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
 }
 
 #[test]
-fn close_brain_releases_each_frontend_session_for_the_next_shell() {
+fn shell_shutdown_releases_each_frontend_manual_session_for_the_next_shell() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let cli = Cli::parse_from(["tasks"]);
 
@@ -234,17 +264,23 @@ fn close_brain_releases_each_frontend_session_for_the_next_shell() {
         );
         let session_id = format!("{agent_kind:?}-session");
         let session = AgentSession::new(&session_id).expect("session");
-        SessionStore::register(&app.services, &session, app.brain.instance(), 42, &scope)
+        let record = crate::manual_session::ManualSessionRecord::main(
+            app.brain.main_manual_session_id().clone(),
+            session,
+        );
+        app.services
+            .register_fresh_manual_session(&record, 42, &scope)
             .expect("register locked session");
         let live = live_panel(app.context.workspace().root());
         let controller = panel_controller(&app, live);
         app.brain.install_main(controller);
         app.shell.focus_brain();
 
-        app.close_brain();
+        assert!(app.shutdown_agent_controllers().is_empty());
+        app.release_manual_session_locks().unwrap();
 
-        assert!(app.brain.main_controller().is_none());
-        assert_eq!(app.shell.focus(), Panel::Tasks);
+        assert!(!app.brain.main_controller().unwrap().is_alive().unwrap());
+        assert!(app.brain.any_panel_visible());
         assert_eq!(
             SessionStore::sessions_by_recency(&app.services, &scope),
             [session_id]

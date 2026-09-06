@@ -7,30 +7,14 @@ fn open_links_advertises_its_ctrl_o_shortcut() {
 
 #[test]
 fn assignment_palette_controls_are_visible_only_for_shared_workspaces() {
-    let personal = TaskPalette::new(
-        Some("T1".into()),
-        false,
-        false,
-        false,
-        LinkKind::None,
-        false,
-        false,
-    );
-    let shared = TaskPalette::new(
-        Some("T1".into()),
-        false,
-        false,
-        false,
-        LinkKind::None,
-        false,
-        false,
-    )
-    .with_assignment_mode(crate::tasks::task::AssignmentUiMode {
-        show_in_detail: true,
-        show_create_control: true,
-        show_reassign_control: true,
-        show_filter: true,
-    });
+    let personal = TaskPalette::new(Some("T1".into()), false, false, false, LinkKind::None);
+    let shared = TaskPalette::new(Some("T1".into()), false, false, false, LinkKind::None)
+        .with_assignment_mode(crate::tasks::task::AssignmentUiMode {
+            show_in_detail: true,
+            show_create_control: true,
+            show_reassign_control: true,
+            show_filter: true,
+        });
 
     for action in [
         TaskAction::AddTask,
@@ -45,21 +29,13 @@ fn assignment_palette_controls_are_visible_only_for_shared_workspaces() {
 
 #[test]
 fn assignment_palette_uses_each_surface_visibility_flag_independently() {
-    let asymmetric = TaskPalette::new(
-        Some("T1".into()),
-        false,
-        false,
-        false,
-        LinkKind::None,
-        false,
-        false,
-    )
-    .with_assignment_mode(crate::tasks::task::AssignmentUiMode {
-        show_in_detail: false,
-        show_create_control: true,
-        show_reassign_control: false,
-        show_filter: true,
-    });
+    let asymmetric = TaskPalette::new(Some("T1".into()), false, false, false, LinkKind::None)
+        .with_assignment_mode(crate::tasks::task::AssignmentUiMode {
+            show_in_detail: false,
+            show_create_control: true,
+            show_reassign_control: false,
+            show_filter: true,
+        });
     let actions = action_order(&asymmetric);
 
     assert!(actions.contains(&TaskAction::AddTask));
@@ -69,7 +45,7 @@ fn assignment_palette_uses_each_surface_visibility_flag_independently() {
 
 #[test]
 fn brain_logs_are_always_available() {
-    let without_logs = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let without_logs = TaskPalette::new(None, false, false, false, LinkKind::None);
     assert!(
         action_order(&without_logs).contains(&TaskAction::Global(GlobalAction::ShowBrainLogs)),
         "Brain logs should always be available as a diagnostic view"

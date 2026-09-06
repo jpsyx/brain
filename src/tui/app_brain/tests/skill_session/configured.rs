@@ -75,12 +75,12 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
             "Email triage".to_owned()
         ]
     );
-    let (runnable, open) = app.skill_session_palette_rows();
+    let runnable = app.runnable_skill_session_rows();
     assert!(
         runnable.is_empty(),
         "a running session must offer no start row: {runnable:?}"
     );
-    assert_eq!(open.len(), 2);
+    assert_eq!(app.brain.user_session_rows().len(), 2);
 
     // Only the session whose token arrives closes; the other keeps running.
     let email_token = app
@@ -96,7 +96,7 @@ fn two_skill_sessions_run_as_separate_tabs_and_complete_independently() {
     assert_eq!(email_recording.shutdowns(), 1);
     assert_eq!(triage_recording.shutdowns(), 0);
     // With it closed, its start row is offered again.
-    let (runnable, _) = app.skill_session_palette_rows();
+    let runnable = app.runnable_skill_session_rows();
     assert_eq!(
         runnable,
         vec![(SkillSessionKey::Custom(0), "Run email triage".to_owned())]
@@ -257,7 +257,7 @@ fn an_unoccupied_tab_slot_selects_nothing_so_its_keystroke_stays_ordinary_input(
 }
 
 #[test]
-fn option_one_falls_through_when_slot_zero_has_no_visible_panel() {
+fn option_one_selects_permanent_main_even_without_its_controller() {
     let cli = Cli::parse_from(["tasks"]);
     let temporary = tempfile::tempdir().expect("temporary directory");
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
@@ -271,9 +271,7 @@ fn option_one_falls_through_when_slot_zero_has_no_visible_panel() {
 
     assert_eq!(option_one.index, 0);
     assert!(!option_one.from_chord);
-    assert!(
-        !consumed,
-        "a typeable Option glyph must reach ordinary input"
-    );
-    assert_eq!(app.shell.focus(), Panel::Tasks);
+    assert!(consumed, "Main always owns the first tab slot");
+    assert_eq!(app.effective_brain_tab(), BrainTab::Main);
+    assert_eq!(app.shell.focus(), Panel::Brain);
 }

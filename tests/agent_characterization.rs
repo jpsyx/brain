@@ -235,7 +235,7 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
             "start_new_session",
         ),
         (
-            include_str!("../src/tui/app_brain/launch/session.rs"),
+            include_str!("../src/tui/app_manual_session/launch.rs"),
             "resume_candidate_exists",
         ),
         (
@@ -255,6 +255,10 @@ fn tui_and_receiver_callers_use_only_semantic_agent_operations() {
         (
             "launch session",
             include_str!("../src/tui/app_brain/launch/session.rs"),
+        ),
+        (
+            "manual session launch",
+            include_str!("../src/tui/app_manual_session/launch.rs"),
         ),
         ("input", include_str!("../src/tui/handlers/input.rs")),
         (

@@ -1,57 +1,75 @@
-//! What to do when the brain panel's agent has exited.
-//!
-//! A frontend that refuses a resume prints why and quits immediately, so the
-//! user is left staring at a dead panel with no way to reach their brain. Brain
-//! can't enumerate every reason a frontend might refuse — it has already found
-//! three — so rather than teach the resume queue one more rule, an agent that
-//! dies on arrival is treated as a refusal: blocklist that id for this run and
-//! open a fresh session instead.
+//! Startup health and refused native IDs shared by manual sessions.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-/// How long a resumed agent has to survive before we believe it actually
-/// resumed. A refusal exits in well under a second; a conversation the user
-/// deliberately ended this fast loses nothing by reopening fresh.
 const ARRIVAL_GRACE: Duration = Duration::from_secs(5);
 
-/// Everything the panel remembers about resumes that didn't take: the launch
-/// currently inside its arrival window, and every id already known to refuse.
+#[derive(Debug, Default)]
+pub(crate) enum SessionStartup {
+    #[default]
+    Established,
+    Starting(Instant),
+    Failed,
+}
+
+impl SessionStartup {
+    pub(crate) const fn starting(now: Instant) -> Self {
+        Self::Starting(now)
+    }
+
+    /// A dead child never establishes itself merely because observation was late.
+    pub(crate) fn observe(
+        &mut self,
+        alive: bool,
+        resumed: Option<&str>,
+        now: Instant,
+    ) -> Option<ExitedPanel> {
+        match *self {
+            Self::Starting(started) if alive => {
+                if now.saturating_duration_since(started) >= ARRIVAL_GRACE {
+                    *self = Self::Established;
+                }
+                None
+            }
+            Self::Starting(_) => {
+                *self = Self::Failed;
+                Some(
+                    resumed.map_or(ExitedPanel::StartupFailed, |id| ExitedPanel::RetryFresh {
+                        refused: id.to_owned(),
+                    }),
+                )
+            }
+            Self::Established if !alive => Some(ExitedPanel::Close),
+            Self::Established | Self::Failed => None,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct ResumeRefusals {
-    arrival: Option<(String, Instant)>,
+    startup: SessionStartup,
+    resumed: Option<String>,
     refused: HashSet<String>,
-    retried: bool,
 }
 
 impl ResumeRefusals {
-    /// Start the clock on a resumed launch.
-    pub(crate) fn arm(&mut self, session_id: String) {
-        self.arrival = Some((session_id, Instant::now()));
+    pub(crate) fn arm(&mut self, session_id: Option<String>, now: Instant) {
+        self.resumed = session_id;
+        self.startup = SessionStartup::starting(now);
     }
 
     pub(crate) fn disarm(&mut self) {
-        self.arrival = None;
+        self.resumed = None;
+        self.startup = SessionStartup::Established;
     }
 
-    /// The resumed session and how long it has been running, while armed.
-    #[must_use]
-    pub(crate) fn arrival(&self) -> Option<(&str, Duration)> {
-        self.arrival
-            .as_ref()
-            .map(|(id, started)| (id.as_str(), started.elapsed()))
+    pub(crate) fn observe(&mut self, alive: bool, now: Instant) -> Option<ExitedPanel> {
+        self.startup.observe(alive, self.resumed.as_deref(), now)
     }
 
-    /// Never offer this id again for the rest of the run.
     pub(crate) fn refuse(&mut self, session_id: String) {
         self.refused.insert(session_id);
-    }
-
-    /// Claim this run's single relaunch. Relaunching costs a capability render
-    /// and a frontend probe, and a panel that dies twice in a row is telling us
-    /// about the environment rather than about one stale session id.
-    pub(crate) fn claim_retry(&mut self) -> bool {
-        !std::mem::replace(&mut self.retried, true)
     }
 
     #[must_use]
@@ -60,29 +78,15 @@ impl ResumeRefusals {
     }
 }
 
-/// The outcome for a panel whose agent is no longer running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ExitedPanel {
-    /// The session ended; hand the screen back to the tasks view.
+    /// An established conversation ended. Additional closes; Main relaunches.
     Close,
-    /// The frontend refused this resume and quit before the conversation could
-    /// start. Never offer the id again this run, and open a fresh panel.
-    RetryFresh { refused: String },
-}
-
-/// Decide from the launch that produced the dead panel. `resumed` carries the
-/// resumed session id and how long ago it launched; a fresh launch passes
-/// `None` and always closes, which is what stops a refusal from looping.
-#[must_use]
-pub(crate) fn decide_exited_panel(resumed: Option<(&str, Duration)>) -> ExitedPanel {
-    match resumed {
-        Some((session_id, since_launch)) if since_launch < ARRIVAL_GRACE => {
-            ExitedPanel::RetryFresh {
-                refused: session_id.to_owned(),
-            }
-        }
-        _ => ExitedPanel::Close,
-    }
+    RetryFresh {
+        refused: String,
+    },
+    /// A fresh generation never established. Keep its saved identity unavailable.
+    StartupFailed,
 }
 
 #[cfg(test)]
@@ -91,52 +95,84 @@ mod tests {
 
     #[test]
     fn a_resumed_agent_that_dies_on_arrival_is_a_refusal_to_retry_fresh() {
+        let now = Instant::now();
+        let mut startup = SessionStartup::starting(now);
         assert_eq!(
-            decide_exited_panel(Some(("held-session", Duration::from_millis(200)))),
-            ExitedPanel::RetryFresh {
+            startup.observe(false, Some("held-session"), now),
+            Some(ExitedPanel::RetryFresh {
                 refused: "held-session".to_owned()
-            }
+            })
         );
+        assert_eq!(startup.observe(false, Some("held-session"), now), None);
     }
 
     #[test]
-    fn a_resumed_conversation_that_ran_for_a_while_just_closes() {
+    fn only_an_observed_healthy_generation_has_a_normal_exit() {
+        let now = Instant::now();
+        for resumed in [None, Some("worked-fine")] {
+            let mut startup = SessionStartup::starting(now);
+            assert_eq!(
+                startup.observe(true, resumed, now + Duration::from_secs(6)),
+                None
+            );
+            assert_eq!(
+                startup.observe(false, resumed, now + Duration::from_secs(7)),
+                Some(ExitedPanel::Close)
+            );
+        }
+    }
+
+    #[test]
+    fn delayed_observation_does_not_turn_a_dead_startup_into_a_normal_exit() {
+        let now = Instant::now();
+        let mut startup = SessionStartup::starting(now);
         assert_eq!(
-            decide_exited_panel(Some(("worked-fine", Duration::from_secs(600)))),
-            ExitedPanel::Close
+            startup.observe(false, None, now + Duration::from_secs(60)),
+            Some(ExitedPanel::StartupFailed)
+        );
+        assert_eq!(
+            startup.observe(false, None, now + Duration::from_secs(120)),
+            None
         );
     }
 
     #[test]
-    fn only_one_relaunch_is_available_per_run() {
-        let mut refusals = ResumeRefusals::default();
-        assert!(refusals.claim_retry(), "the first refusal recovers");
-        assert!(
-            !refusals.claim_retry(),
-            "a panel dying twice is the environment, not one stale id"
+    fn a_briefly_live_generation_is_not_yet_established() {
+        let now = Instant::now();
+        let mut startup = SessionStartup::starting(now);
+        assert_eq!(
+            startup.observe(true, None, now + Duration::from_secs(1)),
+            None
+        );
+        assert_eq!(
+            startup.observe(false, None, now + Duration::from_secs(2)),
+            Some(ExitedPanel::StartupFailed)
         );
     }
 
     #[test]
     fn a_refused_id_stays_refused_for_the_rest_of_the_run() {
         let mut refusals = ResumeRefusals::default();
-        assert!(!refusals.was_refused("held"));
         refusals.refuse("held".to_owned());
         assert!(refusals.was_refused("held"));
         assert!(!refusals.was_refused("some-other-session"));
     }
 
     #[test]
-    fn disarming_ends_the_arrival_window() {
+    fn a_fresh_replacement_receives_its_own_startup_guard() {
+        let now = Instant::now();
         let mut refusals = ResumeRefusals::default();
-        refusals.arm("resumed".to_owned());
-        assert_eq!(refusals.arrival().map(|(id, _)| id), Some("resumed"));
+        refusals.arm(Some("refused".to_owned()), now);
+        assert!(matches!(
+            refusals.observe(false, now),
+            Some(ExitedPanel::RetryFresh { .. })
+        ));
         refusals.disarm();
-        assert!(refusals.arrival().is_none());
-    }
-
-    #[test]
-    fn a_fresh_session_never_retries_so_a_refusal_cannot_loop() {
-        assert_eq!(decide_exited_panel(None), ExitedPanel::Close);
+        refusals.arm(None, now);
+        assert_eq!(
+            refusals.observe(false, now),
+            Some(ExitedPanel::StartupFailed)
+        );
+        assert_eq!(refusals.observe(false, now), None);
     }
 }

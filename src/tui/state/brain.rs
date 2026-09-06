@@ -2,23 +2,26 @@ use crate::actor::ActorContext;
 #[cfg(test)]
 use crate::agent::AgentTransport;
 use crate::agent::{AgentController, AgentError};
+use crate::manual_session::{ManualSessionId, ManualSessionRecord};
 use crate::skill_session::SkillSessionKey;
-use crate::state::ReceiverJobId;
 use crate::tui::model::{BrainTab, SessionTabId};
 
-mod ephemeral;
 #[cfg(test)]
 pub(super) mod exhausted_tab_ids;
+mod receiver;
+mod sessions;
 
-use ephemeral::EphemeralTabs;
-pub(crate) use ephemeral::{
-    ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunReservation,
-    ReceiverRunTabError, RemovedReceiverRun, RemovedSkillSession, SkillSessionObservation,
+use sessions::SessionTabs;
+pub(crate) use sessions::{
+    ManualSessionObservation, ManualSessionTabIdExhausted, ReceiverRunObservation, ReceiverRunPoll,
+    ReceiverRunPollError, ReceiverRunReservation, ReceiverRunTabError, RemovedManualSession,
+    RemovedReceiverRun, RemovedSkillSession, SessionPaletteEntry, SkillSessionObservation,
     SkillSessionTabIdExhausted,
 };
 
 pub(crate) struct BrainPanelStateInit {
     pub(crate) instance: String,
+    pub(crate) manual_sessions: Vec<ManualSessionRecord>,
     pub(crate) interactive_actor: ActorContext,
     pub(crate) configured_skill_sessions: Option<serde_json::Value>,
 }
@@ -26,9 +29,10 @@ pub(crate) struct BrainPanelStateInit {
 pub(crate) struct BrainPanelState {
     main: Option<AgentController>,
     brain_turn_active: bool,
-    ephemeral_tabs: EphemeralTabs,
+    session_tabs: SessionTabs,
     configured_skill_sessions: Option<serde_json::Value>,
-    instance: String,
+    main_manual_session_id: ManualSessionId,
+    manual_sessions_to_restore: Option<Vec<ManualSessionRecord>>,
     interactive_actor: ActorContext,
     interactive_response_id: Option<String>,
     interactive_agent_session_id: Option<String>,
@@ -36,6 +40,8 @@ pub(crate) struct BrainPanelState {
     session_actor: Option<ActorContext>,
     #[cfg(test)]
     brain_transport_override: std::collections::VecDeque<Box<dyn AgentTransport>>,
+    #[cfg(test)]
+    manual_transport_override: std::collections::VecDeque<Box<dyn AgentTransport>>,
     #[cfg(test)]
     session_done_url_override: Option<String>,
     #[cfg(test)]
@@ -46,12 +52,21 @@ pub(crate) struct BrainPanelState {
 
 impl BrainPanelState {
     pub(crate) fn new(init: BrainPanelStateInit) -> Self {
+        let main_manual_session_id = init
+            .manual_sessions
+            .iter()
+            .find(|record| record.role == crate::manual_session::ManualSessionRole::Main)
+            .map_or_else(
+                || ManualSessionId::parse(&init.instance).unwrap_or_default(),
+                |record| record.id.clone(),
+            );
         Self {
             main: None,
             brain_turn_active: false,
-            ephemeral_tabs: EphemeralTabs::default(),
+            session_tabs: SessionTabs::default(),
             configured_skill_sessions: init.configured_skill_sessions,
-            instance: init.instance,
+            main_manual_session_id,
+            manual_sessions_to_restore: Some(init.manual_sessions),
             interactive_actor: init.interactive_actor,
             interactive_response_id: None,
             interactive_agent_session_id: None,
@@ -59,6 +74,8 @@ impl BrainPanelState {
             session_actor: None,
             #[cfg(test)]
             brain_transport_override: std::collections::VecDeque::new(),
+            #[cfg(test)]
+            manual_transport_override: std::collections::VecDeque::new(),
             #[cfg(test)]
             session_done_url_override: None,
             #[cfg(test)]
@@ -101,7 +118,15 @@ impl BrainPanelState {
 
     #[must_use]
     pub(crate) fn instance(&self) -> &str {
-        &self.instance
+        self.main_manual_session_id.as_str()
+    }
+
+    pub(crate) const fn main_manual_session_id(&self) -> &ManualSessionId {
+        &self.main_manual_session_id
+    }
+
+    pub(crate) fn take_manual_sessions_to_restore(&mut self) -> Option<Vec<ManualSessionRecord>> {
+        self.manual_sessions_to_restore.take()
     }
 
     #[must_use]
@@ -137,17 +162,16 @@ impl BrainPanelState {
         self.interactive_agent_session_id = Some(session_id);
     }
 
-    /// Start the clock on a resumed launch: if its agent dies before the clock
-    /// runs out, the frontend refused the resume.
-    pub(crate) fn arm_resume_arrival(&mut self, session_id: String) {
-        self.resume_refusals.arm(session_id);
+    pub(crate) fn arm_main_startup(&mut self, resumed: Option<String>, now: std::time::Instant) {
+        self.resume_refusals.arm(resumed, now);
     }
 
-    /// The resumed session and how long it has been running, while the arrival
-    /// window is still armed.
-    #[must_use]
-    pub(crate) fn resume_arrival(&self) -> Option<(&str, std::time::Duration)> {
-        self.resume_refusals.arrival()
+    pub(crate) fn main_exit_decision(
+        &mut self,
+        alive: bool,
+        now: std::time::Instant,
+    ) -> Option<crate::tui::app_brain::launch::arrival::ExitedPanel> {
+        self.resume_refusals.observe(alive, now)
     }
 
     pub(crate) fn disarm_resume_arrival(&mut self) {
@@ -162,11 +186,6 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) fn resume_was_refused(&self, session_id: &str) -> bool {
         self.resume_refusals.was_refused(session_id)
-    }
-
-    /// Claim this run's single panel relaunch.
-    pub(crate) fn claim_resume_retry(&mut self) -> bool {
-        self.resume_refusals.claim_retry()
     }
 
     #[must_use]
@@ -213,49 +232,112 @@ impl BrainPanelState {
 
     #[must_use]
     pub(crate) fn any_panel_visible(&self) -> bool {
-        self.main.is_some() || self.ephemeral_tabs.has_skill_sessions()
+        !self.main_manual_session_id.as_str().is_empty()
     }
 
     #[must_use]
-    pub(crate) fn ephemeral_tab_ids(&self) -> Vec<SessionTabId> {
-        self.ephemeral_tabs.ids()
+    pub(crate) fn session_tab_ids(&self) -> Vec<SessionTabId> {
+        self.session_tabs.ids()
+    }
+
+    pub(crate) fn user_session_rows(&self) -> Vec<SessionPaletteEntry> {
+        self.session_tabs.user_session_rows()
+    }
+
+    pub(crate) fn manual_session_rows(&self) -> Vec<SessionPaletteEntry> {
+        self.session_tabs.manual_session_rows()
+    }
+
+    pub(crate) fn add_manual_session(
+        &mut self,
+        record: ManualSessionRecord,
+        controller: AgentController,
+        resumed_session_id: Option<String>,
+    ) -> Result<SessionTabId, ManualSessionTabIdExhausted> {
+        self.session_tabs
+            .add_manual_session(record, controller, resumed_session_id)
+    }
+
+    pub(crate) fn remove_manual_session(
+        &mut self,
+        id: SessionTabId,
+    ) -> Option<RemovedManualSession> {
+        self.session_tabs.remove_manual_session(id)
+    }
+
+    pub(crate) fn replace_manual_controller(
+        &mut self,
+        id: SessionTabId,
+        record: &ManualSessionRecord,
+        controller: AgentController,
+        resumed_session_id: Option<String>,
+    ) -> anyhow::Result<()> {
+        self.session_tabs
+            .replace_manual_controller(id, record, controller, resumed_session_id)
+    }
+
+    pub(crate) fn manual_session_id(&self, id: SessionTabId) -> Option<&ManualSessionId> {
+        self.session_tabs.manual_session_id(id)
+    }
+
+    pub(crate) fn manual_session_observations(&self) -> Vec<ManualSessionObservation> {
+        self.session_tabs.manual_session_observations()
+    }
+
+    pub(crate) fn record_manual_restore_failed(&mut self, id: SessionTabId) {
+        self.session_tabs.record_manual_restore_failed(id);
+    }
+
+    pub(crate) fn arm_manual_startup(&mut self, id: SessionTabId, now: std::time::Instant) {
+        self.session_tabs.arm_manual_startup(id, now);
+    }
+
+    pub(crate) fn manual_exit_decision(
+        &mut self,
+        observation: &ManualSessionObservation,
+        now: std::time::Instant,
+    ) -> Option<crate::tui::app_brain::launch::arrival::ExitedPanel> {
+        self.session_tabs.manual_exit_decision(observation, now)
+    }
+
+    pub(crate) fn is_manual_session_tab(&self, tab: BrainTab) -> bool {
+        matches!(tab, BrainTab::Session(id) if self.manual_session_id(id).is_some())
+    }
+
+    pub(crate) fn is_receiver_session_tab(&self, tab: BrainTab) -> bool {
+        matches!(tab, BrainTab::Session(id) if self.session_tabs.is_receiver_session(id))
     }
 
     #[must_use]
     #[allow(dead_code)]
     pub(crate) fn skill_session_tab_ids(&self) -> Vec<SessionTabId> {
-        self.ephemeral_tabs.skill_session_ids()
+        self.session_tabs.skill_session_ids()
     }
 
     #[must_use]
     pub(crate) fn running_skill_session_keys(&self) -> Vec<SkillSessionKey> {
-        self.ephemeral_tabs.running_skill_session_keys()
-    }
-
-    #[must_use]
-    pub(crate) fn skill_session_rows(&self) -> Vec<(SkillSessionKey, String)> {
-        self.ephemeral_tabs.skill_session_rows()
+        self.session_tabs.running_skill_session_keys()
     }
 
     #[must_use]
     pub(crate) fn skill_session_observations(&self) -> Vec<SkillSessionObservation> {
-        self.ephemeral_tabs.skill_session_observations()
+        self.session_tabs.skill_session_observations()
     }
 
     #[must_use]
     pub(crate) fn skill_session_id(&self, key: SkillSessionKey) -> Option<SessionTabId> {
-        self.ephemeral_tabs.skill_session_id(key)
+        self.session_tabs.skill_session_id(key)
     }
 
     #[must_use]
     pub(crate) fn is_skill_session_tab(&self, tab: BrainTab) -> bool {
-        matches!(tab, BrainTab::Session(id) if self.ephemeral_tabs.is_skill_session(id))
+        matches!(tab, BrainTab::Session(id) if self.session_tabs.is_skill_session(id))
     }
 
     #[must_use]
     #[cfg(test)]
     pub(crate) fn skill_session_token(&self, key: SkillSessionKey) -> Option<String> {
-        self.ephemeral_tabs.skill_session_token(key)
+        self.session_tabs.skill_session_token(key)
     }
 
     #[must_use]
@@ -271,18 +353,18 @@ impl BrainPanelState {
         token: String,
         controller: AgentController,
     ) -> Result<SessionTabId, SkillSessionTabIdExhausted> {
-        self.ephemeral_tabs
+        self.session_tabs
             .add_skill_session(key, title, token, controller)
     }
 
     pub(crate) fn remove_skill_session(&mut self, id: SessionTabId) -> Option<RemovedSkillSession> {
-        self.ephemeral_tabs.remove_skill_session(id)
+        self.session_tabs.remove_skill_session(id)
     }
 
     #[must_use]
     pub(crate) fn active_controller(&self, tab: BrainTab) -> Option<&AgentController> {
         match tab {
-            BrainTab::Session(id) => self.ephemeral_tabs.controller(id),
+            BrainTab::Session(id) => self.session_tabs.controller(id),
             BrainTab::Main => self.main.as_ref(),
         }
     }
@@ -290,7 +372,7 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) fn active_controller_mut(&mut self, tab: BrainTab) -> Option<&mut AgentController> {
         match tab {
-            BrainTab::Session(id) => self.ephemeral_tabs.controller_mut(id),
+            BrainTab::Session(id) => self.session_tabs.controller_mut(id),
             BrainTab::Main => self.main.as_mut(),
         }
     }
@@ -298,7 +380,7 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) fn active_tab_title(&self, tab: BrainTab) -> Option<&str> {
         match tab {
-            BrainTab::Session(id) => self.ephemeral_tabs.title(id),
+            BrainTab::Session(id) => self.session_tabs.title(id),
             BrainTab::Main => None,
         }
     }
@@ -306,7 +388,7 @@ impl BrainPanelState {
     #[must_use]
     pub(crate) fn tab_titles(&self) -> Vec<String> {
         let mut titles = vec!["Brain".to_owned()];
-        titles.extend(self.ephemeral_tabs.titles().map(str::to_owned));
+        titles.extend(self.session_tabs.titles().map(str::to_owned));
         titles
     }
 
@@ -317,18 +399,18 @@ impl BrainPanelState {
                 errors.push(error);
             }
         }
-        errors.extend(self.ephemeral_tabs.shutdown_controllers());
+        errors.extend(self.session_tabs.shutdown_controllers());
         errors
     }
 
     #[cfg(test)]
     pub(super) const fn set_next_session_tab_id(&mut self, next_id: u32) {
-        self.ephemeral_tabs.set_next_id(next_id);
+        self.session_tabs.set_next_id(next_id);
     }
 
     #[cfg(test)]
     pub(super) const fn next_session_tab_id(&self) -> u32 {
-        self.ephemeral_tabs.next_id()
+        self.session_tabs.next_id()
     }
 
     /// Queue a transport for the next panel launch. Successive calls line up in
@@ -342,6 +424,16 @@ impl BrainPanelState {
     #[cfg(test)]
     pub(crate) fn take_brain_transport(&mut self) -> Option<Box<dyn AgentTransport>> {
         self.brain_transport_override.pop_front()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_manual_transport(&mut self, transport: Box<dyn AgentTransport>) {
+        self.manual_transport_override.push_back(transport);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_manual_transport(&mut self) -> Option<Box<dyn AgentTransport>> {
+        self.manual_transport_override.pop_front()
     }
 
     #[cfg(test)]
@@ -372,93 +464,6 @@ impl BrainPanelState {
     #[cfg(test)]
     pub(crate) fn take_session_done_url(&mut self) -> Option<String> {
         self.session_done_url_override.take()
-    }
-}
-
-impl BrainPanelState {
-    #[must_use]
-    pub(crate) fn receiver_run_observations(&self) -> Vec<ReceiverRunObservation> {
-        self.ephemeral_tabs.receiver_run_observations()
-    }
-
-    pub(crate) fn poll_receiver_run(
-        &self,
-        id: SessionTabId,
-        job_id: ReceiverJobId,
-        instance: &str,
-        request: &crate::agent::AgentObservationRequest,
-    ) -> Result<ReceiverRunPoll, ReceiverRunPollError> {
-        self.ephemeral_tabs
-            .poll_receiver_run(id, job_id, instance, request)
-    }
-
-    pub(crate) fn add_receiver_run(
-        &mut self,
-        job_id: ReceiverJobId,
-        title: String,
-        instance: String,
-        controller: AgentController,
-    ) -> Result<SessionTabId, ReceiverRunTabError> {
-        self.ephemeral_tabs
-            .add_receiver_run(job_id, title, instance, controller)
-    }
-
-    pub(crate) fn reserve_receiver_run(
-        &self,
-    ) -> Result<ReceiverRunReservation, ReceiverRunTabError> {
-        self.ephemeral_tabs.reserve_receiver_run()
-    }
-
-    pub(crate) fn insert_reserved_receiver_run(
-        &mut self,
-        reservation: &ReceiverRunReservation,
-        job_id: ReceiverJobId,
-        title: String,
-        instance: String,
-        controller: AgentController,
-    ) -> SessionTabId {
-        self.ephemeral_tabs
-            .insert_receiver_run(reservation, job_id, title, instance, controller)
-    }
-
-    pub(crate) fn remove_receiver_run(&mut self, id: SessionTabId) -> Option<RemovedReceiverRun> {
-        self.ephemeral_tabs.remove_receiver_run(id)
-    }
-
-    pub(crate) fn detach_receiver_run_controller(
-        &mut self,
-        id: SessionTabId,
-        job_id: ReceiverJobId,
-        instance: &str,
-    ) -> Option<AgentController> {
-        self.ephemeral_tabs
-            .detach_receiver_run_controller(id, job_id, instance)
-    }
-
-    pub(crate) fn shutdown_receiver_run(
-        &mut self,
-        id: SessionTabId,
-        job_id: ReceiverJobId,
-        instance: &str,
-    ) -> Result<bool, AgentError> {
-        self.ephemeral_tabs
-            .shutdown_receiver_run(id, job_id, instance)
-    }
-
-    pub(crate) fn remove_shutdown_receiver_run(
-        &mut self,
-        id: SessionTabId,
-        job_id: ReceiverJobId,
-        instance: &str,
-    ) -> Option<RemovedReceiverRun> {
-        self.ephemeral_tabs
-            .remove_shutdown_receiver_run(id, job_id, instance)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn receiver_run_controller(&self, id: SessionTabId) -> Option<&AgentController> {
-        self.ephemeral_tabs.receiver_run_controller(id)
     }
 }
 

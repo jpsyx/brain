@@ -44,6 +44,7 @@ fn stage_delivery_cleanup_down(path: &std::path::Path, acknowledge: bool) -> Del
                 .expect("acknowledge confirmed controller exit")
         );
     }
+    stage_receiver_v12(path);
     let cache = path.parent().expect("workspace cache directory");
     let instance = fixture.registration.instance().to_owned();
     let response = cache.join("responses").join(format!("{instance}.json"));
@@ -282,6 +283,7 @@ fn v12_down_does_not_let_a_finished_cleanup_delete_a_later_exact_registration() 
             )
             .expect("finish prior session cleanup");
     }
+    stage_receiver_v12(&path);
 
     super::super::schema::down_delivery_path(&path)
         .expect("finished cleanup must not consume later exact registration");

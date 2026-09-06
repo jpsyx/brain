@@ -61,6 +61,18 @@ fn live_exact_receiver_start_remains_authorized_for_every_frontend() {
 fn live_receiver_rotation_and_exact_refire_remain_authorized_for_every_frontend() {
     for frontend in [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode] {
         let fixture = registered_receiver(frontend, "pending-session", "rotating-instance");
+        register_manual_session(
+            &fixture.state_path,
+            frontend.as_str(),
+            "manual-id",
+            "manual-native",
+            "Atlas",
+            1,
+        );
+        assert_eq!(
+            read_manual_native_id(&fixture.state_path, frontend.as_str(), "rotating-instance"),
+            None
+        );
 
         let rotated = run_receiver_hook(&fixture, "native-session");
         let refired = run_receiver_hook(&fixture, "native-session");
@@ -84,6 +96,20 @@ fn live_receiver_rotation_and_exact_refire_remain_authorized_for_every_frontend(
             (Some(4242), "active".to_owned())
         );
         assert_eq!(registration_count(&fixture), 1);
+        assert_eq!(
+            read_manual_native_id(&fixture.state_path, frontend.as_str(), "rotating-instance"),
+            None
+        );
+        assert_eq!(
+            read_manual_native_id(&fixture.state_path, frontend.as_str(), "manual-id"),
+            Some("manual-native".to_owned())
+        );
+        assert_eq!(
+            read_session(&fixture.state_path, "manual-native")
+                .unwrap()
+                .1,
+            Some(4242)
+        );
     }
 }
 
