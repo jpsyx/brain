@@ -3,10 +3,10 @@ prefix: BR
 cadence_weeks: 2
 current_cycle:
 counters:
-  task: 20
-  project: 1
+  task: 30
+  project: 2
   initiative: 0
-  milestone: 4
+  milestone: 9
 ---
 
 # Workspace config

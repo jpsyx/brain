@@ -13,7 +13,7 @@ parent:
 github:
 blocked_by: []
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-09-05
 ---
 
 # BR-6: Reuse one rclone process per sync instead of re-authenticating per call
@@ -94,3 +94,7 @@ Also worth folding in while here: the four counter `copyto` calls can join the
 CSV phase's batched download/upload, since `tasks/.tasks_next_id` and
 `tasks/.habits_next_id` live in the same remote directory that phase already
 stages. That is a smaller, independent win that does not need the daemon.
+
+### Log
+
+- 2026-09-05 ordered after [PROJ-2](../projects/PROJ-2-make-sync-conflict-free.md). This is the last speed item; the 2026-09-05 investigation found the correctness bugs (a destructive auto-resync and a mid-sync write race) outrank the ~2 s of per-process authentication, and one of them can lose data. Measure again after MS-9, since the watcher and churn fixes change the baseline this task was measured against. Context: [docs/investigations/2026-09-05-sync-self-conflict-loop.md](../../investigations/2026-09-05-sync-self-conflict-loop.md).

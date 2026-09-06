@@ -42,6 +42,11 @@ The code is the source-of-truth for *how*. They must agree on *what*.
    choices: `/dev/tty` rendering, kitty flags, slug normalization, the
    registry-driven agent facade, and the central-dispatch framing.
 
+**[investigations/](investigations/)** holds dated one-off investigation
+records (`YYYY-MM-DD-<slug>.md`). They are point-in-time findings with their
+evidence, not part of the *what*/*why* contract above: read one for the
+reasoning behind a fix, but trust the numbered docs for current behavior.
+
 ## Source layout (quick map)
 
 ```
@@ -94,3 +99,4 @@ CLAUDE.md        — symlink → AGENTS.md
 | Why does `brain` need no plan protocol or wrapper? | decisions.md |
 | How do I create, attach, or select a workspace? | config.md and features.md |
 | How do I add a test the right way? | testing.md |
+| Why was a past bug what it was, with its evidence? | investigations/ |

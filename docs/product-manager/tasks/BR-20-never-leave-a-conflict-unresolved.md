@@ -11,7 +11,7 @@ milestone:
 cycle:
 parent:
 github:
-blocked_by: []
+blocked_by: [BR-21, BR-22, BR-23]
 created: 2026-09-05
 updated: 2026-09-05
 ---
@@ -221,3 +221,4 @@ High-level guide, not a plan; verify against the tree when the task starts.
 ### Log
 
 - 2026-09-05 created, out of the sync accuracy/performance investigation. Related: [BR-11](BR-11-interactive-sync-conflict-resolution.md) (supersedes its default), [BR-6](BR-6-reuse-one-rclone-process-per-sync.md) (sync performance).
+- 2026-09-05 gated on [PROJ-2](../projects/PROJ-2-make-sync-conflict-free.md). [BR-21](BR-21-decide-the-sync-investigation-open-questions.md) D2 decides whether this ledger is portable or machine-local, and D1 decides this task versus BR-11. [BR-22](BR-22-make-every-resync-non-destructive.md) and [BR-23](BR-23-never-write-the-root-during-a-sync.md) must land first, or the ledger records thousands of Brain-versus-Brain rows instead of real user divergence.

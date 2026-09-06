@@ -11,9 +11,9 @@ milestone:
 cycle:
 parent:
 github:
-blocked_by: []
+blocked_by: [BR-21]
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-09-05
 ---
 
 # BR-11: Resolve sync conflicts interactively with an LLM handoff
@@ -69,3 +69,4 @@ High-level guide to where and how to complete this, not a detailed plan
 ### Log
 
 - 2026-08-15 created.
+- 2026-09-05 **contested.** [BR-20](BR-20-never-leave-a-conflict-unresolved.md) ships the opposite default: Brain resolves every conflict automatically and never prompts. Both cannot be the default. [BR-21](BR-21-decide-the-sync-investigation-open-questions.md) D1 decides whether this task is rescoped to an explicit, opt-in LLM review pass over BR-20's resolution ledger, or cancelled as superseded. Do not start it before that decision. Context: [docs/investigations/2026-09-05-sync-self-conflict-loop.md](../../investigations/2026-09-05-sync-self-conflict-loop.md).
