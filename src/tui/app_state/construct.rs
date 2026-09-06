@@ -37,6 +37,7 @@ pub(crate) struct AppInit {
     pub(crate) config: Config,
     pub(crate) agent_kind: AgentKind,
     pub(crate) instance: String,
+    pub(crate) manual_sessions: Vec<crate::manual_session::ManualSessionRecord>,
     pub(crate) db: Db,
     pub(crate) search: crate::picker::App,
     pub(crate) panel_side: PanelSide,
@@ -84,6 +85,7 @@ impl App {
             config,
             agent_kind,
             instance,
+            manual_sessions,
             db,
             search,
             panel_side,
@@ -140,6 +142,7 @@ impl App {
         });
         let brain = BrainPanelState::new(BrainPanelStateInit {
             instance,
+            manual_sessions,
             interactive_actor,
             configured_skill_sessions,
         });

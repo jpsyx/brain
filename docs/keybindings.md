@@ -10,34 +10,59 @@ view** is showing, the **brain panel is open** (on the right) but unfocused, so
 
 Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
-1. **App-level accelerators** — intercepted before everything, from either
-   view: `Ctrl+Q` quit, `Alt+S` help, `Alt+H/L` panel focus, `Alt+U/D` scroll,
-   `Ctrl+X` close brain, `Ctrl+N` new session, and (main-panel-focused only)
-   the view-switch chords `Ctrl+H/L`, `Ctrl+T`, `Ctrl+B`.
-2. **Modal overlays** — a captive modal (help / sync-log / palette / confirm /
-   brain-input / link-picker / assignee-filter picker) consumes the key.
-3. **The brain panel** — when focused, keys forward to the selected agent as bytes.
-4. **The active main view** — the tasks handlers, or the brain-search picker.
+1. **Unconditional quit:** `Ctrl+Q` exits even while a modal is open.
+2. **Modal overlays:** a captive modal (help, sync log, palette, confirmation,
+   brain input, session naming, link picker, or assignee filter) consumes the key
+   before any panel accelerator.
+3. **App-level accelerators:** Esc dismisses a pending error banner before
+   reaching a panel. `Ctrl+X` closes the selected user session,
+   `Ctrl+N` starts a new conversation, `Alt+S` opens help, `Alt+H/L` moves focus,
+   `Alt+[/]` and occupied `Alt+digit` slots switch tabs, and `Alt+U/D` scrolls.
+   Main-view focus enables `Ctrl+H/L`, `Ctrl+T/B`, and contextual palette,
+   brain-input, and agenda actions. `Ctrl+M` selects Main from either panel.
+4. **The brain panel:** when focused, keys forward to the selected agent as bytes.
+5. **The active main view:** tasks, brain-search, or logs handlers consume the key.
 
 ## App-level (work in either main view)
 
 | Key | Action | Notes |
 | --- | --- | --- |
+| `Esc` | Dismiss a pending error banner | Applies in Tasks, Brain Search, Logs, and the brain panel. An active modal keeps its own Esc behavior. Without a pending error, normal panel behavior applies. |
 | `Ctrl+L` / `Ctrl+H` | Cycle the main view right / left | Cycles tasks, brain search, and logs. Main-panel focus only, so the brain panel keeps Claude's `Ctrl+H` (backspace) etc. when it has focus |
 | `Ctrl+T` | Jump to the **tasks** view | Main-panel focus only |
 | `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
 | `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
-| `Ctrl+M` | Open (or focus) the brain panel | Resumes the latest eligible frontend session: Claude validates its transcript, OpenCode validates an exact-workspace live root session, and Codex validates its exact on-disk rollout. Each starts fresh when its evidence is missing. Needs the kitty protocol to stay distinct from Enter |
-| `Ctrl+N` | Start a new agent session in the brain panel | Runs the selected adapter's semantic new-session action (`/new` plus its native submit). Only while the panel is open |
-| `Alt+[` / `Alt+]` | Cycle the brain-panel tab (previous / next): **main** session ↔ each open ephemeral tab | Skill-session and receiver-run tabs share one stable insertion order, which also drives `Alt+1` / `Alt+<n>` slots and the rendered tab strip. At most one receiver-run tab is live in a workspace process, and its insertion never invokes selection. The reliable bracket switch resolves as Alt-modified brackets or the macOS Option smart-quote glyphs. On macOS layouts that send an Option-produced glyph (`¡`, `™`, `£`, …), that glyph addresses the same slot; an unoccupied slot selects nothing and the glyph remains ordinary panel input. From either panel |
-| `Ctrl+X` | Close the brain panel (ends its agent session) | The main view goes full-width. From either panel. **On a skill-session tab it closes only that ephemeral session**, leaving the main session up. A receiver-run tab does not advertise or accept this skill-only close action; its lifecycle owner removes it. |
+| `Ctrl+M` | Select and focus the Main brain session | Launches Main if unavailable, using its saved conversation when the frontend can reopen it. Needs the kitty protocol to stay distinct from Enter |
+| `Ctrl+N` | Start a new conversation in the selected user session | Runs the selected adapter's semantic new-session action (`/new` plus its native submit) in a live Manual or Skill tab. It preserves a Manual tab's identity and title. Receiver tabs ignore this action. |
+| `Alt+[` / `Alt+]` | Cycle the brain-panel tab (previous / next): **main** session ↔ each open additional tab | Manual, skill-session, and receiver-run tabs share one stable insertion order, which also drives `Alt+1` / `Alt+<n>` slots and the rendered tab strip. At most one receiver-run tab is live in a workspace process, and its insertion never invokes selection. The reliable bracket switch resolves as Alt-modified brackets or the macOS Option smart-quote glyphs. On macOS layouts that send an Option-produced glyph (`¡`, `™`, `£`, …), that glyph addresses the same slot; an unoccupied slot selects nothing and the glyph remains ordinary panel input. From either panel |
+| `Ctrl+X` | Close the selected Additional manual or skill-session tab | From either panel. Main is permanent and ignores this action; receiver runs are removed only by their lifecycle owner. Closing an Additional manual session removes its saved mapping, while shell shutdown preserves mappings. |
 | `Alt+S` | Open the keyboard-shortcuts help modal | Replaces the old bare `?`; bound to `Alt+S` so a literal `?` still types into the brain-search filter. Distinct Meta sequence on every terminal |
 | `Ctrl+Q` | Unconditional quit | Intercepted before modals/panels; quits even from the brain panel or a modal. `0x11`, no kitty protocol needed |
 
 **Panel focus vs. view switching** are two different axes: `Alt+H/L` move
 *focus* between the main view and the brain panel; `Ctrl+H/L` change *which
 main view* is shown. Both read as "left/right" but mean different things.
+
+Main's saved resume candidate must retain its frontend evidence: Claude checks
+its transcript and live claims, Codex checks its exact on-disk rollout, and
+OpenCode checks the selected workspace's live root session. Missing evidence
+starts fresh under the same Manual identity, without selecting another recent
+conversation.
+
+Both task and brain-search command palettes offer **Start new brain session**,
+configured skill starts, and stable Show/Close rows for open manual and skill
+tabs. **Show main brain session** appears only when such an additional tab is
+open. Main has no Close action, and receiver tabs have no session palette rows.
+No session row adds a direct shortcut annotation.
+
+The naming modal accepts printable single-line text, Backspace, and `Ctrl+U`
+(clear). Enter validates the trimmed name and starts the session; invalid
+input remains visible with an inline error. Esc and `Ctrl+C` cancel. Panel
+accelerators are captive while naming; `Ctrl+Q` retains unconditional quit.
+Manual launch, persistence, and close errors remain in the shared banner until
+Esc acknowledges them. Other keystrokes and view or focus changes preserve the
+message, including input received before its first render.
 
 ## Tasks view
 

@@ -2,36 +2,39 @@ use super::*;
 
 #[test]
 fn fresh_session_registration_failure_prevents_agent_launch() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-    let app = test_app(&temporary, &cli, AgentKind::Claude);
-    let session = AgentSession::new("fresh-session").expect("session");
-    let scope = SessionScope::new(
-        AgentKind::Claude,
-        app.context.workspace().id(),
-        app.brain.interactive_actor().clone(),
-    );
-    let launched = std::cell::Cell::new(false);
+    for kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, kind);
+        let recording = TransportRecording::default();
+        app.brain.replace_brain_transport(recording.transport());
+        let connection = rusqlite::Connection::open(app.context.state_db_path()).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TRIGGER refuse_manual_registration BEFORE INSERT ON manual_sessions
+             BEGIN SELECT RAISE(ABORT, 'authorization store unavailable'); END;",
+            )
+            .unwrap();
 
-    let result = register_fresh_before_launch(
-        &FailingSessionStore,
-        &session,
-        app.brain.instance(),
-        42,
-        &scope,
-        || {
-            launched.set(true);
-            Ok::<_, AgentError>(())
-        },
-    );
+        assert!(!app.open_or_focus_brain(None));
 
-    assert!(!launched.get(), "agent launch must follow authorization");
-    assert!(
-        result
-            .expect_err("registration failure")
-            .to_string()
-            .contains("authorization store unavailable")
-    );
+        assert!(
+            recording.launch_specs().is_empty(),
+            "agent launch must follow authorization"
+        );
+        let rows: u32 = connection
+            .query_row("SELECT count(*) FROM brain_sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            rows, 0,
+            "failed mapping authorization rolls back its native row"
+        );
+        assert!(
+            app.status
+                .error()
+                .is_some_and(|message| message.contains("authorization store unavailable"))
+        );
+    }
 }
 
 #[test]
@@ -115,11 +118,11 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
     assert!(!app.open_or_focus_brain(None));
 
     assert!(recording.0.lock().expect("launch recording").is_empty());
-    assert!(matches!(
-        app.status.flash(),
-        Some(crate::tui::modal_state::FlashKind::Error(message))
-            if message.contains("agent capabilities are invalid")
-    ));
+    assert!(
+        app.status
+            .error()
+            .is_some_and(|message| message.contains("agent capabilities are invalid"))
+    );
 }
 
 #[test]

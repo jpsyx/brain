@@ -16,7 +16,7 @@ execution surfaces are a persistent TUI and short-lived command families:
   diagnostics), plus one app-level **brain panel** (an
   interactive agent session in a PTY). You switch main views with
   `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T`/`Ctrl+B` (jump); the brain panel
-  persists across a switch and closing it makes the main view full-width. The
+  persists across a switch and its Main tab cannot be closed. The
   process owns the terminal until you quit and keeps UUID-scoped SQLite state
   for frontend sessions, completion delivery, and panel layout. Claude may
   resume an eligible transcript no live process holds, OpenCode may resume an
@@ -130,7 +130,7 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
       └─→ tick → draw → poll/read → application update
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
-       ├─ BrainPanelState owns one AgentController per live main or ephemeral tab
+       ├─ BrainPanelState owns one AgentController per live main or additional tab
        │    ├─ access::AccessPolicy snapshots trusted portable mode/root/actor
        │    ├─ agent::{ClaudeFrontend,CodexFrontend,OpenCodeFrontend} translate semantic operations
        │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
@@ -184,7 +184,7 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and the thin `schema/delivery.rs` coordinator delegates v12 contract, repair, legacy-notice, fallback-success, index, cleanup, and downgrade work to focused modules under `schema/delivery/`; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,status}.rs` own generic exact response claims, typed row decoding, result CAS, and content-free counts; the thin `store/delivery/reconciliation.rs` coordinator delegates semantic repair and retry/requeue work to focused children; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns bounded effects for the durably authorized run, never endpoint or queue authority; `app_brain/launch/session.rs`, `app_actions/triage/decision.rs`, and `palette/command/catalog.rs` isolate session launch, pure triage decisions, and the command catalog |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns bounded effects for the durably authorized run, never endpoint or queue authority; `app_brain/launch/session.rs` owns Main selection and prompt queueing; `app_manual_session/launch.rs` owns shared Manual launch; `app_actions/triage/decision.rs` owns pure triage decisions; `palette/command/catalog.rs` owns the command catalog |
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only one transient agent effect plus bounded cleanup effects, revalidated against the state DB across ticks. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local inbound queue, endpoint, warm-panel lease, or reply handoff remains. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -551,6 +551,13 @@ render; decode failures and valid-but-different envelopes roll back with the
 legacy authority intact. Downgrade takes an immediate writer before
 schema inspection, reconstructs exact v12 pending state for gated rows, retains
 representable outbox rows, and rebuilds both table contracts atomically.
+The 0.87.0 manual-session migration installs schema v14 in existing registered
+workspace databases. Same-version reconciliation restores a missing mapping
+table or managed index without synthesizing a Main row. Its down operation
+drops only the manual mappings and records v13 before the existing receiver
+downgrade chain runs; native-session history and receiver data remain intact.
+`startup_migration/manual_session.rs` registers both operations in the same
+version-directed dispatcher used by the installer.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.
@@ -711,8 +718,8 @@ frontend constructors, command metadata, lifecycle installations, exact health
 checks, capability evidence, and compatibility probes. Shared command, doctor,
 and setup code consume that table instead of switching on concrete frontends.
 `PtyPane` implements `AgentTransport`. The main panel stores an
-`Option<AgentController>` because it may be closed; every live ephemeral tab
-owns one `AgentController` directly. Keyboard, receiver,
+`Option<AgentController>` because its controller may be unavailable; every live
+additional tab owns one `AgentController` directly. Keyboard, receiver,
 draw, scroll, close, and event-loop code call controller semantics and never
 construct frontend keystrokes. Busy-turn follow-up is one controller operation;
 each adapter returns the complete native text and final-key sequence.
@@ -1057,15 +1064,18 @@ left" / "...right"), the **"Create PDF for '…'"** row (label via
 via `delete_label`, which shares `create_pdf_label`'s ellipsis threshold via
 `truncate_label_filename`/`LABEL_MAX_FILENAME`) **trails** the list when
 `delete_target` is a highlighted entry of any kind (trailing, so a destructive
-action is never the default-selected row), and the "Message brain" row is
-dropped when `include_msg` is false (the persistent
-shell hides it while the panel is open, shows it to re-open once closed).
+action is never the default-selected row). The persistent shell always includes
+"Message brain" to select Main. Its `Targets` also receives App's runnable skill
+definitions and `BrainPanelState::user_session_rows()` snapshot. Both catalogs
+use `tui/palette/sessions.rs` for Start, configured Run, conditional Main Show,
+and each user tab's paired Show/Close rows. Stable `SessionTabId` values flow
+through the global action enum; receiver rows are excluded at the projection.
 The shared state owns the filtered row indices and key handling (each row's
 matchable text includes its 1-based number) and returns
 `Continue`/`Confirm`/`Cancel`. `Cancel` (Esc) tells the host to drop the
 overlay, not to exit. In the persistent shell `GlobalAction::MessageBrain`
-opens or focuses the brain panel and `GlobalAction::ToggleLayout` swaps which
-side it sits on.
+selects Main and launches it if unavailable; `GlobalAction::ToggleLayout` swaps
+which side it sits on.
 
 ### `confirm.rs`
 The shared yes/no confirmation modal. Like `menu`, it has **no screen of its
@@ -1590,8 +1600,8 @@ controller state lives in `BrainPanelState`; injected runners, the state DB,
 and sync effects live in `AppServices`; and transient status lives in
 `StatusState`. Cross-feature coordination remains on `App`. `App` also owns
 exactly one `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
-brain input, task confirmation, search palette, search confirmation, link
-picker, assignee filter, help, and sync log. This makes simultaneous modals
+brain input, manual-session naming, task confirmation, search palette, search
+confirmation, link picker, assignee filter, help, and sync log. This makes simultaneous modals
 unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
 transitions. Input routing and drawing exhaustively match that same enum, so no
 boolean precedence model can disagree with what is visible. The task
@@ -1609,9 +1619,9 @@ detail mode controls task-card rendering, and its create, reassign, and filter
 flags independently gate their palette rows. A missing portable registry uses
 a one-actor compatibility context with hidden assignment controls.
 `event_loop` routes keys in the precedence documented in
-[keybindings.md](keybindings.md): app-level accelerators (view switch, help,
-panel focus/scroll, brain open/close/new, quit) → captive modal → brain panel
-(forward bytes) → active main view (`handlers` for tasks, `search_view` for the
+[keybindings.md](keybindings.md): unconditional `Ctrl+Q` quit → captive modal
+→ panel and app-level accelerators → brain panel (forward bytes) → active main
+view (`handlers` for tasks, `search_view` for the
 brain-directory picker). `draw` renders the active main view in the main
 panel and the brain panel beside it (`ShellState::panel_side`). The task
 renderer accepts `&mut TasksState` plus a small cross-feature chrome context;
@@ -1646,33 +1656,57 @@ owner), `action/` (the closed
 `tests/` (split by
 area). `BrainPanelState` owns the main persistent controller, while
 `app_brain/` coordinates isolated receiver dispatch and terminal delivery;
-`app_brain/launch/session.rs` owns the full fresh-or-resume launch transaction,
-while `launch.rs` keeps capability construction, transport selection, and the
-public app actions.
-`BrainPanelState` delegates its one shared ephemeral-tab collection to
-`state/brain/ephemeral.rs`. Skill sessions and receiver runs retain distinct
-metadata variants, but both use one lifetime-monotonic `SessionTabId` allocator,
+`app_brain/launch/session.rs` owns Main selection and optional prompt queueing.
+`app_manual_session/launch.rs` owns the shared Main/Additional preparation,
+saved-mapping lookup, exact claim or fresh registration, controller launch, and
+failure cleanup transaction. `app_brain/launch.rs` retains the capability-plan
+and controller-construction seams used by the launch coordinator.
+`BrainPanelState` delegates its shared additional-tab collection to
+`state/brain/sessions.rs`. Manual sessions, skill sessions, and receiver runs
+retain distinct metadata variants, but use one lifetime-monotonic `SessionTabId` allocator,
 controller store, title order, and shutdown pass. Checked allocation exhaustion
 shuts down the rejected controller before returning and leaves both the
-collection and counter unchanged. `app_brain_tab.rs` owns shared observation and
+collection and counter unchanged. Main remains a separate controller slot.
+Manual metadata holds a durable `ManualSessionId` and the native ID used for
+resume, when present; the tab collection does not persist either value.
+User-session rows include Manual and Skill tabs, while manual-only rows exclude
+both Skill and Receiver. Every kind-specific removal checks the stable ID and
+metadata variant before removing a tab or shutting down its controller.
+The focused `sessions/{manual,skill,receiver}.rs` children own each kind's
+operations; `brain/receiver.rs` keeps the receiver-facing state facade separate.
+`app_brain_tab.rs` owns shared observation and
 keyboard navigation; `app_skill_session/` retains skill completion signals and
 configured-skill lifecycle. `BrainPanelState` exposes background-only receiver
 insertion, observation, controller access, and removal. It rejects and shuts
 down a second simultaneous receiver controller before insertion, so one
 workspace process cannot own more than one live receiver run.
 
-Receiver-only tabs do not make a hidden brain panel visible. When the panel is
-already visible, skill and receiver titles render and navigate in their shared
-stable insertion order. Receiver insertion and terminal removal preserve the
+The permanent panel renders Main at internal tab 0, followed by Manual, Skill,
+and Receiver titles in their shared stable insertion order. Receiver insertion
+and terminal removal preserve the
 current main view, effective tab, panel visibility, and keyboard focus. The
 `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
-structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `HelpState`,
-`SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums) live in `modal_state.rs` with
+structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `ManualSessionNameState`,
+`HelpState`, `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the
+confirm enums) live in `modal_state.rs` with
 `pub(super)` fields; shared panel and tab types live in
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
 narrow shell entry exports, and module wiring. Receiver representation is
 private to `receiver/runtime.rs` and its focused sync child.
+
+`handlers/overlay.rs` routes captive naming keys through `ManualSessionName::parse`
+against Main and open manual titles. Errors remain in the overlay; successful
+submission clears that slot before `App::start_manual_session`. Its rounded,
+cyan-accent single-line renderer lives in `draw_modals/manual_session_name.rs`.
+Manual launch, persistence, and close failures use `StatusState`'s persistent
+error slot. `draw/error.rs` reserves a wrapped, themed banner below both panels
+and any modal, so every main view can display the failure. Ordinary flash
+clearing and focus changes leave it intact. After captive modal routing, Esc
+dismisses that error before any panel receives the key.
+The palette's exact-ID Close action and `Ctrl+X` share `close_user_session`,
+which accepts only manual or skill metadata.
+
 `receiver/planning.rs` owns the frontend-neutral durable job plus
 conversation to `SessionPlan` and initial-prompt decision without owning tab,
 claim, or coordinator state. The runtime receives sync observations and never
@@ -1719,8 +1753,11 @@ best-effort retry without replacing an event-loop or required-cleanup result;
 `Drop` retries every remaining capability and logs required cleanup failure
 without panicking.
 The constructor derives its retained root and state-DB path from that context;
-callers cannot supply competing workspace paths. `open_or_focus_brain(None)`
-then launches the selected frontend through an `AgentController`. Claude
+callers cannot supply competing workspace paths. The builder loads ordered
+manual-session mappings for the immutable interactive scope into `AppInit`.
+`restore_manual_sessions()` launches Main first, then Additional records in
+position order, through the common `app_manual_session/launch.rs` pipeline and
+`AgentController`. Claude
 validates that a transcript holds a real conversation no live process is still
 in, OpenCode validates exact-root live sessions, and Codex
 validates its exact on-disk rollout; each resumes or starts fresh from that
@@ -1728,8 +1765,17 @@ adapter-owned evidence. `focus_tasks()`
 returns focus to the tasks main view so `j`/`k` work at once. The sync-services
 stage then wires a detached pull-biased startup sync and retains the optional
 watcher and periodic puller. The runtime owns the `App`, `TerminalSession`,
-workspace singleton, heartbeat worker, watcher, periodic puller, shell instance
-identity, and the App state that holds the session lock.
+workspace singleton, heartbeat worker, watcher, periodic puller, and App state.
+`BrainPanelState` owns Main's durable manual ID independently of its controller.
+Manual close and recurring exits live in `app_manual_session/lifecycle.rs`;
+`restore.rs` owns ordered restoration and exact lock release. Main never hides
+and relaunches after a healthy conversation exits without changing selection.
+The shared `app_brain/launch/arrival.rs::SessionStartup` state requires a live
+observation beyond startup grace before declaring a generation established.
+A fresh generation dying before that remains unavailable, preserving its
+mapping and preventing repeated launches. Additional close removes
+only its mapping; shell shutdown calls `release_manual_session_locks()` after
+all controllers receive shutdown and preserves the mappings.
 From successful server registration through final runtime assembly, one partial-
 startup owner retains the heartbeat lease. Assignment
 resolution, terminal acquisition, DB/config/model construction, initial-panel
@@ -1737,8 +1783,9 @@ launch, startup workers, and the lifecycle-completeness check all run inside tha
 boundary. Any fallible return therefore unwinds its newer resources and
 unregisters the server lease.
 
-One runtime tick coordinates the established order: close an exited agent panel
-and refresh tasks if needed, drain heartbeat/server-health events, tick skill
+One runtime tick coordinates the established order: settle manual-session exits
+(relaunch Main, close an established Additional session, or retain a failed
+startup) and refresh tasks if needed, drain heartbeat/server-health events, tick skill
 sessions, tick the receiver, poll sync status and conditionally refresh tasks,
 then poll the triage gate and conditionally refresh tasks. Manual refresh has a
 second explicit order: advance the logical day, reload tasks, check triage only
@@ -1746,8 +1793,8 @@ after a day rollover, then report the refresh. The terminal loop itself contains
 only runtime tick, draw, terminal poll/read, and one application update call.
 
 Orderly shutdown is idempotent. It stops the heartbeat worker and attempts the
-bounded unregister before shutting down the main and all ephemeral controllers,
-drops the periodic puller and watcher, releases the shell's session lock, then
+bounded unregister before shutting down the main and all additional controllers,
+drops the periodic puller and watcher, releases each manual session's exact lock, then
 restores the terminal. The singleton remains held until the runtime itself is
 dropped, after every owned resource has completed its orderly teardown. `Drop`
 reuses the same sequence as a best-effort fallback and logs restoration errors
@@ -1772,9 +1819,8 @@ so the modal reflects post-sync completion state (pure `triage_gate_resolved`
 decides resolution). `enable_daily_triage_check=false` disables only the final alert;
 the same gate still performs the strict config, managed-policy, and task-table
 refresh. With no startup sync, the check runs immediately as before. The
-brain
-panel is **closeable** (agent exit → `close_brain` shuts down its controller and the main
-view goes full-width); `open_or_focus_brain` (`Ctrl+M`) re-opens it. The
+brain panel is permanent. Main's exited controller relaunches in place;
+`open_or_focus_brain` (`Ctrl+M`) selects Main and launches it if unavailable. The
 brain-directory view keeps its own `scope`/`rescope`/`search_refresh` for
 bucket rescoping (`Ctrl+R` / palette search rows). Unlike the pre-merge shell
 there is no `Exit` enum — the shell just returns from the event loop on quit
@@ -1823,6 +1869,25 @@ workspace. The same module owns `BRAIN_REQUIRE_WORKSPACE`: Brain sets it on the
 children it spawns, and `bootstrap` refuses such a child that names no workspace,
 so a code path that forgets `-w` fails instead of silently targeting the default.
 Both decisions are pure (`with_selector`, `violates_strict_selector`).
+
+### `manual_session/` and `state/manual_session/`
+
+`manual_session/` is the pure domain boundary: stable `ManualSessionId`, trimmed
+ASCII case-insensitive unique `ManualSessionName`, Main/Additional roles, and
+ordered `ManualSessionRecord` values. `state/manual_session/schema.rs` owns
+schema v14 and its v13 down operation. `store.rs` owns atomic register, attach,
+replace, close, rollback, and lock release; `store/sql.rs` owns exact scoped SQL
+and ordered position compaction. `tui/state/services/manual_sessions.rs` exposes
+those semantic persistence effects to App without exposing the database.
+
+The mapping is scoped by frontend, workspace UUID, actor, and interactive
+channel. It is separate from native `brain_sessions` history, so a new native
+conversation can replace one mapping without changing its title or order.
+Startup reads mappings in `runtime/builder.rs`, passes them through `AppInit`,
+and restores Main before Additional rows. An unmapped Main may adopt one
+eligible recent conversation; mapped sessions only attempt their exact native
+ID. Skill tabs remain untracked, and Receiver sessions use their own durable
+conversation and cleanup contracts.
 
 ### `skill_session/`
 The skill-session model and its cross-process completion bridge — one dedicated
@@ -1877,7 +1942,9 @@ finite unavailable-notice writer lease; schema v12 added immutable response
 envelopes, exact delivery attempts, finite delivery claims, provider result
 classification, and retry or ambiguity state. Schema v13 moved cleanup gating
 into unavailable-notice outbox rows and removed
-the obsolete job columns. The state contracts, nonblocking provider executor,
+the obsolete job columns. Schema v14 additionally owns the `manual_sessions`
+mapping described above; it does not change receiver v13 contracts.
+The state contracts, nonblocking provider executor,
 and App tick consumer are active for every semantic response kind.
 See
 [data-model.md](data-model.md) and [integrations.md](integrations.md).
@@ -2252,13 +2319,13 @@ rebuild:
   tests on `items(side, …)`) so the search catalog cannot silently drop an
   action. Shared task/search rows also assert the same `GlobalAction` while
   preserving each surface's contextual label and direct-key metadata. Every
-  direct shortcut for a `GlobalAction`, including Close brain, Show tasks,
-  Message brain, and Open agenda, enters `App::execute_global_action`; closing
-  an active skill-session tab remains a skill-session operation.
-- **The brain panel is open at startup but closeable.** `tui` launches the
-  selected controller at startup and is two-panel; when its agent
-  exits the panel **closes** (search goes full-width) — it does not quit the
-  shell. `open_or_focus_brain` ("Message brain" / `Ctrl-M`) re-opens it.
+  direct shortcut for a `GlobalAction`, including Show tasks, Message brain,
+  and Open agenda, enters `App::execute_global_action`. `Ctrl+X` dispatches by
+  typed tab metadata through `close_active_user_session`.
+- **The brain panel and Main tab are permanent.** Startup restores Main first,
+  then saved Additional manual sessions. Main exits relaunch in place; a
+  launch failure leaves the panel visible. Additional manual and skill tabs
+  can close, while receiver tabs remain lifecycle-owned.
 - **Exactly one frontend session per brain instance is locked at a time.**
   A session-start bridge may update an exact registered tuple or rotate an
   already registered active lineage; it rejects unregistered events and frees

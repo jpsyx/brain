@@ -151,7 +151,7 @@ impl App {
                         return;
                     }
                 };
-                let open = self.brain.ephemeral_tab_ids();
+                let open = self.brain.session_tab_ids();
                 self.shell
                     .select_brain_tab(BrainTab::Session(id), &open, true);
                 self.status.clear_alert();
@@ -179,8 +179,7 @@ impl App {
     /// mutated tasks/habits).
     ///
     /// Only the tab the user is *looking at* changes what is showing: closing the
-    /// active tab falls back to the main session (or the tasks panel when no main
-    /// session is open), while a background session finishing leaves the current
+    /// active tab falls back to permanent Main, while a background session finishing leaves the current
     /// tab and focus exactly where they were.
     pub(crate) fn close_skill_session(&mut self, id: SessionTabId) {
         let was_showing = self.effective_brain_tab() == BrainTab::Session(id);
@@ -189,25 +188,11 @@ impl App {
         };
         crate::skill_session::signal::clear(self.context.workspace(), &removed.token);
         if was_showing {
-            let open = self.brain.ephemeral_tab_ids();
-            self.shell.select_brain_tab(
-                BrainTab::Main,
-                &open,
-                self.brain.main_controller().is_some(),
-            );
-            if self.brain.main_controller().is_none() {
-                self.shell.focus_tasks();
-            }
+            let open = self.brain.session_tab_ids();
+            self.shell
+                .select_brain_tab(BrainTab::Main, &open, self.brain.any_panel_visible());
         }
         self.reload_after_brain();
-    }
-
-    /// Close the skill-session tab currently showing, if any (`Ctrl+X` / `Esc`
-    /// on a session tab). Leaves the main session untouched.
-    pub(crate) fn close_active_skill_session(&mut self) {
-        if let BrainTab::Session(id) = self.effective_brain_tab() {
-            self.close_skill_session(id);
-        }
     }
 
     /// Attach an already-built controller as a skill-session tab (tests only).
@@ -223,7 +208,7 @@ impl App {
             .brain
             .add_skill_session(key, title.to_owned(), token.to_owned(), controller)
             .expect("test skill-session tab identity");
-        let open = self.brain.ephemeral_tab_ids();
+        let open = self.brain.session_tab_ids();
         self.shell
             .select_brain_tab(BrainTab::Session(id), &open, true);
         id

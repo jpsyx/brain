@@ -129,7 +129,7 @@ fn codex_thread_rotation_frees_only_its_prior_session() {
 #[test]
 fn failed_rotation_rolls_back_and_can_be_retried() {
     let (_temporary, db) = fresh_db();
-    register_session(&db, "claude", "pablo", "source", "inst-1", 10);
+    register_manual_session(&db, "claude", "inst-1", "source", "Atlas", 1);
     let connection = Connection::open(&db).expect("open state database");
     connection
         .execute_batch(
@@ -150,9 +150,15 @@ fn failed_rotation_rolls_back_and_can_be_retried() {
     );
     assert_eq!(
         read_session(&db, "source").map(|row| (row.0, row.1)),
-        Some(("inst-1".to_owned(), Some(10)))
+        Some(("inst-1".to_owned(), Some(4242)))
     );
     assert!(read_session(&db, "target").is_none());
+    assert_eq!(
+        read_manual_native_id(&db, "claude", "inst-1"),
+        Some("source".to_owned())
+    );
+    assert!(failed.stdout.is_empty());
+    assert!(failed.stderr.is_empty());
 
     connection
         .execute("DROP TRIGGER abort_source_release", [])
@@ -161,6 +167,10 @@ fn failed_rotation_rolls_back_and_can_be_retried() {
 
     assert!(retried.status.success(), "retry failed: {retried:?}");
     assert_eq!(read_session(&db, "source").unwrap().1, None);
+    assert_eq!(
+        read_manual_native_id(&db, "claude", "inst-1"),
+        Some("target".to_owned())
+    );
     assert_eq!(
         read_session(&db, "target").map(|row| (row.0, row.1)),
         Some(("inst-1".to_owned(), Some(10)))

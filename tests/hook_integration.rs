@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use brain::state::Db;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 #[path = "hook_integration/atomic.rs"]
 mod atomic;
@@ -58,6 +58,43 @@ fn register_session(
             rusqlite::params![agent_kind, session_id, instance, pid, actor_id],
         )
         .unwrap();
+}
+
+fn register_manual_session(
+    db_path: &Path,
+    agent_kind: &str,
+    manual_id: &str,
+    native_id: &str,
+    title: &str,
+    position: i64,
+) {
+    register_session(db_path, agent_kind, "pablo", native_id, manual_id, 4242);
+    Connection::open(db_path)
+        .unwrap()
+        .execute(
+            "INSERT INTO manual_sessions
+               (manual_session_id, agent_kind, agent_session_id, workspace_id,
+                actor_id, channel, title, position, role)
+             VALUES (?1, ?2, ?3, '11111111-1111-4111-8111-111111111111',
+                     'pablo', 'interactive', ?4, ?5, 'additional')",
+            rusqlite::params![manual_id, agent_kind, native_id, title, position],
+        )
+        .unwrap();
+}
+
+fn read_manual_native_id(db_path: &Path, agent_kind: &str, manual_id: &str) -> Option<String> {
+    Connection::open(db_path)
+        .unwrap()
+        .query_row(
+            "SELECT agent_session_id FROM manual_sessions
+             WHERE manual_session_id = ?1 AND agent_kind = ?2
+               AND workspace_id = '11111111-1111-4111-8111-111111111111'
+               AND actor_id = 'pablo' AND channel = 'interactive'",
+            rusqlite::params![manual_id, agent_kind],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap()
 }
 
 /// Run the hook with the given attribution env (None → ambient, no env set)

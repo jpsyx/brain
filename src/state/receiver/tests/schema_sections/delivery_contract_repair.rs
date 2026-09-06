@@ -56,6 +56,7 @@ fn v12_repair_fingerprints_every_delivery_table_invariant_and_survives_down_up()
             receiver_user_id().as_str(),
         )
         .expect("receiver state");
+        stage_receiver_v13(&path);
         let canonical = stored_receiver_table_sql(&db.conn, "receiver_deliveries");
         let damaged = canonical.replacen(needle, replacement, 1);
         db.conn
@@ -99,7 +100,20 @@ fn v12_repair_fingerprints_every_delivery_table_invariant_and_survives_down_up()
         );
         drop(db);
 
+        stage_receiver_v12(&path);
+        let source = rusqlite::Connection::open(&path).expect("v12 receiver source");
+        let source_version: i64 = source
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("source schema version");
+        assert_eq!(source_version, 12, "case {case_index} did not start at v12");
+        drop(source);
         super::super::schema::down_delivery_path(&path).expect("downgrade repaired delivery schema");
+        let downgraded = rusqlite::Connection::open(&path).expect("downgraded receiver state");
+        let version: i64 = downgraded
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("downgraded schema version");
+        assert_eq!(version, 11, "case {case_index} did not reach v11");
+        drop(downgraded);
         let reopened = Db::open_path_with_legacy_identity(
             &path,
             &receiver_workspace_id().to_string(),

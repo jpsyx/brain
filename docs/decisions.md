@@ -90,10 +90,10 @@ retain task IDs, selected paths, and other feature-only semantics. Each feature
 enum wraps `GlobalAction` explicitly, so catalogs stay statically typed without
 trait objects or erased callbacks.
 
-Direct key routes obey the same boundary as palette rows. Close brain, Show
-tasks, Message brain, and Open agenda all enter
-`App::execute_global_action`; the active skill-session form of Close remains a
-feature-local tab operation. A structural test inventories these shortcut
+Direct key routes obey the same boundary as palette rows. Show tasks, Message
+brain, and Open agenda all enter `App::execute_global_action`; `Ctrl+X` and
+the exact-ID Close palette action share the kind-gated user-session close path.
+Main has no Close action. A structural test inventories these shortcut
 routes so adding a direct bypass cannot silently create a second executor.
 
 Both surfaces build the same reusable `PaletteRow<A>` and
@@ -594,22 +594,18 @@ in the selected workspace. Finding a note and thinking with an agent are
 complementary, not modal. Startup focuses the tasks view while leaving the
 panel open; `Alt+H` / `Alt+L` switch focus spatially and follow a layout swap.
 
-## Why claude exiting closes the panel instead of quitting the shell
+## Why exiting an agent keeps the shell and Main available
 
-Exiting claude (Ctrl-C, Ctrl-C) is a frequent gesture: you end a chat
-without meaning to leave `brain`. So when the `claude` child dies the event
-loop **closes the panel** (explicitly shuts down its controller, search goes
-full-width) rather than quitting; the closing Ctrl-C is forwarded to claude
-and never seen as a quit,
-and the auto-close needs no extra keystroke. Quitting `brain` is a separate,
-deliberate gesture: `Esc` / `Ctrl-c` from the **search** panel. Re-opening is
-**Message brain** (`Ctrl-M` or the palette), which resumes your latest
-session — so the panel is closeable and re-openable, not a one-shot.
+Ending a conversation does not mean leaving `brain`. Main is permanent, so a
+normal frontend exit releases its exact native lock and relaunches through the
+saved manual mapping in tab 0. A startup failure leaves Main visible and
+unavailable instead of repeatedly spawning a failing child. Additional manual
+sessions close on a normal exit, and Skill sessions retain their completion
+lifecycle. `Ctrl+Q` quits the entire shell from any view or modal.
 
-Closing the panel **releases** the session lock (it's no longer being driven)
-so the re-open goes through the same recency+claim path as startup — which is
-also why "Message brain" appears in the palette only while the panel is
-closed: there's nothing to open when it's already up (and `Alt+L` focuses it).
+**Message brain** (`Ctrl+M` or the always-present palette row) selects and
+focuses Main, launching its controller if unavailable. It uses Main's exact
+saved conversation and does not search unrelated recent conversations.
 
 ## Why opening a file spawns a new iTerm2 tab instead of replacing the shell
 
@@ -634,14 +630,15 @@ concurrency guarantee.
 
 ## Why the lock + recency resume model (the multi-terminal answer)
 
-Two goals tension: *always resume your latest conversation*, but *never put
-two terminals on the same thread* (which would interleave into a tangle).
-The resolution: each running shell **locks** its session to its PID; on
-startup a shell resumes the most-recently-active **free** session (or starts
-fresh if none is free) and releases the lock on exit. One terminal always
-resumes its last conversation; a second can't grab the one the first holds,
-so it takes the next-free session or a fresh one. Crashes don't strand a
-session — dead-PID locks are reaped (`kill -0`) on the next startup.
+Native conversations must not be driven by two live owners. Each manual
+session claims its exact scoped native row under its durable manual ID and the
+shell's PID. Dead-PID locks are reaped (`kill -0`) on startup. The workspace
+singleton additionally permits only one live TUI for a workspace UUID.
+
+The older recency model remains the first-adoption path for Main when no manual
+mapping exists: choose the most recent eligible free conversation, excluding
+native IDs already mapped to Additional tabs. Once a mapping exists, exact
+identity takes precedence over recency, preserving each named conversation.
 
 ## Why session-start and session-stop bridges have distinct jobs
 
@@ -752,9 +749,9 @@ hold, so the liveness probe (`kill -0`, the same one the session locks use)
 decides. Absent or unparseable evidence contributes no claim, so a missing
 registry can never make a resumable session look held.
 
-Because `open_or_focus_brain` already walks candidates by recency, rejecting
-the held id costs nothing: the panel falls through to the next eligible session
-and the user's real conversation comes back.
+First Main adoption can continue through recent candidates after rejecting a
+held ID. A saved Manual mapping checks only its exact native ID; missing resume
+evidence starts a fresh conversation under the same manual identity and title.
 
 ## Why a background agent must never reach the panel's resume queue
 
@@ -2492,7 +2489,7 @@ without hidden state churn.
 
 The TUI knows its selected workspace, but the machine-wide server must not
 use a client-supplied root or enablement value to select state. Control
-registration carries the TUI-resolved root only for an ephemeral normalized
+registration carries the TUI-resolved root only for a transient normalized
 comparison, plus stable identity. The server reloads the machine registry by exact canonical name,
 checks the workspace UUID and root, reopens that record's manifest, checks
 workspace and ingress UUIDs, and takes receiver enablement from the registry.
@@ -3408,19 +3405,20 @@ addressed by a monotonic `SessionTabId`. An index would let closing one tab
 silently repoint the active tab at another; a `SkillSessionKey` would break if the
 user edited `skill_sessions` while a session was running. Receiver runs also
 need stable identity without pretending their durable job is a configured
-skill. One checked counter therefore spans both distinct metadata variants and
+skill. Additional Manual tabs use that same counter with their own durable
+identity metadata. One checked counter therefore spans all three variants and
 never reuses an ID. The rendered strip, `Alt+<digit>` slots, and the `Alt+[` /
 `Alt+]` cycle all consume that same insertion order.
 
 **Why one collection with distinct metadata.** Controller ownership,
 allocation failure cleanup, title ordering, active-controller lookup, and shell
-shutdown are identical for skill and receiver tabs. Duplicating those mechanics
+shutdown are shared by Additional Manual, Skill, and Receiver tabs. Duplicating those mechanics
 would create two orders and two cleanup paths. Their lifecycle facts are not
-identical, so the collection stores a kind enum: skill metadata owns its
-definition key and completion token, while receiver metadata owns its durable
-job and remote instance identities. Receiver insertion only mutates this
-collection. It never invokes the shell selection path, and receiver-only state
-does not reveal a hidden panel. The durable receiver coordinator uses that
+identical, so the collection stores a kind enum: Manual metadata owns its
+durable mapping ID and startup state, Skill metadata owns its definition key
+and completion token, and Receiver metadata owns its durable job and remote
+instance identities. Receiver insertion only mutates this collection. It never
+invokes the shell selection path. The durable receiver coordinator uses that
 narrow insertion and removal surface, so background work cannot select a tab or
 change the main view, panel visibility, or keyboard focus.
 
@@ -3466,8 +3464,7 @@ startup so a signal orphaned by a crashed run can't close a later tab.
 
 Command-palette visibility used to be a single growing `match` in
 the task-palette catalog builder that special-cased each conditional command inline
-(`CloseBrain` needs a panel, the receiver rows need a running/stopped server,
-the notes/links rows need notes/links). Adding the brain-panel tab-switch rows
+when notes/links rows needed selection-specific data. Adding more conditional rows
 would have meant extending that match yet again.
 
 Instead each `PaletteCommand` now carries an `is_visible: fn(&TaskPalette) ->
@@ -3477,6 +3474,13 @@ the task-actions-modal restriction) and then the command's own predicate. The
 conditional logic lives next to the command it governs, new conditional commands
 are a one-line predicate, and `TaskPalette` is the single snapshot of TUI state
 the predicates read, seeded at open time from the relevant `App` fields.
+
+Dynamic session rows instead come from one shared builder in both catalogs.
+They carry stable tab IDs rather than skill keys or positions, so closing one
+tab cannot redirect a pending action to a neighbor or a later skill run.
+The naming modal validates only manual titles, including the reserved Main
+title `Brain`; skill titles remain their configured display text. Receiver
+tabs retain lifecycle ownership and never contribute Show/Close rows.
 
 **Why the tab-switch commands exist at all.** `Alt+1` / `Alt+<n>` are the intended
 tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
@@ -5349,3 +5353,54 @@ is separately gated by the oldest row's finite `attempt_kind`, so ordinary work
 cannot look like recovery zero. Unknown durable delivery or job states are
 rejected at lifecycle construction; treating an unrecognized state as failed
 would invent a transition the database never committed.
+
+## Why Main is special and Additional session kinds are explicit
+
+Main is a Manual session with persistent identity, but its controller remains
+structurally separate from `SessionTabs`. This makes internal tab 0 permanent
+even during a failed launch and prevents ordinary collection removal from
+closing or reordering Main. Additional Manual, Skill, and Receiver entries
+share one checked, lifetime-monotonic `SessionTabId` order, while typed metadata
+keeps their close and persistence authority distinct.
+
+Manual mappings record user intent: the same named conversations should return
+in the same order after quitting. Native `brain_sessions` history records
+frontend conversations and locks. Keeping the stores separate lets `/new`,
+`/clear`, compaction, or refused resume change a native conversation without
+renaming or moving the user's tab. Once Main has a saved mapping, selecting it
+with `Ctrl+M` cannot choose a different conversation merely because that one is
+more recent. First adoption is the only Main launch that searches recency.
+
+An explicit Additional Close removes its mapping, while orderly shutdown only
+releases mapped locks. Skill sessions remain ephemeral single-prompt runs with
+their own completion signal and no mapping. Receiver sessions retain exact
+job-owned cleanup and never acquire user Close actions. Both palettes project
+the same Manual and Skill rows, using stable tab IDs rather than positions or
+skill-definition indices to prevent a stale action from targeting a neighbor.
+
+Manual-session failures use a persistent error banner shared by all main views.
+Task-only flashes hid failures triggered from Brain Search, and the next key
+cleared them before a view switch could reveal them. The banner owns a separate
+status slot and keeps its message until explicit Esc acknowledgement. It does
+not occupy the exclusive modal slot, so a background session failure cannot
+replace a naming prompt or swallow its cancellation key.
+
+## Why every manual-session generation has a startup guard
+
+A successful process spawn does not prove that the frontend initialized. Main
+and Additional manual sessions therefore share a `Starting` / `Established` /
+`Failed` state. Brain reuses the existing five-second resume-arrival grace as a
+conservative health boundary for fresh generations too: the child must actually
+be observed alive beyond that window. A delayed observation of a dead child, or
+an unavailable liveness probe, cannot establish a session merely because time
+passed. This is a liveness heuristic, not a frontend-specific readiness signal.
+
+An early resumed exit retires that native ID and permits one fresh replacement.
+The replacement starts with its own guard. An early fresh exit instead retains
+the manual mapping, shuts down the failed controller, and releases its exact
+lock. Main remains visibly unavailable and Additional retains its stable tab;
+neither restarts on subsequent ticks. Once a generation is established, normal
+Additional exit still closes its mapping and normal Main exit still relaunches
+in place. This prevents initialization failures from deleting saved chats or
+creating a process-spawn loop without weakening explicit close or orderly
+shutdown behavior.

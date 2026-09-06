@@ -1,9 +1,13 @@
+use super::SessionTabId;
 use crate::skill_session::SkillSessionKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GlobalAction {
     MessageBrain,
-    CloseBrain,
+    StartManualSession,
+    ShowMainBrainSession,
+    ShowSessionTab(SessionTabId),
+    CloseSessionTab(SessionTabId),
     ToggleReceiver,
     ToggleLayout,
     ShowTasks,
@@ -15,19 +19,17 @@ pub(crate) enum GlobalAction {
     ShowSyncStatus,
     OpenAgenda,
     ToggleDailyTriageAlert,
-    ShowMainBrainSession,
     RunSkillSession(SkillSessionKey),
-    ShowSkillSession(SkillSessionKey),
 }
 
 impl GlobalAction {
     pub(crate) const fn shortcut(self) -> Option<&'static str> {
         match self {
             Self::MessageBrain => Some("^M"),
-            Self::CloseBrain => Some("^X"),
             Self::ShowTasks => Some("^T"),
             Self::OpenAgenda => Some("^A"),
-            Self::ToggleReceiver
+            Self::StartManualSession
+            | Self::ToggleReceiver
             | Self::ToggleLayout
             | Self::ShowReceiverServerStatus
             | Self::ShowReceiverServerLogs
@@ -38,7 +40,8 @@ impl GlobalAction {
             | Self::ToggleDailyTriageAlert
             | Self::ShowMainBrainSession
             | Self::RunSkillSession(_)
-            | Self::ShowSkillSession(_) => None,
+            | Self::ShowSessionTab(_)
+            | Self::CloseSessionTab(_) => None,
         }
     }
 }

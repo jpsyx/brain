@@ -1,6 +1,6 @@
 use super::{
     PaletteCommand, PaletteScope, TaskAction, always, if_assignment_create, if_assignment_filter,
-    if_assignment_reassign, if_brain_open, if_has_links, if_has_notes, if_skill_session_open,
+    if_assignment_reassign, if_has_links, if_has_notes,
 };
 use crate::tui::action::GlobalAction;
 
@@ -46,22 +46,6 @@ pub(in crate::tui::palette) const PALETTE_COMMANDS: &[PaletteCommand] = &[
         scope: PaletteScope::Global,
         works_on_habits: false,
         is_visible: always,
-    },
-    PaletteCommand {
-        label: "Close brain",
-        action: TaskAction::Global(GlobalAction::CloseBrain),
-        scope: PaletteScope::Global,
-        works_on_habits: false,
-        is_visible: if_brain_open,
-    },
-    // The workspace's skill-session rows (start / focus) are spliced in around
-    // this row at build time; see `TaskPalette::rows`.
-    PaletteCommand {
-        label: "Show main brain session",
-        action: TaskAction::Global(GlobalAction::ShowMainBrainSession),
-        scope: PaletteScope::Global,
-        works_on_habits: false,
-        is_visible: if_skill_session_open,
     },
     PaletteCommand {
         // Label is overridden at render time from persistent workspace intent.

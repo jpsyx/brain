@@ -37,7 +37,7 @@ fn background_receiver_lifecycle_never_changes_view_visibility_tab_or_focus() {
     let before = visible_state(&app);
     assert_eq!(
         before,
-        (MainView::BrainSearch, false, BrainTab::Main, Panel::Tasks)
+        (MainView::BrainSearch, true, BrainTab::Main, Panel::Tasks)
     );
 
     let running = TransportRecording::default();
@@ -107,7 +107,7 @@ fn second_receiver_run_is_rejected_and_shut_down_without_moving_the_user() {
             receiver_controller(&app, &first_recording),
         )
         .expect("first receiver run");
-    let tabs_before = app.brain.ephemeral_tab_ids();
+    let tabs_before = app.brain.session_tab_ids();
 
     let rejected_recording = TransportRecording::default();
     rejected_recording.set_alive(true);
@@ -120,7 +120,7 @@ fn second_receiver_run_is_rejected_and_shut_down_without_moving_the_user() {
         )
         .expect_err("a workspace process may own only one receiver run");
 
-    assert_eq!(app.brain.ephemeral_tab_ids(), tabs_before);
+    assert_eq!(app.brain.session_tab_ids(), tabs_before);
     assert_eq!(app.brain.receiver_run_observations().len(), 1);
     assert_eq!(app.brain.receiver_run_observations()[0].id, first);
     assert_eq!(rejected_recording.shutdowns(), 1);
@@ -237,33 +237,75 @@ fn interleaved_receiver_tabs_use_the_same_order_for_strip_slots_and_cycles() {
 
 #[test]
 fn ctrl_x_on_a_receiver_tab_leaves_that_run_intact() {
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let cli = Cli::parse_from(["tasks"]);
-    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    let (main, _) = recording_controller(&app, true, "main");
-    app.brain.install_main(main);
-    let receiver_recording = TransportRecording::default();
-    receiver_recording.set_alive(true);
-    let controller = receiver_controller(&app, &receiver_recording);
-    let receiver = app
-        .brain
-        .add_receiver_run(
-            receiver_job_id("416432be-1f80-4c14-a1cd-a67990cba013"),
-            "Receiver · SMS".to_owned(),
-            "receiver-instance".to_owned(),
-            controller,
-        )
-        .expect("receiver tab");
-    assert!(app.select_brain_tab(BrainTab::Session(receiver)));
+    for kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, kind);
+        let (main, _) = recording_controller(&app, true, "main");
+        app.brain.install_main(main);
+        let receiver_recording = TransportRecording::default();
+        receiver_recording.set_alive(true);
+        let controller = receiver_controller(&app, &receiver_recording);
+        let receiver = app
+            .brain
+            .add_receiver_run(
+                receiver_job_id("416432be-1f80-4c14-a1cd-a67990cba013"),
+                "Receiver · SMS".to_owned(),
+                "receiver-instance".to_owned(),
+                controller,
+            )
+            .expect("receiver tab");
+        assert!(app.select_brain_tab(BrainTab::Session(receiver)));
 
-    let quit = crate::tui::event_loop::update_application(
-        &mut app,
-        &Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)),
-    );
+        let quit = crate::tui::event_loop::update_application(
+            &mut app,
+            &Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+        );
 
-    assert!(!quit);
-    assert_eq!(app.effective_brain_tab(), BrainTab::Session(receiver));
-    assert_eq!(app.brain.receiver_run_observations().len(), 1);
-    assert!(app.brain.receiver_run_controller(receiver).is_some());
-    assert_eq!(receiver_recording.shutdowns(), 0);
+        assert!(!quit);
+        assert_eq!(app.effective_brain_tab(), BrainTab::Session(receiver));
+        assert_eq!(app.brain.receiver_run_observations().len(), 1);
+        assert!(app.brain.receiver_run_controller(receiver).is_some());
+        assert_eq!(receiver_recording.shutdowns(), 0);
+    }
+}
+
+#[test]
+fn receiver_input_does_not_mark_a_manual_session_active() {
+    for kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().unwrap();
+        let cli = Cli::parse_from(["tasks"]);
+        let mut app = test_app(&temporary, &cli, kind);
+        let main = TransportRecording::default();
+        app.brain.replace_brain_transport(main.transport());
+        assert!(app.open_or_focus_brain(None));
+        let scope = app.manual_session_scope();
+        let record = app.services.manual_sessions(&scope).unwrap().remove(0);
+        SessionStore::mark_completed(&app.services, &record.agent_session, &scope).unwrap();
+        let recording = TransportRecording::default();
+        recording.set_alive(true);
+        let id = app
+            .brain
+            .add_receiver_run(
+                receiver_job_id("416432be-1f80-4c14-a1cd-a67990cba013"),
+                "Receiver · SMS".to_owned(),
+                "receiver-instance".to_owned(),
+                receiver_controller(&app, &recording),
+            )
+            .unwrap();
+        app.select_brain_tab(BrainTab::Session(id));
+
+        crate::tui::event_loop::update_application(
+            &mut app,
+            &Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        );
+
+        assert_eq!(
+            SessionStore::completion_status(&app.services, &record.agent_session, &scope),
+            Some(crate::agent::CompletionStatus::Completed)
+        );
+        assert!(!app.brain.turn_active());
+        assert!(main.inputs().is_empty());
+        assert!(!recording.inputs().is_empty());
+    }
 }

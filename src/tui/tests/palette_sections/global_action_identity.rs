@@ -1,6 +1,6 @@
 #[test]
 fn application_rows_use_the_global_action_identity() {
-    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None);
     let actions = action_order(&state);
 
     assert!(actions.contains(&TaskAction::Global(GlobalAction::OpenHabits)));

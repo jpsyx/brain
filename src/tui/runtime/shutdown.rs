@@ -22,7 +22,7 @@ pub(super) enum ShutdownStage {
     ShutdownAgentControllers,
     StopPeriodicPuller,
     StopWatcher,
-    ReleaseSessionLock,
+    ReleaseSessionLocks,
     RestoreTerminal,
 }
 
@@ -32,7 +32,7 @@ const SHUTDOWN_ORDER: [ShutdownStage; 7] = [
     ShutdownStage::ShutdownAgentControllers,
     ShutdownStage::StopPeriodicPuller,
     ShutdownStage::StopWatcher,
-    ShutdownStage::ReleaseSessionLock,
+    ShutdownStage::ReleaseSessionLocks,
     ShutdownStage::RestoreTerminal,
 ];
 
@@ -199,7 +199,7 @@ mod tests {
                 ShutdownStage::ShutdownAgentControllers,
                 ShutdownStage::StopPeriodicPuller,
                 ShutdownStage::StopWatcher,
-                ShutdownStage::ReleaseSessionLock,
+                ShutdownStage::ReleaseSessionLocks,
                 ShutdownStage::RestoreTerminal,
             ]
         );

@@ -5,9 +5,19 @@ use crate::tasks::task::AssignmentUser;
 use crate::tui::links::Link;
 use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmChoice, ConfirmIntent, ConfirmKind, ConfirmState,
-    LinkPickerState,
+    LinkPickerState, ManualSessionNameState,
 };
 use crate::users::UserId;
+
+impl ManualSessionNameState {
+    pub(crate) fn buffer(&self) -> &str {
+        &self.buffer
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
 
 impl ConfirmState {
     pub(crate) fn mark_complete(task_id: String, task_label: String) -> Self {

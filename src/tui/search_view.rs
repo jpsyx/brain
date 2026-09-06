@@ -79,8 +79,9 @@ pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> b
         SearchEffect::OpenPalette => {
             app.refresh_receiver_enabled();
             let palette = app.shell.search_palette(
-                app.brain.main_controller().is_none(),
                 app.receiver.is_enabled(),
+                app.runnable_skill_session_rows(),
+                app.brain.user_session_rows(),
             );
             open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
@@ -128,6 +129,7 @@ pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
         Some(
             Overlay::TaskPalette(_)
             | Overlay::BrainInput(_)
+            | Overlay::ManualSessionName(_)
             | Overlay::TaskConfirmation(_)
             | Overlay::SearchPalette(_)
             | Overlay::LinkPicker(_)

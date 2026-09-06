@@ -1,5 +1,4 @@
 use super::super::*;
-use super::FailingSessionStore;
 
 pub(crate) fn live_panel(root: &Path) -> PtyPane {
     PtyPane::spawn_shell_command_with_env("cat", &[], root, 24, 80).expect("spawn panel")
@@ -20,60 +19,6 @@ pub(crate) fn panel_controller_for_actor(
         actor,
         Box::new(panel),
     )
-}
-
-impl SessionStore for FailingSessionStore {
-    fn reap_dead_locks(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn sessions_by_recency(&self, _scope: &SessionScope) -> Vec<String> {
-        Vec::new()
-    }
-
-    fn claim(
-        &self,
-        _session: &AgentSession,
-        _instance: &str,
-        _pid: i32,
-        _scope: &SessionScope,
-    ) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    fn register(
-        &self,
-        _session: &AgentSession,
-        _instance: &str,
-        _pid: i32,
-        _scope: &SessionScope,
-    ) -> anyhow::Result<()> {
-        anyhow::bail!("authorization store unavailable")
-    }
-
-    fn release(&self, _instance: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn mark_active(&self, _instance: &str, _scope: &SessionScope) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    fn mark_completed(
-        &self,
-        _session: &AgentSession,
-        _scope: &SessionScope,
-    ) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    fn completion_status(
-        &self,
-        _session: &AgentSession,
-        _scope: &SessionScope,
-    ) -> Option<crate::agent::CompletionStatus> {
-        None
-    }
 }
 
 pub(crate) fn capture_panel(root: &Path) -> PtyPane {

@@ -5,7 +5,7 @@
 
 use crate::state::PanelSide;
 use crate::tui::action::GlobalAction;
-use crate::tui::palette::PaletteRow;
+use crate::tui::palette::{PaletteRow, SessionPaletteEntry, session_actions};
 
 use super::labels::{create_pdf_label, delete_label, open_dir_label, open_file_label};
 
@@ -72,6 +72,8 @@ pub const fn layout_choice_label(side: PanelSide) -> &'static str {
 /// site unambiguous.
 #[derive(Debug, Default, Clone)]
 pub struct Targets {
+    pub(crate) runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
+    pub(crate) user_sessions: Vec<SessionPaletteEntry>,
     /// Persistent receiver intent when this palette belongs to a live TUI.
     /// `None` omits the action from context-free picker uses.
     pub receiver_enabled: Option<bool>,
@@ -87,10 +89,8 @@ pub struct Targets {
 
 /// The full ordered row list for a given panel side: the static rows plus
 /// the dynamically-labeled layout toggle at the end. `include_msg` controls
-/// whether the "Message brain" row is offered — the persistent shell hides
-/// it while the brain panel is already open (there's nothing to open), and
-/// shows it (to re-open the panel) once it's closed. The one-shot picker
-/// always includes it.
+/// whether the "Message brain" row is offered. The persistent shell always
+/// includes it so Main can be selected from either main view.
 pub(crate) fn items(
     side: PanelSide,
     include_msg: bool,
@@ -113,10 +113,17 @@ pub(crate) fn items(
     if let Some(rel_dir) = &targets.open_dir {
         push_row(&mut rows, SearchAction::OpenDir, open_dir_label(rel_dir));
     }
-    for (action, label) in STATIC_ITEMS.iter().filter(|(action, _)| {
-        include_msg || *action != SearchAction::Global(GlobalAction::MessageBrain)
-    }) {
-        push_row(&mut rows, *action, (*label).to_owned());
+    for (action, label) in STATIC_ITEMS {
+        if include_msg || *action != SearchAction::Global(GlobalAction::MessageBrain) {
+            push_row(&mut rows, *action, (*label).to_owned());
+        }
+        if *action == SearchAction::Global(GlobalAction::MessageBrain) {
+            for (label, action) in
+                session_actions(&targets.runnable_skill_sessions, &targets.user_sessions)
+            {
+                push_row(&mut rows, SearchAction::Global(action), label);
+            }
+        }
     }
     if let Some(enabled) = targets.receiver_enabled {
         push_row(

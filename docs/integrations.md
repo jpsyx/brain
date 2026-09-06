@@ -140,12 +140,18 @@ Finder/editor for files, `markdown-to-pdf` for conversions).
 
 ## The Brain Panel: Claude, Codex, Or OpenCode
 
-The persistent shell's `BrainPanelState` owns the main, skill-session, and
+The persistent shell's `BrainPanelState` owns the main, Additional manual, skill-session, and
 receiver-run `AgentController`s. The App mediator assembles launch context, while each
 controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
 `BrainPanelState` derives the completion actor from the controller at install
 time; callers cannot supply a second actor that disagrees with the controller
 used for launch and completion validation.
+
+Both main-view palettes start named manual sessions through the captive naming
+modal and `App::start_manual_session`. The validated title reaches the same
+frontend-neutral launch path for Claude, Codex, and OpenCode. Paired Show/Close
+actions carry stable runtime tab IDs; a Close action is accepted only for
+manual or skill metadata, never for Main or a receiver run.
 
 ```text
 TuiRuntime
@@ -581,10 +587,13 @@ deliberate differences from the main panel:
 `server/routes/session/`), an unauthenticated localhost-only endpoint consistent
 with the ingress-scoped habits completion route.
 
-### Shared ephemeral-tab storage for receiver runs
+### Shared additional-session storage
 
-`BrainPanelState` stores skill sessions and receiver runs in one ordered
-ephemeral collection, but the metadata variants remain distinct. A skill entry
+`BrainPanelState` stores Additional manual sessions, skill sessions, and
+receiver runs in one ordered `SessionTabs` collection, with distinct
+`SessionTabKind` metadata. A Manual entry owns its durable `ManualSessionId`
+and startup/resume state. Main remains a separate permanent controller slot.
+A skill entry
 owns its configured key and completion token. A receiver entry owns its durable
 `ReceiverJobId` and remote instance identity. It does not borrow a
 `SkillSessionKey`, completion token, or configured-skill semantics.
@@ -598,10 +607,10 @@ The `BrainPanelState` receiver API performs insertion, observation, controller
 access, and removal without touching `ShellState`; therefore background
 operations preserve the current main view, effective tab, panel visibility, and
 keyboard focus.
-Receiver-only storage does not reveal a hidden panel. Durable FIFO claiming,
+The panel is permanent, including when Main is unavailable. Durable FIFO claiming,
 launch registration, rollback, renewal, and exact terminal cleanup remain
 behind narrow `AppServices` operations. Background launch and close never
-select a tab, reveal the panel, switch the main view, or move keyboard focus.
+select a tab, switch the main view, or move keyboard focus.
 
 ## Shared-server process lifecycle
 
@@ -695,7 +704,7 @@ protocol fence pinned to that live generation, waits only inside the bounded
 startup handshake, and never enters election while that generation remains
 live. It either continues election after the old generation exits or reports
 that every Brain TUI must be closed and restarted. It sends no legacy
-registration and changes no lease state. Registration supplies the TUI-resolved root only for an ephemeral,
+registration and changes no lease state. Registration supplies the TUI-resolved root only for a transient,
 normalized comparison. The process reloads the machine registry, requires the
 exact canonical name and workspace UUID, reopens that record's portable
 manifest, and verifies its workspace and ingress UUIDs. It then requires a
@@ -849,16 +858,18 @@ the tab.
 
 ## Agent sessions: lifecycle bridges and state DB
 
-Which session to run is decided by the **lock + recency** model in
+Which session to run is decided by **saved manual mappings and scoped locks** in
 `state/` (DB at `<workspace-cache>/state.db`, WAL):
 
 1. At ordinary command bootstrap brain resolves the local actor once. TUI
    startup first acquires the workspace singleton, then refreshes every
    registry-declared lifecycle artifact before opening or migrating the state DB,
-   reaps locks held by dead
-   PIDs, then walks `sessions_by_recency()` within the exact
-   frontend/workspace/actor/channel scope
-   and asks the selected adapter to validate each candidate. Claude requires
+   reaps locks held by dead PIDs, and loads ordered manual-session mappings in
+   the exact frontend/workspace/actor/interactive scope. Main launches first,
+   then Additional mappings in position order. A saved mapping can resume only
+   its exact native ID. Main without a saved mapping walks
+   `sessions_by_recency()` once, excluding IDs mapped to Additional sessions.
+   The selected adapter validates each candidate. Claude requires
    `~/.claude/projects/<mangled selected-root>/<id>.jsonl` (its project-dir
    rule plus a fallback scan) to hold **at least one real turn** — a
    `user` or `assistant` record, not just the `ai-title` / `agent-name`
@@ -880,15 +891,26 @@ Which session to run is decided by the **lock + recency** model in
    *"couldn't find a session to resume; starting a new brain chat"*. Should a
    frontend refuse a resume brain believed was good, the agent quits on arrival;
    brain retires that id for the run, opens a fresh session in its place, and
-   says *"couldn't resume your last conversation; started a new brain chat"* —
-   the user is never left with a dead panel. That relaunch is available once per
-   run, so a panel dying repeatedly (a missing or broken agent command) closes
-   normally instead of respawning on every tick.
+   says *"couldn't resume your last conversation; started a new brain chat"*.
+   Missing evidence or refusal replaces the native ID without changing the
+   manual identity, title, saved position, or live tab ID. A normal Additional
+   exit closes its mapping; a normal Main exit relaunches in place. Fresh and
+   resumed generations share one startup guard: only a live observation after
+   the five-second grace period establishes the conversation. Merely observing
+   a dead child late does not establish it. An early resumed exit gets one
+   fresh generation with its own guard; an early fresh exit preserves the
+   mapping and releases its lock without repeated launches. Main stays visible
+   with an unavailable status after synchronous or asynchronous startup failure.
 2. brain passes the selected workspace's `BRAIN_WORKSPACE_ID`,
    `BRAIN_WORKSPACE`, `BRAIN_ROOT`, `BRAIN_ACTOR_ID`, `BRAIN_CHANNEL`, and
    `BRAIN_AGENT_KIND` plus
    `BRAIN_INSTANCE_ID` / `BRAIN_PID` / `BRAIN_STATE_DB` /
    `BRAIN_RESPONSE_DIR` / `BRAIN_RESPONSE_ID` into the child environment.
+   Manual panels use their durable `ManualSessionId` as `BRAIN_INSTANCE_ID`.
+   Capability resolution and response identity precede lock acquisition; exact
+   registration or claim precedes process spawn. A synchronous fresh Additional
+   spawn failure atomically rolls back its mapping and fresh native row, while
+   a failed restored launch retains its mapping and releases its exact lock.
    Live panels carry these as `LaunchRequest::HookMetadata`; the selected
    adapter combines them with trusted workspace identity. `session::env_for`
    remains a compatibility helper for pure callers and tests. Local work uses
@@ -954,7 +976,13 @@ Which session to run is decided by the **lock + recency** model in
    any common workspace identity or required session attribution variable
    absent, the hook is a no-op. Authorization reads, target ownership checks,
    the accepted upsert, and prior-session release run inside one
-   `BEGIN IMMEDIATE` transaction. Concurrent rotations therefore serialize
+   `BEGIN IMMEDIATE` transaction. When the `manual_sessions` table exists, the
+   same transaction updates only the row matching `BRAIN_INSTANCE_ID` and the
+   exact frontend/workspace/actor/channel scope to the accepted native ID.
+   Manual titles, roles, and positions do not change. A missing table is a
+   supported older-database case; rejected, child, or untracked events never
+   update a mapping. Claude and Codex hooks and the OpenCode plugin all enter
+   this same rotation boundary. Concurrent rotations therefore serialize
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
@@ -1180,9 +1208,10 @@ Which session to run is decided by the **lock + recency** model in
    claim-release loop. A provider acknowledgement whose durable result commit is
    lost retains the IO marker, so lease expiry and reopen use Resend replay or
    Twilio ambiguity without returning to agent work.
-5. When the panel closes (the agent exits) or the shell quits, brain `release`s
-   its lock, floating that session to the top of the resume queue — so
-   "Message brain" (`Ctrl-M`) re-opens it, and a fresh startup resumes it.
+5. Shell shutdown stops every controller, then releases each mapped manual
+   session's exact native lock in its immutable scope. Mappings survive for
+   ordered restoration. Closing an Additional manual session releases only its
+   exact lock and removes its mapping; Main has no user-close operation.
 
 **Durable receiver conversations are separate from interactive session
 selection.** `state::receiver` persists one logical conversation for the exact

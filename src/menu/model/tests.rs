@@ -5,6 +5,51 @@ fn rows() -> Vec<PaletteRow<SearchAction>> {
 }
 
 #[test]
+fn start_and_configured_run_rows_precede_stable_session_show_and_close_rows() {
+    use crate::skill_session::SkillSessionKey;
+    use crate::tui::action::SessionTabId;
+    use crate::tui::palette::SessionPaletteEntry;
+    let rows = items(
+        PanelSide::Right,
+        true,
+        &Targets {
+            runnable_skill_sessions: vec![(SkillSessionKey::Custom(3), "Run review".into())],
+            user_sessions: vec![SessionPaletteEntry::new(SessionTabId(9), "Atlas")],
+            ..Targets::default()
+        },
+    );
+    let expected = [
+        ("Message brain", GlobalAction::MessageBrain),
+        ("Start new brain session", GlobalAction::StartManualSession),
+        (
+            "Run review",
+            GlobalAction::RunSkillSession(SkillSessionKey::Custom(3)),
+        ),
+        (
+            "Show main brain session",
+            GlobalAction::ShowMainBrainSession,
+        ),
+        (
+            "Show Atlas session",
+            GlobalAction::ShowSessionTab(SessionTabId(9)),
+        ),
+        (
+            "Close Atlas session",
+            GlobalAction::CloseSessionTab(SessionTabId(9)),
+        ),
+    ];
+    for (row, (label, action)) in rows.iter().zip(expected) {
+        assert_eq!(row.label, label);
+        assert_eq!(row.action, SearchAction::Global(action));
+    }
+    assert!(
+        !items(PanelSide::Right, true, &Targets::default())
+            .iter()
+            .any(|row| row.action == SearchAction::Global(GlobalAction::ShowMainBrainSession))
+    );
+}
+
+#[test]
 fn receiver_toggle_uses_persistent_intent_in_the_search_palette() {
     let enabled = items(
         PanelSide::Right,
@@ -42,9 +87,8 @@ fn pdf_target(name: &str) -> Targets {
 }
 
 #[test]
-fn message_brain_is_hidden_when_the_panel_is_open() {
-    // include_msg = false → the brain panel is already open, so the
-    // "Message brain" row is dropped (you can't re-open what's open).
+fn context_free_palette_can_omit_message_brain_when_requested() {
+    // The live shell always includes Message brain; context-free callers may omit it.
     let closed = items(PanelSide::Right, true, &Targets::default());
     let open = items(PanelSide::Right, false, &Targets::default());
     assert!(
@@ -134,6 +178,7 @@ fn contextual_rows_order_pdf_then_open_file_then_open_dir() {
             open_file: Some("plan.md".to_owned()),
             open_dir: Some("projects/foo".to_owned()),
             delete: Some("plan.md".to_owned()),
+            ..Targets::default()
         },
     );
     assert_eq!(all[0].action, SearchAction::CreatePdf);
@@ -186,6 +231,7 @@ fn menu_rows_are_in_the_expected_order() {
         order,
         vec![
             SearchAction::Global(GlobalAction::MessageBrain),
+            SearchAction::Global(GlobalAction::StartManualSession),
             SearchAction::Global(GlobalAction::ShowTasks),
             SearchAction::SearchProjects,
             SearchAction::SearchAreas,
@@ -231,6 +277,7 @@ fn every_choice_appears_exactly_once() {
     // checked separately below; the rest must always appear exactly once.
     let all = [
         SearchAction::Global(GlobalAction::MessageBrain),
+        SearchAction::Global(GlobalAction::StartManualSession),
         SearchAction::Global(GlobalAction::ShowTasks),
         SearchAction::SearchProjects,
         SearchAction::SearchAreas,
@@ -289,7 +336,7 @@ fn shared_catalog_rows_use_one_global_action_identity_and_metadata() {
             ..Targets::default()
         },
     );
-    let tasks = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let tasks = TaskPalette::new(None, false, false, false, LinkKind::None);
     let task_rows = tasks.rows();
     let cases = [
         (

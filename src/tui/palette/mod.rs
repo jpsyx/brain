@@ -5,13 +5,16 @@
 
 mod command;
 mod model;
+mod sessions;
 mod state;
 
 #[cfg(test)]
 mod model_tests;
 
+pub(crate) use crate::tui::state::SessionPaletteEntry;
 pub(crate) use command::TaskAction;
 pub(crate) use model::{CommandPalette, PaletteControls, PaletteRow, PaletteStep};
+pub(crate) use sessions::session_actions;
 
 #[cfg(test)]
 pub(crate) use command::shortcut_for;

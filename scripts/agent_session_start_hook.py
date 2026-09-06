@@ -4,9 +4,9 @@
 Wired into `<brain-root>/.claude/settings.json` so it fires whenever a Claude
 session in that selected workspace starts, resumes, clears (`/new` /
 `/clear`), or compacts. It records the *current* session id for the launching
-`brain` shell so the next launch of that workspace can resume the right
+tracked controller lineage so the next launch of that workspace can resume the right
 conversation, including a fresh session created mid-run by `/new`. It never
-creates a session for an unregistered shell lineage.
+creates a session for an unregistered controller lineage.
 
 `brain` passes the common child-integration identity variables:
 
@@ -19,7 +19,8 @@ creates a session for an unregistered shell lineage.
 
 The agent session extends that environment with:
 
-  BRAIN_INSTANCE_ID — the brain shell's lineage id (one per running shell)
+  BRAIN_INSTANCE_ID: one tracked controller lineage (a stable manual-session ID
+                     for each manual session, or an isolated receiver instance)
   BRAIN_PID         — the brain shell's PID (the session's lock owner)
   BRAIN_STATE_DB    — selected workspace's UUID-scoped SQLite state DB
   BRAIN_RESPONSE_DIR — selected workspace's UUID-scoped response directory
@@ -181,6 +182,22 @@ def main() -> None:
                 now,
             ),
         )
+        # Older databases can still receive events from an installed newer hook.
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manual_sessions'"
+        ).fetchone():
+            conn.execute(
+                """
+                UPDATE manual_sessions
+                SET agent_session_id = ?
+                WHERE manual_session_id = ?
+                  AND agent_kind = ?
+                  AND workspace_id = ?
+                  AND actor_id = ?
+                  AND channel = ?;
+                """,
+                (session_id, instance, *scope),
+            )
         # Exactly one current session per instance: free the others so a
         # /new (which may rotate the id) leaves the prior one resumable.
         conn.execute(

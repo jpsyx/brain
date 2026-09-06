@@ -74,8 +74,6 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             false,
             false,
             crate::tui::links::LinkKind::None,
-            false,
-            false,
         ),
     ));
     for character in "enable receiver".chars() {
@@ -99,7 +97,8 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             fail: true,
         }));
     app.overlay = Some(crate::tui::overlay::Overlay::SearchPalette(
-        app.shell.search_palette(false, app.receiver.is_enabled()),
+        app.shell
+            .search_palette(app.receiver.is_enabled(), Vec::new(), Vec::new()),
     ));
     for character in "disable receiver".chars() {
         crate::tui::search_view::route_search_palette(

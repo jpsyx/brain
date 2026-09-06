@@ -56,6 +56,7 @@ fn v9_down_maps_every_ambiguous_or_postspawn_lifecycle_to_old_nonclaimable_state
             .collect::<Vec<_>>()
     };
 
+    stage_receiver_v11(&path);
     super::super::schema::down_unavailable_notice_path(&path)
         .expect("downgrade receiver notice lease");
     super::super::schema::down_recovery_to_observation_path(&path)
@@ -162,6 +163,7 @@ fn v10_down_preserves_ordinary_v9_work_but_terminalizes_recovery_attempts() {
         )
     };
 
+    stage_receiver_v11(&path);
     super::super::schema::down_unavailable_notice_path(&path)
         .expect("downgrade receiver notice lease");
     super::super::schema::down_recovery_to_observation_path(&path)

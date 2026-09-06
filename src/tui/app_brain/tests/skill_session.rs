@@ -203,7 +203,7 @@ fn opencode_triage_completion_cleans_up_the_ephemeral_transport_and_signal_once(
 
     assert!(!app.brain.has_skill_session(SkillSessionKey::DailyTriage));
     assert_eq!(app.effective_brain_tab(), BrainTab::Main);
-    assert_eq!(app.shell.focus(), Panel::Tasks);
+    assert_eq!(app.shell.focus(), Panel::Brain);
     assert_eq!(recording.shutdowns(), 1);
     assert!(crate::skill_session::signal::read_signal(app.context.workspace(), &token).is_none());
 }

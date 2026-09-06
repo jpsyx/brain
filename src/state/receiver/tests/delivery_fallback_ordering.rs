@@ -348,6 +348,7 @@ fn reversed_fallback_rows_restore_done_across_down_and_reupgrade_for_every_sourc
         assert_reversed_fallback_audit(&fixture.db, job_id, source_kind);
         drop(fixture);
 
+        crate::state::manual_session_schema_down(&path).expect("stage exact v13 state");
         super::super::schema::down_delivery_path(&path)
             .expect("downgrade reversed fallback state");
         let downgraded = rusqlite::Connection::open(&path).expect("reopen v11 state");

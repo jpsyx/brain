@@ -116,6 +116,8 @@ pub(super) fn test_app_with_instance(
     );
     let assignment = AssignmentContext::legacy(&context.actor);
     let db = Db::open(&context.workspace).expect("state db");
+    let scope = SessionScope::new(agent_kind, context.workspace.id(), context.actor.clone());
+    let manual_sessions = db.manual_sessions(&scope).expect("manual sessions");
     App::new(AppInit {
         command_context: context,
         view,
@@ -136,6 +138,7 @@ pub(super) fn test_app_with_instance(
         },
         agent_kind,
         instance: instance.to_owned(),
+        manual_sessions,
         db,
         search: crate::picker::App::new(&[], ""),
         panel_side: PanelSide::Right,
@@ -292,7 +295,7 @@ pub(super) fn assert_workspace_only_launch_spec(
     );
 }
 
-fn environment_value<'a>(spec: &'a LaunchSpec, name: &str) -> &'a str {
+pub(super) fn environment_value<'a>(spec: &'a LaunchSpec, name: &str) -> &'a str {
     spec.environment
         .iter()
         .find(|(candidate, _)| candidate == name)
@@ -301,5 +304,3 @@ fn environment_value<'a>(spec: &'a LaunchSpec, name: &str) -> &'a str {
             |(_, value)| value.as_str(),
         )
 }
-
-pub(super) struct FailingSessionStore;

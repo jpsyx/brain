@@ -16,14 +16,12 @@
 //! whose token arrives. See [`crate::skill_session`].
 
 use crate::tui::App;
-use crate::tui::model::BrainTab;
 
 mod lifecycle;
 
 use crate::skill_session::{SkillSessionKey, SkillSessionSpec};
 
-/// One palette row group: a skill session's identity paired with the text the
-/// row shows (its `command_label` when starting, its tab `title` when focusing).
+/// A runnable skill session's configuration identity and command label.
 pub(crate) type SkillSessionRows = Vec<(SkillSessionKey, String)>;
 
 impl App {
@@ -37,25 +35,13 @@ impl App {
         )
     }
 
-    /// The palette's two skill-session row groups: the sessions that can be
-    /// started now (`command_label` each) and the tabs already open (`title`
-    /// each).
-    pub(crate) fn skill_session_palette_rows(&self) -> (SkillSessionRows, SkillSessionRows) {
+    /// Configured skill-session starts, excluding every currently running skill.
+    pub(crate) fn runnable_skill_session_rows(&self) -> SkillSessionRows {
         let available = self.available_skill_sessions();
         let running = self.brain.running_skill_session_keys();
-        let runnable = crate::skill_session::runnable(&available, &running)
+        crate::skill_session::runnable(&available, &running)
             .into_iter()
             .map(|spec| (spec.key, spec.command_label.clone()))
-            .collect();
-        let open = self.brain.skill_session_rows();
-        (runnable, open)
-    }
-
-    /// Focus a running skill session by definition (the palette's counterpart to
-    /// its `Alt+<n>`). No-op when that session isn't open.
-    pub(crate) fn select_skill_session(&mut self, key: SkillSessionKey) {
-        if let Some(id) = self.brain.skill_session_id(key) {
-            self.select_brain_tab(BrainTab::Session(id));
-        }
+            .collect()
     }
 }

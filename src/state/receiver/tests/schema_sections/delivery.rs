@@ -332,7 +332,7 @@ fn v12_schema_creates_the_content_outbox_without_credential_columns() {
         )
         .expect("answer cleanup schema");
 
-    assert_eq!(version, 13);
+    assert_eq!(version, 14);
     for column in [
         "delivery_id",
         "job_id",
@@ -701,6 +701,7 @@ fn v12_down_preserves_transcripts_and_maps_acknowledged_and_unacknowledged_jobs(
         )
     };
 
+    stage_receiver_v12(&path);
     super::super::schema::down_delivery_path(&path).expect("downgrade delivery outbox");
 
     let connection = rusqlite::Connection::open(path).expect("downgraded state");
@@ -759,7 +760,7 @@ fn v12_down_keeps_the_outbox_when_the_v11_shape_is_not_valid() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let path = temporary.path().join("state.db");
     drop(Db::open_path(&path).expect("receiver state"));
-    super::super::schema::down_cutover_path(&path).expect("stage v12 receiver state");
+    stage_receiver_v12(&path);
     rusqlite::Connection::open(&path)
         .expect("v12 receiver state")
         .execute_batch("ALTER TABLE receiver_jobs DROP COLUMN unavailable_notice_owner;")

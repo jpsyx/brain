@@ -8,8 +8,7 @@ use crate::tui::modal_state::TaskPalette;
 /// A per-command visibility predicate: given the current palette state (a
 /// snapshot of the TUI state relevant to the palette), decide whether the
 /// command should appear. This is where each command's *conditional* visibility
-/// lives (e.g. "Close brain" only with a panel open, the triage-tab switches
-/// only while a triage session runs), on top of the structural `scope` /
+/// lives (e.g. notes actions only when a task has notes), on top of the structural `scope` /
 /// `works_on_habits` gates. Plain `fn` pointers so the table stays `const`.
 pub(super) type VisibleWhen = fn(&TaskPalette) -> bool;
 
@@ -39,17 +38,6 @@ pub(crate) struct PaletteCommand {
 /// Always visible (subject only to the structural scope gate).
 fn always(_: &TaskPalette) -> bool {
     true
-}
-
-/// Visible only while the main brain panel is open.
-fn if_brain_open(s: &TaskPalette) -> bool {
-    s.brain_open
-}
-
-/// Visible only while at least one skill-session tab is open — there is nothing
-/// to switch back *from* otherwise.
-fn if_skill_session_open(s: &TaskPalette) -> bool {
-    !s.open_skill_sessions.is_empty()
 }
 
 /// Visible only when the in-context entry has notes to expand/collapse.

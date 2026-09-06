@@ -26,7 +26,11 @@ impl App {
             GlobalAction::MessageBrain => {
                 self.open_or_focus_brain(None);
             }
-            GlobalAction::CloseBrain => self.close_brain(),
+            GlobalAction::StartManualSession => self.open_manual_session_name_modal(),
+            GlobalAction::ShowSessionTab(id) => {
+                self.select_brain_tab(BrainTab::Session(id));
+            }
+            GlobalAction::CloseSessionTab(id) => self.close_user_session(id),
             GlobalAction::ToggleReceiver => self.toggle_receiver(),
             GlobalAction::ToggleLayout => {
                 self.shell.toggle_panel_side();
@@ -70,7 +74,6 @@ impl App {
                 self.select_brain_tab(BrainTab::Main);
             }
             GlobalAction::RunSkillSession(key) => self.run_skill_session(key),
-            GlobalAction::ShowSkillSession(key) => self.select_skill_session(key),
         }
     }
 
@@ -213,6 +216,7 @@ impl App {
                 Overlay::LinkPicker(picker) => picker.selected_url(),
                 Overlay::TaskPalette(_)
                 | Overlay::BrainInput(_)
+                | Overlay::ManualSessionName(_)
                 | Overlay::TaskConfirmation(_)
                 | Overlay::SearchPalette(_)
                 | Overlay::SearchConfirmation(_)

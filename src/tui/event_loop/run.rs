@@ -13,7 +13,7 @@ use crate::tui::App;
 use crate::tui::action::GlobalAction;
 use crate::tui::handlers::{
     TaskSearchEffect, handle_brain_key, handle_logs_key, handle_mouse, handle_normal_key,
-    handle_search_key, handle_skill_session_key,
+    handle_search_key, handle_session_tab_key,
 };
 use crate::tui::keymap::{
     alt_cycles_brain_tab, alt_scroll_direction, alt_selects_brain_tab_slot,
@@ -115,17 +115,14 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
         return false;
     }
 
-    // Ctrl+X closes the brain panel (and ends its agent session) from
-    // either panel. Intercepted before forwarding so it works even while
-    // the brain panel is focused. No-op when no panel is open. 0x18, so
-    // no kitty-protocol dependency. On a skill-session tab it closes only
-    // that ephemeral session, leaving the main session untouched.
+    if main_view::esc_dismisses_error(k.code) && app.status.dismiss_error() {
+        return false;
+    }
+
+    // Ctrl+X closes the active user-owned additional tab from either panel.
+    // Main and lifecycle-owned receiver tabs ignore this chord.
     if ctrl && matches!(k.code, KeyCode::Char('x' | 'X')) && app.brain.any_panel_visible() {
-        if matches!(app.effective_brain_tab(), BrainTab::Session(_)) {
-            app.close_active_skill_session();
-        } else {
-            app.execute_global_action(GlobalAction::CloseBrain);
-        }
+        app.close_active_user_session();
         return false;
     }
 
@@ -166,8 +163,8 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
             _ => {}
         }
     }
-    // Alt+1 selects the main brain session and Alt+<n> the nth open skill
-    // session, focusing the panel from either side. Handled before the
+    // Alt+1 selects Main and Alt+<n> the corresponding additional tab,
+    // focusing the panel from either side. Handled before the
     // panel-key dispatch so they work while the brain panel is focused
     // (where a bare digit types into the agent). A digit with no tab behind
     // it is a no-op. Some macOS layouts surface the Option glyph instead of
@@ -234,20 +231,13 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
             let has_notes = app.tasks.current_has_notes();
             let notes_expanded = app.tasks.current_notes_expanded();
             let link_kind = app.tasks.selected_link_kind(&app.context.linear_base_url());
-            TaskPalette::new(
-                task_id,
-                is_habit,
-                has_notes,
-                notes_expanded,
-                link_kind,
-                app.brain.main_controller().is_some(),
-                app.context.log_path().is_some(),
-            )
-            .with_assignment_mode(app.tasks.assignment_snapshot().mode)
+            TaskPalette::new(task_id, is_habit, has_notes, notes_expanded, link_kind)
+                .with_assignment_mode(app.tasks.assignment_snapshot().mode)
         };
         let receiver_enabled = app.receiver.is_enabled();
         let daily_triage_alert_disabled = app.status.daily_triage_check_disabled();
-        let (runnable_sessions, open_sessions) = app.skill_session_palette_rows();
+        let runnable_sessions = app.runnable_skill_session_rows();
+        let open_sessions = app.brain.user_session_rows();
         let palette = palette.with_runtime_context(
             receiver_enabled,
             daily_triage_alert_disabled,
@@ -312,11 +302,11 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     }
 
     match app.shell.focus() {
-        // The brain panel routes to whichever tab is active: an ephemeral
-        // skill session gets a plain forwarder; the main session keeps the
+        // The brain panel routes to whichever tab is active: an additional
+        // session gets a plain forwarder; the main session keeps the
         // receiver/turn-aware handler.
         Panel::Brain => match app.effective_brain_tab() {
-            BrainTab::Session(_) => handle_skill_session_key(app, &k, ctrl),
+            BrainTab::Session(_) => handle_session_tab_key(app, &k, ctrl),
             BrainTab::Main => handle_brain_key(app, &k, ctrl),
         },
         // The main panel routes to whichever main view is showing. The

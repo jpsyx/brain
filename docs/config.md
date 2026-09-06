@@ -312,9 +312,16 @@ workspace.
 | `codex_cmd` | workspace record | `codex` | Base command that launches the brain panel's Codex frontend on **this machine**. Brain appends `--dangerously-bypass-hook-trust` for its vetted workspace lifecycle hooks. It uses `resume <id>` when the exact session rollout remains on disk and starts fresh when that rollout is missing. Blank falls back to `codex`. |
 | `opencode_cmd` | workspace record | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
 | `default_agent_frontend` | workspace record | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
-| `skill_sessions` | workspace record | *(unset → daily triage only)* | The **skill sessions** this machine offers in the tasks-view command palette: a JSON array of `{title, prompt, command_label}`. Each runs its prompt in its own brain-panel tab and closes when the run signals completion; while it runs, its palette row disappears. `prompt` is required, `title` defaults to it, `command_label` defaults to `Run <title>`. Daily triage is **builtin** (offered while `enable_daily_triage_check` is on) and is neither listed nor removable here. Machine-local because a definition names a skill that must actually be installed on *this* machine. `brain env set skill_sessions` with no value opens an add/edit/delete walkthrough. See [features.md](features.md) and [data-model.md](data-model.md). |
+| `skill_sessions` | workspace record | *(unset → daily triage only)* | The **skill sessions** this machine offers in both task and brain-search command palettes: a JSON array of `{title, prompt, command_label}`. Each runs its prompt in its own brain-panel tab and closes when the run signals completion; while it runs, its palette row disappears. `prompt` is required, `title` defaults to it, `command_label` defaults to `Run <title>`. Daily triage is **builtin** (offered while `enable_daily_triage_check` is on) and is neither listed nor removable here. Machine-local because a definition names a skill that must actually be installed on *this* machine. `brain env set skill_sessions` with no value opens an add/edit/delete walkthrough. See [features.md](features.md) and [data-model.md](data-model.md). |
 | `agent_capabilities` | workspace record | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | workspace record | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus mandatory startup and five-minute live-shell pulls, change-triggered pushes, and receiver completion pushes. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
+
+Named Manual sessions are runtime state, not `skill_sessions` definitions or
+config/env toggles. Their titles, order, and native-session mappings live in the
+machine's workspace-UUID state database, scoped to frontend and local actor.
+Changing the selected frontend loads that frontend's own saved set. The 0.87.0
+automatic migration adds the mapping schema to existing workspace databases;
+installer downgrade removes only those mappings and preserves native history.
 
 OpenCode launch configuration is supplied through `OPENCODE_CONFIG_CONTENT`.
 If that variable already exists, it must contain a JSON object. Brain preserves
@@ -905,17 +912,22 @@ also runs that pipeline when `skills_auto_sync` is enabled.
 
 Neither config store is the only *user-edited* state. The **persistent brain
 shell** also keeps machine-managed state in a SQLite DB at
-`~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state.rs` and
+`~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state/` and
 [data-model.md](data-model.md)):
 
 - `brain_sessions` records Claude, Codex, and OpenCode session identity plus workspace,
   actor, and channel attribution, with a per-session PID lock used for scoped
-  lock-and-recency resume. Written by Brain and the generic session-start bridge.
+  native-session ownership. Written by Brain and the generic session-start bridge.
+- `manual_sessions` records the persistent Manual set: permanent Main plus
+  named Additional sessions, with exact native IDs and saved order. Closing an
+  Additional session removes its mapping; shell shutdown preserves mappings.
 - `meta`: small key/value store. `panel_side` (`"left"` or `"right"`) records
   the panel layout; `skills_synced_version` records the last Brain version that
   successfully rendered this workspace's installed skills.
 
-You don't edit a workspace state DB by hand. Deleting it is safe: brain recreates it,
-starts a fresh agent session, and reverts to the default right-side layout.
+The state DB is machine-managed. Deleting it discards saved Manual names and
+order, receiver state, and layout preferences; Brain recreates the schema, but
+cannot restore those records from the schema alone.
 The `brain config`, `brain env`, and `brain tasks {complete,doctor,--no-tui}`
-utility paths never touch it.
+utilities do not manage Manual mappings, but automatic startup migrations can
+reconcile an existing state DB before those commands dispatch.

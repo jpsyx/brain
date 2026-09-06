@@ -11,6 +11,7 @@ use crate::tui::receiver::attachments::{ReceiverAttachmentCoordinator, ReceiverA
 use crate::tui::shell::ShellRunner;
 use crate::workspace::{CommandContext, ReceiverAction};
 
+mod manual_sessions;
 mod receiver_delivery;
 mod receiver_recovery;
 
@@ -96,10 +97,6 @@ impl AppServices {
         scope: &SessionScope,
     ) -> Option<String> {
         self.db.locked_session_for_instance(instance, scope)
-    }
-
-    pub(crate) fn release_session_lock(&self, instance: &str) -> Result<()> {
-        SessionStore::release(&self.db, instance)
     }
 
     pub(crate) fn register_receiver_session(

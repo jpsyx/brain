@@ -3,61 +3,73 @@
 use crate::tui::App;
 use crate::tui::modal_state::FlashKind;
 
-use crate::agent::SessionStore;
-use crate::tui::app_brain::launch::arrival::{ExitedPanel, decide_exited_panel};
+use crate::tui::app_brain::launch::arrival::ExitedPanel;
 
 impl App {
-    /// Close the brain panel: explicitly shut down its `AgentController`,
-    /// release the session lock so a later open (or another shell) can resume
-    /// it via recency, hand the screen back to full-width tasks, and reload so
-    /// a brain action whose effect landed right before the close shows up
-    /// immediately.
-    pub(crate) fn close_brain(&mut self) {
-        if let Some(mut controller) = self.brain.take_main() {
-            let _ = controller.shutdown();
+    pub(in crate::tui) fn stop_main_controller(&mut self) -> bool {
+        if let Some(controller) = self.brain.main_controller_mut()
+            && let Err(error) = controller.shutdown()
+        {
+            self.report_manual_launch_error(&error.into());
+            return false;
         }
-        let scope = crate::agent::SessionScope::new(
-            self.context.agent_kind(),
-            self.context.workspace().id(),
-            crate::actor::ActorContext::follow_up(self.brain.interactive_actor()),
-        );
+        let scope = self.manual_session_scope();
         if let Some(session_id) = self
             .services
             .locked_session_for_instance(self.brain.instance(), &scope)
         {
             self.brain.record_interactive_agent_session(session_id);
         }
+        if let Err(error) = self
+            .services
+            .release_manual_session(self.brain.main_manual_session_id(), &scope)
+        {
+            crate::logging::log(format!("main session release failed: {error:#}"));
+        }
+        self.brain.take_main();
         self.brain.clear_session();
         self.brain.disarm_resume_arrival();
-        self.status.clear_alert();
-        self.shell.focus_tasks();
-        let _ = SessionStore::release(&self.services, self.brain.instance());
         self.reload_after_brain();
+        true
     }
 
-    /// Handle a brain panel whose agent has exited. A resume the frontend
-    /// refused quits on arrival, which would otherwise leave the user a dead
-    /// panel and nothing to message; that id is retired for the run and a fresh
-    /// session opens in its place. Returns whether the panel needed handling.
+    /// Relaunch an exited Main controller without changing tab selection or focus.
     pub(crate) fn close_exited_brain_panel(&mut self) -> bool {
-        if !self
+        let Some(alive) = self
             .brain
             .main_controller()
-            .is_some_and(|controller| controller.is_alive().is_ok_and(|alive| !alive))
-        {
+            .and_then(|controller| controller.is_alive().ok())
+        else {
             return false;
+        };
+        let Some(outcome) = self
+            .brain
+            .main_exit_decision(alive, self.services.monotonic_now())
+        else {
+            return false;
+        };
+        if !self.stop_main_controller() {
+            return true;
         }
-        let outcome = decide_exited_panel(self.brain.resume_arrival());
-        self.close_brain();
-        if let ExitedPanel::RetryFresh { refused } = outcome {
-            self.brain.refuse_resume_id(refused.clone());
-            if !self.brain.claim_resume_retry() {
-                return true;
-            }
-            crate::logging::log(format!(
-                "brain panel resume refused on arrival session={refused}; opening a fresh session"
-            ));
-            self.open_or_focus_brain(None);
+        if outcome == ExitedPanel::StartupFailed {
+            self.status.set_alert(Some(format!(
+                "{} unavailable: exited during startup",
+                self.context.agent_kind().label()
+            )));
+            return true;
+        }
+        let refused = if let ExitedPanel::RetryFresh { refused } = outcome {
+            self.brain.refuse_resume_id(refused);
+            true
+        } else {
+            false
+        };
+        if let Err(error) = self.launch_manual_session(
+            crate::tui::app_manual_session::ManualLaunchTarget::Main,
+            None,
+        ) {
+            self.report_manual_launch_error(&error);
+        } else if refused {
             self.status.set_alert(Some(
                 "⚠ couldn't resume your last conversation; started a new brain chat".to_owned(),
             ));

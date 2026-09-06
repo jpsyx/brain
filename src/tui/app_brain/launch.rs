@@ -9,19 +9,6 @@ use crossterm::event::KeyCode;
 pub(crate) mod arrival;
 
 use crate::agent::{AgentController, SessionStore};
-use crate::pty_pane::PtyPane;
-
-#[cfg(not(test))]
-fn brain_transport(_app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
-    Box::new(PtyPane::new(24, 80))
-}
-
-#[cfg(test)]
-fn brain_transport(app: &mut App) -> Box<dyn crate::agent::AgentTransport> {
-    app.brain
-        .take_brain_transport()
-        .unwrap_or_else(|| Box::new(PtyPane::new(24, 80)))
-}
 
 impl App {
     pub(in crate::tui) fn launch_capability_plan(
@@ -153,6 +140,3 @@ impl App {
 }
 
 mod session;
-
-#[cfg(test)]
-pub(super) use session::register_fresh_before_launch;

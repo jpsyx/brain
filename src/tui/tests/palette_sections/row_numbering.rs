@@ -2,7 +2,7 @@
 fn sync_brain_palette_command_has_no_shortcut() {
     use crate::tui::palette::shortcut_for;
 
-    let state = TaskPalette::new(None, false, false, false, LinkKind::None, false, false);
+    let state = TaskPalette::new(None, false, false, false, LinkKind::None);
     let rows = state.numbered_entries();
 
     assert!(
@@ -49,15 +49,7 @@ fn palette_rows_are_numbered_from_one_in_canonical_order() {
     // Numbers are the 1-based position in the scope-visible list, stable
     // regardless of the text filter — so the digit a user types always
     // points at the same command.
-    let state = TaskPalette::new(
-        Some("T1".into()),
-        false,
-        true,
-        false,
-        LinkKind::None,
-        false,
-        false,
-    );
+    let state = TaskPalette::new(Some("T1".into()), false, true, false, LinkKind::None);
     let rows = state.rows();
     assert_eq!(rows[0].number, 1);
     assert_eq!(rows[1].number, 2);
@@ -67,15 +59,7 @@ fn palette_rows_are_numbered_from_one_in_canonical_order() {
 #[test]
 fn typing_a_row_number_filters_to_that_numbered_row() {
     // "2." prefixes the second command, so a query of "2" keeps it.
-    let mut state = TaskPalette::new(
-        Some("T1".into()),
-        false,
-        true,
-        false,
-        LinkKind::None,
-        false,
-        false,
-    );
+    let mut state = TaskPalette::new(Some("T1".into()), false, true, false, LinkKind::None);
     let second = state.rows()[1].clone();
     state.handle_key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Char('2'),

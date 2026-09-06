@@ -34,8 +34,6 @@ fn open_links_single_linear_label() {
         false,
         false,
         LinkKind::SingleLinear,
-        false,
-        false,
     );
     assert_eq!(
         open_links_label(&global).as_deref(),
@@ -65,8 +63,6 @@ fn open_links_single_notes_label() {
         false,
         false,
         LinkKind::SingleNotes,
-        false,
-        false,
     );
     assert_eq!(
         open_links_label(&global).as_deref(),
@@ -90,15 +86,7 @@ fn open_links_multiple_label() {
         Some("Open attached link")
     );
 
-    let global = TaskPalette::new(
-        Some("T123".into()),
-        false,
-        false,
-        false,
-        LinkKind::Multiple,
-        false,
-        false,
-    );
+    let global = TaskPalette::new(Some("T123".into()), false, false, false, LinkKind::Multiple);
     assert_eq!(
         open_links_label(&global).as_deref(),
         Some("Open link attached to T123")

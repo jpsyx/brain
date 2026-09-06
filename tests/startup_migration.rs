@@ -497,3 +497,9 @@ mod job_socket_cutover {
 
     include!("startup_migration/job_socket_cutover.rs");
 }
+
+mod manual_session {
+    use super::*;
+
+    include!("startup_migration/manual_session.rs");
+}

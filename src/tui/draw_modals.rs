@@ -1,5 +1,8 @@
 //! Drawing the confirm + brain-input modals.
 
+mod manual_session_name;
+pub(crate) use manual_session_name::draw_manual_session_name;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},

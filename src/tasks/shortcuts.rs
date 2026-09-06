@@ -174,8 +174,8 @@ pub const ALL: &[Shortcut] = &[
     },
     Shortcut {
         keys: "^X",
-        label: "close brain",
-        desc: "Close the brain panel and end its agent session (on a skill-session tab, closes only that tab)",
+        label: "close session",
+        desc: "Close the selected manual or skill session; Main and receiver sessions stay open",
         group: Group::Brain,
         in_footer: false,
     },
@@ -231,6 +231,13 @@ pub const ALL: &[Shortcut] = &[
         in_footer: false,
     },
     // --- Global ---
+    Shortcut {
+        keys: "Esc",
+        label: "dismiss error",
+        desc: "Dismiss a pending error banner after any active modal closes",
+        group: Group::Global,
+        in_footer: false,
+    },
     Shortcut {
         keys: "^L / ^H",
         label: "cycle view",
