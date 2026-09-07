@@ -49,9 +49,9 @@ it. Main remains present even when its controller is temporarily unavailable.
 
 | Category | Subtype | Lifetime and ownership |
 | --- | --- | --- |
-| **Receiver session** | **Email session** | A receiver-owned Email conversation, with each claimed job running in a background tab. It has no user Close action or session palette row. |
+| **Receiver session** | **Email session** | A receiver-owned Email conversation, with each claimed job running in a background tab. It has no user-close path and appears disabled after closeable sessions in the Close picker. |
 | **Receiver session** | **SMS session** | A receiver-owned SMS conversation with the same background launch, exact cleanup, and user-close exclusions. |
-| **Skill session** | **Daily triage session** | The builtin ephemeral single-prompt run, keyed by `SkillSessionKey::DailyTriage`. Completion or user Close removes its tab; it is never persisted. |
+| **Skill session** | **Daily triage session** | The builtin ephemeral single-prompt run, keyed by `SkillSessionKey::DailyTriage`. Completion, `Ctrl+X`, or selection in the Close picker removes its tab; it is never persisted. |
 | **Skill session** | **User-specified skill session** | An ephemeral run from the machine's `skill_sessions` array, keyed by `SkillSessionKey::Custom(index)`, with the same completion protocol. |
 | **Manual session** | **Main session** | The permanent `Brain` tab at internal tab 0 (display slot 1). `BrainTab::Main` has its own controller slot and `ManualSessionRole::Main` mapping. It cannot be user-closed. |
 | **Manual session** | **Additional manual session** | A named persistent conversation with `ManualSessionRole::Additional` and a stable runtime `SessionTabId`. Closing it removes its durable mapping; quitting the shell preserves it for ordered restoration. |

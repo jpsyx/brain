@@ -51,20 +51,24 @@ starts fresh under the same Manual identity, without selecting another recent
 conversation.
 
 Both task and brain-search command palettes offer **Start new brain session**,
-**Rename session**, configured skill starts, and stable Show/Close rows for open
+**Rename session**, configured skill starts, and stable Show rows for open
 manual and skill tabs. Start immediately creates an Additional manual session
 named `<workspace>-<three random lowercase letters>`. **Show main brain
-session** appears only when such an additional tab is open. Main has no Close
-action, and receiver tabs have no Show/Close session palette rows. No session
-row adds a direct shortcut annotation.
+session** and **Close a brain session** appear only while an Additional manual
+or Skill session is open. Receiver tabs have no Show row. No session row adds
+a direct shortcut annotation.
 
-The rename picker accepts Up/Down and `Ctrl+K`/`Ctrl+J` navigation. It lists
-every session, but Enter advances only on an Additional manual row. Main,
-Skill, and Receiver rows are marked `[not renameable]`. The rename input is
+The Rename and Close pickers accept Up/Down and `Ctrl+K`/`Ctrl+J` navigation.
+Both place actionable rows first and disabled rows last. Rename advances only
+from an Additional manual row; Main, Skill, and Receiver rows are marked `[not
+renameable]`. Close acts only on an Additional manual or Skill row; Main and
+Receiver rows are marked `[not closeable]`. Disabled rows are dimmed and
+crossed out, with their bracketed annotation in yellow. The rename input is
 prefilled and accepts printable single-line text, Backspace, and `Ctrl+U`
 (clear). Enter validates and saves the trimmed title; invalid input remains
-visible with an inline error. Esc and `Ctrl+C` cancel either modal. Panel
-accelerators are captive while renaming; `Ctrl+Q` retains unconditional quit.
+visible with an inline error. Esc and `Ctrl+C` cancel these modals. Panel
+accelerators are captive while a picker or rename input is open; `Ctrl+Q`
+retains unconditional quit.
 Manual launch, persistence, and close errors remain in the shared banner until
 Esc acknowledges them. Other keystrokes and view or focus changes preserve the
 message, including input received before its first render.

@@ -1067,12 +1067,11 @@ via `delete_label`, which shares `create_pdf_label`'s ellipsis threshold via
 action is never the default-selected row). The persistent shell always includes
 "Message brain" to select Main. Its `Targets` also receives App's runnable skill
 definitions and `BrainPanelState::user_session_rows()` snapshot. Both catalogs
-use `tui/palette/sessions.rs` for Start, Rename, configured Run, conditional
-Main Show, and each user tab's paired Show/Close rows. Stable `SessionTabId`
-values flow through the global action enum; receiver rows are excluded from
-Show/Close projection. Rename builds a second snapshot at execution time that
-includes every rendered session and marks only Additional Manual rows
-renameable.
+use `tui/palette/sessions.rs` for Start, Rename, the conditional Close picker,
+configured Run, conditional Main Show, and each user tab's Show row. Stable
+`SessionTabId` values flow through Show actions. Receiver rows are excluded
+from that projection. Rename and Close build their own all-session snapshots at
+execution time, sort actionable entries first, and keep disabled entries last.
 The shared state owns the filtered row indices and key handling (each row's
 matchable text includes its 1-based number) and returns
 `Continue`/`Confirm`/`Cancel`. `Cancel` (Esc) tells the host to drop the
@@ -1692,7 +1691,8 @@ current main view, effective tab, panel visibility, and keyboard focus. The
 `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
 structs (`TaskPalette`, `ConfirmState`, `BrainInputState`,
-`SessionRenamePickerState`, `ManualSessionRenameState`, `HelpState`,
+`SessionRenamePickerState`, `SessionClosePickerState`,
+`ManualSessionRenameState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums)
 live in `modal_state.rs` with
 `pub(super)` fields; shared panel and tab types live in
@@ -1700,9 +1700,12 @@ live in `modal_state.rs` with
 narrow shell entry exports, and module wiring. Receiver representation is
 private to `receiver/runtime.rs` and its focused sync child.
 
-`handlers/overlay.rs` routes the captive all-session rename picker, then routes
-the Additional Manual title input through `ManualSessionName::parse` against
-Main and the other open manual titles. Errors remain in the overlay; successful
+`handlers/overlay.rs` routes the captive all-session Rename and Close pickers,
+then routes the Additional Manual title input through
+`ManualSessionName::parse` against Main and the other open manual titles. Both
+pickers put actionable rows first. The Close picker dispatches the selected
+Additional Manual or Skill ID through `close_user_session`; disabled Main and
+Receiver rows do nothing. Rename errors remain in the overlay; successful
 submission updates the scoped durable mapping and the live tab title. The
 rounded, cyan-accent renderers live under `draw_modals/`.
 Manual launch, persistence, and close failures use `StatusState`'s persistent
@@ -1710,8 +1713,8 @@ error slot. `draw/error.rs` reserves a wrapped, themed banner below both panels
 and any modal, so every main view can display the failure. Ordinary flash
 clearing and focus changes leave it intact. After captive modal routing, Esc
 dismisses that error before any panel receives the key.
-The palette's exact-ID Close action and `Ctrl+X` share `close_user_session`,
-which accepts only manual or skill metadata.
+The Close picker's selected stable ID and `Ctrl+X` share
+`close_user_session`, which accepts only manual or skill metadata.
 
 `receiver/planning.rs` owns the frontend-neutral durable job plus
 conversation to `SessionPlan` and initial-prompt decision without owning tab,

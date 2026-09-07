@@ -5,6 +5,7 @@ use crate::manual_session::{ManualSessionName, ManualSessionRole};
 use crate::tui::model::SessionTabId;
 use crossterm::event::{Event, KeyEvent, KeyModifiers};
 
+mod close;
 mod failure_feedback;
 mod palette;
 mod recurring;

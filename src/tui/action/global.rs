@@ -6,9 +6,9 @@ pub(crate) enum GlobalAction {
     MessageBrain,
     StartManualSession,
     RenameSession,
+    CloseSession,
     ShowMainBrainSession,
     ShowSessionTab(SessionTabId),
-    CloseSessionTab(SessionTabId),
     ToggleReceiver,
     ToggleLayout,
     ShowTasks,
@@ -31,6 +31,7 @@ impl GlobalAction {
             Self::OpenAgenda => Some("^A"),
             Self::StartManualSession
             | Self::RenameSession
+            | Self::CloseSession
             | Self::ToggleReceiver
             | Self::ToggleLayout
             | Self::ShowReceiverServerStatus
@@ -42,8 +43,7 @@ impl GlobalAction {
             | Self::ToggleDailyTriageAlert
             | Self::ShowMainBrainSession
             | Self::RunSkillSession(_)
-            | Self::ShowSessionTab(_)
-            | Self::CloseSessionTab(_) => None,
+            | Self::ShowSessionTab(_) => None,
         }
     }
 }

@@ -130,6 +130,7 @@ pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
             Overlay::TaskPalette(_)
             | Overlay::BrainInput(_)
             | Overlay::ManualSessionRename(_)
+            | Overlay::SessionClosePicker(_)
             | Overlay::SessionRenamePicker(_)
             | Overlay::TaskConfirmation(_)
             | Overlay::SearchPalette(_)

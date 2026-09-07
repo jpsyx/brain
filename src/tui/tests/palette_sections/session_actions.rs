@@ -26,6 +26,7 @@ fn both_palettes_share_stable_session_actions_and_no_direct_shortcuts() {
     let expected = [
         ("Start new brain session", GlobalAction::StartManualSession),
         ("Rename session", GlobalAction::RenameSession),
+        ("Close a brain session", GlobalAction::CloseSession),
         (
             "Show main brain session",
             GlobalAction::ShowMainBrainSession,
@@ -35,16 +36,8 @@ fn both_palettes_share_stable_session_actions_and_no_direct_shortcuts() {
             GlobalAction::ShowSessionTab(SessionTabId(7)),
         ),
         (
-            "Close Atlas session",
-            GlobalAction::CloseSessionTab(SessionTabId(7)),
-        ),
-        (
             "Show Daily triage session",
             GlobalAction::ShowSessionTab(SessionTabId(12)),
-        ),
-        (
-            "Close Daily triage session",
-            GlobalAction::CloseSessionTab(SessionTabId(12)),
         ),
     ];
     for (label, action) in expected {
@@ -78,7 +71,7 @@ fn both_palettes_share_stable_session_actions_and_no_direct_shortcuts() {
             .position(|label| *label == "Message brain")
             .unwrap();
         assert_eq!(
-            &labels[message + 1..message + 8],
+            &labels[message + 1..message + 7],
             &expected.map(|(label, _)| label)
         );
     }
@@ -103,6 +96,65 @@ fn both_global_palettes_offer_session_rename_without_a_direct_shortcut() {
         .expect("search palette rename row");
     assert_eq!(task_row.shortcut, None);
     assert_eq!(search_row.shortcut, None);
+}
+
+#[test]
+fn close_is_one_broad_command_and_appears_only_with_a_closeable_session() {
+    use crate::menu::{Targets, items};
+    use crate::state::PanelSide;
+    use crate::tui::model::SessionTabId;
+    use crate::tui::state::SessionPaletteEntry;
+
+    let empty_tasks = TaskPalette::new(None, false, false, false, LinkKind::None);
+    let empty_search = items(PanelSide::Right, true, &Targets::default());
+    for labels in [
+        empty_tasks
+            .rows()
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
+        empty_search
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
+    ] {
+        assert!(!labels.contains(&"Close a brain session"));
+    }
+
+    let sessions = vec![
+        SessionPaletteEntry::new(SessionTabId(7), "Atlas"),
+        SessionPaletteEntry::new(SessionTabId(12), "Daily triage"),
+    ];
+    let tasks = TaskPalette::new(None, false, false, false, LinkKind::None)
+        .with_runtime_context(false, false, Vec::new(), sessions.clone());
+    let search = items(
+        PanelSide::Right,
+        true,
+        &Targets {
+            user_sessions: sessions,
+            ..Targets::default()
+        },
+    );
+    for labels in [
+        tasks
+            .rows()
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
+        search
+            .iter()
+            .map(|row| row.label.as_str())
+            .collect::<Vec<_>>(),
+    ] {
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|label| label.starts_with("Close"))
+                .copied()
+                .collect::<Vec<_>>(),
+            ["Close a brain session"]
+        );
+    }
 }
 
 #[test]
@@ -135,9 +187,9 @@ fn logs_and_task_actions_keep_session_actions_out_of_scope() {
                 GlobalAction::MessageBrain
                     | GlobalAction::StartManualSession
                     | GlobalAction::RenameSession
+                    | GlobalAction::CloseSession
                     | GlobalAction::ShowMainBrainSession
                     | GlobalAction::ShowSessionTab(_)
-                    | GlobalAction::CloseSessionTab(_)
                     | GlobalAction::RunSkillSession(_)
             )
         )));

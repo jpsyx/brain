@@ -92,19 +92,15 @@ fn runtime_palettes_receive_identical_user_tabs_and_exclude_receiver_rows() {
         for (label, action) in [
             ("Start new brain session", GlobalAction::StartManualSession),
             ("Rename session", GlobalAction::RenameSession),
+            ("Close a brain session", GlobalAction::CloseSession),
             (
                 "Show main brain session",
                 GlobalAction::ShowMainBrainSession,
             ),
             ("Show Atlas session", GlobalAction::ShowSessionTab(atlas)),
-            ("Close Atlas session", GlobalAction::CloseSessionTab(atlas)),
             (
                 "Show Daily triage session",
                 GlobalAction::ShowSessionTab(triage),
-            ),
-            (
-                "Close Daily triage session",
-                GlobalAction::CloseSessionTab(triage),
             ),
         ] {
             assert!(rows.contains(&(label.to_owned(), action, None)), "{rows:?}");
@@ -125,7 +121,12 @@ fn runtime_palettes_receive_identical_user_tabs_and_exclude_receiver_rows() {
         );
     }
     close_overlay(&mut app.overlay);
-    app.execute_global_action(GlobalAction::CloseSessionTab(receiver_id));
+    app.execute_global_action(GlobalAction::CloseSession);
+    for _ in 0..3 {
+        key(&mut app, KeyCode::Down, KeyModifiers::NONE);
+    }
+    key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+    assert!(matches!(app.overlay, Some(Overlay::SessionClosePicker(_))));
     assert_eq!(receiver.shutdowns(), 0);
     assert!(app.brain.receiver_run_controller(receiver_id).is_some());
 }
@@ -159,7 +160,7 @@ fn both_palette_start_rows_launch_a_workspace_named_session_without_a_modal() {
 }
 
 #[test]
-fn stable_palette_close_and_show_actions_survive_a_neighbor_closing() {
+fn stable_palette_show_actions_survive_a_neighbor_closing() {
     let temporary = tempfile::tempdir().unwrap();
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&temporary, &cli, AgentKind::Claude);
@@ -174,13 +175,14 @@ fn stable_palette_close_and_show_actions_survive_a_neighbor_closing() {
         "stable-palette-skill",
         controller,
     );
-    app.execute_global_action(GlobalAction::CloseSessionTab(atlas));
+    app.close_user_session(atlas);
     app.execute_global_action(GlobalAction::ShowSessionTab(skill));
     assert_eq!(app.effective_brain_tab(), BrainTab::Session(skill));
     assert_eq!(app.active_brain_tab_title(), Some("Daily triage"));
-    app.execute_global_action(GlobalAction::CloseSessionTab(skill));
+    app.execute_global_action(GlobalAction::CloseSession);
+    key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
     assert_eq!(recording.events(), [ControllerEvent::Shutdown]);
     assert_eq!(app.effective_brain_tab(), BrainTab::Main);
-    app.execute_global_action(GlobalAction::CloseSessionTab(atlas));
+    app.close_user_session(atlas);
     assert!(app.brain.user_session_rows().is_empty());
 }

@@ -76,10 +76,10 @@ fn rename_picker_lists_every_session_and_marks_only_additional_manual_tabs_renam
     let rendered = rendered(&mut app);
     for expected in [
         "Rename session",
-        "Brain",
-        "Atlas",
-        "Daily triage",
-        "Receiver · SMS",
+        "1. Atlas",
+        "2. Brain",
+        "3. Daily triage",
+        "4. Receiver · SMS",
         "[not renameable]",
     ] {
         assert!(
@@ -131,7 +131,6 @@ fn selecting_an_additional_manual_session_opens_a_prefilled_rename_input() {
     app.start_manual_session(name("Atlas"));
     app.execute_global_action(GlobalAction::RenameSession);
 
-    press(&mut app, KeyCode::Down, KeyModifiers::NONE);
     press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
 
     let rendered = rendered(&mut app);
@@ -155,7 +154,6 @@ fn submitting_a_new_title_renames_the_tab_and_mapping_without_touching_the_nativ
         .next()
         .unwrap();
     app.execute_global_action(GlobalAction::RenameSession);
-    press(&mut app, KeyCode::Down, KeyModifiers::NONE);
     press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
     press(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);
     for character in "Beacon".chars() {
@@ -225,7 +223,6 @@ fn rename_validation_keeps_blank_and_duplicate_titles_in_the_input() {
         .replace_manual_transport(TransportRecording::default().transport());
     app.start_manual_session(name("Beacon"));
     app.execute_global_action(GlobalAction::RenameSession);
-    press(&mut app, KeyCode::Down, KeyModifiers::NONE);
     press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
 
     press(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);

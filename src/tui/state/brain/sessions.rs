@@ -45,6 +45,13 @@ pub(crate) struct SessionRenameEntry {
     pub(crate) renameable: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SessionCloseEntry {
+    pub(crate) id: Option<SessionTabId>,
+    pub(crate) title: String,
+    pub(crate) closeable: bool,
+}
+
 impl SessionPaletteEntry {
     pub(crate) fn new(id: SessionTabId, title: &str) -> Self {
         Self {
@@ -172,6 +179,20 @@ impl SessionTabs {
                 id: Some(tab.id),
                 title: tab.title.clone(),
                 renameable: matches!(tab.metadata, SessionTabKind::Manual(_)),
+            })
+            .collect()
+    }
+
+    pub(super) fn close_session_rows(&self) -> Vec<SessionCloseEntry> {
+        self.tabs
+            .iter()
+            .map(|tab| SessionCloseEntry {
+                id: Some(tab.id),
+                title: tab.title.clone(),
+                closeable: matches!(
+                    tab.metadata,
+                    SessionTabKind::Manual(_) | SessionTabKind::Skill(_)
+                ),
             })
             .collect()
     }

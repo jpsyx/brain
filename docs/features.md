@@ -153,10 +153,13 @@ twice. Several *different* skill sessions can run at once, each in its own tab.
 either panel; the panel shows a `1 Brain` · `2 Daily triage` · `3 Email triage` …
 strip while any additional tab is live, in the order tabs were opened. The **command
 palettes** in tasks and brain search carry **Show main brain session** while
-any manual or skill tab is open, followed by paired **Show <title> session**
-and **Close <title> session** rows in stable tab order. Main has no Close row;
-receiver tabs have neither Show nor Close palette rows. The task-actions and
-logs palettes keep their existing scopes. (`Alt+1` selects the
+any manual or skill tab is open, followed by **Show <title> session** rows in
+stable tab order. They also carry one **Close a brain session** command while
+at least one manual or skill tab is open. It opens a picker containing every
+session: Additional manual and Skill sessions are closeable and appear first;
+Main and Receiver sessions appear last, dimmed and crossed out with a yellow
+`[not closeable]` annotation. The task-actions and logs palettes keep their
+existing scopes. (`Alt+1` selects the
 main session and `Alt+<n>` the nth additional tab directly too, but terminal
 `Alt+digit` handling is unreliable, so the bracket cycle and palette rows are the
 dependable paths.)
@@ -2295,10 +2298,11 @@ list.
   without a persistent config change; enabling it re-checks immediately, so an
   outstanding triage surfaces the modal at once. Both main-view palettes also
   carry one **Run \<label\>** row per skill session the workspace offers (see
-  "Skill sessions" above), **Start new brain session**, **Rename session**, and,
-  while a manual or skill tab is open, **Show main brain session** plus paired
-  **Show \<title\> session** / **Close \<title\> session** rows. None of these
-  has a direct shortcut.
+  "Skill sessions" above), **Start new brain session**, and **Rename session**.
+  While a manual or skill tab is open, they also carry **Close a brain
+  session**, **Show main brain session**, and one **Show \<title\> session** row
+  per open manual or skill tab. None of these has a direct shortcut. Rename and
+  Close list actionable sessions first and disabled sessions last.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including

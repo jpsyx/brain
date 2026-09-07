@@ -91,10 +91,12 @@ enum wraps `GlobalAction` explicitly, so catalogs stay statically typed without
 trait objects or erased callbacks.
 
 Direct key routes obey the same boundary as palette rows. Show tasks, Message
-brain, and Open agenda all enter `App::execute_global_action`; `Ctrl+X` and
-the exact-ID Close palette action share the kind-gated user-session close path.
-Main has no Close action. A structural test inventories these shortcut
-routes so adding a direct bypass cannot silently create a second executor.
+brain, and Open agenda all enter `App::execute_global_action`; `Ctrl+X` and the
+Close picker's stable-ID selection share the kind-gated user-session close
+path. The global Close command carries no tab ID because its picker takes a
+fresh snapshot when opened. Main and Receiver remain visible but disabled in
+that snapshot. A structural test inventories these shortcut routes so adding a
+direct bypass cannot silently create a second executor.
 
 Both surfaces build the same reusable `PaletteRow<A>` and
 `CommandPalette<A>` state. The model centralizes numbering, filtering,
@@ -3476,14 +3478,15 @@ are a one-line predicate, and `TaskPalette` is the single snapshot of TUI state
 the predicates read, seeded at open time from the relevant `App` fields.
 
 Dynamic session rows instead come from one shared builder in both catalogs.
-They carry stable tab IDs rather than skill keys or positions, so closing one
-tab cannot redirect a pending action to a neighbor or a later skill run. Start
-uses an immediate workspace-based random title so creating a tab has no naming
-step. Rename takes a fresh all-session snapshot: Main, Skill, and Receiver stay
-visible for orientation but only Additional Manual IDs can open the prefilled
-input. Validation covers manual titles, including the reserved Main title
-`Brain`; skill titles remain their configured display text. Receiver tabs
-retain lifecycle ownership and never contribute Show/Close rows.
+Show rows carry stable tab IDs rather than skill keys or positions, so closing
+one tab cannot redirect a pending action to a neighbor or a later skill run.
+Start uses an immediate workspace-based random title so creating a tab has no
+naming step. Rename and Close take fresh all-session snapshots and sort enabled
+rows first. Rename enables only Additional Manual IDs; Close enables Additional
+Manual and Skill IDs. Main and Receiver stay visible for orientation but remain
+disabled. Rename validation covers manual titles, including the reserved Main
+title `Brain`; skill titles remain their configured display text. Receiver tabs
+retain lifecycle ownership and never contribute Show rows.
 
 **Why the tab-switch commands exist at all.** `Alt+1` / `Alt+<n>` are the intended
 tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
@@ -5378,8 +5381,10 @@ An explicit Additional Close removes its mapping, while orderly shutdown only
 releases mapped locks. Skill sessions remain ephemeral single-prompt runs with
 their own completion signal and no mapping. Receiver sessions retain exact
 job-owned cleanup and never acquire user Close actions. Both palettes project
-the same Manual and Skill rows, using stable tab IDs rather than positions or
-skill-definition indices to prevent a stale action from targeting a neighbor.
+the same Manual and Skill Show rows, using stable tab IDs rather than positions
+or skill-definition indices to prevent a stale action from targeting a
+neighbor. The shared Close command takes a fresh all-session snapshot, which
+includes Receiver only as a disabled row.
 An Additional rename updates only the mapping title and its live tab label.
 The stable manual ID, native frontend session ID, controller, order, and lock
 remain unchanged, so Brain's display choice cannot alter frontend conversation

@@ -5,7 +5,7 @@ use crate::tasks::task::AssignmentUser;
 use crate::tui::links::Link;
 use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmChoice, ConfirmIntent, ConfirmKind, ConfirmState,
-    LinkPickerState, ManualSessionRenameState, SessionRenamePickerState,
+    LinkPickerState, ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState,
 };
 use crate::users::UserId;
 
@@ -42,6 +42,28 @@ impl SessionRenamePickerState {
     }
 
     pub(crate) fn rows(&self) -> &[crate::tui::state::SessionRenameEntry] {
+        &self.rows
+    }
+
+    pub(crate) const fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    pub(crate) fn move_down(&mut self) {
+        self.selected = (self.selected + 1).min(self.rows.len().saturating_sub(1));
+    }
+}
+
+impl SessionClosePickerState {
+    pub(crate) const fn new(rows: Vec<crate::tui::state::SessionCloseEntry>) -> Self {
+        Self { rows, selected: 0 }
+    }
+
+    pub(crate) fn rows(&self) -> &[crate::tui::state::SessionCloseEntry] {
         &self.rows
     }
 

@@ -28,10 +28,10 @@ impl App {
             }
             GlobalAction::StartManualSession => self.start_default_manual_session(),
             GlobalAction::RenameSession => self.open_session_rename_picker(),
+            GlobalAction::CloseSession => self.open_session_close_picker(),
             GlobalAction::ShowSessionTab(id) => {
                 self.select_brain_tab(BrainTab::Session(id));
             }
-            GlobalAction::CloseSessionTab(id) => self.close_user_session(id),
             GlobalAction::ToggleReceiver => self.toggle_receiver(),
             GlobalAction::ToggleLayout => {
                 self.shell.toggle_panel_side();
@@ -218,6 +218,7 @@ impl App {
                 Overlay::TaskPalette(_)
                 | Overlay::BrainInput(_)
                 | Overlay::ManualSessionRename(_)
+                | Overlay::SessionClosePicker(_)
                 | Overlay::SessionRenamePicker(_)
                 | Overlay::TaskConfirmation(_)
                 | Overlay::SearchPalette(_)

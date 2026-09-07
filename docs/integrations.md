@@ -153,9 +153,10 @@ the same frontend-neutral launch path for Claude, Codex, and OpenCode. Their
 Rename action opens a snapshot of every tab, but only an Additional Manual row
 can reach the prefilled title input. A successful rename changes Brain's scoped
 manual mapping and live tab title without sending a rename command to the
-frontend or changing its native session ID. Paired Show/Close actions carry
-stable runtime tab IDs; a Close action is accepted only for manual or skill
-metadata, never for Main or a receiver run.
+frontend or changing its native session ID. A single Close action opens another
+all-session snapshot. Additional Manual and Skill rows carry stable runtime tab
+IDs and can close; Main and Receiver remain visible but disabled. Both pickers
+stably put actionable rows before disabled rows.
 
 ```text
 TuiRuntime
@@ -615,6 +616,10 @@ The rename-picker projection keeps every entry visible. It marks only Manual
 metadata as renameable, while Main, Skill, and Receiver rows remain disabled.
 Renaming an Additional Manual entry persists its display title against the
 durable manual ID and leaves the controller and native session untouched.
+The close-picker projection also keeps every entry visible. It marks Additional
+Manual and Skill metadata closeable while Main and Receiver remain disabled.
+Both projections stably move enabled entries to the start of the list without
+changing order within either group.
 The panel is permanent, including when Main is unavailable. Durable FIFO claiming,
 launch registration, rollback, renewal, and exact terminal cleanup remain
 behind narrow `AppServices` operations. Background launch and close never

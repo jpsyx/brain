@@ -5,7 +5,7 @@ fn rows() -> Vec<PaletteRow<SearchAction>> {
 }
 
 #[test]
-fn start_and_configured_run_rows_precede_stable_session_show_and_close_rows() {
+fn close_and_configured_run_rows_precede_stable_session_show_rows() {
     use crate::skill_session::SkillSessionKey;
     use crate::tui::action::SessionTabId;
     use crate::tui::palette::SessionPaletteEntry;
@@ -22,6 +22,7 @@ fn start_and_configured_run_rows_precede_stable_session_show_and_close_rows() {
         ("Message brain", GlobalAction::MessageBrain),
         ("Start new brain session", GlobalAction::StartManualSession),
         ("Rename session", GlobalAction::RenameSession),
+        ("Close a brain session", GlobalAction::CloseSession),
         (
             "Run review",
             GlobalAction::RunSkillSession(SkillSessionKey::Custom(3)),
@@ -33,10 +34,6 @@ fn start_and_configured_run_rows_precede_stable_session_show_and_close_rows() {
         (
             "Show Atlas session",
             GlobalAction::ShowSessionTab(SessionTabId(9)),
-        ),
-        (
-            "Close Atlas session",
-            GlobalAction::CloseSessionTab(SessionTabId(9)),
         ),
     ];
     for (row, (label, action)) in rows.iter().zip(expected) {

@@ -14,6 +14,12 @@ pub(crate) fn session_actions(
         ),
         ("Rename session".to_owned(), GlobalAction::RenameSession),
     ];
+    if !open.is_empty() {
+        actions.push((
+            "Close a brain session".to_owned(),
+            GlobalAction::CloseSession,
+        ));
+    }
     actions.extend(
         runnable
             .iter()
@@ -29,10 +35,6 @@ pub(crate) fn session_actions(
         actions.push((
             format!("Show {} session", entry.title),
             GlobalAction::ShowSessionTab(entry.id),
-        ));
-        actions.push((
-            format!("Close {} session", entry.title),
-            GlobalAction::CloseSessionTab(entry.id),
         ));
     }
     actions

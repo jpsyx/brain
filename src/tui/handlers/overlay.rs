@@ -7,7 +7,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use crate::tui::App;
 use crate::tui::keymap::enter_inserts_newline;
 use crate::tui::modal_state::{
-    ConfirmChoice, ConfirmKind, ConfirmState, ManualSessionRenameState, SessionRenamePickerState,
+    ConfirmChoice, ConfirmKind, ConfirmState, ManualSessionRenameState, SessionClosePickerState,
+    SessionRenamePickerState,
 };
 use crate::tui::overlay::{Overlay, close_overlay, open_overlay, replace_overlay};
 use crate::tui::palette::PaletteStep;
@@ -20,6 +21,45 @@ impl App {
                 self.brain.rename_session_rows(),
             )),
         );
+    }
+
+    pub(crate) fn open_session_close_picker(&mut self) {
+        open_overlay(
+            &mut self.overlay,
+            Overlay::SessionClosePicker(SessionClosePickerState::new(
+                self.brain.close_session_rows(),
+            )),
+        );
+    }
+}
+
+pub(crate) fn handle_session_close_picker_key(app: &mut App, key: &crossterm::event::KeyEvent) {
+    let Some(Overlay::SessionClosePicker(state)) = app.overlay.as_mut() else {
+        return;
+    };
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Char('c' | 'C') if ctrl => {
+            close_overlay(&mut app.overlay);
+        }
+        KeyCode::Up => state.move_up(),
+        KeyCode::Down => state.move_down(),
+        KeyCode::Char('k' | 'K') if ctrl => state.move_up(),
+        KeyCode::Char('j' | 'J') if ctrl => state.move_down(),
+        KeyCode::Enter => {
+            let selected = state.rows().get(state.selected()).cloned();
+            if let Some(row) = selected
+                && row.closeable
+                && let Some(id) = row.id
+            {
+                close_overlay(&mut app.overlay);
+                app.close_user_session(id);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -204,6 +244,7 @@ pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, 
                 Overlay::TaskPalette(_)
                 | Overlay::BrainInput(_)
                 | Overlay::ManualSessionRename(_)
+                | Overlay::SessionClosePicker(_)
                 | Overlay::SessionRenamePicker(_)
                 | Overlay::SearchPalette(_)
                 | Overlay::SearchConfirmation(_)

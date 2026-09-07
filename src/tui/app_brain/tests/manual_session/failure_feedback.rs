@@ -31,6 +31,12 @@ fn choose_search_command(app: &mut App, label: &str) {
     press(app, KeyCode::Enter, KeyModifiers::NONE);
 }
 
+fn choose_close_session(app: &mut App) {
+    choose_search_command(app, "Close a brain session");
+    assert!(matches!(app.overlay, Some(Overlay::SessionClosePicker(_))));
+    press(app, KeyCode::Enter, KeyModifiers::NONE);
+}
+
 fn start_session(app: &mut App) {
     choose_search_command(app, "Start new brain session");
     assert!(app.overlay.is_none());
@@ -124,7 +130,7 @@ fn search_close_persistence_failure_is_rendered_after_the_next_key() {
         )
         .unwrap();
 
-    choose_search_command(&mut app, "Close Atlas session");
+    choose_close_session(&mut app);
 
     assert_search_failure(
         &mut app,
@@ -157,7 +163,7 @@ fn search_close_shutdown_failure_is_rendered_and_keeps_the_session() {
     app.start_manual_session(name("Atlas"));
     let tab = active_additional(&app);
 
-    choose_search_command(&mut app, "Close Atlas session");
+    choose_close_session(&mut app);
 
     assert_search_failure(
         &mut app,

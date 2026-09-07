@@ -99,16 +99,21 @@ open.
 At palette open, App supplies both task `TaskPalette` and search `Targets` with
 the same `Vec<SessionPaletteEntry>` projection from
 `BrainPanelState::user_session_rows()`. Each entry holds a `SessionTabId` and
-title for an open Manual or Skill tab. The shared session catalog maps them
-to `GlobalAction::ShowSessionTab(id)` and `CloseSessionTab(id)`; display order
-and skill configuration indices never serve as action identities. Main's Show
-row is conditional on this list being nonempty; Main has no Close action and
-Receiver contributes no entries.
+title for an open Manual or Skill tab. The shared session catalog maps them to
+`GlobalAction::ShowSessionTab(id)`. It also adds the ID-free
+`GlobalAction::CloseSession` while this list is nonempty; display order and
+skill configuration indices never serve as action identities. Main's Show row
+is conditional on this list being nonempty, and Receiver contributes no Show
+entry.
 
 `SessionRenameEntry` projects every rendered brain-panel tab into the rename
 picker as an optional stable `SessionTabId`, title, and renameable flag. Main
 has no runtime tab ID. Only Additional Manual metadata is renameable; Skill and
-Receiver entries remain visible but disabled. `ManualSessionRenameState` holds
+Receiver entries remain visible but disabled. A stable enabled-first sort puts
+Additional Manual rows before those disabled entries. `SessionCloseEntry`
+similarly projects every tab into the close picker, marks Additional Manual and
+Skill metadata closeable, leaves Main and Receiver disabled, and stably places
+all closeable rows first. `ManualSessionRenameState` holds
 the selected stable ID, original title, prefilled single-line `buffer`, and
 optional inline `error` in `Overlay::ManualSessionRename`. Enter parses against
 `Brain` plus the other open manual titles, preserves invalid input, and updates

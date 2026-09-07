@@ -161,6 +161,11 @@ pub(crate) struct SessionRenamePickerState {
     pub(super) selected: usize,
 }
 
+pub(crate) struct SessionClosePickerState {
+    pub(super) rows: Vec<crate::tui::state::SessionCloseEntry>,
+    pub(super) selected: usize,
+}
+
 pub(crate) enum FlashKind {
     Info(String),
     Error(String),

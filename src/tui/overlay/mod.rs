@@ -4,7 +4,8 @@ use crate::confirm::Confirm;
 use crate::menu::SearchPalette;
 use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-    ManualSessionRenameState, SessionRenamePickerState, SyncLogState, TaskPalette,
+    ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
+    TaskPalette,
 };
 
 /// The only modal state the shell can represent. Each variant owns exactly the
@@ -13,6 +14,7 @@ pub(crate) enum Overlay {
     TaskPalette(TaskPalette),
     BrainInput(BrainInputState),
     ManualSessionRename(ManualSessionRenameState),
+    SessionClosePicker(SessionClosePickerState),
     SessionRenamePicker(SessionRenamePickerState),
     TaskConfirmation(ConfirmState),
     SearchPalette(SearchPalette),
@@ -29,6 +31,7 @@ pub(crate) enum ModalInput {
     TaskPalette,
     BrainInput,
     ManualSessionRename,
+    SessionClosePicker,
     SessionRenamePicker,
     TaskConfirmation,
     SearchPalette,
@@ -45,6 +48,7 @@ pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
         Some(Overlay::TaskPalette(_)) => ModalInput::TaskPalette,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
         Some(Overlay::ManualSessionRename(_)) => ModalInput::ManualSessionRename,
+        Some(Overlay::SessionClosePicker(_)) => ModalInput::SessionClosePicker,
         Some(Overlay::SessionRenamePicker(_)) => ModalInput::SessionRenamePicker,
         Some(Overlay::TaskConfirmation(_)) => ModalInput::TaskConfirmation,
         Some(Overlay::SearchPalette(_)) => ModalInput::SearchPalette,
@@ -86,7 +90,8 @@ mod tests {
     use crate::tui::links::LinkKind;
     use crate::tui::modal_state::{
         AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-        ManualSessionRenameState, SessionRenamePickerState, SyncLogState, TaskPalette,
+        ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
+        TaskPalette,
     };
     use crate::tui::model::SessionTabId;
     use crate::tui::overlay::{
@@ -169,6 +174,10 @@ mod tests {
                     "Atlas",
                 )),
                 ModalInput::ManualSessionRename,
+            ),
+            (
+                Overlay::SessionClosePicker(SessionClosePickerState::new(Vec::new())),
+                ModalInput::SessionClosePicker,
             ),
             (
                 Overlay::SessionRenamePicker(SessionRenamePickerState::new(Vec::new())),

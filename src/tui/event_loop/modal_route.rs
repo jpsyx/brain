@@ -5,7 +5,7 @@ use crate::tui::App;
 use crate::tui::handlers::{
     handle_assignee_filter_key, handle_brain_input_key, handle_confirm_key, handle_help_key,
     handle_link_picker_key, handle_manual_session_rename_key, handle_palette_key,
-    handle_session_rename_picker_key, handle_sync_log_key,
+    handle_session_close_picker_key, handle_session_rename_picker_key, handle_sync_log_key,
 };
 use crate::tui::overlay::{ModalInput, modal_input_target};
 use crate::tui::search_view::{route_search_confirm, route_search_palette};
@@ -19,6 +19,7 @@ pub(crate) fn route_modal_key(app: &mut App, k: &crossterm::event::KeyEvent, ctr
         ModalInput::TaskPalette => handle_palette_key(app, k, ctrl),
         ModalInput::BrainInput => handle_brain_input_key(app, k, ctrl),
         ModalInput::ManualSessionRename => handle_manual_session_rename_key(app, k),
+        ModalInput::SessionClosePicker => handle_session_close_picker_key(app, k),
         ModalInput::SessionRenamePicker => handle_session_rename_picker_key(app, k),
         ModalInput::TaskConfirmation => handle_confirm_key(app, k, ctrl),
         ModalInput::SearchPalette => route_search_palette(app, k),

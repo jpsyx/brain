@@ -220,12 +220,14 @@ first move is a failing test that reproduces it, *then* the fix.
   `GlobalAction`, preventing them from bypassing the one global executor. A
   direct-shortcut architecture guard requires Show tasks, Message brain, and
   Open agenda to enter `App::execute_global_action`; `Ctrl+X` uses the same
-  kind-gated close path as exact-ID palette closes.
+  kind-gated close path as the close picker's stable-ID selection.
   Manual-session modal tests route real key events through App to cover blank
   and duplicate input, editing, cancellation, captive accelerators, rendering,
-  and trimmed fresh launches for Claude, Codex, and OpenCode. Catalog and runtime
-  tests compare stable manual/skill Show/Close actions in both palettes, reserve
-  Main from Close, exclude receiver tabs, and keep task-actions/log scopes intact.
+  and trimmed fresh launches for Claude, Codex, and OpenCode. Catalog and
+  runtime tests compare stable manual/skill Show actions and the shared Close
+  command in both palettes, reserve Main and Receiver from Close, keep disabled
+  rows visible at the end of both pickers, and keep task-actions/log scopes
+  intact.
   Search structural guards keep the layout toggle last and ensure every
   `SearchAction` appears exactly once when applicable (including `CreatePdf`
   when a markdown target is present). The two contextual rows: "Create PDF"
@@ -538,8 +540,8 @@ first move is a failing test that reproduces it, *then* the fix.
   early-exit guards, permanent Main, Additional close, shutdown persistence,
   workspace-based default naming, durable rename without native-session
   mutation, renameability gates, and shared palette identities. Wrong-kind
-  close paths prove they preserve the unrelated tab and do not shut down its
-  controller. `manual_session::failure_feedback` drives the real search
+  close-picker paths prove disabled rows preserve the unrelated tab and do not
+  shut down its controller. `manual_session::failure_feedback` drives the real search
   palette, rename picker, App, and renderer through spawn, SQLite persistence,
   close, and early-startup failures. It proves visible feedback survives the
   next key, view navigation, and an active rename picker, and that Esc

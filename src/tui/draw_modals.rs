@@ -1,8 +1,10 @@
 //! Drawing the confirm + brain-input modals.
 
 mod manual_session_rename;
+mod session_close;
 mod session_rename;
 pub(crate) use manual_session_rename::draw_manual_session_rename;
+pub(crate) use session_close::draw_session_close_picker;
 pub(crate) use session_rename::draw_session_rename_picker;
 
 use ratatui::{
