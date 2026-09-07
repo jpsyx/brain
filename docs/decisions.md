@@ -3477,10 +3477,13 @@ the predicates read, seeded at open time from the relevant `App` fields.
 
 Dynamic session rows instead come from one shared builder in both catalogs.
 They carry stable tab IDs rather than skill keys or positions, so closing one
-tab cannot redirect a pending action to a neighbor or a later skill run.
-The naming modal validates only manual titles, including the reserved Main
-title `Brain`; skill titles remain their configured display text. Receiver
-tabs retain lifecycle ownership and never contribute Show/Close rows.
+tab cannot redirect a pending action to a neighbor or a later skill run. Start
+uses an immediate workspace-based random title so creating a tab has no naming
+step. Rename takes a fresh all-session snapshot: Main, Skill, and Receiver stay
+visible for orientation but only Additional Manual IDs can open the prefilled
+input. Validation covers manual titles, including the reserved Main title
+`Brain`; skill titles remain their configured display text. Receiver tabs
+retain lifecycle ownership and never contribute Show/Close rows.
 
 **Why the tab-switch commands exist at all.** `Alt+1` / `Alt+<n>` are the intended
 tab switches, but terminal `Alt+digit` handling is unreliable — many terminals
@@ -5377,6 +5380,10 @@ their own completion signal and no mapping. Receiver sessions retain exact
 job-owned cleanup and never acquire user Close actions. Both palettes project
 the same Manual and Skill rows, using stable tab IDs rather than positions or
 skill-definition indices to prevent a stale action from targeting a neighbor.
+An Additional rename updates only the mapping title and its live tab label.
+The stable manual ID, native frontend session ID, controller, order, and lock
+remain unchanged, so Brain's display choice cannot alter frontend conversation
+identity.
 
 Manual-session failures use a persistent error banner shared by all main views.
 Task-only flashes hid failures triggered from Brain Search, and the next key

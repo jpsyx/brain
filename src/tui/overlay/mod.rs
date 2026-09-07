@@ -4,7 +4,7 @@ use crate::confirm::Confirm;
 use crate::menu::SearchPalette;
 use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-    ManualSessionNameState, SyncLogState, TaskPalette,
+    ManualSessionRenameState, SessionRenamePickerState, SyncLogState, TaskPalette,
 };
 
 /// The only modal state the shell can represent. Each variant owns exactly the
@@ -12,7 +12,8 @@ use crate::tui::modal_state::{
 pub(crate) enum Overlay {
     TaskPalette(TaskPalette),
     BrainInput(BrainInputState),
-    ManualSessionName(ManualSessionNameState),
+    ManualSessionRename(ManualSessionRenameState),
+    SessionRenamePicker(SessionRenamePickerState),
     TaskConfirmation(ConfirmState),
     SearchPalette(SearchPalette),
     SearchConfirmation(Confirm),
@@ -27,7 +28,8 @@ pub(crate) enum Overlay {
 pub(crate) enum ModalInput {
     TaskPalette,
     BrainInput,
-    ManualSessionName,
+    ManualSessionRename,
+    SessionRenamePicker,
     TaskConfirmation,
     SearchPalette,
     SearchConfirmation,
@@ -42,7 +44,8 @@ pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
     match active {
         Some(Overlay::TaskPalette(_)) => ModalInput::TaskPalette,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
-        Some(Overlay::ManualSessionName(_)) => ModalInput::ManualSessionName,
+        Some(Overlay::ManualSessionRename(_)) => ModalInput::ManualSessionRename,
+        Some(Overlay::SessionRenamePicker(_)) => ModalInput::SessionRenamePicker,
         Some(Overlay::TaskConfirmation(_)) => ModalInput::TaskConfirmation,
         Some(Overlay::SearchPalette(_)) => ModalInput::SearchPalette,
         Some(Overlay::SearchConfirmation(_)) => ModalInput::SearchConfirmation,
@@ -83,8 +86,9 @@ mod tests {
     use crate::tui::links::LinkKind;
     use crate::tui::modal_state::{
         AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-        SyncLogState, TaskPalette,
+        ManualSessionRenameState, SessionRenamePickerState, SyncLogState, TaskPalette,
     };
+    use crate::tui::model::SessionTabId;
     use crate::tui::overlay::{
         ModalInput, Overlay, close_overlay, modal_input_target, open_overlay, replace_overlay,
     };
@@ -158,6 +162,17 @@ mod tests {
             (
                 Overlay::BrainInput(BrainInputState::about("T1".to_owned(), "Task".to_owned())),
                 ModalInput::BrainInput,
+            ),
+            (
+                Overlay::ManualSessionRename(ManualSessionRenameState::rename(
+                    SessionTabId(1),
+                    "Atlas",
+                )),
+                ModalInput::ManualSessionRename,
+            ),
+            (
+                Overlay::SessionRenamePicker(SessionRenamePickerState::new(Vec::new())),
+                ModalInput::SessionRenamePicker,
             ),
             (
                 Overlay::TaskConfirmation(ConfirmState::generate_agenda()),

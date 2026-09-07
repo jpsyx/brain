@@ -76,7 +76,8 @@ These are deliberately distinct and use different modifiers:
 | **status line `?` hint** | The dim `Alt+S  all shortcuts` pointer at the end of the compact footer. | `shortcuts::footer_subset`, footer renderer |
 | **confirm modal** | The Yes/No (or Yes/No/Skip) overlay for destructive or expensive actions. | `confirm` / `ConfirmState` |
 | **brain-input modal** | The multi-line compose box that seeds a message into the brain panel. | `BrainInputState` |
-| **session naming modal** | The captive single-line name prompt opened by Start new brain session. Validation stays inline until Enter succeeds or Esc/Ctrl+C cancels. | `ManualSessionNameState`; `Overlay::ManualSessionName` |
+| **session rename picker** | The captive all-session list opened by Rename session. Only Additional manual rows advance; Main, Skill, and Receiver rows are marked not renameable. | `SessionRenamePickerState`; `Overlay::SessionRenamePicker` |
+| **session rename modal** | The captive single-line title input opened from a renameable picker row. It starts prefilled and keeps validation errors inline until Enter succeeds or Esc/Ctrl+C cancels. | `ManualSessionRenameState`; `Overlay::ManualSessionRename` |
 | **error banner** | Persistent failure feedback below both panels in every main view. Typing and navigation preserve it; Esc dismisses it after any active modal has closed. | `StatusState::error`; `tui::draw::error` |
 | **session palette entry** | A snapshot of an open manual or skill tab's stable ID and title, shared by the task and search palettes. Receiver tabs are excluded. | `SessionPaletteEntry`; `BrainPanelState::user_session_rows` |
 | **link picker** | The numbered list of a task's openable links (`Ctrl+O`). | `LinkPickerState` |

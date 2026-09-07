@@ -22,7 +22,8 @@ use crate::tui::draw::tasks_panel::{TasksPanelContext, draw_tasks};
 use crate::tui::draw_assignee::draw_assignee_filter;
 use crate::tui::draw_help::draw_help;
 use crate::tui::draw_modals::{
-    draw_brain_input, draw_confirm, draw_link_picker, draw_manual_session_name,
+    draw_brain_input, draw_confirm, draw_link_picker, draw_manual_session_rename,
+    draw_session_rename_picker,
 };
 use crate::tui::draw_palette::draw_palette;
 use crate::tui::draw_sync_log::draw_sync_log;
@@ -103,7 +104,8 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     match app.overlay.as_ref() {
         Some(Overlay::TaskPalette(state)) => draw_palette(f, state, area),
         Some(Overlay::BrainInput(state)) => draw_brain_input(f, state, area),
-        Some(Overlay::ManualSessionName(state)) => draw_manual_session_name(f, state, area),
+        Some(Overlay::ManualSessionRename(state)) => draw_manual_session_rename(f, state, area),
+        Some(Overlay::SessionRenamePicker(state)) => draw_session_rename_picker(f, state, area),
         Some(Overlay::TaskConfirmation(state)) => draw_confirm(f, state, area),
         Some(Overlay::SearchPalette(state)) => crate::menu::draw_modal(f, state, main_area),
         Some(Overlay::SearchConfirmation(state)) => {

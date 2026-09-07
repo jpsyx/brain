@@ -147,11 +147,15 @@ controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
 time; callers cannot supply a second actor that disagrees with the controller
 used for launch and completion validation.
 
-Both main-view palettes start named manual sessions through the captive naming
-modal and `App::start_manual_session`. The validated title reaches the same
-frontend-neutral launch path for Claude, Codex, and OpenCode. Paired Show/Close
-actions carry stable runtime tab IDs; a Close action is accepted only for
-manual or skill metadata, never for Main or a receiver run.
+Both main-view palettes start manual sessions immediately through
+`App::start_default_manual_session`, using a workspace-based random title and
+the same frontend-neutral launch path for Claude, Codex, and OpenCode. Their
+Rename action opens a snapshot of every tab, but only an Additional Manual row
+can reach the prefilled title input. A successful rename changes Brain's scoped
+manual mapping and live tab title without sending a rename command to the
+frontend or changing its native session ID. Paired Show/Close actions carry
+stable runtime tab IDs; a Close action is accepted only for manual or skill
+metadata, never for Main or a receiver run.
 
 ```text
 TuiRuntime
@@ -607,6 +611,10 @@ The `BrainPanelState` receiver API performs insertion, observation, controller
 access, and removal without touching `ShellState`; therefore background
 operations preserve the current main view, effective tab, panel visibility, and
 keyboard focus.
+The rename-picker projection keeps every entry visible. It marks only Manual
+metadata as renameable, while Main, Skill, and Receiver rows remain disabled.
+Renaming an Additional Manual entry persists its display title against the
+durable manual ID and leaves the controller and native session untouched.
 The panel is permanent, including when Main is unavailable. Durable FIFO claiming,
 launch registration, rollback, renewal, and exact terminal cleanup remain
 behind narrow `AppServices` operations. Background launch and close never

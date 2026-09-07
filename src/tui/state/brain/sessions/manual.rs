@@ -103,6 +103,21 @@ impl SessionTabs {
         })
     }
 
+    pub(in crate::tui::state::brain) fn rename_manual_session(
+        &mut self,
+        id: SessionTabId,
+        record: &ManualSessionRecord,
+    ) -> anyhow::Result<()> {
+        let Some(tab) = self.tabs.iter_mut().find(|tab| {
+            tab.id == id
+                && matches!(&tab.metadata, SessionTabKind::Manual(manual) if manual.id == record.id)
+        }) else {
+            anyhow::bail!("manual tab identity changed");
+        };
+        record.name.as_str().clone_into(&mut tab.title);
+        Ok(())
+    }
+
     pub(in crate::tui::state::brain) fn record_manual_restore_failed(&mut self, id: SessionTabId) {
         if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id)
             && let SessionTabKind::Manual(manual) = &mut tab.metadata

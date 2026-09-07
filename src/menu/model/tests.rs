@@ -21,6 +21,7 @@ fn start_and_configured_run_rows_precede_stable_session_show_and_close_rows() {
     let expected = [
         ("Message brain", GlobalAction::MessageBrain),
         ("Start new brain session", GlobalAction::StartManualSession),
+        ("Rename session", GlobalAction::RenameSession),
         (
             "Run review",
             GlobalAction::RunSkillSession(SkillSessionKey::Custom(3)),
@@ -232,6 +233,7 @@ fn menu_rows_are_in_the_expected_order() {
         vec![
             SearchAction::Global(GlobalAction::MessageBrain),
             SearchAction::Global(GlobalAction::StartManualSession),
+            SearchAction::Global(GlobalAction::RenameSession),
             SearchAction::Global(GlobalAction::ShowTasks),
             SearchAction::SearchProjects,
             SearchAction::SearchAreas,
@@ -278,6 +280,7 @@ fn every_choice_appears_exactly_once() {
     let all = [
         SearchAction::Global(GlobalAction::MessageBrain),
         SearchAction::Global(GlobalAction::StartManualSession),
+        SearchAction::Global(GlobalAction::RenameSession),
         SearchAction::Global(GlobalAction::ShowTasks),
         SearchAction::SearchProjects,
         SearchAction::SearchAreas,

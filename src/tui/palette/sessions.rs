@@ -7,10 +7,13 @@ pub(crate) fn session_actions(
     runnable: &[(SkillSessionKey, String)],
     open: &[SessionPaletteEntry],
 ) -> Vec<(String, GlobalAction)> {
-    let mut actions = vec![(
-        "Start new brain session".to_owned(),
-        GlobalAction::StartManualSession,
-    )];
+    let mut actions = vec![
+        (
+            "Start new brain session".to_owned(),
+            GlobalAction::StartManualSession,
+        ),
+        ("Rename session".to_owned(), GlobalAction::RenameSession),
+    ];
     actions.extend(
         runnable
             .iter()

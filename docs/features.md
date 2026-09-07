@@ -84,14 +84,22 @@ session (including a normal agent exit) removes its saved mapping; quitting the
 shell preserves every mapping and releases each exact manual-session lock
 after shutting down all controllers.
 
-**Start a named session.** Both task and brain-search command palettes offer
-**Start new brain session** immediately after **Message brain**. The captive
-single-line modal asks **What would you like to name this session?** Enter
-starts a fresh Additional manual session with the trimmed title; blank names
-and ASCII case-insensitive duplicates of Main's `Brain` title or another open
-manual title show an inline error and keep the input visible. Backspace edits,
-`Ctrl+U` clears, and Esc or `Ctrl+C` cancels. These palette rows have no direct
-shortcut annotations.
+**Start and rename manual sessions.** Both task and brain-search command
+palettes offer **Start new brain session** immediately after **Message brain**.
+It starts a fresh Additional manual session immediately, without asking for a
+name. The title is the selected workspace's canonical name, a hyphen, and three
+random lowercase letters, such as `brain-abc` or `family-xyz`.
+
+Both palettes also offer **Rename session**. Its picker lists Main and every
+Additional tab. Main, Skill, and Receiver rows are dimmed, struck through, and
+marked `[not renameable]`; only Additional manual sessions can be selected.
+Selecting one opens a single-line input prefilled with its current title.
+Enter saves the trimmed unique title, Backspace edits, `Ctrl+U` clears, and Esc
+or `Ctrl+C` cancels. Blank names and ASCII case-insensitive duplicates of
+Main's `Brain` title or another open manual title remain visible with an inline
+error. Renaming updates Brain's durable tab title without changing the native
+session identity tracked by Claude, Codex, or OpenCode. Neither palette command
+has a direct shortcut annotation.
 
 Manual-session launch, persistence, and close failures appear in a red error
 banner below both panels, visible in Tasks, Brain Search, and Logs. The message
@@ -302,9 +310,10 @@ a direct keystroke show it dimmed in `[…]`):
   long, elides the *middle* keeping the tail (`resources/.../final/parts`).
 1. **Message brain** `[^M]`: select and focus Main, launching it if unavailable.
    Always present in both main-view palettes.
-2. **Start new brain session** opens the naming modal. Configured **Run**
-   skill rows follow, then **Show main brain session** and paired **Show** /
-   **Close** rows for each open manual or skill tab.
+2. **Start new brain session** immediately opens a workspace-named Additional
+   manual tab. **Rename session** opens the all-session picker. Configured
+   **Run** skill rows follow, then **Show main brain session** and paired
+   **Show** / **Close** rows for each open manual or skill tab.
 3. **Open tasks** `[^T]`: switch to the tasks main view (task management,
    agenda, triage), in-process.
 4. **Search projects:** rescope search to the selected workspace's `projects/`.
@@ -2286,10 +2295,10 @@ list.
   without a persistent config change; enabling it re-checks immediately, so an
   outstanding triage surfaces the modal at once. Both main-view palettes also
   carry one **Run \<label\>** row per skill session the workspace offers (see
-  "Skill sessions" above), **Start new brain session**, and, while a manual or
-  skill tab is open, **Show main brain session** plus paired **Show \<title\>
-  session** / **Close \<title\> session** rows. None of these has a direct
-  shortcut.
+  "Skill sessions" above), **Start new brain session**, **Rename session**, and,
+  while a manual or skill tab is open, **Show main brain session** plus paired
+  **Show \<title\> session** / **Close \<title\> session** rows. None of these
+  has a direct shortcut.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including

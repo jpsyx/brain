@@ -45,6 +45,15 @@ impl AppServices {
         self.db.close_manual_session(id, scope)
     }
 
+    pub(crate) fn rename_manual_session(
+        &self,
+        id: &ManualSessionId,
+        name: &crate::manual_session::ManualSessionName,
+        scope: &SessionScope,
+    ) -> Result<ManualSessionRecord> {
+        self.db.rename_manual_session(id, name, scope)
+    }
+
     pub(crate) fn release_manual_session(
         &self,
         id: &ManualSessionId,

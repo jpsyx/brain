@@ -91,6 +91,7 @@ fn runtime_palettes_receive_identical_user_tabs_and_exclude_receiver_rows() {
         let rows = palette_rows(&app);
         for (label, action) in [
             ("Start new brain session", GlobalAction::StartManualSession),
+            ("Rename session", GlobalAction::RenameSession),
             (
                 "Show main brain session",
                 GlobalAction::ShowMainBrainSession,
@@ -130,7 +131,7 @@ fn runtime_palettes_receive_identical_user_tabs_and_exclude_receiver_rows() {
 }
 
 #[test]
-fn both_palette_start_rows_open_the_naming_modal_and_message_selects_main() {
+fn both_palette_start_rows_launch_a_workspace_named_session_without_a_modal() {
     for view in [MainView::Tasks, MainView::BrainSearch] {
         let temporary = tempfile::tempdir().unwrap();
         let cli = Cli::parse_from(["tasks"]);
@@ -146,8 +147,14 @@ fn both_palette_start_rows_open_the_naming_modal_and_message_selects_main() {
         assert_eq!(app.effective_brain_tab(), BrainTab::Main);
         assert!(app.overlay.is_none());
         open_palette(&mut app, view);
+        app.brain
+            .replace_manual_transport(TransportRecording::default().transport());
         choose(&mut app, "Start new brain session");
-        assert!(matches!(app.overlay, Some(Overlay::ManualSessionName(_))));
+        assert!(app.overlay.is_none());
+        let title = app.active_brain_tab_title().unwrap();
+        let suffix = title.strip_prefix("family-").unwrap();
+        assert_eq!(suffix.len(), 3);
+        assert!(suffix.bytes().all(|byte| byte.is_ascii_lowercase()));
     }
 }
 

@@ -6,9 +6,9 @@ use crate::tui::model::SessionTabId;
 use crossterm::event::{Event, KeyEvent, KeyModifiers};
 
 mod failure_feedback;
-mod modal;
 mod palette;
 mod recurring;
+mod rename;
 mod restoration;
 
 fn test_clock(app: &mut App) -> ReceiverClock {

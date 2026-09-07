@@ -7,7 +7,9 @@ mod tasks;
 
 #[cfg(test)]
 pub(crate) use brain::exhausted_tab_ids::{exhaust_session_tab_ids, exhaust_skill_session_tab_ids};
-pub(crate) use brain::{BrainPanelState, BrainPanelStateInit, SessionPaletteEntry};
+pub(crate) use brain::{
+    BrainPanelState, BrainPanelStateInit, SessionPaletteEntry, SessionRenameEntry,
+};
 #[allow(unused_imports)]
 pub(crate) use brain::{
     ReceiverRunObservation, ReceiverRunPoll, ReceiverRunPollError, ReceiverRunReservation,

@@ -1,3 +1,5 @@
+use anyhow::Context as _;
+
 use crate::agent::SessionStore;
 use crate::tui::App;
 use crate::tui::app_brain::launch::arrival::ExitedPanel;
@@ -6,6 +8,22 @@ use crate::tui::model::{BrainTab, SessionTabId};
 use super::ManualLaunchTarget;
 
 impl App {
+    pub(crate) fn rename_manual_session(
+        &mut self,
+        tab_id: SessionTabId,
+        name: &crate::manual_session::ManualSessionName,
+    ) -> anyhow::Result<()> {
+        let id = self
+            .brain
+            .manual_session_id(tab_id)
+            .cloned()
+            .context("manual session was not found")?;
+        let record =
+            self.services
+                .rename_manual_session(&id, name, &self.manual_session_scope())?;
+        self.brain.rename_manual_session(tab_id, &record)
+    }
+
     pub(crate) fn close_manual_session(&mut self, id: SessionTabId) {
         let Some(manual_id) = self.brain.manual_session_id(id).cloned() else {
             return;

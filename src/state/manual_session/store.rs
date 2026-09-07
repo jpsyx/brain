@@ -17,6 +17,7 @@ mod sql;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ManualSessionStoreError {
     MainCannotClose,
+    MainCannotRename,
     MappingNotFound,
     NativeSessionNotClaimed,
     ScopeMismatch,
@@ -26,6 +27,7 @@ impl Display for ManualSessionStoreError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::MainCannotClose => "the main manual session cannot be closed",
+            Self::MainCannotRename => "the main manual session cannot be renamed",
             Self::MappingNotFound => "manual session mapping was not found in this scope",
             Self::NativeSessionNotClaimed => {
                 "manual session does not own the exact claimed native session"
@@ -222,6 +224,45 @@ impl Db {
         compact_later_positions(&transaction, current.position, scope, &self.workspace_id)?;
         transaction.commit()?;
         Ok(())
+    }
+
+    pub(crate) fn rename_manual_session(
+        &self,
+        id: &ManualSessionId,
+        name: &crate::manual_session::ManualSessionName,
+        scope: &SessionScope,
+    ) -> Result<ManualSessionRecord> {
+        self.validate_manual_session_scope(scope)?;
+        let transaction = immediate_transaction(&self.conn)?;
+        let current = load_mapping(&transaction, id, scope, &self.workspace_id)?
+            .ok_or(ManualSessionStoreError::MappingNotFound)?;
+        if current.role == ManualSessionRole::Main {
+            return Err(ManualSessionStoreError::MainCannotRename.into());
+        }
+        let updated = transaction.execute(
+            "UPDATE manual_sessions SET title = ?1
+             WHERE manual_session_id = ?2 AND agent_kind = ?3
+               AND agent_session_id = ?4 AND workspace_id = ?5
+               AND actor_id = ?6 AND channel = ?7 AND role = 'additional'",
+            rusqlite::params![
+                name.as_str(),
+                id.as_str(),
+                scope.agent_kind().as_str(),
+                current.agent_session.as_str(),
+                self.workspace_id.as_str(),
+                scope.actor().user_id().as_str(),
+                scope.actor().channel().as_str(),
+            ],
+        )?;
+        if updated != 1 {
+            return Err(ManualSessionStoreError::MappingNotFound.into());
+        }
+        let renamed = ManualSessionRecord {
+            name: name.clone(),
+            ..current
+        };
+        transaction.commit()?;
+        Ok(renamed)
     }
 
     pub(crate) fn release_manual_session(

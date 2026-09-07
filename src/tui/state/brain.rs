@@ -15,8 +15,8 @@ use sessions::SessionTabs;
 pub(crate) use sessions::{
     ManualSessionObservation, ManualSessionTabIdExhausted, ReceiverRunObservation, ReceiverRunPoll,
     ReceiverRunPollError, ReceiverRunReservation, ReceiverRunTabError, RemovedManualSession,
-    RemovedReceiverRun, RemovedSkillSession, SessionPaletteEntry, SkillSessionObservation,
-    SkillSessionTabIdExhausted,
+    RemovedReceiverRun, RemovedSkillSession, SessionPaletteEntry, SessionRenameEntry,
+    SkillSessionObservation, SkillSessionTabIdExhausted,
 };
 
 pub(crate) struct BrainPanelStateInit {
@@ -248,6 +248,16 @@ impl BrainPanelState {
         self.session_tabs.manual_session_rows()
     }
 
+    pub(crate) fn rename_session_rows(&self) -> Vec<SessionRenameEntry> {
+        std::iter::once(SessionRenameEntry {
+            id: None,
+            title: crate::manual_session::MAIN_SESSION_TITLE.to_owned(),
+            renameable: false,
+        })
+        .chain(self.session_tabs.rename_session_rows())
+        .collect()
+    }
+
     pub(crate) fn add_manual_session(
         &mut self,
         record: ManualSessionRecord,
@@ -278,6 +288,14 @@ impl BrainPanelState {
 
     pub(crate) fn manual_session_id(&self, id: SessionTabId) -> Option<&ManualSessionId> {
         self.session_tabs.manual_session_id(id)
+    }
+
+    pub(crate) fn rename_manual_session(
+        &mut self,
+        id: SessionTabId,
+        record: &ManualSessionRecord,
+    ) -> anyhow::Result<()> {
+        self.session_tabs.rename_manual_session(id, record)
     }
 
     pub(crate) fn manual_session_observations(&self) -> Vec<ManualSessionObservation> {

@@ -144,6 +144,7 @@ fn full_palette_lists_actions_in_canonical_order() {
             TaskAction::MessageBrainAboutTask,
             TaskAction::Global(GlobalAction::MessageBrain),
             TaskAction::Global(GlobalAction::StartManualSession),
+            TaskAction::Global(GlobalAction::RenameSession),
             TaskAction::Global(GlobalAction::ToggleReceiver),
             TaskAction::Global(GlobalAction::ShowReceiverServerStatus),
             TaskAction::Global(GlobalAction::ShowReceiverServerLogs),
@@ -188,6 +189,10 @@ fn start_rows_sit_with_the_brain_rows_whether_or_not_a_session_is_open() {
     );
     assert_eq!(
         actions[message + 2],
+        TaskAction::Global(GlobalAction::RenameSession)
+    );
+    assert_eq!(
+        actions[message + 3],
         TaskAction::Global(GlobalAction::RunSkillSession(
             crate::skill_session::SkillSessionKey::DailyTriage
         ))

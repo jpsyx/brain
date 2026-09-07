@@ -536,13 +536,14 @@ first move is a failing test that reproduces it, *then* the fix.
   with recording transports and an injected clock for all three frontends:
   fresh launch, exact saved restore, first Main adoption, refusal replacement,
   early-exit guards, permanent Main, Additional close, shutdown persistence,
-  captive naming, and shared palette identities. Wrong-kind close paths prove
-  they preserve the unrelated tab and do not shut down its controller.
-  `manual_session::failure_feedback` drives the real search palette, naming
-  handler, App, and renderer through spawn, SQLite persistence, close, and
-  early-startup failures. It proves visible feedback survives the next key,
-  view navigation, and an active naming modal, and that Esc acknowledges only
-  the current input owner. These tests use real temporary SQLite databases;
+  workspace-based default naming, durable rename without native-session
+  mutation, renameability gates, and shared palette identities. Wrong-kind
+  close paths prove they preserve the unrelated tab and do not shut down its
+  controller. `manual_session::failure_feedback` drives the real search
+  palette, rename picker, App, and renderer through spawn, SQLite persistence,
+  close, and early-startup failures. It proves visible feedback survives the
+  next key, view navigation, and an active rename picker, and that Esc
+  acknowledges only the current input owner. These tests use real temporary SQLite databases;
   the external agent transport and startup clock are injected test boundaries.
   `hook_integration` runs the real lifecycle bridge against isolated databases
   to prove exact manual mapping rotation for Claude, Codex, and OpenCode,

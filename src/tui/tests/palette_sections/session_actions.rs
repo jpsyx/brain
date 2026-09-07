@@ -25,6 +25,7 @@ fn both_palettes_share_stable_session_actions_and_no_direct_shortcuts() {
     );
     let expected = [
         ("Start new brain session", GlobalAction::StartManualSession),
+        ("Rename session", GlobalAction::RenameSession),
         (
             "Show main brain session",
             GlobalAction::ShowMainBrainSession,
@@ -77,10 +78,31 @@ fn both_palettes_share_stable_session_actions_and_no_direct_shortcuts() {
             .position(|label| *label == "Message brain")
             .unwrap();
         assert_eq!(
-            &labels[message + 1..message + 7],
+            &labels[message + 1..message + 8],
             &expected.map(|(label, _)| label)
         );
     }
+}
+
+#[test]
+fn both_global_palettes_offer_session_rename_without_a_direct_shortcut() {
+    use crate::menu::{Targets, items};
+    use crate::state::PanelSide;
+
+    let tasks = TaskPalette::new(None, false, false, false, LinkKind::None);
+    let search = items(PanelSide::Right, true, &Targets::default());
+
+    let task_row = tasks
+        .rows()
+        .iter()
+        .find(|row| row.label == "Rename session")
+        .expect("task palette rename row");
+    let search_row = search
+        .iter()
+        .find(|row| row.label == "Rename session")
+        .expect("search palette rename row");
+    assert_eq!(task_row.shortcut, None);
+    assert_eq!(search_row.shortcut, None);
 }
 
 #[test]
@@ -112,6 +134,7 @@ fn logs_and_task_actions_keep_session_actions_out_of_scope() {
             TaskAction::Global(
                 GlobalAction::MessageBrain
                     | GlobalAction::StartManualSession
+                    | GlobalAction::RenameSession
                     | GlobalAction::ShowMainBrainSession
                     | GlobalAction::ShowSessionTab(_)
                     | GlobalAction::CloseSessionTab(_)

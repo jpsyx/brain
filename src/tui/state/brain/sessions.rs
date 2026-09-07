@@ -38,6 +38,13 @@ pub(crate) struct SessionPaletteEntry {
     pub(crate) title: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SessionRenameEntry {
+    pub(crate) id: Option<SessionTabId>,
+    pub(crate) title: String,
+    pub(crate) renameable: bool,
+}
+
 impl SessionPaletteEntry {
     pub(crate) fn new(id: SessionTabId, title: &str) -> Self {
         Self {
@@ -156,6 +163,17 @@ pub(super) struct SessionTabs {
 impl SessionTabs {
     pub(super) fn ids(&self) -> Vec<SessionTabId> {
         self.tabs.iter().map(|tab| tab.id).collect()
+    }
+
+    pub(super) fn rename_session_rows(&self) -> Vec<SessionRenameEntry> {
+        self.tabs
+            .iter()
+            .map(|tab| SessionRenameEntry {
+                id: Some(tab.id),
+                title: tab.title.clone(),
+                renameable: matches!(tab.metadata, SessionTabKind::Manual(_)),
+            })
+            .collect()
     }
 
     fn add(

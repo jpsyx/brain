@@ -31,11 +31,8 @@ fn choose_search_command(app: &mut App, label: &str) {
     press(app, KeyCode::Enter, KeyModifiers::NONE);
 }
 
-fn submit_name(app: &mut App) {
+fn start_session(app: &mut App) {
     choose_search_command(app, "Start new brain session");
-    assert!(matches!(app.overlay, Some(Overlay::ManualSessionName(_))));
-    type_text(app, "Atlas");
-    press(app, KeyCode::Enter, KeyModifiers::NONE);
     assert!(app.overlay.is_none());
     assert!(app.brain.user_session_rows().is_empty());
 }
@@ -76,7 +73,7 @@ fn search_launch_failure_is_rendered_and_survives_the_next_search_key() {
         app.brain
             .replace_manual_transport(Box::new(FailingSpawnTransport));
 
-        submit_name(&mut app);
+        start_session(&mut app);
 
         assert_search_failure(&mut app, "could not start", "injected spawn failure");
         press(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
@@ -100,7 +97,7 @@ fn search_persistence_failure_survives_input_before_the_first_render() {
         )
         .unwrap();
 
-    submit_name(&mut app);
+    start_session(&mut app);
     press(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
 
     assert_search_failure(&mut app, "could not start", "injected persistence failure");
@@ -188,7 +185,7 @@ fn manual_failure_feedback_remains_visible_across_all_main_views() {
     let mut app = feedback_app(&temporary, AgentKind::Claude);
     app.brain
         .replace_manual_transport(Box::new(FailingSpawnTransport));
-    submit_name(&mut app);
+    start_session(&mut app);
 
     for (key, view) in [
         ('t', MainView::Tasks),
@@ -202,16 +199,15 @@ fn manual_failure_feedback_remains_visible_across_all_main_views() {
 }
 
 #[test]
-fn a_pending_error_does_not_steal_escape_from_the_naming_modal() {
+fn a_pending_error_does_not_steal_escape_from_the_rename_picker() {
     let temporary = tempfile::tempdir().unwrap();
     let mut app = feedback_app(&temporary, AgentKind::Claude);
     app.brain
         .replace_manual_transport(Box::new(FailingSpawnTransport));
-    submit_name(&mut app);
+    start_session(&mut app);
 
-    choose_search_command(&mut app, "Start new brain session");
-    type_text(&mut app, "Beacon");
-    assert!(matches!(app.overlay, Some(Overlay::ManualSessionName(_))));
+    choose_search_command(&mut app, "Rename session");
+    assert!(matches!(app.overlay, Some(Overlay::SessionRenamePicker(_))));
     assert!(rendered(&mut app).contains("injected spawn failure"));
     press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
     assert!(app.overlay.is_none());

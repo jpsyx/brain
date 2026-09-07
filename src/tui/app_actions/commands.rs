@@ -26,7 +26,8 @@ impl App {
             GlobalAction::MessageBrain => {
                 self.open_or_focus_brain(None);
             }
-            GlobalAction::StartManualSession => self.open_manual_session_name_modal(),
+            GlobalAction::StartManualSession => self.start_default_manual_session(),
+            GlobalAction::RenameSession => self.open_session_rename_picker(),
             GlobalAction::ShowSessionTab(id) => {
                 self.select_brain_tab(BrainTab::Session(id));
             }
@@ -216,7 +217,8 @@ impl App {
                 Overlay::LinkPicker(picker) => picker.selected_url(),
                 Overlay::TaskPalette(_)
                 | Overlay::BrainInput(_)
-                | Overlay::ManualSessionName(_)
+                | Overlay::ManualSessionRename(_)
+                | Overlay::SessionRenamePicker(_)
                 | Overlay::TaskConfirmation(_)
                 | Overlay::SearchPalette(_)
                 | Overlay::SearchConfirmation(_)

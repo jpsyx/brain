@@ -12,8 +12,8 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
 1. **Unconditional quit:** `Ctrl+Q` exits even while a modal is open.
 2. **Modal overlays:** a captive modal (help, sync log, palette, confirmation,
-   brain input, session naming, link picker, or assignee filter) consumes the key
-   before any panel accelerator.
+   brain input, session rename picker or input, link picker, or assignee filter)
+   consumes the key before any panel accelerator.
 3. **App-level accelerators:** Esc dismisses a pending error banner before
    reaching a panel. `Ctrl+X` closes the selected user session,
    `Ctrl+N` starts a new conversation, `Alt+S` opens help, `Alt+H/L` moves focus,
@@ -51,15 +51,20 @@ starts fresh under the same Manual identity, without selecting another recent
 conversation.
 
 Both task and brain-search command palettes offer **Start new brain session**,
-configured skill starts, and stable Show/Close rows for open manual and skill
-tabs. **Show main brain session** appears only when such an additional tab is
-open. Main has no Close action, and receiver tabs have no session palette rows.
-No session row adds a direct shortcut annotation.
+**Rename session**, configured skill starts, and stable Show/Close rows for open
+manual and skill tabs. Start immediately creates an Additional manual session
+named `<workspace>-<three random lowercase letters>`. **Show main brain
+session** appears only when such an additional tab is open. Main has no Close
+action, and receiver tabs have no Show/Close session palette rows. No session
+row adds a direct shortcut annotation.
 
-The naming modal accepts printable single-line text, Backspace, and `Ctrl+U`
-(clear). Enter validates the trimmed name and starts the session; invalid
-input remains visible with an inline error. Esc and `Ctrl+C` cancel. Panel
-accelerators are captive while naming; `Ctrl+Q` retains unconditional quit.
+The rename picker accepts Up/Down and `Ctrl+K`/`Ctrl+J` navigation. It lists
+every session, but Enter advances only on an Additional manual row. Main,
+Skill, and Receiver rows are marked `[not renameable]`. The rename input is
+prefilled and accepts printable single-line text, Backspace, and `Ctrl+U`
+(clear). Enter validates and saves the trimmed title; invalid input remains
+visible with an inline error. Esc and `Ctrl+C` cancel either modal. Panel
+accelerators are captive while renaming; `Ctrl+Q` retains unconditional quit.
 Manual launch, persistence, and close errors remain in the shared banner until
 Esc acknowledges them. Other keystrokes and view or focus changes preserve the
 message, including input received before its first render.

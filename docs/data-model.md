@@ -105,10 +105,14 @@ and skill configuration indices never serve as action identities. Main's Show
 row is conditional on this list being nonempty; Main has no Close action and
 Receiver contributes no entries.
 
-`ManualSessionNameState` holds a single-line `buffer` and optional inline
-`error` in `Overlay::ManualSessionName`. Enter parses against `Brain` plus
-open manual titles, preserves invalid input, and removes the overlay before
-starting the validated session through App.
+`SessionRenameEntry` projects every rendered brain-panel tab into the rename
+picker as an optional stable `SessionTabId`, title, and renameable flag. Main
+has no runtime tab ID. Only Additional Manual metadata is renameable; Skill and
+Receiver entries remain visible but disabled. `ManualSessionRenameState` holds
+the selected stable ID, original title, prefilled single-line `buffer`, and
+optional inline `error` in `Overlay::ManualSessionRename`. Enter parses against
+`Brain` plus the other open manual titles, preserves invalid input, and updates
+the exact Additional mapping and live tab title.
 
 ## Workspace identity (`workspace/`)
 
@@ -1836,7 +1840,7 @@ key from each mapping to its `brain_sessions` row.
 | `manual_session_id` | Stable `ManualSessionId`, generated as a UUID and passed as this tab's `BRAIN_INSTANCE_ID`. It survives native-session replacement. |
 | `agent_kind`, `workspace_id`, `actor_id`, `channel` | Immutable lookup scope; frontend is Claude, Codex, or OpenCode, and channel must be `interactive`. |
 | `agent_session_id` | The exact current native conversation, including the fresh placeholder before the frontend's first accepted start event. |
-| `title` | Trimmed nonblank name. Uniqueness uses ASCII case-insensitive comparison, matching SQLite `NOCASE`; Main reserves `Brain`. |
+| `title` | Trimmed nonblank name. Uniqueness uses ASCII case-insensitive comparison, matching SQLite `NOCASE`; Main reserves `Brain`. New Additional rows default to `<workspace>-<three random lowercase letters>`. |
 | `position` | Nonnegative saved order, unique within scope. Main is 0; Additional positions are positive and compact after a close. |
 | `role` | `main` or `additional`; a partial unique index allows only one Main row in each scope. |
 
@@ -1848,6 +1852,8 @@ native row, repointing the mapping, and releasing the old row. Close refuses
 Main; for Additional it deletes one mapping, releases its exact native lock,
 and compacts later positions without changing their IDs. Release alone keeps
 the mapping, making shell shutdown different from an explicit user Close.
+Rename refuses Main and updates only an Additional mapping's `title`; its
+manual ID, native `agent_session_id`, role, position, and lock are unchanged.
 
 The generic session-start bridge updates only the mapping matching the accepted
 instance and full scope in the same transaction that rotates `brain_sessions`.

@@ -5,6 +5,7 @@ use crate::skill_session::SkillSessionKey;
 pub(crate) enum GlobalAction {
     MessageBrain,
     StartManualSession,
+    RenameSession,
     ShowMainBrainSession,
     ShowSessionTab(SessionTabId),
     CloseSessionTab(SessionTabId),
@@ -29,6 +30,7 @@ impl GlobalAction {
             Self::ShowTasks => Some("^T"),
             Self::OpenAgenda => Some("^A"),
             Self::StartManualSession
+            | Self::RenameSession
             | Self::ToggleReceiver
             | Self::ToggleLayout
             | Self::ShowReceiverServerStatus

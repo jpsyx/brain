@@ -18,6 +18,7 @@ pub const TEXT_VERY_DIM: Color = Color::Rgb(78, 92, 122);
 
 pub const ACCENT_PURPLE: Color = Color::Rgb(187, 154, 247);
 pub const ACCENT_CYAN: Color = Color::Rgb(125, 207, 255);
+pub const ACCENT_YELLOW: Color = Color::Rgb(224, 175, 104);
 /// Positive-action green (Tokyo-Night). Used for the "Create PDF"
 /// confirmation modal — a constructive, non-destructive action.
 pub const ACCENT_GREEN: Color = Color::Rgb(158, 206, 106);

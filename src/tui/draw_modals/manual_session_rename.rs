@@ -8,9 +8,13 @@ use ratatui::{
 
 use crate::render::{ACCENT_CYAN, ACCENT_RED, TEXT_DIM, TEXT_PRIMARY};
 use crate::tui::draw::layout::centered_rect;
-use crate::tui::modal_state::ManualSessionNameState;
+use crate::tui::modal_state::ManualSessionRenameState;
 
-pub(crate) fn draw_manual_session_name(f: &mut Frame, state: &ManualSessionNameState, area: Rect) {
+pub(crate) fn draw_manual_session_rename(
+    f: &mut Frame,
+    state: &ManualSessionRenameState,
+    area: Rect,
+) {
     let modal = centered_rect(70.min(area.width), 8.min(area.height), area);
     f.render_widget(Clear, modal);
     let accent = Style::default().fg(ACCENT_CYAN);
@@ -19,7 +23,7 @@ pub(crate) fn draw_manual_session_name(f: &mut Frame, state: &ManualSessionNameS
         .border_type(BorderType::Rounded)
         .border_style(accent)
         .title(Line::from(Span::styled(
-            " Start new brain session ",
+            format!(" Rename {} session ", state.original_title()),
             accent.add_modifier(Modifier::BOLD),
         )));
     let inner = block.inner(modal);
@@ -34,7 +38,7 @@ pub(crate) fn draw_manual_session_name(f: &mut Frame, state: &ManualSessionNameS
     ])
     .split(inner);
     f.render_widget(
-        Paragraph::new(" What would you like to name this session?")
+        Paragraph::new(" Enter a new name for this session")
             .style(Style::default().fg(TEXT_PRIMARY)),
         chunks[1],
     );
@@ -76,7 +80,7 @@ pub(crate) fn draw_manual_session_name(f: &mut Frame, state: &ManualSessionNameS
         Paragraph::new(Line::from(vec![
             Span::raw(" "),
             Span::styled("Enter", key),
-            Span::styled(" start  ", dim),
+            Span::styled(" rename  ", dim),
             Span::styled("Esc", key),
             Span::styled(" cancel", dim),
         ])),

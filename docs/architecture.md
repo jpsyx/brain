@@ -1067,9 +1067,12 @@ via `delete_label`, which shares `create_pdf_label`'s ellipsis threshold via
 action is never the default-selected row). The persistent shell always includes
 "Message brain" to select Main. Its `Targets` also receives App's runnable skill
 definitions and `BrainPanelState::user_session_rows()` snapshot. Both catalogs
-use `tui/palette/sessions.rs` for Start, configured Run, conditional Main Show,
-and each user tab's paired Show/Close rows. Stable `SessionTabId` values flow
-through the global action enum; receiver rows are excluded at the projection.
+use `tui/palette/sessions.rs` for Start, Rename, configured Run, conditional
+Main Show, and each user tab's paired Show/Close rows. Stable `SessionTabId`
+values flow through the global action enum; receiver rows are excluded from
+Show/Close projection. Rename builds a second snapshot at execution time that
+includes every rendered session and marks only Additional Manual rows
+renameable.
 The shared state owns the filtered row indices and key handling (each row's
 matchable text includes its 1-based number) and returns
 `Continue`/`Confirm`/`Cancel`. `Cancel` (Esc) tells the host to drop the
@@ -1600,8 +1603,9 @@ controller state lives in `BrainPanelState`; injected runners, the state DB,
 and sync effects live in `AppServices`; and transient status lives in
 `StatusState`. Cross-feature coordination remains on `App`. `App` also owns
 exactly one `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
-brain input, manual-session naming, task confirmation, search palette, search
-confirmation, link picker, assignee filter, help, and sync log. This makes simultaneous modals
+brain input, session rename picker, manual-session rename input, task
+confirmation, search palette, search confirmation, link picker, assignee
+filter, help, and sync log. This makes simultaneous modals
 unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
 transitions. Input routing and drawing exhaustively match that same enum, so no
 boolean precedence model can disagree with what is visible. The task
@@ -1687,18 +1691,20 @@ and terminal removal preserve the
 current main view, effective tab, panel visibility, and keyboard focus. The
 `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
-structs (`TaskPalette`, `ConfirmState`, `BrainInputState`, `ManualSessionNameState`,
-`HelpState`, `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the
-confirm enums) live in `modal_state.rs` with
+structs (`TaskPalette`, `ConfirmState`, `BrainInputState`,
+`SessionRenamePickerState`, `ManualSessionRenameState`, `HelpState`,
+`SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums)
+live in `modal_state.rs` with
 `pub(super)` fields; shared panel and tab types live in
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
 narrow shell entry exports, and module wiring. Receiver representation is
 private to `receiver/runtime.rs` and its focused sync child.
 
-`handlers/overlay.rs` routes captive naming keys through `ManualSessionName::parse`
-against Main and open manual titles. Errors remain in the overlay; successful
-submission clears that slot before `App::start_manual_session`. Its rounded,
-cyan-accent single-line renderer lives in `draw_modals/manual_session_name.rs`.
+`handlers/overlay.rs` routes the captive all-session rename picker, then routes
+the Additional Manual title input through `ManualSessionName::parse` against
+Main and the other open manual titles. Errors remain in the overlay; successful
+submission updates the scoped durable mapping and the live tab title. The
+rounded, cyan-accent renderers live under `draw_modals/`.
 Manual launch, persistence, and close failures use `StatusState`'s persistent
 error slot. `draw/error.rs` reserves a wrapped, themed banner below both panels
 and any modal, so every main view can display the failure. Ordinary flash
@@ -1876,7 +1882,7 @@ Both decisions are pure (`with_selector`, `violates_strict_selector`).
 ASCII case-insensitive unique `ManualSessionName`, Main/Additional roles, and
 ordered `ManualSessionRecord` values. `state/manual_session/schema.rs` owns
 schema v14 and its v13 down operation. `store.rs` owns atomic register, attach,
-replace, close, rollback, and lock release; `store/sql.rs` owns exact scoped SQL
+replace, rename, close, rollback, and lock release; `store/sql.rs` owns exact scoped SQL
 and ordered position compaction. `tui/state/services/manual_sessions.rs` exposes
 those semantic persistence effects to App without exposing the database.
 

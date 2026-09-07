@@ -149,10 +149,16 @@ pub(crate) struct BrainInputState {
     pub(super) task_label: Option<String>,
 }
 
-#[derive(Default)]
-pub(crate) struct ManualSessionNameState {
+pub(crate) struct ManualSessionRenameState {
     pub(super) buffer: String,
     pub(super) error: Option<String>,
+    pub(super) target: crate::tui::model::SessionTabId,
+    pub(super) original_title: String,
+}
+
+pub(crate) struct SessionRenamePickerState {
+    pub(super) rows: Vec<crate::tui::state::SessionRenameEntry>,
+    pub(super) selected: usize,
 }
 
 pub(crate) enum FlashKind {

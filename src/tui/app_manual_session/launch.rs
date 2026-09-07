@@ -43,6 +43,30 @@ fn transport(app: &mut App, target: &ManualLaunchTarget) -> Box<dyn crate::agent
 }
 
 impl App {
+    pub(crate) fn start_default_manual_session(&mut self) {
+        let open_titles: Vec<String> =
+            std::iter::once(crate::manual_session::MAIN_SESSION_TITLE.to_owned())
+                .chain(
+                    self.brain
+                        .manual_session_rows()
+                        .into_iter()
+                        .map(|row| row.title),
+                )
+                .collect();
+        loop {
+            let random = uuid::Uuid::new_v4();
+            let suffix: String = random.as_bytes()[..3]
+                .iter()
+                .map(|byte| char::from(b'a' + (byte % 26)))
+                .collect();
+            let title = format!("{}-{suffix}", self.context.workspace().name().as_str());
+            if let Ok(name) = ManualSessionName::parse(&title, &open_titles) {
+                self.start_manual_session(name);
+                return;
+            }
+        }
+    }
+
     pub(crate) fn start_manual_session(&mut self, name: ManualSessionName) {
         let result = self.new_manual_session_record(name).and_then(|record| {
             self.launch_manual_session(
