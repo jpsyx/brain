@@ -311,6 +311,11 @@ a direct keystroke show it dimmed in `[…]`):
   never shows the absolute path or the filename: it leads with the bucket
   category (`projects/`, `areas/`, `resources/`, `archive/`) and, when too
   long, elides the *middle* keeping the tail (`resources/.../final/parts`).
+- **Copy path to directory** copies the highlighted entry's absolute directory
+  path to the clipboard. A file resolves to its parent directory; a directory
+  resolves to itself. **Shown whenever an entry is highlighted.**
+- **Copy path to file** copies the highlighted file's absolute path to the
+  clipboard. **Shown only when a file is highlighted.**
 1. **Message brain** `[^M]`: select and focus Main, launching it if unavailable.
    Always present in both main-view palettes.
 2. **Start new brain session** immediately opens a workspace-named Additional
@@ -2280,7 +2285,9 @@ list.
     directory.
 - **Command palette**: `Ctrl-p` opens the top-level command palette (the
   menu) as a modal overlay for any action `brain` can run; `Esc` closes it
-  back to the picker. The tasks-view palette includes **Sync brain now**, which
+  back to the picker. Its contextual rows can copy the highlighted file path
+  or its directory path to the clipboard. The tasks-view palette includes
+  **Sync brain now**, which
   kicks off a nonblocking background `brain sync`, plus **Show sync status**,
   which reports whether a sync is active. It also includes a
   **Show sync status**, which opens a modal tailing the running sync's live

@@ -137,7 +137,7 @@ fn open_file_row_appears_only_with_a_file_target_and_leads() {
             .iter()
             .any(|row| row.action == SearchAction::OpenFile)
     );
-    assert_eq!(with.len(), without.len() + 1);
+    assert_eq!(with.len(), without.len() + 2);
     // No PDF target, so "Open file" leads (the default-selected action).
     assert_eq!(with[0].action, SearchAction::OpenFile);
     assert_eq!(with[0].label, "Open file 'note.md'");
@@ -159,7 +159,7 @@ fn open_dir_row_appears_only_with_a_dir_target_and_leads() {
             .iter()
             .any(|row| row.action == SearchAction::OpenDir)
     );
-    assert_eq!(with.len(), without.len() + 1);
+    assert_eq!(with.len(), without.len() + 2);
     assert_eq!(with[0].action, SearchAction::OpenDir);
     assert_eq!(with[0].label, "Open dir 'projects/foo'");
 }
@@ -182,8 +182,46 @@ fn contextual_rows_order_pdf_then_open_file_then_open_dir() {
     assert_eq!(all[0].action, SearchAction::CreatePdf);
     assert_eq!(all[1].action, SearchAction::OpenFile);
     assert_eq!(all[2].action, SearchAction::OpenDir);
+    assert_eq!(all[3].action, SearchAction::CopyDirPath);
+    assert_eq!(all[4].action, SearchAction::CopyFilePath);
     // Delete still trails, never leads.
     assert_eq!(all.last().unwrap().action, SearchAction::Delete);
+}
+
+#[test]
+fn copy_path_rows_follow_the_highlighted_entry_kind() {
+    let file = items(
+        PanelSide::Right,
+        true,
+        &Targets {
+            open_file: Some("plan.md".to_owned()),
+            open_dir: Some("projects/foo".to_owned()),
+            ..Targets::default()
+        },
+    );
+    let directory = items(
+        PanelSide::Right,
+        true,
+        &Targets {
+            open_dir: Some("projects/foo".to_owned()),
+            ..Targets::default()
+        },
+    );
+
+    assert!(file.iter().any(|row| {
+        row.action == SearchAction::CopyDirPath && row.label == "Copy path to directory"
+    }));
+    assert!(file.iter().any(|row| {
+        row.action == SearchAction::CopyFilePath && row.label == "Copy path to file"
+    }));
+    assert!(directory.iter().any(
+        |row| row.action == SearchAction::CopyDirPath && row.label == "Copy path to directory"
+    ));
+    assert!(
+        !directory
+            .iter()
+            .any(|row| row.action == SearchAction::CopyFilePath)
+    );
 }
 
 #[test]

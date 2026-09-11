@@ -137,7 +137,7 @@ query.
 | `Ctrl+G` | Create a PDF from the highlighted `.md` file (green confirm modal) |
 | `Ctrl+D` | Delete the highlighted entry (red confirm modal → Trash) |
 | `Ctrl+R` | Refresh the list (re-walk the current scope, keep the query) |
-| `Ctrl+P` | Open the brain-search command palette (rescope, layout, receiver enablement, message brain, open tasks, PDF/delete/open) |
+| `Ctrl+P` | Open the brain-search command palette (rescope, layout, receiver enablement, message brain, open tasks, PDF/delete/open, copy file or directory path) |
 | `Esc` / `Ctrl+C` | Quit the shell |
 
 `Tab` / `Shift+Tab` do nothing here (no sub-views). The brain-search palette

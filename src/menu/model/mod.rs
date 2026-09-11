@@ -21,12 +21,19 @@ pub(crate) enum SearchAction {
     /// the filename), so it's a *conditional* choice, not part of
     /// `STATIC_ITEMS`. There's no file to open on a directory.
     OpenFile,
+    /// Copy the highlighted file's absolute path. Offered only when a file is
+    /// highlighted.
+    CopyFilePath,
     /// Open the highlighted entry's directory (the same action as
     /// `Ctrl-Enter` / reveal-in-Finder). A file resolves to its parent
     /// directory, a directory to itself. Offered whenever an entry is
     /// highlighted (its label carries the bucket-relative directory path), so
     /// it's a *conditional* choice, not part of `STATIC_ITEMS`.
     OpenDir,
+    /// Copy the highlighted entry's directory path. A file resolves to its
+    /// parent directory, while a directory resolves to itself. Offered whenever
+    /// an entry is highlighted.
+    CopyDirPath,
     /// Move the highlighted entry (file or directory) to the Trash. Offered as
     /// a row whenever something is selected (its label carries the filename),
     /// so it's a *conditional* choice, not part of `STATIC_ITEMS`.
@@ -112,6 +119,18 @@ pub(crate) fn items(
     }
     if let Some(rel_dir) = &targets.open_dir {
         push_row(&mut rows, SearchAction::OpenDir, open_dir_label(rel_dir));
+        push_row(
+            &mut rows,
+            SearchAction::CopyDirPath,
+            "Copy path to directory".to_owned(),
+        );
+    }
+    if targets.open_file.is_some() {
+        push_row(
+            &mut rows,
+            SearchAction::CopyFilePath,
+            "Copy path to file".to_owned(),
+        );
     }
     for (action, label) in STATIC_ITEMS {
         if include_msg || *action != SearchAction::Global(GlobalAction::MessageBrain) {
@@ -163,7 +182,9 @@ pub(crate) const fn shortcut_for(action: SearchAction) -> Option<&'static str> {
         SearchAction::OpenFile => Some("↵"),
         SearchAction::OpenDir => Some("^↵"),
         SearchAction::Delete => Some("^D"),
-        SearchAction::SearchProjects
+        SearchAction::CopyFilePath
+        | SearchAction::CopyDirPath
+        | SearchAction::SearchProjects
         | SearchAction::SearchAreas
         | SearchAction::SearchResources
         | SearchAction::SearchArchive

@@ -1104,7 +1104,9 @@ reveals its parent dir, a directory reveals itself). It also holds the
 new-tab opener: pure builders (`edit_shell_command`,
 `iterm_new_tab_applescript`) plus thin impure spawners (`open_in_editor_tab`,
 `open_with_system`) the persistent shell uses to open files without tearing
-itself down — text → a new iTerm2 tab, everything else → system `open`.
+itself down — text → a new iTerm2 tab, everything else → system `open`. The
+thin `copy_to_clipboard` spawner writes a selected absolute path directly to
+`pbcopy` stdin without shell interpolation.
 The PDF path lives here too: pure `is_markdown` (strictly `.md`) and
 `pdf_output_path` (colocated, same stem, `.pdf`), plus the impure `create_pdf`
 (drop any existing same-name PDF, then shell out to the user's

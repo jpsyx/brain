@@ -175,6 +175,13 @@ impl App {
                     open_selection(&path);
                 }
             }
+            action @ (SearchAction::CopyFilePath | SearchAction::CopyDirPath) => {
+                if let Some(path) = self.shell.selected_search_path()
+                    && let Some(target) = clipboard_target(action, &path, path.is_file())
+                {
+                    let _ = open_target::copy_to_clipboard(target);
+                }
+            }
             SearchAction::OpenDir => {
                 if let Some(path) = self.shell.selected_search_path() {
                     reveal_in_finder(&path);
@@ -229,9 +236,45 @@ fn reveal_in_finder(path: &Path) {
     let _ = open_target::open_with_system(target);
 }
 
+fn clipboard_target(action: SearchAction, path: &Path, is_file: bool) -> Option<&Path> {
+    match action {
+        SearchAction::CopyFilePath if is_file => Some(path),
+        SearchAction::CopyDirPath => Some(open_target::finder_target(path, is_file)),
+        _ => None,
+    }
+}
+
 /// Build the search picker for the brain-directory view over the full bucket
 /// set. Called once at startup by `run_tui`.
 pub(crate) fn build_search(brain_root: &Path) -> picker::App {
     let entries = entry::collect(brain_root, &all_bucket_roots(brain_root)).unwrap_or_default();
     picker::App::new(&entries, "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_target_distinguishes_file_and_directory_paths() {
+        let file = Path::new("/brain/projects/atlas/plan.md");
+        let directory = Path::new("/brain/projects/atlas");
+
+        assert_eq!(
+            clipboard_target(SearchAction::CopyDirPath, file, true),
+            Some(directory)
+        );
+        assert_eq!(
+            clipboard_target(SearchAction::CopyDirPath, directory, false),
+            Some(directory)
+        );
+        assert_eq!(
+            clipboard_target(SearchAction::CopyFilePath, file, true),
+            Some(file)
+        );
+        assert_eq!(
+            clipboard_target(SearchAction::CopyFilePath, directory, false),
+            None
+        );
+    }
 }

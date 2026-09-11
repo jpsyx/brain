@@ -14,8 +14,9 @@
 //! open a file — a text file opens in a fresh terminal tab, everything else
 //! hands off to the system `open`.
 
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 
@@ -104,6 +105,21 @@ pub fn finder_target(path: &Path, is_file: bool) -> &Path {
     } else {
         path
     }
+}
+
+/// Copy an absolute path to the macOS clipboard without shell interpolation.
+pub fn copy_to_clipboard(path: &Path) -> Result<()> {
+    let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn()?;
+    let write_result = child.stdin.take().map_or_else(
+        || Err(io::Error::other("pbcopy stdin was unavailable")),
+        |mut stdin| stdin.write_all(path.as_os_str().as_encoded_bytes()),
+    );
+    let status = child.wait()?;
+    write_result?;
+    if !status.success() {
+        bail!("pbcopy exited with status {status}");
+    }
+    Ok(())
 }
 
 /// Single-quote a string for safe inclusion in a `sh`/`zsh` command line.
