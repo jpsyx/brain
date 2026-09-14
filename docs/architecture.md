@@ -2201,7 +2201,8 @@ is enabled again.
 more than two hours old and exposes current sync state to the footer and
 palette. The common receiver prompt classifies task-capture requests as task
 creation instead of immediate execution, unless the sender explicitly asks for
-both, and ends with the trusted job token's exact marker. Claude and Codex
+both, requires any link in a reply to be the full destination URL rather than a
+shortened one, and ends with the trusted job token's exact marker. Claude and Codex
 submit and post-tool hooks feed the same content-free Python observation
 writer. OpenCode derives acceptance from incremental user-message parts and
 progress from its post-tool callback using bounded correlation, with no history

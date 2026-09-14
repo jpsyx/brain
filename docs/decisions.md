@@ -1616,6 +1616,17 @@ waiting for watcher delivery and still uses the same detached runner and lock.
 The common receiver prompt also disambiguates task-capture wording from a
 request to perform the task immediately.
 
+**Why the receiver prompt forbids link shorteners.** A receiver reply is
+composed freely by the agent and handed to the provider verbatim as the message
+body; brain neither rewrites nor inspects its links on the way out. SMS carriers
+block public URL shorteners outright, and an A2P campaign that declares embedded
+links is audited against what it actually sends, so one shortened link copied
+out of a web result can suspend a whole campaign. Stating the rule once in the
+shared launch prompt puts the constraint where the text is written, costs a
+single line of the prompt budget, and needs no outbound filter that would have
+to guess which hosts are shorteners. It applies to both channels because a
+shortened link is just as opaque to an email recipient.
+
 **Why read-only check compares size and checksum.** Filesystem and remote mtimes
 can drift even when bytes are identical, which made `brain check` report
 phantom changes such as task metadata. Its dry run adds

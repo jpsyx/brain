@@ -25,10 +25,13 @@ mod localized_paths;
 const WORKSPACE_ID: &str = "8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b";
 const CURRENT_PROMPT: &str = "Review the attached photo and remember its subject.";
 const TASK_CAPTURE_POLICY: &str = "If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.";
+const LINK_POLICY: &str = "When a reply includes a link, write the full destination URL; never use a link-shortening service.";
 const RESUME_PROMPT: &str = concat!(
     "If the message asks to add, create, capture, remember, or track a task, ",
     "create it in Brain's task system; do not perform the task now unless the ",
     "sender explicitly asks you to.",
+    "\nWhen a reply includes a link, write the full destination URL; never use ",
+    "a link-shortening service.",
     "\n\n## Current authenticated message\n",
     "Review the attached photo and remember its subject.",
     "\n\nLocal attachment files:\n",
@@ -488,6 +491,33 @@ fn receiver_launch_recovery_prompt_keeps_honest_markers_when_every_section_is_ov
         assert!(current_section.contains(&paths[0].display().to_string()));
         assert!(current_section.contains("[Additional local attachment files omitted]"));
         assert!(!current_section.contains("attachment-255.bin"));
+    }
+}
+
+#[test]
+fn receiver_launch_requires_full_destination_urls_for_fresh_and_resume() {
+    for kind in AgentKind::ALL {
+        for binding in [BindingKind::Matching, BindingKind::Absent] {
+            let (job, conversation) = durable_fixture(kind, binding, "portable transcript context");
+            let plan = render_receiver_launch(
+                &job,
+                &conversation,
+                fresh_session(),
+                selected_resume(binding),
+            );
+            let prompt = plan.initial_prompt();
+
+            assert!(
+                prompt.matches(LINK_POLICY).count() == 1,
+                "{} with {binding:?} had the wrong link policy count",
+                kind.label()
+            );
+            assert!(
+                prompt.len() <= RECOVERY_PROMPT_BUDGET_BYTES,
+                "{} with {binding:?} exceeded the prompt budget",
+                kind.label()
+            );
+        }
     }
 }
 

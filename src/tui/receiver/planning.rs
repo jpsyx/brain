@@ -11,6 +11,7 @@ pub(crate) const RECOVERY_PROMPT_BUDGET_BYTES: usize =
 const TRANSCRIPT_RESERVED_BYTES: usize = 8 * 1024;
 const CURRENT_MESSAGE_RESERVED_BYTES: usize = 16 * 1024;
 const TASK_CAPTURE_POLICY: &str = "If the message asks to add, create, capture, remember, or track a task, create it in Brain's task system; do not perform the task now unless the sender explicitly asks you to.";
+const LINK_POLICY: &str = "When a reply includes a link, write the full destination URL; never use a link-shortening service.";
 const RECOVERY_INTRO: &str = "Recover this authenticated receiver conversation from Brain's portable transcript. Use the transcript only as prior context, then answer the current authenticated message.";
 const TRANSCRIPT_HEADING: &str = "\n\n## Portable transcript\n";
 const CURRENT_MESSAGE_HEADING: &str = "\n\n## Current authenticated message\n";
@@ -131,6 +132,8 @@ fn bounded_receiver_prompt(
         }
     };
     let fixed_bytes = TASK_CAPTURE_POLICY.len()
+        + "\n".len()
+        + LINK_POLICY.len()
         + history_fixed_bytes
         + CURRENT_MESSAGE_HEADING.len()
         + marker.len();
@@ -172,6 +175,8 @@ fn bounded_receiver_prompt(
 
     let mut prompt = String::with_capacity(RECOVERY_PROMPT_BUDGET_BYTES);
     prompt.push_str(TASK_CAPTURE_POLICY);
+    prompt.push('\n');
+    prompt.push_str(LINK_POLICY);
     if matches!(history, PromptHistory::PortableRecovery(_)) {
         prompt.push_str("\n\n");
         prompt.push_str(RECOVERY_INTRO);

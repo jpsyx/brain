@@ -1894,7 +1894,9 @@ Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
 Every raw receiver launch prompt is capped at 47 KiB and begins with the same
-trusted task-capture policy. Adaptive POSIX quoting keeps a maximally escaped
+two trusted response policies: the task-capture policy, and a link policy that
+requires any link in a reply to be written as its full destination URL instead
+of a shortened one. Adaptive POSIX quoting keeps a maximally escaped
 prompt plus 12 KiB reserved for the configured command, trusted policy, and
 options within a 96 KiB shell argument ceiling. `AgentController` also checks
 the completed command and rejects it before spawn if it exceeds that ceiling,
