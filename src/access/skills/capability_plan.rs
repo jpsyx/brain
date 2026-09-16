@@ -151,6 +151,16 @@ pub(super) fn enforcement_entries<T>(
         .collect()
 }
 
+/// Every requested capability of a kind the frontend has no mechanism for.
+pub(super) fn unsupported_entries<T>(
+    entries: &[(String, CapabilityResolution<T>)],
+) -> Vec<(String, CapabilityEnforcement)> {
+    entries
+        .iter()
+        .map(|(name, _)| (name.clone(), CapabilityEnforcement::Unavailable))
+        .collect()
+}
+
 fn normalize_names(field: &'static str, names: &[String]) -> Result<Vec<String>, CapabilityError> {
     let mut seen = HashSet::with_capacity(names.len());
     let mut normalized = Vec::with_capacity(names.len());

@@ -10,10 +10,11 @@ fn make_db(path: &std::path::Path) {
     brain::state::Db::open_path(path).expect("open");
 }
 
-fn compatible_frontends() -> [(AgentKind, Result<Option<String>, brain::agent::AgentError>); 2] {
+fn compatible_frontends() -> [(AgentKind, Result<Option<String>, brain::agent::AgentError>); 3] {
     [
         (AgentKind::Claude, Ok(Some("2.1.196".to_owned()))),
         (AgentKind::OpenCode, Ok(Some("1.18.14".to_owned()))),
+        (AgentKind::Pi, Ok(Some("0.85.1".to_owned()))),
     ]
 }
 
@@ -235,6 +236,11 @@ fn diagnosis_is_ok_when_all_checks_pass() {
     let plugin = tmp.path().join("brain/.opencode/plugins/brain.js");
     std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
     std::fs::write(plugin, include_str!("../scripts/opencode_brain_plugin.js")).unwrap();
+    std::fs::write(
+        tmp.path().join("brain/.brain/hooks/pi_brain_extension.ts"),
+        include_str!("../scripts/pi_brain_extension.ts"),
+    )
+    .unwrap();
     let wrong_compatibility = [(AgentKind::Claude, Ok(Some("compatible".to_owned())))];
     let missing_opencode = brain::tasks::doctor::run_doctor_with_frontends(
         &db_path,

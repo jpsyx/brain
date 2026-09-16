@@ -96,6 +96,20 @@ fn assert_frontend_recovery_lifecycle(
     }
     let codex_override = (kind == AgentKind::Codex)
         .then(|| crate::agent::override_codex_sessions_dir_for_test(&codex_sessions_dir));
+    let pi_sessions_dir = codex_sessions_dir.with_file_name("pi-sessions");
+    if kind == AgentKind::Pi {
+        std::fs::create_dir_all(&pi_sessions_dir).expect("pi session directory");
+        std::fs::write(
+            pi_sessions_dir.join(crate::agent::pi_session_file_name(
+                "9999-12-31T00-00-00-000Z",
+                native_session.as_str(),
+            )),
+            "{\"type\":\"session\"}\n",
+        )
+        .expect("pi session file");
+    }
+    let pi_override = (kind == AgentKind::Pi)
+        .then(|| crate::agent::override_pi_sessions_dir_for_test(&pi_sessions_dir));
     let later = accept_email_job(&app, &db, "later reconstruction work", 200);
     departure.leave(
         &mut app,
@@ -178,6 +192,7 @@ fn assert_frontend_recovery_lifecycle(
         AgentKind::Claude => assert!(command.contains("--resume"), "{kind:?}"),
         AgentKind::Codex => assert!(command.contains("resume"), "{kind:?}"),
         AgentKind::OpenCode => assert!(command.contains("--session"), "{kind:?}"),
+        AgentKind::Pi => assert!(command.contains("--session-id"), "{kind:?}"),
     }
     assert!(command.contains(native_session.as_str()), "{kind:?}");
     assert!(!command.contains(&private_inbound), "{kind:?}");
@@ -255,22 +270,26 @@ fn assert_frontend_recovery_lifecycle(
     );
 
     drop(codex_override);
+    drop(pi_override);
     if kind == AgentKind::Codex {
         std::fs::remove_dir_all(codex_sessions_dir).expect("remove Codex recovery matrix");
+    }
+    if kind == AgentKind::Pi {
+        std::fs::remove_dir_all(pi_sessions_dir).expect("remove pi recovery matrix");
     }
 }
 
 const fn reconstructed_default(persisted: AgentKind) -> AgentKind {
     match persisted {
         AgentKind::Claude => AgentKind::Codex,
-        AgentKind::Codex | AgentKind::OpenCode => AgentKind::Claude,
+        AgentKind::Codex | AgentKind::OpenCode | AgentKind::Pi => AgentKind::Claude,
     }
 }
 
 fn native_session_for(kind: AgentKind) -> AgentSession {
     let value = match kind {
         AgentKind::Claude => format!("claude-recovery-{}", uuid::Uuid::new_v4()),
-        AgentKind::Codex => uuid::Uuid::new_v4().to_string(),
+        AgentKind::Codex | AgentKind::Pi => uuid::Uuid::new_v4().to_string(),
         AgentKind::OpenCode => "session-1".to_owned(),
     };
     AgentSession::new(value).expect("native session")

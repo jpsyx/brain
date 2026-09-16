@@ -429,10 +429,6 @@ fn controller_handoff_is_eligible(
 }
 
 fn parse_frontend(value: &str) -> Result<crate::agent::AgentKind> {
-    match value {
-        "claude" => Ok(crate::agent::AgentKind::Claude),
-        "codex" => Ok(crate::agent::AgentKind::Codex),
-        "opencode" => Ok(crate::agent::AgentKind::OpenCode),
-        _ => Err(anyhow::anyhow!("unknown receiver cleanup frontend")),
-    }
+    crate::agent::AgentKind::parse_exact(value)
+        .ok_or_else(|| anyhow::anyhow!("unknown receiver cleanup frontend"))
 }

@@ -91,6 +91,13 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
                 assert_ne!(response_id, agent_session_id);
                 assert!(spec.command.contains("--agent brain"));
             }
+            AgentKind::Pi => {
+                assert_ne!(response_id, agent_session_id);
+                assert!(
+                    spec.command
+                        .contains(&format!("--session-id '{agent_session_id}'"))
+                );
+            }
         }
     }
 }

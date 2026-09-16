@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use super::*;
 use crate::{
     agent::{
         AgentController, AgentError, AgentKind, AgentObservationBoundary, AgentObservationCursor,
         AgentObservationPhase, AgentObservationRequest, AgentObservationResult, AgentTransport,
-        LaunchSpec, OpenCodeFrontend, SessionScope, SessionStore,
+        LaunchSpec, OpenCodeFrontend, PiFrontend, SessionScope, SessionStore,
     },
     state::Db,
     workspace::{CommandContext, MachineRegistry, RegistryStore, WorkspaceRecord},
@@ -68,7 +69,16 @@ fn opencode_frontend(command: &str) -> Box<dyn AgentFrontend> {
     Box::new(OpenCodeFrontend::new(command))
 }
 
-fn frontend_contracts() -> [FrontendContract; 3] {
+/// pi's session discovery is pinned at a directory that cannot exist, so the
+/// contract's resume assertions never depend on the developer's own `~/.pi`.
+fn pi_frontend(command: &str) -> Box<dyn AgentFrontend> {
+    Box::new(
+        PiFrontend::for_workspace(command, PathBuf::from("/workspaces/family brain"))
+            .with_session_dir(Some(Path::new("/nonexistent/brain-pi-sessions"))),
+    )
+}
+
+fn frontend_contracts() -> [FrontendContract; 4] {
     [
         FrontendContract {
             kind: AgentKind::Claude,
@@ -117,6 +127,24 @@ fn frontend_contracts() -> [FrontendContract; 3] {
             resume_prompt_command: "opencode-contract --agent brain --session 'resume-1' --prompt 'receiver prompt'",
             completion: CompletionStrategy::Hook,
             receiver_resume: None,
+        },
+        FrontendContract {
+            kind: AgentKind::Pi,
+            label: "pi",
+            configured_key: "pi_cmd",
+            configured_value: "pi-contract",
+            frontend: pi_frontend,
+            submit: b"\r",
+            busy_turn_follow_up: b"\x1b[200~follow\x1b[201~\r",
+            new_session: b"/new\r",
+            fresh_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1'",
+            resume_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1'",
+            fresh_prompt_command:
+                "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1' -- 'receiver prompt'",
+            resume_prompt_command:
+                "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1' -- 'receiver prompt'",
+            completion: CompletionStrategy::Hook,
+            receiver_resume: Some(false),
         },
     ]
 }
@@ -214,6 +242,7 @@ fn configured_command_context() -> (tempfile::TempDir, CommandContext) {
             "opencode_cmd".to_owned(),
             serde_json::json!("opencode-contract"),
         ),
+        ("pi_cmd".to_owned(), serde_json::json!("pi-contract")),
     ]);
     let registry = MachineRegistry {
         schema_version: crate::workspace::REGISTRY_SCHEMA_VERSION,

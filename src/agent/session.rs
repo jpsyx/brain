@@ -13,11 +13,13 @@ pub enum AgentKind {
     Codex,
     /// OpenCode.
     OpenCode,
+    /// pi.
+    Pi,
 }
 
 impl AgentKind {
     /// Every functional frontend in stable display order.
-    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::OpenCode];
+    pub const ALL: [Self; 4] = [Self::Claude, Self::Codex, Self::OpenCode, Self::Pi];
 
     /// Human label for UI copy.
     #[must_use]
@@ -32,7 +34,19 @@ impl AgentKind {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
+            Self::Pi => "pi",
         }
+    }
+
+    /// The frontend a stored [`Self::as_str`] value names, exactly.
+    ///
+    /// Persisted rows are written by Brain itself, so this is deliberately
+    /// strict: no trimming, no case folding, no alternative spellings. Lenient
+    /// parsing of a *typed* value belongs to
+    /// [`crate::agent::default_frontend::parse`].
+    #[must_use]
+    pub fn parse_exact(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == value)
     }
 }
 
@@ -201,8 +215,25 @@ mod tests {
     fn all_frontends_are_listed_once_in_display_order() {
         assert_eq!(
             AgentKind::ALL,
-            [AgentKind::Claude, AgentKind::Codex, AgentKind::OpenCode]
+            [
+                AgentKind::Claude,
+                AgentKind::Codex,
+                AgentKind::OpenCode,
+                AgentKind::Pi
+            ]
         );
+    }
+
+    /// Every stored `agent_kind` reaches Rust through this one parser, so a new
+    /// frontend can never be half-readable.
+    #[test]
+    fn the_exact_parser_round_trips_every_frontend_and_rejects_anything_else() {
+        for kind in AgentKind::ALL {
+            assert_eq!(AgentKind::parse_exact(kind.as_str()), Some(kind), "{kind:?}");
+        }
+        for unknown in ["", "Claude", "open-code", "gemini", " pi"] {
+            assert_eq!(AgentKind::parse_exact(unknown), None, "{unknown:?}");
+        }
     }
 }
 

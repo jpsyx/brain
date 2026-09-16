@@ -14,6 +14,47 @@ use token::populate_job_tokens;
 pub(in crate::state::receiver) use delivery::repair_structurally_malformed_deliveries;
 
 pub(super) const VERSION: i32 = 13;
+
+pub(in crate::state) const REGISTRATION_TABLE: &str = "receiver_session_registrations";
+
+/// The answer-cleanup table's contract, re-exported so the shared frontend
+/// contract can rebuild it without reaching into the delivery submodules.
+pub(in crate::state) const fn answer_cleanup_table() -> &'static str {
+    delivery::ANSWER_CLEANUP_TABLE
+}
+
+pub(in crate::state) const fn answer_cleanup_columns() -> &'static str {
+    delivery::ANSWER_CLEANUP_COLUMNS
+}
+
+pub(in crate::state) fn answer_cleanup_table_with(agent_kinds: &str) -> String {
+    delivery::answer_cleanup_table_with(agent_kinds)
+}
+pub(in crate::state) const REGISTRATION_COLUMNS: &str =
+    "workspace_id, conversation_id, agent_kind, actor_id, channel, \
+     brain_instance_id, registered_session_id, actual_session_id";
+
+fn registration_table() -> String {
+    registration_table_with(&crate::state::frontend_contract::agent_kind_values())
+}
+
+/// Frontend names are the registered set, so a database created before a new
+/// frontend is rebuilt rather than left rejecting its rows.
+pub(in crate::state) fn registration_table_with(agent_kinds: &str) -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS receiver_session_registrations (
+           workspace_id          TEXT NOT NULL,
+           conversation_id       TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
+           agent_kind            TEXT NOT NULL CHECK (agent_kind IN ({agent_kinds})),
+           actor_id              TEXT NOT NULL,
+           channel               TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
+           brain_instance_id     TEXT NOT NULL,
+           registered_session_id TEXT NOT NULL,
+           actual_session_id     TEXT,
+           PRIMARY KEY (workspace_id, brain_instance_id)
+         );"
+    )
+}
 pub(super) const RECOVERY_VERSION: i32 = 10;
 pub(super) const OBSERVATION_VERSION: i32 = 9;
 pub(super) const REGISTRATION_VERSION: i32 = 8;
@@ -45,18 +86,14 @@ pub(super) fn up_with_token_factory(
            updated_at_unix_ms   INTEGER NOT NULL,
            UNIQUE (workspace_id, user_id, channel, conversation_key),
            CHECK ((agent_kind IS NULL) = (agent_session_id IS NULL))
-         );
-         CREATE TABLE IF NOT EXISTS receiver_session_registrations (
-           workspace_id          TEXT NOT NULL,
-           conversation_id       TEXT NOT NULL REFERENCES receiver_conversations(conversation_id),
-           agent_kind            TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode')),
-           actor_id              TEXT NOT NULL,
-           channel               TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
-           brain_instance_id     TEXT NOT NULL,
-           registered_session_id TEXT NOT NULL,
-           actual_session_id     TEXT,
-           PRIMARY KEY (workspace_id, brain_instance_id)
          );",
+    )?;
+    transaction.execute_batch(&registration_table())?;
+    crate::state::frontend_contract::ensure_agent_kind_contract(
+        &transaction,
+        REGISTRATION_TABLE,
+        &registration_table(),
+        REGISTRATION_COLUMNS,
     )?;
     job_contract::create_v11_table_if_missing(&transaction)?;
     transaction.execute_batch(

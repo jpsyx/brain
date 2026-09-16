@@ -15,7 +15,7 @@ creates a session for an unregistered controller lineage.
   BRAIN_ROOT         — selected workspace root
   BRAIN_ACTOR_ID     — actor attributed to this launch
   BRAIN_CHANNEL: initiating channel retained by follow-up turns
-  BRAIN_AGENT_KIND: agent frontend (`claude`, `codex`, or `opencode`)
+  BRAIN_AGENT_KIND: agent frontend (`claude`, `codex`, `opencode`, or `pi`)
 
 The agent session extends that environment with:
 

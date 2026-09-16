@@ -2,6 +2,11 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 mod cleanup_schema;
+
+pub(in crate::state) use cleanup_schema::{
+    COLUMNS as ANSWER_CLEANUP_COLUMNS, TABLE as ANSWER_CLEANUP_TABLE,
+    create_table_with as answer_cleanup_table_with,
+};
 mod contract;
 mod cutover;
 mod downgrade;
@@ -22,7 +27,7 @@ pub(in crate::state::receiver) use structural_repair::repair_structurally_malfor
 
 pub(super) fn ensure_schema(connection: &Connection) -> Result<()> {
     contract::create_table(connection)?;
-    cleanup_schema::create_table(connection)?;
+    cleanup_schema::create(connection)?;
     contract::ensure_optional_columns(connection)?;
     cleanup_schema::ensure_optional_columns(connection)?;
     cleanup_schema::ensure_columns(connection)?;

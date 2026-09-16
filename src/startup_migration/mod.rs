@@ -3,6 +3,7 @@
 mod job_socket_cutover;
 mod lifecycle;
 mod manual_session;
+mod pi_frontend;
 mod receiver_delivery;
 mod receiver_launch;
 mod receiver_lifecycle_observation;
@@ -35,6 +36,7 @@ const RECEIVER_DELIVERY_VERSION: Version = Version::new(0, 85, 0);
 const RECEIVER_NOTICE_CUTOVER_VERSION: Version = Version::new(0, 86, 0);
 const JOB_SOCKET_CUTOVER_VERSION: Version = Version::new(0, 86, 2);
 const MANUAL_SESSION_VERSION: Version = Version::new(0, 87, 0);
+const PI_FRONTEND_VERSION: Version = Version::new(0, 91, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -43,7 +45,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 13] = [
+const MIGRATIONS: [Migration; 14] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -108,6 +110,11 @@ const MIGRATIONS: [Migration; 13] = [
         introduced: MANUAL_SESSION_VERSION,
         up: manual_session::up,
         down: manual_session::down,
+    },
+    Migration {
+        introduced: PI_FRONTEND_VERSION,
+        up: pi_frontend::up,
+        down: pi_frontend::down,
     },
 ];
 

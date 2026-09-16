@@ -235,12 +235,8 @@ fn parse_channel(value: &str) -> Result<crate::server::receiver::Channel> {
 }
 
 fn parse_agent_kind(value: &str) -> Result<crate::agent::AgentKind> {
-    match value {
-        "claude" => Ok(crate::agent::AgentKind::Claude),
-        "codex" => Ok(crate::agent::AgentKind::Codex),
-        "opencode" => Ok(crate::agent::AgentKind::OpenCode),
-        _ => Err(anyhow::anyhow!("unknown receiver frontend {value:?}")),
-    }
+    crate::agent::AgentKind::parse_exact(value)
+        .ok_or_else(|| anyhow::anyhow!("unknown receiver frontend {value:?}"))
 }
 
 fn from_i64(value: i64, name: &str) -> Result<u64> {

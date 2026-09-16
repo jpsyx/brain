@@ -153,6 +153,45 @@ fn frontend_report_never_claims_strict_selection_without_exclusion_evidence() {
     );
 }
 
+/// A frontend with no MCP mechanism cannot honestly report a requested MCP as
+/// advisory guidance: there is nothing for the agent to ignore or obey.
+#[test]
+fn a_frontend_without_mcp_support_reports_every_requested_mcp_as_unavailable() {
+    let config = Config {
+        access_mode: AccessMode::WorkspaceOnly,
+        allowed_mcps: vec!["notion".to_owned()],
+        allowed_skills: vec!["todo".to_owned()],
+        ..Config::default()
+    };
+    let machine = MachineCapabilityEnvironment::from_value(
+        family_id(),
+        serde_json::json!({
+            "mcps": [{"name": "notion", "url": "https://example.test/mcp"}]
+        }),
+    )
+    .expect("machine capability environment");
+    let plan = capability_plan(&config, &machine).expect("capability plan");
+
+    let advisory_skills = plan.enforcement_report(EnforcementEvidence::without_mcp_support());
+    let strict_skills =
+        plan.enforcement_report(EnforcementEvidence::strict_skills_without_mcp_support());
+
+    for report in [&advisory_skills, &strict_skills] {
+        assert_eq!(
+            report.mcps.enforcement("notion"),
+            Some(CapabilityEnforcement::Unavailable)
+        );
+    }
+    assert_eq!(
+        advisory_skills.skills.enforcement("todo"),
+        Some(CapabilityEnforcement::AdvisoryOnly)
+    );
+    assert_eq!(
+        strict_skills.skills.enforcement("todo"),
+        Some(CapabilityEnforcement::StrictlySelected)
+    );
+}
+
 #[test]
 fn config_command_storage_preserves_logical_lists_as_json_arrays() {
     let (_home, workspace) = temporary_workspace();

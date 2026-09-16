@@ -258,7 +258,7 @@ def same_authorization_scope(
 def accepted_turn_id(payload: dict[str, object], kind: str) -> object:
     if kind == "claude":
         return payload.get("prompt_id")
-    if kind in ("codex", "opencode"):
+    if kind in ("codex", "opencode", "pi"):
         return payload.get("turn_id")
     return None
 
@@ -590,7 +590,7 @@ def main() -> bool:
         not token
         or not observation_path
         or not instance_id
-        or agent_kind not in ("claude", "codex", "opencode")
+        or agent_kind not in ("claude", "codex", "opencode", "pi")
     ):
         return False
     try:

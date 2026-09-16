@@ -83,7 +83,7 @@ fn receiver_actor() -> ActorContext {
 fn other_frontend(kind: AgentKind) -> AgentKind {
     match kind {
         AgentKind::Claude => AgentKind::Codex,
-        AgentKind::Codex | AgentKind::OpenCode => AgentKind::Claude,
+        AgentKind::Codex | AgentKind::OpenCode | AgentKind::Pi => AgentKind::Claude,
     }
 }
 

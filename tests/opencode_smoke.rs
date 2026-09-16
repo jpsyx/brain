@@ -39,7 +39,7 @@ fn conflicting_frontend_flags_return_a_typed_exactly_rendered_error() {
     assert_eq!(error, AgentSelectionError::ConflictingFrontends);
     assert_eq!(
         Theme::dark(false).error_line("🔴", &error.to_string()),
-        "🔴 Choose one agent frontend: --claude, --codex, or --open-code."
+        "🔴 Choose one agent frontend: --claude, --codex, --open-code, or --pi."
     );
 }
 
@@ -73,7 +73,7 @@ fn conflicting_frontend_flags_exit_before_startup_side_effects() {
         );
         assert_eq!(
             String::from_utf8(output.stderr).expect("UTF-8 stderr"),
-            "🔴 Choose one agent frontend: --claude, --codex, or --open-code.\n",
+            "🔴 Choose one agent frontend: --claude, --codex, --open-code, or --pi.\n",
             "{arguments:?}"
         );
         assert_eq!(

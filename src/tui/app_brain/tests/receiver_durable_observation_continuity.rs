@@ -42,6 +42,9 @@ fn artifact_and_lifecycle_completion_persist_the_exact_session_for_the_next_mess
             AgentKind::OpenCode => {
                 AgentSession::new("session-1").expect("rotated OpenCode session")
             }
+            AgentKind::Pi => {
+                AgentSession::new(uuid::Uuid::new_v4().to_string()).expect("rotated pi session")
+            }
         };
         assert_ne!(
             native, registered,
@@ -85,6 +88,20 @@ fn artifact_and_lifecycle_completion_persist_the_exact_session_for_the_next_mess
         }
         let _codex_override = (kind == AgentKind::Codex)
             .then(|| crate::agent::override_codex_sessions_dir_for_test(&codex_sessions_dir));
+        let pi_sessions_dir = temporary.path().join("pi-sessions");
+        if kind == AgentKind::Pi {
+            std::fs::create_dir_all(&pi_sessions_dir).expect("pi session directory");
+            std::fs::write(
+                pi_sessions_dir.join(crate::agent::pi_session_file_name(
+                    "9999-12-31T00-00-00-000Z",
+                    native.as_str(),
+                )),
+                "{\"type\":\"session\"}\n",
+            )
+            .expect("pi session file");
+        }
+        let _pi_override = (kind == AgentKind::Pi)
+            .then(|| crate::agent::override_pi_sessions_dir_for_test(&pi_sessions_dir));
         let second = accept_email_job_in_thread(
             &app,
             &db,
@@ -117,6 +134,10 @@ fn artifact_and_lifecycle_completion_persist_the_exact_session_for_the_next_mess
             AgentKind::OpenCode => assert!(
                 command.contains("--session"),
                 "OpenCode continuity command omitted its session selector"
+            ),
+            AgentKind::Pi => assert!(
+                command.contains("--session-id"),
+                "pi continuity command omitted its session selector"
             ),
         }
     }

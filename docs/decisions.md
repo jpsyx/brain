@@ -435,7 +435,7 @@ attribution and routing, not a new authentication or access-control boundary.
 
 The agent-controller facade keeps frontend-specific command lines, environment
 policy, lifecycle hooks, session identity, and PTY control behind one semantic
-surface. Claude, Codex, and OpenCode adapters own their syntax differences;
+surface. Claude, Codex, OpenCode, and pi adapters own their syntax differences;
 the adapter trait, adapter operation enum, and concrete adapters are
 crate-private so callers cannot bypass the facade. Public launch and input
 values exist only to let an external transport consume a controller-produced
@@ -2871,7 +2871,7 @@ the same provider delivery resolves to the original durable job and
 conversation before the fresh identity can create another conversation.
 
 Native history alone is insufficient durable authority. Its storage and resume
-rules belong to Claude, Codex, or OpenCode, it may be deleted independently of
+rules belong to Claude, Codex, OpenCode, or pi, it may be deleted independently of
 Brain, and another frontend cannot safely resume it. Email reply quotes are not
 a substitute either: a sender may delete them, providers can truncate them,
 and they mix presentation with conversation state. Brain therefore maintains a
@@ -5427,3 +5427,82 @@ Additional exit still closes its mapping and normal Main exit still relaunches
 in place. This prevents initialization failures from deleting saved chats or
 creating a process-spawn loop without weakening explicit close or orderly
 shutdown behavior.
+
+## Why Brain's pi launch declines project-local trust
+
+pi asks before loading a project's own `.pi` settings, extensions, skills, and
+system prompt, and a Brain workspace root always contains `.agents/skills`, so
+the first pi panel in a workspace would stop on a trust prompt. A panel that
+waits for an answer nobody is watching reads as a hang, and a saved "yes" would
+mean pi silently executes whatever a synced workspace later contains.
+
+Brain passes `--no-approve` on every pi launch instead, and hands pi exactly
+what it needs on the command line: its lifecycle extension with `-e` and its
+rendered skills with `--skill`. pi loads both before trust is resolved, so
+declining costs Brain nothing. The user's *global* pi configuration, skills, and
+extensions are untouched; only project-local `.pi` resources inside the Brain
+root are ignored, which is the same boundary Brain already keeps for every other
+frontend's project configuration.
+
+## Why the pi bridge is a CLI extension, not a project plugin
+
+OpenCode's bridge lives in `.opencode/plugins/`, where OpenCode discovers it.
+The equivalent for pi is `.pi/extensions/`, but that directory is trust-gated
+and auto-discovered, so a Brain launch would need trust and a directly launched
+`pi` in the same root would load Brain's bridge in a session Brain knows nothing
+about. Installing it at `.brain/hooks/pi_brain_extension.ts` and passing `-e`
+makes the bridge load exactly when Brain launches pi, and never otherwise. It
+also puts the bridge beside the three frontend-neutral Python bridges it calls.
+
+## Why one pi flag serves both a fresh and a resumed session
+
+`pi --session-id <id>` opens an existing project session with that exact id and
+creates one when it is missing. Brain already owns session identity, so both
+`SessionPlan::Fresh` and `SessionPlan::Resume` emit the same flag, and Brain's id
+stays authoritative either way. Nothing is lost by the collapse: Brain only
+plans a resume after proving pi still holds that session's file, and a fresh
+plan uses an id pi cannot already have.
+
+## Why pi reports every requested MCP as unavailable
+
+pi has no MCP mechanism at all; its design note says so explicitly. Reporting a
+requested MCP as `advisory-only` there would describe a selection the agent
+could choose to honor, and there is nothing to honor. `EnforcementEvidence`
+therefore carries "this frontend has no MCP mechanism" as a distinct fact, and
+`brain skills status` prints `pi=unavailable` for every requested MCP.
+
+The mirror image is skills: pi is the one frontend whose skill selection Brain
+can make exact, because `--no-skills` turns off discovery while an explicit
+`--skill` path still loads. When `pi_cmd` is a plain `pi` invocation, Brain
+reports those skills as `strictly-selected` rather than advisory.
+
+## Why the pi probe reads the machine's real model catalog
+
+Compatibility probes run with a disposable HOME so they cannot touch or depend
+on the user's configuration. That is right for "is this binary new enough" and
+"does it advertise the flags Brain appends". It is wrong for the question a
+Brain user actually hits first: pi starts fine with no provider credentials and
+only fails when the first turn runs, which inside a panel looks like Brain
+broke.
+
+So the third check reads the real configuration deliberately, because that *is*
+the question. `pi --list-models` prints only models whose provider credentials
+resolve, so a table with no rows is exactly the "not configured" signal. It runs
+with `PI_OFFLINE=1`, takes no arguments that could change state, and writes
+nothing; the cost is one bounded offline read, and the payoff is
+`brain tasks doctor` saying "log in to a provider" instead of a panel that dies
+on its first turn.
+
+## Why the stored frontend contract is generated, not written out
+
+Three tables constrain `agent_kind` to the frontends Brain knows. Adding pi
+meant widening three hand-written `CHECK` lists, and `CREATE TABLE IF NOT
+EXISTS` repairs none of them in a database that already exists: the rows would
+simply be rejected.
+
+The list is now generated from the frontend registry, and a table whose stored
+definition no longer matches is rebuilt when the database is opened. A new
+frontend needs no schema edit and no new migration, and the same rebuild runs in
+reverse for a downgrade: the pi migration's `down` restores the pre-pi list and
+drops the rows only pi could own, so the older binary accepts the database it
+inherits.

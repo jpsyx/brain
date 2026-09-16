@@ -36,8 +36,12 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         status.contains("notion  requested=yes  available=yes"),
         "{status}"
     );
+    // pi has no MCP mechanism at all, so a requested MCP is unavailable there
+    // however complete its machine-local material is.
     assert!(
-        status.contains("Claude=strictly-selected  Codex=advisory-only  OpenCode=advisory-only"),
+        status.contains(
+            "Claude=strictly-selected  Codex=advisory-only  OpenCode=advisory-only  pi=unavailable"
+        ),
         "{status}"
     );
     assert!(
@@ -45,15 +49,18 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         "{status}"
     );
     assert!(
-        status.contains("Claude=unavailable  Codex=unavailable  OpenCode=unavailable"),
+        status.contains("Claude=unavailable  Codex=unavailable  OpenCode=unavailable  pi=unavailable"),
         "{status}"
     );
     assert!(
         status.contains("todo  requested=yes  available=yes"),
         "{status}"
     );
+    // pi is the one frontend Brain can point at exactly one skill directory.
     assert!(
-        status.contains("Claude=advisory-only  Codex=advisory-only  OpenCode=advisory-only"),
+        status.contains(
+            "Claude=advisory-only  Codex=advisory-only  OpenCode=advisory-only  pi=strictly-selected"
+        ),
         "{status}"
     );
     assert!(!status.contains("machine-secret"), "{status}");
@@ -93,6 +100,7 @@ fn frontend_commands(claude: &str) -> Vec<(AgentKind, String)> {
         (AgentKind::Claude, claude.to_owned()),
         (AgentKind::Codex, "codex".to_owned()),
         (AgentKind::OpenCode, "opencode".to_owned()),
+        (AgentKind::Pi, "pi".to_owned()),
     ]
 }
 

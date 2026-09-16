@@ -136,6 +136,10 @@ const RECEIVER_OBSERVATION_SCRIPT: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/scripts/receiver_observation_bridge.py"
 ));
+const PI_EXTENSION: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/scripts/pi_brain_extension.ts"
+));
 pub(super) const CLAUDE_LIFECYCLE: [LifecycleInstallation; 4] = [
     LifecycleInstallation {
         id: "agent-session-start-script",
@@ -193,6 +197,15 @@ pub(super) const OPENCODE_LIFECYCLE: [LifecycleInstallation; 1] = [LifecycleInst
     target: LifecycleTarget::Workspace(".opencode/plugins/brain.js"),
     payload: LifecyclePayload::StaticFile {
         contents: OPENCODE_PLUGIN,
+        mode: 0o644,
+    },
+}];
+
+pub(super) const PI_LIFECYCLE: [LifecycleInstallation; 1] = [LifecycleInstallation {
+    id: "pi-extension",
+    target: LifecycleTarget::Workspace(crate::agent::pi::EXTENSION_RELATIVE_PATH),
+    payload: LifecyclePayload::StaticFile {
+        contents: PI_EXTENSION,
         mode: 0o644,
     },
 }];
@@ -302,6 +315,29 @@ pub(super) const OPENCODE_HEALTH: [HealthCheckDescriptor; 4] = [
         label: "Brain plugin",
         target: HealthCheckTarget::WorkspaceFile(".opencode/plugins/brain.js"),
         expectation: HealthCheckExpectation::FileContents(OPENCODE_PLUGIN),
+    },
+    HealthCheckDescriptor {
+        label: "session-start bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_start_hook.py"),
+        expectation: HealthCheckExpectation::FileContents(SESSION_START_SCRIPT),
+    },
+    HealthCheckDescriptor {
+        label: "session-stop bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/agent_session_stop_hook.py"),
+        expectation: HealthCheckExpectation::FileContents(SESSION_STOP_SCRIPT),
+    },
+    HealthCheckDescriptor {
+        label: "receiver-observation bridge",
+        target: HealthCheckTarget::WorkspaceFile(".brain/hooks/receiver_observation_bridge.py"),
+        expectation: HealthCheckExpectation::FileContents(RECEIVER_OBSERVATION_SCRIPT),
+    },
+];
+
+pub(super) const PI_HEALTH: [HealthCheckDescriptor; 4] = [
+    HealthCheckDescriptor {
+        label: "Brain extension",
+        target: HealthCheckTarget::WorkspaceFile(crate::agent::pi::EXTENSION_RELATIVE_PATH),
+        expectation: HealthCheckExpectation::FileContents(PI_EXTENSION),
     },
     HealthCheckDescriptor {
         label: "session-start bridge",

@@ -177,7 +177,7 @@ rule applies across the large runtime families:
 
 | Boundary | Coordinator / public seam | Focused implementation modules |
 | --- | --- | --- |
-| Agent compatibility | `agent/{claude,opencode}/probe.rs` | `agent/command_probe.rs` owns shared bounded subprocess execution; each frontend probe owns policy, caching, and characterization |
+| Agent compatibility | `agent/{claude,opencode,pi}/probe.rs` | `agent/command_probe.rs` owns shared bounded subprocess execution; each frontend probe owns policy, caching, and characterization |
 | Ordinary task commands | `command/tasks.rs` | `tasks/set.rs` owns field mutation; `tasks/browse.rs` owns query resolution and browser launch |
 | Receiver installation | `command/server/receiver/{hooks,setup}.rs` | `hooks/{artifact,json}.rs` own confined artifacts and atomic JSON; `setup/validation.rs` owns pure input validation |
 | Workspace startup | `workspace/{bootstrap,initialize}.rs` | `bootstrap/selection.rs` owns selector precedence; `initialize/seed.rs` owns empty-workspace detection and seeding |
@@ -393,7 +393,7 @@ staging-result decisions; `active.rs` owns exact-claim renewal and polling,
 while `active/terminal.rs` owns terminal authorization and cleanup;
 `artifact.rs` owns content-free exact completion correlation;
 and `reply.rs` preserves immutable provider delivery. Fresh and native-resume
-prompts for Claude, Codex, and OpenCode are initial launch data for the isolated
+prompts for Claude, Codex, OpenCode, and pi are initial launch data for the isolated
 controller. No receiver branch can select, borrow, or inject the main panel.
 
 Authenticated provider ingress now uses this foundation as its acceptance
@@ -419,7 +419,7 @@ Active run logs remain under `/tmp` through `logging.rs`.
 `WorkspacePaths::logs_dir` is reserved and unused; current diagnostic logs do
 not use that UUID-scoped path.
 
-The frontend-neutral `agent` facade, concrete Claude/Codex/OpenCode adapters,
+The frontend-neutral `agent` facade, concrete Claude/Codex/OpenCode/pi adapters,
 registry-driven construction and lifecycle metadata, PTY transport, main and
 triage controller ownership, receiver controller dispatch, advisory portable
 access modes, and the OpenCode lifecycle plugin are active. Coordinated
@@ -701,7 +701,7 @@ completion. Local cleanup is deliberately outside that transaction and removes
 only the completed or abandoned instance's response, snapshot, and sibling
 lock. `frontend` defines the
 crate-private frontend trait and adapter operation enum plus complete launch
-request and launch spec types. Concrete Claude, Codex, and OpenCode adapters
+request and launch spec types. Concrete Claude, Codex, OpenCode, and pi adapters
 are also crate-private; callers and black-box tests construct a controller and
 cross only the facade. Public launch-spec and input-sequence values are the
 transport DTOs needed by external `AgentTransport` implementations, while
@@ -711,9 +711,12 @@ and hook metadata values. `session` owns the canonical `AgentKind` identity,
 frontend-neutral `SessionStore`, immutable `SessionScope`, and durable
 `CompletionStatus`;
 the crate-level `session.rs` re-exports it and keeps adapter-backed command/env
-wrappers for compatibility callers and pure tests. `claude`, `codex`, and
-`opencode` own launch syntax, input sequences, completion, transcript or
-session-discovery, and lifecycle rules. `registry` is the exhaustive table of
+wrappers for compatibility callers and pure tests. `claude`, `codex`,
+`opencode`, and `pi` own launch syntax, input sequences, completion, transcript
+or session-discovery, and lifecycle rules. `direct_command` is the one parser
+behind every "is this configured command a plain invocation of the frontend's
+own executable, with none of the flags Brain appends" question, so Claude's MCP
+evidence and pi's skill evidence cannot drift apart. `registry` is the exhaustive table of
 frontend constructors, command metadata, lifecycle installations, exact health
 checks, capability evidence, and compatibility probes. Shared command, doctor,
 and setup code consume that table instead of switching on concrete frontends.
@@ -730,7 +733,13 @@ Its compatibility probe runs version, TUI-option, session-list, generated-config
 and plugin-load checks in disposable HOME/XDG roots. Claude's compatibility
 probe uses that same isolated runner to require the `prompt_id` hook capability
 represented by Claude Code 2.1.196 or later, recognizing only one exact
-`major.minor.patch (Claude Code)` output record. `agent/command_probe.rs` owns
+`major.minor.patch (Claude Code)` output record. `pi` builds its launch from a
+caller-chosen session id, declines project-local trust, points pi at exactly the
+skills Brain selected, and loads its own lifecycle extension; its probe checks
+the version floor and the appended flags in a disposable root, then reads this
+machine's real model catalog offline to answer whether pi could run a turn at
+all. `pi/sessions.rs` reproduces pi's own working-directory encoding so resume
+evidence is the session file pi would have written. `agent/command_probe.rs` owns
 the bounded process-group runner and read-only command capture; each frontend's
 `probe.rs` retains only compatibility policy and caching. Successful reports
 are cached by configured command for the process; failed probes remain
@@ -744,7 +753,7 @@ Receiver launches add the exact durable job token and its UUID-scoped
 observation path to that metadata. Main-panel and skill-session requests omit
 both values. The registry installs one normalized observation bridge and
 declares every managed event and exact source health check for Claude, Codex,
-and OpenCode, so startup reconciliation replaces stale bridges without
+OpenCode, and pi, so startup reconciliation replaces stale bridges without
 discarding unrelated user hooks. Hook entries are managed by exact canonical or
 explicitly known legacy command values, never by a basename shared with a user
 script. Claude and Codex commands first require Brain's explicit `BRAIN_ROOT`
@@ -1930,7 +1939,7 @@ ephemeral session per prompt, in its own brain-panel tab (see
 
 ### `state/`
 The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
-`brain_sessions` tracks Claude, Codex, and OpenCode sessions by a composite agent-kind,
+`brain_sessions` tracks Claude, Codex, OpenCode, and pi sessions by a composite agent-kind,
 session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
 and `active`/`completed` completion status;
 `meta` stores the `panel_side` layout preference and the
@@ -1955,6 +1964,12 @@ classification, and retry or ambiguity state. Schema v13 moved cleanup gating
 into unavailable-notice outbox rows and removed
 the obsolete job columns. Schema v14 additionally owns the `manual_sessions`
 mapping described above; it does not change receiver v13 contracts.
+`frontend_contract.rs` owns the one `agent_kind` column contract every stored
+frontend name obeys. The allowed list is built from the frontend registry, so
+learning a frontend needs no schema edit, and any table whose stored `CHECK` has
+drifted is rebuilt when the database is opened. The 0.91.0 pi migration's down
+path uses the same rebuild to restore the pre-pi list, dropping the rows only pi
+could own.
 The state contracts, nonblocking provider executor,
 and App tick consumer are active for every semantic response kind.
 See

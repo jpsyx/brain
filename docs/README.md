@@ -32,13 +32,16 @@ The code is the source-of-truth for *how*. They must agree on *what*.
 4. **[keybindings.md](keybindings.md)** — the app-level, tasks-view, and
    brain-search-view key tables, plus the kitty-protocol caveat.
 5. **[integrations.md](integrations.md):** `run.sh`, `AgentController`, the
-   Claude/Codex/OpenCode launch adapters, shared TUI-lifetime server, workspace
+   Claude/Codex/OpenCode/pi launch adapters, shared TUI-lifetime server, workspace
    sync/migration boundaries, file handoffs, and frontend hooks / state DB.
 6. **[config.md](config.md)** — the config store, the `brain config`
    command, the `markdown-to-pdf` prerequisite, and root resolution.
 7. **[testing.md](testing.md)** — the red/green TDD doctrine, what we
    test (and deliberately don't), and the test layout.
-8. **[decisions.md](decisions.md)** — the "why" behind the non-obvious
+8. **[adding-an-agent-frontend.md](adding-an-agent-frontend.md)** — the
+   contract for teaching the brain panel a new coding agent: the facts to
+   establish first, every seam a frontend touches, and the tests it must pass.
+9. **[decisions.md](decisions.md)** — the "why" behind the non-obvious
    choices: `/dev/tty` rendering, kitty flags, slug normalization, the
    registry-driven agent facade, and the central-dispatch framing.
 
@@ -56,7 +59,7 @@ src/
   cli/           : focused clap surface (global + command-family modules)
   workspace/     : WorkspaceContext, schema-v2 registry, requirements, and commands
   actor/         : immutable ActorContext for local and authenticated requests
-  agent/         : AgentController, frontend registry, and Claude/Codex/OpenCode adapters
+  agent/         : AgentController, frontend registry, and Claude/Codex/OpenCode/pi adapters
   users/         : portable people, normalized identities, and atomic users.json storage
   startup_migration/ : automatic machine up/down migrations and reconciliation
   migration/     : explicit journaled legacy-to-multi-workspace rollout
@@ -77,6 +80,7 @@ scripts/
   agent_session_start_hook.py  : frontend-neutral attributed session rotation
   agent_session_stop_hook.py   : frontend-neutral authorized completion publication
   opencode_brain_plugin.js     : thin OpenCode event-to-bridge adapter
+  pi_brain_extension.ts        : thin pi event-to-bridge adapter
 tests/
   entry_collect.rs   — entry::collect against real temp dir trees
   root_resolution.rs — config parse + tilde expansion composition
@@ -96,6 +100,7 @@ CLAUDE.md        — symlink → AGENTS.md
 | What is "Open tasks"? | features.md → "Open tasks" |
 | How does `ann-afloat` match the query `afloat`? | data-model.md → "HaystackBuf" |
 | How does the brain panel launch an agent frontend? | integrations.md → "The Brain Panel" |
+| How do I add another agent frontend? | adding-an-agent-frontend.md |
 | Why does `brain` need no plan protocol or wrapper? | decisions.md |
 | How do I create, attach, or select a workspace? | config.md and features.md |
 | How do I add a test the right way? | testing.md |

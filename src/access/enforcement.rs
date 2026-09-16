@@ -16,6 +16,7 @@ pub enum CapabilityEnforcement {
 pub struct EnforcementEvidence {
     pub(super) strict_mcps: bool,
     pub(super) strict_skills: bool,
+    pub(super) mcps_unsupported: bool,
 }
 
 impl EnforcementEvidence {
@@ -25,6 +26,7 @@ impl EnforcementEvidence {
         Self {
             strict_mcps: false,
             strict_skills: false,
+            mcps_unsupported: false,
         }
     }
 
@@ -34,6 +36,29 @@ impl EnforcementEvidence {
         Self {
             strict_mcps: true,
             strict_skills: false,
+            mcps_unsupported: false,
+        }
+    }
+
+    /// The frontend has no MCP mechanism, so a requested MCP is not merely
+    /// unenforced: it cannot be launched at all. Skills remain advisory.
+    #[must_use]
+    pub const fn without_mcp_support() -> Self {
+        Self {
+            strict_mcps: false,
+            strict_skills: false,
+            mcps_unsupported: true,
+        }
+    }
+
+    /// Skill launch arguments prove selection for a frontend that has no MCP
+    /// mechanism.
+    #[must_use]
+    pub const fn strict_skills_without_mcp_support() -> Self {
+        Self {
+            strict_mcps: false,
+            strict_skills: true,
+            mcps_unsupported: true,
         }
     }
 }

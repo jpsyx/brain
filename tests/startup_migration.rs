@@ -503,3 +503,9 @@ mod manual_session {
 
     include!("startup_migration/manual_session.rs");
 }
+
+mod pi_frontend {
+    use super::*;
+
+    include!("startup_migration/pi_frontend.rs");
+}

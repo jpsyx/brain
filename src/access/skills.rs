@@ -268,7 +268,11 @@ impl CapabilityPlan {
     pub fn enforcement_report(&self, evidence: EnforcementEvidence) -> CapabilityEnforcementReport {
         CapabilityEnforcementReport {
             mcps: CapabilityEnforcementSet {
-                entries: enforcement_entries(&self.mcps.entries, evidence.strict_mcps),
+                entries: if evidence.mcps_unsupported {
+                    unsupported_entries(&self.mcps.entries)
+                } else {
+                    enforcement_entries(&self.mcps.entries, evidence.strict_mcps)
+                },
             },
             skills: CapabilityEnforcementSet {
                 entries: enforcement_entries(&self.skills.entries, evidence.strict_skills),
@@ -284,5 +288,5 @@ impl CapabilityPlan {
 /// Returns a capability configuration error when logical or machine names are
 /// ambiguous.
 mod capability_plan;
-use capability_plan::enforcement_entries;
+use capability_plan::{enforcement_entries, unsupported_entries};
 pub use capability_plan::{capability_plan, capability_plan_for};

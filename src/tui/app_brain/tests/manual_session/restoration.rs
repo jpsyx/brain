@@ -255,8 +255,18 @@ fn restored_manual_sessions_resume_only_their_exact_native_id_for_every_frontend
             "{}\n",
         )
         .unwrap();
+        std::fs::write(
+            sessions_dir.join(crate::agent::pi_session_file_name(
+                "2026-09-05T00-00-00-000Z",
+                "session-1",
+            )),
+            "{\"type\":\"session\"}\n",
+        )
+        .unwrap();
         let _codex = (kind == AgentKind::Codex)
             .then(|| crate::agent::override_codex_sessions_dir_for_test(&sessions_dir));
+        let _pi = (kind == AgentKind::Pi)
+            .then(|| crate::agent::override_pi_sessions_dir_for_test(&sessions_dir));
         let mut restored = test_app(&temporary, &cli, kind);
         let main = TransportRecording::default();
         let atlas = TransportRecording::default();
@@ -271,6 +281,7 @@ fn restored_manual_sessions_resume_only_their_exact_native_id_for_every_frontend
             AgentKind::Claude => "--resume",
             AgentKind::Codex => "resume",
             AgentKind::OpenCode => "--session",
+            AgentKind::Pi => "--session-id",
         };
         assert!(
             specs[0].command.contains(&format!("{flag} 'session-1'")),

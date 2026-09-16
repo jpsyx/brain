@@ -258,9 +258,9 @@ fn frontend_tool(kind: &str, accepted_turn_id: &str, tool_use_id: &str) -> serde
 }
 
 #[test]
-fn claude_and_codex_reject_delayed_tool_events_from_a_prior_turn_after_acceptance() {
+fn every_frontend_rejects_delayed_tool_events_from_a_prior_turn_after_acceptance() {
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
-    for kind in ["claude", "codex"] {
+    for kind in ["claude", "codex", "opencode", "pi"] {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let path = observation_path(&temporary, format!("{kind}.json"));
         assert!(
@@ -305,9 +305,9 @@ fn claude_and_codex_reject_delayed_tool_events_from_a_prior_turn_after_acceptanc
 }
 
 #[test]
-fn claude_and_codex_revoke_progress_after_a_later_nonmarker_root_prompt() {
+fn every_frontend_revokes_progress_after_a_later_nonmarker_root_prompt() {
     let marker = format!("<!-- brain:receiver-job-token={JOB_TOKEN} -->");
-    for kind in ["claude", "codex"] {
+    for kind in ["claude", "codex", "opencode", "pi"] {
         let temporary = tempfile::tempdir().expect("temporary directory");
         let path = observation_path(&temporary, format!("{kind}.json"));
         assert!(

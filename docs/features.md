@@ -22,8 +22,8 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
   palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
   running this machine's `default_agent_frontend` (Claude unless set), or the
-  frontend named by `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` /
-  `-oc` for one run, open at startup and shared by all
+  frontend named by `--claude` / `-cl`, `--codex` / `-cx`, `--open-code` /
+  `-oc`, or `--pi` / `-pi` for one run, open at startup and shared by all
   main views. Main is permanent at internal tab 0; switching views or exiting
   its controller does not hide the panel. Additional Manual, Skill, and Receiver
   sessions share the ordered tab strip beside Main.
@@ -60,7 +60,7 @@ embedded frontends does not strand the scroll binding.
 
 Every live main or additional-tab session sits behind an `AgentController`.
 Keyboard, render, scroll, completion, receiver-run, and close paths call semantic
-operations on that facade; only the Claude, Codex, and OpenCode adapters know their
+operations on that facade; only the Claude, Codex, OpenCode, and pi adapters know their
 commands, input sequences, session rules, and hooks. Whole-shell teardown
 explicitly shuts down all controllers before their transports are dropped.
 
@@ -98,7 +98,7 @@ Enter saves the trimmed unique title, Backspace edits, `Ctrl+U` clears, and Esc
 or `Ctrl+C` cancels. Blank names and ASCII case-insensitive duplicates of
 Main's `Brain` title or another open manual title remain visible with an inline
 error. Renaming updates Brain's durable tab title without changing the native
-session identity tracked by Claude, Codex, or OpenCode. Neither palette command
+session identity tracked by Claude, Codex, OpenCode, or pi. Neither palette command
 has a direct shortcut annotation.
 
 Manual-session launch, persistence, and close failures appear in a red error
@@ -238,13 +238,15 @@ See [integrations.md](integrations.md) and
 [data-model.md](data-model.md) for saved mappings and scoped native-session locks.
 
 Claude is selected per run with `--claude` / `-cl`; Codex with `--codex` /
-`-cx`; OpenCode with `--open-code` / `-oc`. The selectors may appear before or
+`-cx`; OpenCode with `--open-code` / `-oc`; pi with `--pi` / `-pi`. The
+selectors may appear before or
 after `tasks` and its delegated positionals, stop at `--`, and reject mixed
 frontend selection. With no selector, this machine's `default_agent_frontend`
 env value decides (`claude` when unset), so `brain env set
 default_agent_frontend=codex` makes Codex the default here without changing what
 any other machine on the workspace launches.
-The adapters use `codex_cmd`, `opencode_cmd`, and `claude_cmd` from brain env.
+The adapters use `codex_cmd`, `opencode_cmd`, `pi_cmd`, and `claude_cmd` from
+brain env.
 Codex
 participates in the same frontend/workspace/actor/channel session store but
 resumes when the exact session rollout remains on disk and starts fresh when
@@ -253,9 +255,23 @@ ordinary Brain command refreshes the registry-declared lifecycle artifacts in
 all existing configured workspaces before bootstrap, so remote prompts and
 completion delivery use the same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
-native busy-turn queue key. Claude and OpenCode receive `Enter`. Text and the
+native busy-turn queue key. Claude, OpenCode, and pi receive `Enter`, which for
+pi is its steering queue: the message is delivered when the running turn
+finishes its tool calls. Text and the
 adapter-defined final key are one semantic facade operation, so callers never
 construct frontend keystrokes.
+
+pi participates in the same session store and resumes when pi still holds a
+session file for the exact id Brain chose. Its launch is deliberately hermetic:
+`--no-approve` declines project-local pi resources so an unattended panel can
+never stop on pi's project-trust prompt, and Brain instead passes exactly what
+it needs on the command line: its lifecycle extension
+(`-e <root>/.brain/hooks/pi_brain_extension.ts`, which pi loads before trust is
+resolved) and its rendered skills (`--skill <root>/.agents/skills`). The user's
+global pi configuration, skills, and extensions are untouched. Because pi
+identifies a session with `--session-id`, which opens an existing session and
+creates a missing one, a fresh and a resumed launch differ only in whether the
+session already exists.
 
 Workspace-only launches also resolve portable logical MCP and skill allowlists
 against only the selected workspace's machine record. Claude receives selected
@@ -267,8 +283,13 @@ per-call config overrides, but its inherited
 global MCP and skill sources cannot currently be proven excluded. OpenCode
 receives Brain-owned `agent.brain`, `default_agent`, selected `brain_ws_*` MCP
 entries, and a selected skill path through merged inline configuration, but
-inherited global sources also cannot be proven excluded. Selected skill names
-are trusted guidance for all three frontends. `brain skills status`
+inherited global sources also cannot be proven excluded. pi has no MCP
+mechanism at all, so every requested MCP is reported `unavailable` there rather
+than as guidance the agent might follow; its skill selection, by contrast, is
+the one Brain can make exact (`--no-skills` plus the rendered selection), and is
+reported `strictly-selected` when `pi_cmd` is a safely parsed direct pi
+invocation. Selected skill names are trusted guidance for the other three
+frontends. `brain skills status`
 labels each requested capability as `strictly-selected`, `advisory-only`, or
 `unavailable`, rather than claiming isolation the frontend does not provide.
 Unrestricted launches skip capability parsing and remove stale workspace-only
@@ -367,10 +388,11 @@ management and reporting commands stay outside the persistent shell.
 | `brain` | Open the persistent shell on the tasks view (the startup default) with the brain panel on this machine's `default_agent_frontend` (Claude unless set). |
 | `brain --claude` / `brain -cl` | Open the same shell with Claude in the brain panel, whatever this machine's `default_agent_frontend` says. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. |
-| `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. Selecting two frontends exits with `🔴 Choose one agent frontend: --claude, --codex, or --open-code.` |
-| `brain env set default_agent_frontend=<claude\|codex\|opencode>` | Choose which frontend the brain panel launches on **this machine** when no selector flag is passed. Machine-local, so each machine on a workspace can differ. |
+| `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. Selecting two frontends exits with `🔴 Choose one agent frontend: --claude, --codex, --open-code, or --pi.` |
+| `brain --pi` / `brain -pi` | Select the pi brain-panel adapter. Brain launches pi in the selected workspace with the session id it chose, its own lifecycle extension, and Brain's rendered skills, and delivers completion through the shared controller lifecycle. |
+| `brain env set default_agent_frontend=<claude\|codex\|opencode\|pi>` | Choose which frontend the brain panel launches on **this machine** when no selector flag is passed. Machine-local, so each machine on a workspace can differ. |
 | `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
-| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
+| `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, `--open-code` / `-oc`, or `--pi` / `-pi` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
 | `brain tasks complete <id>` | Mark a task or habit complete natively, no TUI. Also re-syncs the day's agenda markdown the completion just invalidated (see [Keeping the day's agenda in sync](#keeping-the-days-agenda-in-sync)). |
 | `brain tasks sync-agenda [<id>] [--action done\|defer\|touch] [--date YYYY-MM-DD]` | Re-sync the day's agenda after any task/habit mutation, without mutating anything itself. This is the one implementation of that sync; native completion runs the same code in-process and the bundled `/todo` mutator scripts shell out to it. Omitting the id refreshes only the CSV-derived snapshot sections; `--action` defaults to `touch`, which never edits the plan. |
@@ -413,7 +435,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`, and prune skills brain rendered before but no longer produces. `--root` selects a sandbox workspace (see below). |
-| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode enforcement level without printing connection material or credentials. |
+| `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode/pi enforcement level without printing connection material or credentials. |
 
 After a Brain version update, the first ordinary invocation migrates the core
 skills into every registered workspace, even when legacy global skill copies
@@ -747,7 +769,7 @@ user or inbound text stays prompt data. `workspace_only` is advisory prompt
 enforcement plus best-effort capability filtering, easy to bypass, and not
 tenant isolation. It reduces accidents and naive leakage among trusted users.
 Real adversarial or sensitive isolation requires an external OS, VM, machine,
-or container boundary. Claude, Codex, and OpenCode continue to use the
+or container boundary. Claude, Codex, OpenCode, and pi continue to use the
 user's shared frontend login; selecting a workspace does not create another
 identity.
 A pure literal-path check can warn about obvious absolute or `~/` paths outside
@@ -1437,7 +1459,7 @@ scoped to the selected brain root.
 **Removed skills are pruned automatically.** A sync is a full reconciliation,
 not just an install: when a plugin is deleted or renamed, or a bundled skill
 leaves the binary, the copy brain previously rendered into `.agents/skills` and
-its Claude/Codex/OpenCode links are removed in the same run, and the output says
+its Claude/Codex/OpenCode/pi links are removed in the same run, and the output says
 what it pruned. Frontend links left dangling by a skill that is gone are swept
 too. Brain only ever removes what it rendered — it recognizes its own output by
 a `.brain-rendered` marker file — so a skill you wrote by hand directly in
@@ -1604,7 +1626,7 @@ Inbound messages never take over, focus, type into, submit through, or wait on
 the interactive main panel. The one recurring TUI tick keeps at most one live
 receiver run for the workspace process, launches it in a background tab with a
 dedicated `AgentController` and PTY, and leaves later arrivals durable and
-unclaimed. Claude, Codex, and OpenCode use the same launch, lifecycle,
+unclaimed. Claude, Codex, OpenCode, and pi use the same launch, lifecycle,
 completion, and shutdown facade. Fresh and native-resume prompts are passed in
 the isolated controller's initial launch request, never as interactive input to
 that controller or the selected main-panel controller. Receiver launch and terminal close never
@@ -1622,7 +1644,7 @@ atomically and advances its revision once. After exact progressing evidence,
 each distinct later tool event can advance the same revision stream with a
 content-free progress pulse while retaining the first progressing timestamp.
 Pulse-only reads cross the same `AgentController` facade and exact state
-transaction for Claude, Codex, and OpenCode; unrelated turns, children, prior
+transaction for Claude, Codex, OpenCode, and pi; unrelated turns, children, prior
 sessions, wrong scope, duplicate events, and reordered timestamps cannot renew
 the job. Claude binds each pulse to the accepted `prompt_id`, Codex binds it to
 the accepted `turn_id`, and OpenCode requires the tool callback's assistant
@@ -1973,7 +1995,7 @@ destination that is not `https:`, `http:`, or `mailto:` is dropped.
 When cloud sync is configured, receiver dispatch also applies the two-hour
 freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches the selected
-Claude, Codex, or OpenCode frontend. Task-capture language is passed with an
+Claude, Codex, OpenCode, or pi frontend. Task-capture language is passed with an
 explicit instruction to create the task rather than perform it, unless the
 sender asks for immediate execution. After a verified response completes,
 Brain starts a push before delivering the reply.

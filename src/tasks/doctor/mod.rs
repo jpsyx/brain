@@ -188,10 +188,12 @@ pub fn run_doctor_for_workspace(
     diag.hook_command = primary_session
         .and_then(|(path, _, suffix)| frontend::session_start_command(&path, suffix));
     crate::logging::log(format!(
-        "doctor frontend integrations claude={} codex={} opencode={}",
-        diag.frontend_ready(crate::agent::AgentKind::Claude),
-        diag.frontend_ready(crate::agent::AgentKind::Codex),
-        diag.frontend_ready(crate::agent::AgentKind::OpenCode)
+        "doctor frontend integrations {}",
+        crate::agent::AgentKind::ALL
+            .iter()
+            .map(|kind| format!("{}={}", kind.as_str(), diag.frontend_ready(*kind)))
+            .collect::<Vec<_>>()
+            .join(" ")
     ));
     crate::logging::log("doctor probe rclone");
     diag.rclone_version = detect_rclone_version();
@@ -208,17 +210,25 @@ pub fn format_doctor_plan(
     settings_path: &Path,
     theme: crate::theme::Theme,
 ) -> String {
+    let mut probes = String::new();
+    for registration in crate::agent::registrations()
+        .iter()
+        .filter(|registration| registration.requires_compatibility_probe())
+    {
+        write!(
+            probes,
+            "\n  {} probing configured command",
+            theme.muted(&format!("{}:", registration.label()))
+        )
+        .expect("writing to a String cannot fail");
+    }
     format!(
-        "{}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}\n  {} {}",
+        "{}\n  {} {}\n  {} {}{probes}\n  {} {}\n  {} {}",
         theme.heading("Checking brain task environment"),
         theme.muted("state DB:"),
         theme.value(&db_path.display().to_string()),
         theme.muted("SessionStart hook:"),
         theme.value(&settings_path.display().to_string()),
-        theme.muted("Claude:"),
-        "probing configured command",
-        theme.muted("OpenCode:"),
-        "probing configured command",
         theme.muted("rclone:"),
         "probing PATH",
         theme.muted("sync config:"),

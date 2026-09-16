@@ -20,7 +20,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
         assert_eq!(app.shell.focus(), Panel::Brain);
         assert!(app.brain.turn_active());
         let expected_bytes = match agent_kind {
-            AgentKind::Claude | AgentKind::OpenCode => "2f 6e 65 77 0d",
+            AgentKind::Claude | AgentKind::OpenCode | AgentKind::Pi => "2f 6e 65 77 0d",
             AgentKind::Codex => "2f 6e 65 77 09",
         };
         let panel = app

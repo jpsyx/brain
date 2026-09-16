@@ -64,7 +64,7 @@ helpers and shell-outs live in the tasks modules:
   which excludes habits entirely) never pass that flag.
 - **`brain tasks doctor`**: prints a progress plan before checking the selected
   UUID-scoped state DB schema, every registry-declared lifecycle artifact,
-  Claude and OpenCode executable compatibility, `rclone version`, and the centralized
+  Claude, OpenCode, and pi executable compatibility, `rclone version`, and the centralized
   selected-workspace requirements. Hook commands are checked by event and
   current script suffix; Brain-owned bridge and plugin files require exact
   bundled contents, so stale files fail independently. It
@@ -135,10 +135,10 @@ helpers and shell-outs live in the tasks modules:
 
 This is the "central dispatch" design: `brain` is the single terminal command,
 and each capability is either an in-process main view (tasks, brain-directory
-search) or a spawned process it drives (Claude, Codex, or OpenCode for conversational work,
+search) or a spawned process it drives (Claude, Codex, OpenCode, or pi for conversational work,
 Finder/editor for files, `markdown-to-pdf` for conversions).
 
-## The Brain Panel: Claude, Codex, Or OpenCode
+## The Brain Panel: Claude, Codex, OpenCode, Or pi
 
 The persistent shell's `BrainPanelState` owns the main, Additional manual, skill-session, and
 receiver-run `AgentController`s. The App mediator assembles launch context, while each
@@ -149,7 +149,7 @@ used for launch and completion validation.
 
 Both main-view palettes start manual sessions immediately through
 `App::start_default_manual_session`, using a workspace-based random title and
-the same frontend-neutral launch path for Claude, Codex, and OpenCode. Their
+the same frontend-neutral launch path for Claude, Codex, OpenCode, and pi. Their
 Rename action opens a snapshot of every tab, but only an Additional Manual row
 can reach the prefilled title input. A successful rename changes Brain's scoped
 manual mapping and live tab title without sending a rename command to the
@@ -164,7 +164,7 @@ TuiRuntime
     ├── AppContext (workspace, frontend, config, paths)
     ├── BrainPanelState
     │   └── AgentController
-    │       └── frontend registry -> Claude | Codex | OpenCode adapter -> transport
+    │       └── frontend registry -> Claude | Codex | OpenCode | pi adapter -> transport
     ├── AppServices (session DB, runners, receiver sync adapter)
     └── ReceiverRuntime (intent, freshness gate, durable-run handle)
 ```
@@ -183,7 +183,8 @@ conversations, frontend-neutral sessions, and completion records are durable.
 **Which frontend runs.** A selector flag wins; with none, the selected
 workspace's machine-local `default_agent_frontend` env value decides; with that
 unset (or holding an unreadable value), Claude runs. The flags are
-`--claude` / `-cl`, `--codex` / `-cx`, and `--open-code` / `-oc`, and each may
+`--claude` / `-cl`, `--codex` / `-cx`, `--open-code` / `-oc`, and `--pi` /
+`-pi`, and each may
 appear before or after `tasks` and its delegated positionals. So
 `brain env set default_agent_frontend=codex` makes Codex this machine's default,
 and `brain --claude` still opens Claude for one run. The flags parse in
@@ -195,17 +196,24 @@ launches `opencode` with the named Brain agent, translates semantic input to
 OpenCode control sequences, and supplies the trusted Brain policy through
 `OPENCODE_CONFIG_CONTENT`. The installed `.opencode/plugins/brain.js` bridge
 maps OpenCode root-session, incremental user-message part, post-tool, and idle
-events into Brain's generic lifecycle bridges. Selecting more than one frontend exits with
-`🔴 Choose one agent frontend: --claude, --codex, or --open-code.`
+events into Brain's generic lifecycle bridges. The pi adapter launches `pi` with
+Brain's chosen session id, its own workspace extension, and Brain's rendered
+skills, and the installed `.brain/hooks/pi_brain_extension.ts` maps pi's
+`session_start`, `input`, `tool_execution_end`, `message_end`, and
+`agent_settled` events into the same generic bridges. Selecting more than one
+frontend exits with
+`🔴 Choose one agent frontend: --claude, --codex, --open-code, or --pi.`
 
 | Frontend | Command source | Resume/fresh command shape |
 | --- | --- | --- |
 | Claude | `claude_cmd` in brain env, default `claude --dangerously-skip-permissions` | `<claude_cmd> [--mcp-config <cache-json> --strict-mcp-config] --resume <id>` or `--session-id <id>` |
 | Codex | `codex_cmd` in brain env, default `codex` | `<codex_cmd> --dangerously-bypass-hook-trust [-c <capability-override>...] resume <id>` when the exact session rollout remains on disk; otherwise the same base launch without `resume <id>` starts fresh |
 | OpenCode | `opencode_cmd` in brain env, default `opencode` | `<opencode_cmd> --agent brain [--session <validated-id>] [--prompt <initial-prompt>]`; lifecycle uses the workspace Brain plugin. |
+| pi | `pi_cmd` in brain env, default `pi` | `<pi_cmd> --no-approve [--no-skills] [--skill <dir>] [--append-system-prompt <policy>] --extension <root>/.brain/hooks/pi_brain_extension.ts --session-id <id> [-- <initial-prompt>]`. One flag serves both plans: `--session-id` opens an existing project session and creates a missing one. |
 
-The crate-private `agent::ClaudeFrontend`, `agent::CodexFrontend`, and
-`agent::OpenCodeFrontend` adapters own these command shapes and splice the
+The crate-private `agent::ClaudeFrontend`, `agent::CodexFrontend`,
+`agent::OpenCodeFrontend`, and `agent::PiFrontend` adapters own these command
+shapes and splice the
 configured base command in verbatim so it may carry its own flags. Shared and
 external callers cannot construct an adapter or issue an adapter operation;
 they use `AgentController`, with `LaunchSpec` and `InputSequence` exposed only
@@ -243,6 +251,39 @@ and bounded output/time; they do not alter the user's OpenCode state. Successful
 configured command for that Brain process. A future OpenCode version remains
 supported when those tested surfaces remain compatible; otherwise Brain fails
 with the missing capability and an `opencode_cmd` remediation.
+pi compatibility is one probe answering three questions before any launch and
+again during doctor. `pi --version` must parse as a bare `major.minor.patch`
+(optionally with a pre-release suffix) and be at least **0.84.1**, the lowest
+release carrying every surface Brain depends on: caller-chosen `--session-id`
+(0.76.0), the `agent_settled` extension event and the `--session-id` create
+warning (0.80.4), and the auth-readiness surfaces (0.84.1). `pi --help` must
+advertise every flag Brain appends (`--session-id`, `--append-system-prompt`,
+`--extension`, `--skill`, `--no-skills`, `--no-approve`). Those two run with a
+disposable HOME and XDG root. The third asks whether *this machine's* pi could
+run a turn at all: `PI_OFFLINE=1 pi --list-models` must print its table header
+and at least one model, which pi lists only for providers whose credentials
+resolve. That one reads the real configuration, because that is the question,
+but it is offline, read-only, and bounded. Each failure names its own fix:
+install pi, update pi, set `brain env set pi_cmd <command>`, or log in to a
+provider. Those contracts are anchored to pi's own
+[usage](https://pi.dev/docs/latest/usage.md),
+[sessions](https://pi.dev/docs/latest/sessions.md),
+[session format](https://pi.dev/docs/latest/session-format.md),
+[extensions](https://pi.dev/docs/latest/extensions.md),
+[skills](https://pi.dev/docs/latest/skills.md), and
+[security](https://pi.dev/docs/latest/security.md) references.
+
+Brain proves a pi session is resumable by looking for the file pi would have
+written: `<agent-dir>/sessions/--<encoded workspace root>--/<timestamp>_<id>.jsonl`,
+where `<agent-dir>` honors `PI_CODING_AGENT_DIR` and a flat
+`PI_CODING_AGENT_SESSION_DIR` replaces the per-directory tree. pi writes that
+file lazily, so a session that never took a turn leaves nothing behind and is
+correctly not offered for resume. Brain also forwards pi's documented `PI_*`
+process-configuration namespace into the child, minus the per-session metadata
+pi injects into its own shell tools (`PI_SESSION_ID`, `PI_SESSION_FILE`,
+`PI_PROVIDER`, `PI_MODEL`, `PI_REASONING_LEVEL`, `PI_CODING_AGENT`), which a new
+process must never inherit.
+
 Before the main panel claims a free resumable session, it resolves the selected
 workspace's capability plan and asks the adapter for the candidate's stable
 response identity. A validation or identity error therefore cannot strand a
@@ -289,7 +330,7 @@ quoting whose worst case is seven output bytes per four input bytes plus
 delimiters. `AgentController` checks the exact rendered argument before spawn,
 retaining margin below 128 KiB platforms. Prompt, transcript, attachment, sender,
 recipient, credential, and attachment-error contents never enter planning
-diagnostics. Claude, Codex, and OpenCode translate both semantic plans with the
+diagnostics. Claude, Codex, OpenCode, and pi translate both semantic plans with the
 non-blank initial prompt through their existing launch command. A refresh,
 download, cardinality, path, or size failure returns the exact claim to its
 bounded pre-acceptance retry without launching an agent or changing the active
@@ -863,7 +904,7 @@ It respects `enable_triage_habits` (a disabled feature is a `Disabled` no-op
 that still dismisses the nudge). This is why only the Yes path needs the
 tab/token/`require` machinery above.
 
-These triage rules are identical for Claude, Codex, and OpenCode. OpenCode's
+These triage rules are identical for Claude, Codex, OpenCode, and pi. OpenCode's
 plugin may observe the ephemeral root session, but the generic session-start
 and session-stop bridges no-op without the tracking attribution intentionally
 omitted from a skill-session request; only the one-time session-done signal closes
@@ -898,7 +939,9 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
    non-archived, non-deleted root sessions whose reported directory resolves
    to that exact root. Child sessions and another workspace's IDs are never
    resume evidence. Codex accepts a candidate only when its exact rollout
-   remains on disk. If Brain claims a valid candidate it uses the adapter's
+   remains on disk, and pi only when its lazily written session file
+   (`<timestamp>_<id>.jsonl` in that workspace root's encoded session
+   directory) is on disk. If Brain claims a valid candidate it uses the adapter's
    resume shape; otherwise it
    starts fresh and, if it skipped a stale candidate, shows a status-line alert:
    *"couldn't find a session to resume; starting a new brain chat"*. Should a
@@ -954,7 +997,7 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
    recipients in the atomic final-answer outbox transaction; it does not call a
    provider or a process-local reply worker. Control acknowledgements and
    dropped-job notices are frozen in the same transaction as the conversation
-   boundary and later use the generic durable provider executor. Claude, Codex, and OpenCode
+   boundary and later use the generic durable provider executor. Claude, Codex, OpenCode, and pi
    receive the same immutable actor/channel through `AgentController`, and
    later registry or `users.json` changes cannot substitute another response
    identity while the turn is running.
@@ -968,7 +1011,8 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
 3. The generic **session-start bridge**,
    `scripts/agent_session_start_hook.py`, is wired into Claude and Codex
    `hooks.SessionStart`; OpenCode's workspace plugin invokes it for a root
-   `session.created` event. It fires on
+   `session.created` event, and pi's workspace extension for a `session_start`
+   event, passing pi's own `reason` through as the bridge's `source`. It fires on
    every session start / resume / `/clear` / compact — but **never** a fork.
    A fork branches into a new conversation rather than continuing this one, and
    a background agent started from the panel forks its session while inheriting
@@ -994,8 +1038,8 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
    exact frontend/workspace/actor/channel scope to the accepted native ID.
    Manual titles, roles, and positions do not change. A missing table is a
    supported older-database case; rejected, child, or untracked events never
-   update a mapping. Claude and Codex hooks and the OpenCode plugin all enter
-   this same rotation boundary. Concurrent rotations therefore serialize
+   update a mapping. Claude and Codex hooks, the OpenCode plugin, and the pi
+   extension all enter this same rotation boundary. Concurrent rotations therefore serialize
    before authorization; rejected or failed attempts roll back without
    changing either lineage, and SQLite's busy timeout lets a contender retry
    the decision after the current writer commits.
@@ -1004,10 +1048,13 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
    Interactive panels and skill sessions receive neither variable, so their
    ordinary prompts cannot produce receiver evidence. The generic
    `receiver_observation_bridge.py` handles Claude and Codex
-   `UserPromptSubmit` and `PostToolUse` hooks. Acceptance requires the trusted
+   `UserPromptSubmit` and `PostToolUse` hooks, and the same two payloads from
+   the OpenCode plugin and the pi extension. Acceptance requires the trusted
    token's exact marker as the prompt's final line and binds the content-free
    accepted turn using Claude's `prompt_id` (Claude Code 2.1.196 or later) or
-   Codex's `turn_id`. Progress
+   the `turn_id` every other frontend's bridge reports. pi's `input` event
+   carries no id of its own, so its extension mints one per accepted turn and
+   reuses it for that turn's tool events. Progress
    requires that same accepted turn, token, remote instance, and native session;
    `tool_use_id` identifies each distinct pulse. A later non-marker root prompt
    in that session clears the turn authority before any later tool event can
@@ -1144,8 +1191,11 @@ Which session to run is decided by **saved manual mappings and scoped locks** in
    and removes or restores only the file owned by that attempt. A concurrent
    SessionStart rotation serializes at the transaction boundary, so a stale
    Stop event cannot complete the prior lineage. The stable response ID is
-   independent of the frontend session ID, which gives Codex turns the
-   same completion path as Claude and OpenCode. The artifact includes frontend,
+   independent of the frontend session ID, which gives Codex and pi turns the
+   same completion path as Claude and OpenCode. pi reports completion from its
+   `agent_settled` event, the one point at which pi will not continue on its own
+   (no retry, no compaction, no queued follow-up), carrying the turn's last
+   non-errored assistant text, published at most once per turn. The artifact includes frontend,
    workspace, session, response, actor, channel, and completion status. For a
    receiver run it also includes the exact job token. The observation therefore
    precedes artifact/session visibility, while all three become consumable only
@@ -1344,15 +1394,16 @@ absolute path is baked into either hook file, because both are read on every
 synced machine.
 
 `scripts/install_hook.sh` deploys the generic session-start, session-stop, and
-receiver-observation bridges, Claude/Codex workspace hook settings, and the
-OpenCode plugin from the same lifecycle registry contract. It strips stale
+receiver-observation bridges, Claude/Codex workspace hook settings, the
+OpenCode plugin, and the pi extension from the same lifecycle registry
+contract. It strips stale
 legacy commands by exact value while preserving unrelated settings and
 same-basename user commands. Every
 ordinary Brain startup does the same automatically for every existing configured
 workspace before command dispatch; `brain receiver setup` also refreshes every
 registered frontend. Help and version are the only public no-write exceptions.
 Registry health checks compare the exact three bridge sources, the OpenCode
-plugin, and all four Claude/Codex event registrations. Startup reconciliation
+plugin, the pi extension, and all four Claude/Codex event registrations. Startup reconciliation
 therefore replaces a stale observation bridge while preserving unrelated user
 hooks and plugin configuration.
 The 0.81 startup migration owns this producer layer. Its down operation removes
@@ -1364,6 +1415,13 @@ retains workspace-local forwarding shims for the legacy script paths that an
 already-running frontend may have cached in memory. Those shims execute the new
 generic workspace hook and are not referenced by current Claude, Codex, or
 OpenCode configuration.
+The 0.91.0 pi migration widens every stored `agent_kind` contract to the
+current frontend registry: opening a workspace state database rebuilds a table
+whose stored `CHECK` list has drifted, which is why the upgrade is just an open.
+Its down operation restores the pre-pi contract of `manual_sessions`,
+`receiver_session_registrations`, and `receiver_answer_cleanups`, dropping the
+rows only pi could own, so the previous Brain accepts the database it inherits.
+
 The automatic 0.72.0 migration reconciles receiver schema v6 in every
 registered workspace that already has a state DB. It does not create an unused
 DB merely because the workspace is registered. Its down operation removes only
@@ -1483,7 +1541,7 @@ the exact schema-v11 job rows and column order. It records `user_version = 11`
 only after every removal succeeds in the same transaction.
 The standalone
 `./scripts/install_hook.sh [brain-root]` remains a repair path for users who
-change Claude, Codex, or OpenCode integration state manually. Its root
+change Claude, Codex, OpenCode, or pi integration state manually. Its root
 precedence is the explicit argument,
 then `BRAIN_ROOT`, with `$HOME/brain` retained only as the manual installer's
 single-workspace fallback. The session-stop bridge is required for receiver
@@ -1569,7 +1627,7 @@ and enabled, it claims the oldest durable job by
 plans through the selected `AgentController`, and reauthorizes that exact claim
 after each potentially slow capability, validation, registration, spawn, and
 allocation boundary. It then registers a unique isolated-run instance and spawns a
-new controller and PTY for Claude, Codex, or OpenCode. Fresh and native-resume
+new controller and PTY for Claude, Codex, OpenCode, or pi. Fresh and native-resume
 prompts are part of that controller's initial launch request; no post-launch
 typing or submission is involved. The new receiver tab is inserted in the
 background without selecting it or changing view, visibility, or focus. No

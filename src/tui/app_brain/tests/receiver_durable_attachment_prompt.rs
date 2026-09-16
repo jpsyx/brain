@@ -34,7 +34,7 @@ fn long_staged_paths(app: &App) -> Vec<PathBuf> {
 fn prompt_from_command(kind: AgentKind, command: &str) -> String {
     let marker = match kind {
         AgentKind::OpenCode => " --prompt ",
-        AgentKind::Claude | AgentKind::Codex => " -- ",
+        AgentKind::Claude | AgentKind::Codex | AgentKind::Pi => " -- ",
     };
     let quoted = command
         .rsplit_once(marker)
@@ -46,6 +46,20 @@ fn prompt_from_command(kind: AgentKind, command: &str) -> String {
         .expect("decode shell-quoted prompt");
     assert!(output.status.success());
     String::from_utf8(output.stdout).expect("UTF-8 receiver prompt")
+}
+
+fn create_pi_session(temporary: &tempfile::TempDir, session_id: &str) -> PathBuf {
+    let sessions = temporary.path().join("pi-sessions");
+    std::fs::create_dir_all(&sessions).expect("pi session directory");
+    std::fs::write(
+        sessions.join(crate::agent::pi_session_file_name(
+            "9999-12-31T00-00-00-000Z",
+            session_id,
+        )),
+        "{\"type\":\"session\"}\n",
+    )
+    .expect("pi session file");
+    sessions
 }
 
 fn create_codex_rollout(temporary: &tempfile::TempDir, session_id: &str) -> PathBuf {
@@ -95,6 +109,8 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             let mut claude_transcript = None;
             let mut codex_sessions = None;
             let mut codex_override = None;
+            let mut pi_sessions = None;
+            let mut pi_override = None;
             if matches!(history, HistoryKind::Resume) {
                 let mut seed = receiver_job(
                     &app,
@@ -131,6 +147,7 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
                         .to_owned(),
                     AgentKind::Codex => "019feb9e-edc0-7252-945a-5e06a30e0eec".to_owned(),
                     AgentKind::OpenCode => "session-1".to_owned(),
+                    AgentKind::Pi => "0199feb9-edc0-7252-945a-5e06a30e0eec".to_owned(),
                 };
                 match kind {
                     AgentKind::Claude => {
@@ -140,7 +157,7 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
                         ));
                         publish_valid_completion(&app, "seed response");
                     }
-                    AgentKind::Codex | AgentKind::OpenCode => {
+                    AgentKind::Codex | AgentKind::OpenCode | AgentKind::Pi => {
                         publish_valid_rotated_completion(&app, &native_id, "seed response");
                     }
                 }
@@ -150,6 +167,12 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
                     codex_sessions = Some(create_codex_rollout(&temporary, &native_id));
                     codex_override = codex_sessions.as_deref().map(|sessions| {
                         crate::agent::override_codex_sessions_dir_for_test(sessions)
+                    });
+                }
+                if kind == AgentKind::Pi {
+                    pi_sessions = Some(create_pi_session(&temporary, &native_id));
+                    pi_override = pi_sessions.as_deref().map(|sessions| {
+                        crate::agent::override_pi_sessions_dir_for_test(sessions)
                     });
                 }
             }
@@ -227,6 +250,8 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             );
             drop(codex_override);
             drop(codex_sessions);
+            drop(pi_override);
+            drop(pi_sessions);
             drop(claude_transcript);
         }
     }

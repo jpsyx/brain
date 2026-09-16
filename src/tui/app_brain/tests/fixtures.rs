@@ -35,6 +35,7 @@ impl TestWorkspaceFixture {
         .expect("write habits");
         let fake_opencode =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
+        let fake_pi = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pi/fake_pi.sh");
         std::fs::write(
             root.join(".config/config.json"),
             serde_json::json!({
@@ -70,6 +71,10 @@ impl TestWorkspaceFixture {
                             (
                                 "opencode_cmd".to_owned(),
                                 serde_json::Value::String(fake_opencode.display().to_string()),
+                            ),
+                            (
+                                "pi_cmd".to_owned(),
+                                serde_json::Value::String(fake_pi.display().to_string()),
                             ),
                             (
                                 "twilio_from_number".to_owned(),
@@ -240,7 +245,7 @@ pub(super) fn assert_workspace_only_launch_spec(
         root.display(),
     );
     let trusted_argument = match kind {
-        AgentKind::Claude => format!(
+        AgentKind::Claude | AgentKind::Pi => format!(
             "--append-system-prompt {}",
             crate::session::shell_quote(&policy)
         ),
@@ -255,7 +260,7 @@ pub(super) fn assert_workspace_only_launch_spec(
     };
     let prompt_argument = match kind {
         AgentKind::OpenCode => format!("--prompt {}", crate::session::shell_quote(prompt)),
-        AgentKind::Claude | AgentKind::Codex => {
+        AgentKind::Claude | AgentKind::Codex | AgentKind::Pi => {
             format!("-- {}", crate::session::shell_quote(prompt))
         }
     };

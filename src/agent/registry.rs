@@ -4,7 +4,7 @@ mod contract;
 
 use contract::{
     CLAUDE_HEALTH, CLAUDE_LIFECYCLE, CODEX_HEALTH, CODEX_LIFECYCLE, OPENCODE_HEALTH,
-    OPENCODE_LIFECYCLE,
+    OPENCODE_LIFECYCLE, PI_HEALTH, PI_LIFECYCLE,
 };
 pub(crate) use contract::{
     HealthCheckDescriptor, HealthCheckExpectation, HookCommandStyle, LifecycleInstallation,
@@ -14,7 +14,8 @@ pub(crate) use contract::{
 use crate::{
     access::EnforcementEvidence,
     agent::{
-        AgentFrontend, AgentKind, ClaudeFrontend, CodexFrontend, OpenCodeFrontend, SessionPlan,
+        AgentFrontend, AgentKind, ClaudeFrontend, CodexFrontend, OpenCodeFrontend, PiFrontend,
+        SessionPlan,
     },
     workspace::{CommandContext, WorkspaceContext},
 };
@@ -142,11 +143,15 @@ fn opencode_frontend(workspace: &WorkspaceContext, configured: String) -> Box<dy
     ))
 }
 
+fn pi_frontend(workspace: &WorkspaceContext, configured: String) -> Box<dyn AgentFrontend> {
+    Box::new(PiFrontend::for_workspace(configured, workspace.root()))
+}
+
 const fn advisory_evidence(_command: &str) -> EnforcementEvidence {
     EnforcementEvidence::advisory_only()
 }
 
-static REGISTRATIONS: [FrontendRegistration; 3] = [
+static REGISTRATIONS: [FrontendRegistration; 4] = [
     FrontendRegistration {
         kind: AgentKind::Claude,
         label: "Claude",
@@ -183,11 +188,23 @@ static REGISTRATIONS: [FrontendRegistration; 3] = [
         capability_evidence: advisory_evidence,
         compatibility_probe: Some(super::opencode_compatibility_version),
     },
+    FrontendRegistration {
+        kind: AgentKind::Pi,
+        label: "pi",
+        command_key: "pi_cmd",
+        default_command: super::DEFAULT_PI_COMMAND,
+        constructor: pi_frontend,
+        command_builder: PiFrontend::command_for,
+        lifecycle: &PI_LIFECYCLE,
+        health_checks: &PI_HEALTH,
+        capability_evidence: PiFrontend::capability_evidence,
+        compatibility_probe: Some(super::pi_compatibility_version),
+    },
 ];
 
 /// Every frontend registration in stable display order.
 #[must_use]
-pub(crate) const fn registrations() -> &'static [FrontendRegistration; 3] {
+pub(crate) const fn registrations() -> &'static [FrontendRegistration; 4] {
     &REGISTRATIONS
 }
 

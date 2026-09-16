@@ -33,6 +33,7 @@ fn extract_agent_selectors(args: Vec<String>) -> Vec<String> {
             "--claude" | "-cl" => push_unique(&mut selectors, "--claude"),
             "--codex" | "-cx" => push_unique(&mut selectors, "--codex"),
             "--open-code" | "-oc" => push_unique(&mut selectors, "--open-code"),
+            "--pi" | "-pi" => push_unique(&mut selectors, "--pi"),
             _ => delegated.push(argument.clone()),
         }
     }
@@ -151,6 +152,11 @@ pub struct Cli {
     #[arg(long = "open-code", global = true)]
     pub open_code: bool,
 
+    /// Use pi for the brain panel. Alias: -pi. Overrides the workspace's
+    /// `default_agent_frontend` env value for this run.
+    #[arg(long = "pi", global = true)]
+    pub pi: bool,
+
     /// Persistently enable receiver ingress before the selected TUI registers.
     #[arg(long, global = true)]
     pub with_receiver: bool,
@@ -182,11 +188,12 @@ impl Cli {
     pub const fn selected_agent(
         &self,
     ) -> Result<Option<crate::session::AgentKind>, AgentSelectionError> {
-        match (self.claude, self.codex, self.open_code) {
-            (true, false, false) => Ok(Some(crate::session::AgentKind::Claude)),
-            (false, true, false) => Ok(Some(crate::session::AgentKind::Codex)),
-            (false, false, true) => Ok(Some(crate::session::AgentKind::OpenCode)),
-            (false, false, false) => Ok(None),
+        match (self.claude, self.codex, self.open_code, self.pi) {
+            (true, false, false, false) => Ok(Some(crate::session::AgentKind::Claude)),
+            (false, true, false, false) => Ok(Some(crate::session::AgentKind::Codex)),
+            (false, false, true, false) => Ok(Some(crate::session::AgentKind::OpenCode)),
+            (false, false, false, true) => Ok(Some(crate::session::AgentKind::Pi)),
+            (false, false, false, false) => Ok(None),
             _ => Err(AgentSelectionError::ConflictingFrontends),
         }
     }
@@ -203,7 +210,9 @@ impl std::fmt::Display for AgentSelectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ConflictingFrontends => {
-                formatter.write_str("Choose one agent frontend: --claude, --codex, or --open-code.")
+                formatter.write_str(
+                    "Choose one agent frontend: --claude, --codex, --open-code, or --pi.",
+                )
             }
         }
     }
@@ -314,7 +323,14 @@ mod tests {
                 assert!(
                     tasks.rest.iter().all(|argument| !matches!(
                         argument.as_str(),
-                        "--codex" | "-cx" | "--open-code" | "-oc" | "--claude" | "-cl"
+                        "--codex"
+                            | "-cx"
+                            | "--open-code"
+                            | "-oc"
+                            | "--claude"
+                            | "-cl"
+                            | "--pi"
+                            | "-pi"
                     )),
                     "selector leaked into delegated tasks arguments: {arguments:?}"
                 );

@@ -13,7 +13,7 @@ fn an_enum_env_prompt_lists_the_values_it_accepts() {
     // what an enum variable takes.
     assert_eq!(
         super::env_value_prompt("default_agent_frontend"),
-        "Set default_agent_frontend (claude | codex | opencode) = "
+        "Set default_agent_frontend (claude | codex | opencode | pi) = "
     );
     assert_eq!(super::env_value_prompt("claude_cmd"), "Set claude_cmd = ");
 }

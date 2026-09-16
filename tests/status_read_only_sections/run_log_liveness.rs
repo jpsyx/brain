@@ -29,6 +29,8 @@ fn seed_ready_workspace(home: &Path) {
     let root = home.join("brain");
     let fake_opencode = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/opencode/fake_opencode.sh");
+    let fake_pi =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pi/fake_pi.sh");
     std::fs::create_dir_all(root.join(".config")).expect("workspace config directory");
     std::fs::create_dir_all(home.join(".config/brain")).expect("machine config directory");
     std::fs::write(
@@ -71,7 +73,8 @@ fn seed_ready_workspace(home: &Path) {
                     "receiver_enabled": true,
                     "env": {
                         "claude_cmd": "sh -c 'for argument do if [ \"$argument\" = --version ]; then printf \"2.1.196 (Claude Code)\\n\"; exit 0; fi; done; exit 64' brain-claude",
-                        "opencode_cmd": fake_opencode
+                        "opencode_cmd": fake_opencode,
+                        "pi_cmd": fake_pi
                     }
                 }
             }

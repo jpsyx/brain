@@ -135,7 +135,7 @@ fn v12_repair_fingerprints_every_answer_cleanup_table_invariant() {
             "job_id                  TEXT PRIMARY KEY",
         ),
         (
-            "agent_kind              TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode'))",
+            "agent_kind              TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode', 'pi'))",
             "agent_kind              TEXT NOT NULL",
         ),
         (

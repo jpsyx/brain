@@ -43,14 +43,21 @@ fn doctor_plan_names_every_check_before_running() {
         plan.contains("SessionStart hook: /tmp/brain/.claude/settings.json"),
         "{plan}"
     );
-    assert!(
-        plan.contains("Claude: probing configured command"),
-        "{plan}"
-    );
-    assert!(
-        plan.contains("OpenCode: probing configured command"),
-        "{plan}"
-    );
+    // Every frontend that declares a compatibility probe is named, so a new
+    // one appears here without a fourth hard-coded line.
+    for registration in crate::agent::registrations()
+        .iter()
+        .filter(|registration| registration.requires_compatibility_probe())
+    {
+        assert!(
+            plan.contains(&format!(
+                "{}: probing configured command",
+                registration.label()
+            )),
+            "{plan}"
+        );
+    }
+    assert!(!plan.contains("Codex: probing"), "{plan}");
     assert!(plan.contains("rclone: probing PATH"), "{plan}");
     assert!(plan.contains("sync config: reading brain env"), "{plan}");
 }

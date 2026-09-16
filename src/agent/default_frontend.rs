@@ -2,9 +2,9 @@
 //!
 //! A machine-level choice: `default_agent_frontend` in the selected workspace's
 //! brain env (a machine that has only one frontend installed must not be dragged
-//! onto another by a different machine). The pure decisions — parsing the stored
-//! name and letting an explicit `--claude` / `--codex` / `--open-code` win —
-//! live here; the caller supplies the stored string.
+//! onto another by a different machine). The pure decisions (parsing the stored
+//! name, and letting an explicit `--claude` / `--codex` / `--open-code` / `--pi`
+//! win) live here; the caller supplies the stored string.
 
 use super::AgentKind;
 
@@ -30,6 +30,7 @@ pub fn parse(raw: &str) -> Option<AgentKind> {
         "claude" => Some(AgentKind::Claude),
         "codex" => Some(AgentKind::Codex),
         "opencode" => Some(AgentKind::OpenCode),
+        "pi" => Some(AgentKind::Pi),
         _ => None,
     }
 }
@@ -56,7 +57,7 @@ impl std::fmt::Display for InvalidFrontend {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "{ENV_VAR} must be one of claude, codex, opencode (got `{}`)",
+            "{ENV_VAR} must be one of claude, codex, opencode, pi (got `{}`)",
             self.value
         )
     }
@@ -211,7 +212,7 @@ mod tests {
         assert_eq!(canonicalize("open-code"), Ok("opencode"));
         assert_eq!(canonicalize(" CLAUDE "), Ok("claude"));
         let error = canonicalize("gemini").unwrap_err().to_string();
-        assert!(error.contains("claude, codex, opencode"), "{error}");
+        assert!(error.contains("claude, codex, opencode, pi"), "{error}");
         assert!(error.contains("gemini"), "{error}");
     }
 

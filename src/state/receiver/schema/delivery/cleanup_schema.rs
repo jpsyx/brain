@@ -1,13 +1,31 @@
 use anyhow::{Result, bail};
 use rusqlite::Connection;
 
-const CREATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_answer_cleanups (
+/// Substituted with the registered frontend names; not a format argument, so
+/// the template stays a plain constant the contract check can compare against.
+const AGENT_KINDS_PLACEHOLDER: &str = "%AGENT_KINDS%";
+
+pub(in crate::state) const TABLE: &str = "receiver_answer_cleanups";
+pub(in crate::state) const COLUMNS: &str =
+    "job_id, job_token, workspace_id, conversation_id, brain_instance_id, agent_kind, actor_id, \
+     channel, registered_session_id, actual_session_id, controller_shutdown_acknowledged, \
+     session_released, artifacts_removed, created_at_unix_ms, updated_at_unix_ms";
+
+fn create_table() -> String {
+    create_table_with(&crate::state::frontend_contract::agent_kind_values())
+}
+
+pub(in crate::state) fn create_table_with(agent_kinds: &str) -> String {
+    CREATE_TABLE_TEMPLATE.replace(AGENT_KINDS_PLACEHOLDER, agent_kinds)
+}
+
+const CREATE_TABLE_TEMPLATE: &str = "CREATE TABLE IF NOT EXISTS receiver_answer_cleanups (
            job_id                  TEXT PRIMARY KEY REFERENCES receiver_jobs(job_id) ON DELETE CASCADE,
            job_token               TEXT NOT NULL,
            workspace_id            TEXT NOT NULL,
            conversation_id         TEXT NOT NULL,
            brain_instance_id       TEXT NOT NULL,
-           agent_kind              TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode')),
+           agent_kind              TEXT NOT NULL CHECK (agent_kind IN (%AGENT_KINDS%)),
            actor_id                TEXT NOT NULL,
            channel                 TEXT NOT NULL CHECK (channel IN ('sms', 'email')),
            registered_session_id   TEXT NOT NULL,
@@ -20,8 +38,8 @@ const CREATE_TABLE: &str = "CREATE TABLE IF NOT EXISTS receiver_answer_cleanups 
            updated_at_unix_ms      INTEGER NOT NULL
          );";
 
-pub(super) fn create_table(connection: &Connection) -> Result<()> {
-    connection.execute_batch(CREATE_TABLE)?;
+pub(super) fn create(connection: &Connection) -> Result<()> {
+    connection.execute_batch(&create_table())?;
     Ok(())
 }
 
@@ -83,11 +101,11 @@ pub(super) fn ensure_columns(connection: &Connection) -> Result<()> {
 }
 
 pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
-    let table_matches = super::contract::table_contract_matches(
+    let table_matches = crate::state::frontend_contract::table_contract_matches(
         connection,
         "receiver_answer_cleanups",
-        CREATE_TABLE,
-    )?;
+        &create_table(),
+    );
     if table_matches && !has_legacy_instance_unique(connection)? {
         return Ok(());
     }
@@ -95,7 +113,7 @@ pub(super) fn ensure_table_contract(connection: &Connection) -> Result<()> {
         "ALTER TABLE receiver_answer_cleanups
            RENAME TO receiver_answer_cleanups_v12_rebuild;",
     )?;
-    connection.execute_batch(CREATE_TABLE)?;
+    connection.execute_batch(&create_table())?;
     connection.execute_batch(
         "INSERT INTO receiver_answer_cleanups
            (job_id, job_token, workspace_id, conversation_id, brain_instance_id,

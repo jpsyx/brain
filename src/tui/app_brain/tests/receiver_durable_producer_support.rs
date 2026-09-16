@@ -174,40 +174,41 @@ fn acceptance_payload(app: &App, kind: AgentKind, session: &AgentSession) -> ser
         "matrix\n<!-- brain:receiver-job-token={} -->",
         active_job_token(app)
     );
-    if kind == AgentKind::Codex {
-        serde_json::json!({
-            "hook_event_name": "UserPromptSubmit",
-            "thread_id": session.as_str(),
-            "turn_id": RECEIVER_TURN_ID,
-            "prompt": marker,
-        })
-    } else {
-        serde_json::json!({
-            "hook_event_name": "UserPromptSubmit",
-            "session_id": session.as_str(),
-            "prompt_id": RECEIVER_TURN_ID,
-            "prompt": marker,
-        })
+    let mut payload = serde_json::json!({
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": marker,
+    });
+    payload[session_field(kind)] = serde_json::json!(session.as_str());
+    payload[accepted_turn_field(kind)] = serde_json::json!(RECEIVER_TURN_ID);
+    payload
+}
+
+/// Codex names its conversation `thread_id`; every other frontend reports a
+/// `session_id`.
+const fn session_field(kind: AgentKind) -> &'static str {
+    match kind {
+        AgentKind::Codex => "thread_id",
+        AgentKind::Claude | AgentKind::OpenCode | AgentKind::Pi => "session_id",
+    }
+}
+
+/// Claude's hook payload carries the accepted turn as `prompt_id`; the other
+/// frontends' bridges report `turn_id`.
+const fn accepted_turn_field(kind: AgentKind) -> &'static str {
+    match kind {
+        AgentKind::Claude => "prompt_id",
+        AgentKind::Codex | AgentKind::OpenCode | AgentKind::Pi => "turn_id",
     }
 }
 
 fn progress_payload(kind: AgentKind, session: &AgentSession, turn: &str) -> serde_json::Value {
-    if kind == AgentKind::Codex {
-        serde_json::json!({
-            "hook_event_name": "PostToolUse",
-            "thread_id": session.as_str(),
-            "turn_id": RECEIVER_TURN_ID,
-            "tool_use_id": turn,
-        })
-    } else {
-        serde_json::json!({
-            "hook_event_name": "PostToolUse",
-            "session_id": session.as_str(),
-            "prompt_id": RECEIVER_TURN_ID,
-            "tool_use_id": turn,
-            "turn_id": turn,
-        })
-    }
+    let mut payload = serde_json::json!({
+        "hook_event_name": "PostToolUse",
+        "tool_use_id": turn,
+    });
+    payload[session_field(kind)] = serde_json::json!(session.as_str());
+    payload[accepted_turn_field(kind)] = serde_json::json!(RECEIVER_TURN_ID);
+    payload
 }
 
 pub(super) fn snapshot(path: &Path) -> serde_json::Value {

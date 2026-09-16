@@ -30,12 +30,12 @@ pub fn is_machine_global(name: &str) -> bool {
 
 pub(super) use crate::agent::{
     DEFAULT_CLAUDE_COMMAND as DEFAULT_CLAUDE_CMD, DEFAULT_CODEX_COMMAND as DEFAULT_CODEX_CMD,
-    DEFAULT_OPENCODE_COMMAND as DEFAULT_OPENCODE_CMD,
+    DEFAULT_OPENCODE_COMMAND as DEFAULT_OPENCODE_CMD, DEFAULT_PI_COMMAND as DEFAULT_PI_CMD,
 };
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 17] = [
+pub(super) const VARS: [VarSpec; 18] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -73,8 +73,14 @@ pub(super) const VARS: [VarSpec; 17] = [
         legacy_config_fallback: false,
     },
     VarSpec {
+        name: "pi_cmd",
+        description: "Command used to launch pi for the brain panel on THIS machine. Defaults to pi; Brain appends its trust, skill, lifecycle-extension, and session arguments.",
+        default: Some(DEFAULT_PI_CMD),
+        legacy_config_fallback: false,
+    },
+    VarSpec {
         name: "default_agent_frontend",
-        description: "Frontend the brain panel launches on THIS machine when no --claude/--codex/--open-code flag is passed. One of claude, codex, opencode. Defaults to claude.",
+        description: "Frontend the brain panel launches on THIS machine when no --claude/--codex/--open-code/--pi flag is passed. One of claude, codex, opencode, pi. Defaults to claude.",
         default: Some(crate::agent::default_frontend::DEFAULT),
         legacy_config_fallback: false,
     },

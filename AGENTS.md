@@ -21,7 +21,7 @@ selected root), plus the **logs view**, and one app-level **brain panel** (an
 interactive agent session in a PTY — plus a tab per running **skill session**,
 each a single-prompt ephemeral session that closes itself — running this machine's
 `default_agent_frontend` env value — Claude unless set — and overridden for one
-run by `--claude` / `-cl`, `--codex` / `-cx`, or `--open-code` / `-oc`, open at
+run by `--claude` / `-cl`, `--codex` / `-cx`, `--open-code` / `-oc`, or `--pi` / `-pi`, open at
 startup and shared by all views). Switch views with
 `Ctrl+L`/`Ctrl+H` (cycle) or
 `Ctrl+T`/`Ctrl+B` (jump). Read [docs/glossary.md](docs/glossary.md) first for
@@ -71,10 +71,10 @@ is the source-of-truth for *how*. They must agree on *what*.
 | A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
 | A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
 | A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
-| How the brain panel launches Claude, Codex, or OpenCode (`claude_cmd`, `codex_cmd`, `opencode_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
-| The session-start/session-stop bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_session_stop_hook}.py`, `scripts/opencode_brain_plugin.js`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
+| How the brain panel launches Claude, Codex, OpenCode, or pi (`claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
+| The session-start/session-stop bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_session_stop_hook}.py`, `scripts/opencode_brain_plugin.js`, `scripts/pi_brain_extension.ts`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
-| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, `default_agent_frontend`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
+| Brain-env schema, the `brain env` command, the `markdown-to-pdf` prerequisite, `claude_cmd`, `codex_cmd`, `pi_cmd`, `default_agent_frontend`, the `sync` block's fields, or **root resolution** (`root` is structural workspace-registry data in `~/.config/brain/env.json`, never writable free-form env; the legacy `~/.config/brain-root` pointer is read-only migration input) | `docs/config.md` + `docs/data-model.md` (env store + schema + migration in `src/env/`; legacy compatibility in `src/paths.rs`; selected roots in `src/workspace/`; the `sync` block schema in `src/sync/config.rs`) |
 | `brain sync` itself (the `sync`/`--push`/`--pull`/`setup`/`repair`/`status`/`conflicts` surface), the rclone bisync transport, keep-both conflict naming, the `--max-delete` guard, or the sync journal | `docs/features.md` + `docs/integrations.md` + `docs/architecture.md` + `docs/data-model.md` (pipeline in `src/sync/`: `config`, `remote`, `args`, `run`, `conflicts`, `verify`, `journal`, `setup`, `command`; dispatched before the gate in `src/main.rs`) |
 | The `tasks.csv`/`habits.csv` schema-aware semantic merge (excluding them from bisync, the baseline cache, merge/reconciliation rules, or the journal's `csv:` note) | `docs/features.md` + `docs/integrations.md` + `docs/data-model.md` + `docs/decisions.md` (pure merge in `src/sync/csv_merge/`; baseline + rclone `copyto` transport + orchestration in `src/sync/csv_sync/`; wired into `src/sync/command/mod.rs::sync_once`; excludes in `src/sync/args.rs`) |
 | The auto-sync triggers (startup pull, change-triggered push, receiver freshness pull, the `notify` watcher + debounce, the sync lock) | `docs/features.md` + `docs/architecture.md` + `docs/integrations.md` + `docs/decisions.md` (modules `src/sync/{freshness,lock,trigger,watch}.rs`; `debounce_ms` in `src/sync/config.rs`; `format_triggers` in `src/sync/command/mod.rs`; seams in `src/tui/{app_sync,event_loop/setup}.rs`) |
@@ -87,6 +87,7 @@ is the source-of-truth for *how*. They must agree on *what*.
 | The interactive `brain config set <var>` mode (checklist for `namespaces`/`tags`, value prompt for scalars) | `docs/config.md` (dispatch in `src/main.rs` `config_set_interactive`; personalization editors in `src/personalization/command.rs`) |
 | The skill pipeline (bundling, rendering, install/fan-out, `brain skills sync`, `resync_skills()`, the `skills_auto_sync` gate) | `docs/architecture.md` + `docs/features.md` + `docs/decisions.md` (pipeline in `src/skills/`; bundled skills under `skills/`) |
 | The brain HTTP server (`brain server {status\|logs}`, the elected shared process + `~/.cache/brain/server/` state, `brain habits`, the `/habits` route, or a **new server endpoint / web view**) | `docs/architecture.md` + `docs/features.md` + `docs/integrations.md` (server in `src/server/`: `router` for path dispatch, `lifecycle` for election and process ownership, `routes/<name>/` per-endpoint MVC; add a route module + one `routes/mod.rs` line, never a giant endpoints file; web views under `web/<name>/`, embedded via `include_str!`) |
+| **A new agent frontend** (a fourth/fifth CLI the brain panel can run) | `docs/adding-an-agent-frontend.md` is the contract; it names every other doc and seam the change touches |
 | Testing strategy, what we test vs. skip | `docs/testing.md` |
 | A non-obvious design choice | `docs/decisions.md` |
 
@@ -313,7 +314,7 @@ users in `skills/`.)
   rule): it touches no source, triggers no release, and must **not** bump the
   version.
 - **Every LLM capability must flow through `AgentController` and work with
-  Claude, Codex, and OpenCode.** When adding or changing brain-panel behavior,
+  Claude, Codex, OpenCode, and pi.** When adding or changing brain-panel behavior,
   implement and test equivalent lifecycle, prompt, completion, and delivery
   behavior for every registered frontend. If one exposes a different
   integration surface

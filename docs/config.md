@@ -57,7 +57,7 @@ Worked examples:
 | Variable | Store | Why |
 | --- | --- | --- |
 | `root`, `sync.*` | env | Q1: needed before the workspace exists locally. |
-| `claude_cmd`, `codex_cmd`, `opencode_cmd` | env (workspace record) | Q2: an absolute path/command that is only correct on the machine that has that binary. Q2a: a workspace may legitimately launch its frontend differently. |
+| `claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd` | env (workspace record) | Q2: an absolute path/command that is only correct on the machine that has that binary. Q2a: a workspace may legitimately launch its frontend differently. |
 | `agenda_markdown_dir` vs. `agenda_dir` | env (workspace record) vs. config | Q2: `/tmp` is a detail of one filesystem, so the markdown's directory is env. Where the printable is filed is a preference that should follow you between machines, so `agenda_dir` is portable config. Same feature, opposite answers — the question is always "could two machines legitimately disagree?" |
 | `markdown_to_pdf_path` | env (machine-global) | Q2: a machine-specific binary path. Q2a: one machine, one binary — every workspace on it must resolve the same one. |
 | `default_agent_frontend` | workspace record | env | Q2: which frontend you drive is a per-machine preference; a laptop with only Claude installed must not be forced onto Codex by another machine. |
@@ -253,7 +253,7 @@ container boundary.
 Brain installs trusted advisory instructions in all registered agent frontends, filters
 the child environment to selected-workspace context and frontend necessities,
 sets the selected root as the child working directory, and exposes an
-intentionally naive literal-path warning. Claude, Codex, and OpenCode continue
+intentionally naive literal-path warning. Claude, Codex, OpenCode, and pi continue
 to use the user's shared frontend login; workspace selection does not create
 separate credentials. The status output describes the advisory boundary directly:
 
@@ -270,7 +270,7 @@ mode the frontends use their ordinary global MCP and skill configuration. In
 workspace-only mode Brain resolves the logical names against only the selected
 workspace record's `agent_capabilities` environment object. Run
 `brain skills status` to see requested names, availability, and the honest
-Claude/Codex/OpenCode enforcement level without printing connection material. Names are
+Claude/Codex/OpenCode/pi enforcement level without printing connection material. Names are
 ASCII case-normalized and must begin with a letter or digit; remaining
 characters may be letters, digits, `.`, `_`, or `-`.
 
@@ -311,7 +311,8 @@ workspace.
 | `claude_cmd` | workspace record | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | workspace record | `codex` | Base command that launches the brain panel's Codex frontend on **this machine**. Brain appends `--dangerously-bypass-hook-trust` for its vetted workspace lifecycle hooks. It uses `resume <id>` when the exact session rollout remains on disk and starts fresh when that rollout is missing. Blank falls back to `codex`. |
 | `opencode_cmd` | workspace record | `opencode` | Command used to launch OpenCode on **this machine**. Blank falls back to `opencode`; Brain appends `--agent brain`, optional validated `--session <id>`, and optional `--prompt <text>`. The command must pass Brain's isolated supported-feature probes. |
-| `default_agent_frontend` | workspace record | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` flag is passed. Exactly one of `claude`, `codex`, `opencode`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
+| `pi_cmd` | workspace record | `pi` | Command used to launch pi on **this machine**. Blank falls back to `pi`; Brain appends `--no-approve`, its skill selection, the boundary prompt, `--extension <root>/.brain/hooks/pi_brain_extension.ts`, `--session-id <id>`, and an optional `-- <prompt>`. The command must satisfy Brain's pi probe: pi 0.84.1 or later, a `--help` listing advertising every flag Brain appends, and a `pi --list-models` catalog with at least one model whose provider credentials resolve on this machine. |
+| `default_agent_frontend` | workspace record | `claude` | Frontend the brain panel launches on **this machine** when no `--claude` / `--codex` / `--open-code` / `--pi` flag is passed. Exactly one of `claude`, `codex`, `opencode`, `pi`; `brain env set` also accepts the flag's `open-code` spelling and stores it canonically, and rejects any other value. Machine-local because a machine that has only one frontend installed must not be dragged onto another by a peer machine. An unreadable stored value falls back to `claude` rather than failing the command. |
 | `skill_sessions` | workspace record | *(unset → daily triage only)* | The **skill sessions** this machine offers in both task and brain-search command palettes: a JSON array of `{title, prompt, command_label}`. Each runs its prompt in its own brain-panel tab and closes when the run signals completion; while it runs, its palette row disappears. `prompt` is required, `title` defaults to it, `command_label` defaults to `Run <title>`. Daily triage is **builtin** (offered while `enable_daily_triage_check` is on) and is neither listed nor removable here. Machine-local because a definition names a skill that must actually be installed on *this* machine. `brain env set skill_sessions` with no value opens an add/edit/delete walkthrough. See [features.md](features.md) and [data-model.md](data-model.md). |
 | `agent_capabilities` | workspace record | *(unset)* | Machine-local MCP commands, arguments, URLs, credentials, and non-bundled skill paths for this selected workspace. Logical allowlists stay in portable brain config. Credential descendants are redacted from `brain env list`. |
 | `sync` | workspace record | *(absent → disabled)* | Backblaze B2 cross-machine sync config: `enabled`, `b2_bucket`, `b2_path`, `b2_key_id`, `b2_app_key`, optional `rclone crypt` fields (`crypt_password`, `crypt_password2`, `crypt_filename_encryption`, `crypt_directory_name_encryption`), `watch`, `debounce_ms`, `max_delete_percent`, `exclude`, `max_size`. Drives manual sync plus mandatory startup and five-minute live-shell pulls, change-triggered pushes, and receiver completion pushes. Written by **`brain sync setup`**, not raw `brain env set`. See [data-model.md](data-model.md) for the field-by-field schema. |
@@ -777,12 +778,13 @@ the `name=value` form.
 | `calendar_id` | *(unset)* | Calendar the agenda build pulls busy blocks from (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling; core agenda ordering is calendar-optional. |
 | `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the selected workspace's `.agents/skills` directory on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`). Default `true`; set `false` to manage workspace skills only via explicit `brain skills sync`. Read by `src/skills/`. |
 
-`markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd`, and
+`markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`, and
 `agenda_markdown_dir` are **not** in this table
 — they live in [brain env](#brain-env-configbrainenvjson)
 (`brain env set markdown_to_pdf_path=…`,
 `brain env set claude_cmd=…`, `brain env set codex_cmd=…`,
-`brain env set opencode_cmd=…`, `brain env set agenda_markdown_dir=…`), since they are
+`brain env set opencode_cmd=…`, `brain env set pi_cmd=…`,
+`brain env set agenda_markdown_dir=…`), since they are
 machine-specific values.
 
 Every variable is optional; a missing file or missing field falls back to the
@@ -823,7 +825,7 @@ The IO-touching wrappers are thin; the decisions worth testing are pure:
 - `settings/` units — schema resolution, the `config list` table layout, the
   prerequisite message wording, shell-output path extraction, value coercion.
 - `env/` units — the writable env schema/vars (`markdown_to_pdf_path`,
-  `claude_cmd`, `codex_cmd`, `opencode_cmd`), structural-name rejection, and the
+  `claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`), structural-name rejection, and the
   migration `plan` (legacy pointer→record `root`, config→env `markdown_to_pdf_path`
   relocation), and the store round-trip.
 - `sync::config` units — `SyncConfig` field defaults, `is_configured`,
@@ -915,7 +917,7 @@ shell** also keeps machine-managed state in a SQLite DB at
 `~/.cache/brain/workspaces/<workspace-id>/state.db` (created on first run; see `state/` and
 [data-model.md](data-model.md)):
 
-- `brain_sessions` records Claude, Codex, and OpenCode session identity plus workspace,
+- `brain_sessions` records Claude, Codex, OpenCode, and pi session identity plus workspace,
   actor, and channel attribution, with a per-session PID lock used for scoped
   native-session ownership. Written by Brain and the generic session-start bridge.
 - `manual_sessions` records the persistent Manual set: permanent Main plus

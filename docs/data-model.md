@@ -1064,11 +1064,15 @@ bypass it.
 The persistent shell tracks frontend-scoped actor sessions and the layout
 preference in SQLite (WAL). Receiver completion uses the same generic lifecycle
 bridge for all registered frontends.
-The state schema has seven tables:
+The state schema has seven tables. Every column that stores a frontend name is
+constrained to the registered set, and that `CHECK` list is generated from the
+frontend registry, so a database created before Brain learned a frontend is
+rebuilt when it is opened rather than left rejecting the new name
+(`state/frontend_contract.rs`).
 
 ```sql
 brain_sessions(
-  agent_kind         TEXT NOT NULL,  -- claude | codex | opencode
+  agent_kind         TEXT NOT NULL,  -- claude | codex | opencode | pi
   agent_session_id   TEXT NOT NULL,
   brain_instance_id  TEXT NOT NULL,  -- one per running `brain` shell (a lineage)
   locked_pid         INTEGER,        -- live brain holding it, or NULL when free
@@ -1186,7 +1190,8 @@ receiver_answer_cleanups(
 receiver_session_registrations(
   workspace_id           TEXT NOT NULL,
   conversation_id        TEXT NOT NULL REFERENCES receiver_conversations,
-  agent_kind             TEXT NOT NULL,  -- claude | codex | opencode
+  agent_kind             TEXT NOT NULL,  -- claude | codex | opencode | pi
+                                         -- CHECKed against the frontend registry
   actor_id               TEXT NOT NULL,
   channel                TEXT NOT NULL,  -- sms | email
   brain_instance_id      TEXT NOT NULL,
@@ -1676,7 +1681,7 @@ maintained Brain-owned markdown transcript plus an optional paired
 `(agent_kind, agent_session_id)` binding. A same-frontend request may resume
 the opaque native session ID. A frontend change must start a fresh native
 session from the markdown transcript, because native IDs and histories are not
-portable between Claude, Codex, and OpenCode. The transcript and binding are
+portable between Claude, Codex, OpenCode, and pi. The transcript and binding are
 replaced atomically with an explicit observed-at millisecond timestamp. At
 answer completion after a fresh or resumed launch, the answer-ready job
 transition, portable transcript append, immutable final-answer insert, native
@@ -1689,7 +1694,7 @@ is accepted for a fresh Claude launch with exact locked lifecycle evidence.
 Fresh Codex and OpenCode launches must rotate their placeholder to a distinct
 lifecycle-reported native ID. A resumed launch is different: its registered ID
 already equals the exact same-frontend durable conversation binding, so that
-equality confirms resume for Claude, Codex, and OpenCode. Unbound placeholders
+equality confirms resume for Claude, Codex, OpenCode, and pi. Unbound placeholders
 remain rejected. The transaction appends the authenticated user and assistant
 turn exactly once, writes the native ID to the conversation binding, and makes
 `answer-ready` visible only when every answer mutation can commit. Provider
@@ -1843,7 +1848,7 @@ key from each mapping to its `brain_sessions` row.
 | Column | Contract |
 | --- | --- |
 | `manual_session_id` | Stable `ManualSessionId`, generated as a UUID and passed as this tab's `BRAIN_INSTANCE_ID`. It survives native-session replacement. |
-| `agent_kind`, `workspace_id`, `actor_id`, `channel` | Immutable lookup scope; frontend is Claude, Codex, or OpenCode, and channel must be `interactive`. |
+| `agent_kind`, `workspace_id`, `actor_id`, `channel` | Immutable lookup scope; frontend is Claude, Codex, OpenCode, or pi, and channel must be `interactive`. |
 | `agent_session_id` | The exact current native conversation, including the fresh placeholder before the frontend's first accepted start event. |
 | `title` | Trimmed nonblank name. Uniqueness uses ASCII case-insensitive comparison, matching SQLite `NOCASE`; Main reserves `Brain`. New Additional rows default to `<workspace>-<three random lowercase letters>`. |
 | `position` | Nonnegative saved order, unique within scope. Main is 0; Additional positions are positive and compact after a close. |

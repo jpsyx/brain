@@ -120,9 +120,11 @@ pub struct Db {
 }
 
 mod database;
+mod frontend_contract;
 mod manual_session;
 mod receiver;
 mod session_store;
+pub(crate) use frontend_contract::down_path as frontend_contract_down;
 pub(crate) use manual_session::schema::down_path as manual_session_schema_down;
 pub(crate) use receiver::schema::down_cleanup_fence_path as receiver_recovery_cleanup_schema_down;
 pub(crate) use receiver::schema::down_cutover_path as receiver_notice_cutover_schema_down;

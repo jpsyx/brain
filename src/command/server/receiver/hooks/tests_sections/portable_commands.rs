@@ -94,6 +94,7 @@ fn lifecycle_installations_follow_the_complete_frontend_registry() {
             "claude-settings",
             "codex-settings",
             "opencode-plugin",
+            "pi-extension",
         ]
     );
 }

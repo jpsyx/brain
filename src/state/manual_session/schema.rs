@@ -3,19 +3,26 @@ use rusqlite::Connection;
 
 pub(super) const VERSION: i32 = 14;
 
-pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Result<()> {
-    let transaction =
-        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
-    let stored_version: i32 =
-        transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if current_version > VERSION || stored_version > VERSION {
-        transaction.commit()?;
-        return Ok(());
-    }
-    transaction.execute_batch(
+pub(in crate::state) const TABLE: &str = "manual_sessions";
+pub(in crate::state) const COLUMNS: &str =
+    "manual_session_id, agent_kind, agent_session_id, workspace_id, actor_id, \
+     channel, title, position, role";
+pub(in crate::state) const ONE_MAIN_INDEX: &str =
+    "CREATE UNIQUE INDEX IF NOT EXISTS manual_sessions_one_main
+           ON manual_sessions(agent_kind, workspace_id, actor_id, channel)
+           WHERE role = 'main';";
+
+fn create_table() -> String {
+    create_table_with(&crate::state::frontend_contract::agent_kind_values())
+}
+
+/// Frontend names are the registered set, so a database created before a new
+/// frontend is rebuilt rather than left rejecting its rows.
+pub(in crate::state) fn create_table_with(agent_kinds: &str) -> String {
+    format!(
         "CREATE TABLE IF NOT EXISTS manual_sessions (
            manual_session_id TEXT NOT NULL,
-           agent_kind        TEXT NOT NULL CHECK (agent_kind IN ('claude', 'codex', 'opencode')),
+           agent_kind        TEXT NOT NULL CHECK (agent_kind IN ({agent_kinds})),
            agent_session_id  TEXT NOT NULL,
            workspace_id      TEXT NOT NULL,
            actor_id          TEXT NOT NULL,
@@ -30,11 +37,27 @@ pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Res
                   (role = 'additional' AND position > 0)),
            FOREIGN KEY (agent_kind, agent_session_id, workspace_id, actor_id, channel)
              REFERENCES brain_sessions(agent_kind, agent_session_id, workspace_id, actor_id, channel)
-         );
-         CREATE UNIQUE INDEX IF NOT EXISTS manual_sessions_one_main
-           ON manual_sessions(agent_kind, workspace_id, actor_id, channel)
-           WHERE role = 'main';",
+         );"
+    )
+}
+
+pub(in crate::state) fn up(connection: &Connection, current_version: i32) -> Result<()> {
+    let transaction =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
+    let stored_version: i32 =
+        transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if current_version > VERSION || stored_version > VERSION {
+        transaction.commit()?;
+        return Ok(());
+    }
+    transaction.execute_batch(&create_table())?;
+    crate::state::frontend_contract::ensure_agent_kind_contract(
+        &transaction,
+        TABLE,
+        &create_table(),
+        COLUMNS,
     )?;
+    transaction.execute_batch(ONE_MAIN_INDEX)?;
     if stored_version != VERSION {
         transaction.pragma_update(None, "user_version", VERSION)?;
     }

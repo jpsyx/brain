@@ -271,112 +271,20 @@ impl AgentFrontend for ClaudeFrontend {
     }
 }
 
+/// Flags Brain appends to a Claude launch. A configured command that already
+/// carries one of them is a wrapper Brain cannot reason about.
+const CLAUDE_OWNED_FLAGS: [&str; 7] = [
+    "--",
+    "--mcp-config",
+    "--strict-mcp-config",
+    "--append-system-prompt",
+    "--session-id",
+    "--resume",
+    "--bare",
+];
+
 fn is_direct_claude_invocation(command: &str) -> bool {
-    let Some(arguments) = parse_direct_command(command) else {
-        return false;
-    };
-    let Some(executable) = arguments.first() else {
-        return false;
-    };
-    if std::path::Path::new(executable)
-        .file_name()
-        .and_then(|name| name.to_str())
-        != Some("claude")
-    {
-        return false;
-    }
-    !arguments.iter().skip(1).any(|argument| {
-        const OWNED_FLAGS: [&str; 7] = [
-            "--",
-            "--mcp-config",
-            "--strict-mcp-config",
-            "--append-system-prompt",
-            "--session-id",
-            "--resume",
-            "--bare",
-        ];
-        OWNED_FLAGS.iter().any(|flag| {
-            argument == flag || (*flag != "--" && argument.starts_with(&format!("{flag}=")))
-        })
-    })
-}
-
-fn parse_direct_command(command: &str) -> Option<Vec<String>> {
-    #[derive(Clone, Copy)]
-    enum Quote {
-        None,
-        Single,
-        Double,
-    }
-
-    let mut arguments = Vec::new();
-    let mut argument = String::new();
-    let mut quote = Quote::None;
-    let mut escaped = false;
-    let mut started = false;
-    for character in command.trim().chars() {
-        if character.is_control() && character != '\t' {
-            return None;
-        }
-        if escaped {
-            argument.push(character);
-            escaped = false;
-            started = true;
-            continue;
-        }
-        match quote {
-            Quote::Single => {
-                if character == '\'' {
-                    quote = Quote::None;
-                } else {
-                    argument.push(character);
-                }
-                started = true;
-            }
-            Quote::Double => match character {
-                '"' => quote = Quote::None,
-                '\\' => escaped = true,
-                '$' | '`' => return None,
-                _ => {
-                    argument.push(character);
-                    started = true;
-                }
-            },
-            Quote::None => match character {
-                '\'' => {
-                    quote = Quote::Single;
-                    started = true;
-                }
-                '"' => {
-                    quote = Quote::Double;
-                    started = true;
-                }
-                '\\' => {
-                    escaped = true;
-                    started = true;
-                }
-                ' ' | '\t' => {
-                    if started {
-                        arguments.push(std::mem::take(&mut argument));
-                        started = false;
-                    }
-                }
-                ';' | '|' | '&' | '<' | '>' | '(' | ')' | '#' | '$' | '`' | '*' | '?' | '['
-                | ']' | '{' | '}' => return None,
-                _ => {
-                    argument.push(character);
-                    started = true;
-                }
-            },
-        }
-    }
-    if escaped || !matches!(quote, Quote::None) {
-        return None;
-    }
-    if started {
-        arguments.push(argument);
-    }
-    Some(arguments)
+    crate::agent::direct_command::is_direct_invocation(command, "claude", &CLAUDE_OWNED_FLAGS)
 }
 
 fn append_prompt(parts: &mut Vec<String>, prompt: Option<&str>) {
