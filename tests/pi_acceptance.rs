@@ -123,11 +123,16 @@ fn facade_drives_a_real_fake_pi_process_with_semantic_input() {
         log.contains("arg|6|initial text stays one argument"),
         "{log}"
     );
-    // ESC[200~literal input ESC[201~ CR ESC[200~busy follow-up ESC[201~ CR /new CR
+    // ESC[200~literal input ESC[201~ CR
+    //   ESC[200~busy follow-up ESC[201~ ESC[13;3u
+    //   /new CR
+    // The submit key is Enter; the busy-turn follow-up is pi's Alt+Enter queue
+    // in its CSI u form, which is why those two differ.
     assert!(
         log.contains(
             "input|1b5b3230307e6c69746572616c20696e7075741b5b3230317e0d\
-             1b5b3230307e6275737920666f6c6c6f772d75701b5b3230317e0d2f6e65770d"
+             1b5b3230307e6275737920666f6c6c6f772d75701b5b3230317e1b5b31333b3375\
+             2f6e65770d"
         ),
         "{log}"
     );

@@ -5506,3 +5506,25 @@ frontend needs no schema edit and no new migration, and the same rebuild runs in
 reverse for a downgrade: the pi migration's `down` restores the pre-pi list and
 drops the rows only pi could own, so the older binary accepts the database it
 inherits.
+
+## Why pi's busy-turn follow-up is Alt+Enter, sent as a CSI u sequence
+
+pi distinguishes two things other frontends conflate. **Enter** while a turn is
+running queues a *steering* message, injected into that running turn once it
+finishes its tool calls. **Alt+Enter** queues a *follow-up*, delivered after the
+agent finishes all of its work.
+
+Brain's `FollowUpAfterActiveTurn` is the second one. The prompts Brain injects
+into an open panel (a tasks-view action, a receiver message that arrived
+mid-turn) are separate requests, not course corrections for whatever the panel
+happens to be doing, and steering would fold them into that work. Alt+Enter is
+also strictly safer for the common case: pi's follow-up handler falls back to an
+ordinary submit when it is not streaming, so injecting into an idle panel still
+just sends the message.
+
+The encoding is not the obvious one. pi reads the legacy `ESC CR` as `alt+enter`
+only while its kitty keyboard protocol is *inactive*; with that protocol on, the
+same bytes are `shift+enter`, which inserts a newline and submits nothing. Its
+key matcher accepts the kitty `CSI 13 ; 3 u` form in both states, so that is
+what Brain sends. This was verified against pi's own `matchesKey`, not inferred
+from the keybinding table.

@@ -255,9 +255,12 @@ ordinary Brain command refreshes the registry-declared lifecycle artifacts in
 all existing configured workspaces before bootstrap, so remote prompts and
 completion delivery use the same current protocol. When brain
 injects a prompt into an already-open Codex panel, it sends `Tab` as the final
-native busy-turn queue key. Claude, OpenCode, and pi receive `Enter`, which for
-pi is its steering queue: the message is delivered when the running turn
-finishes its tool calls. Text and the
+native busy-turn queue key. Claude and OpenCode receive `Enter`. pi receives
+`Alt+Enter`, its follow-up queue, delivered once the agent has finished all of
+its work; pi treats that key as an ordinary submit when it is idle, so the
+common case of injecting a prompt into a waiting panel still just sends it.
+Plain `Enter` would instead *steer* a running pi turn, folding Brain's separate
+request into whatever pi is already doing. Text and the
 adapter-defined final key are one semantic facade operation, so callers never
 construct frontend keystrokes.
 

@@ -79,10 +79,15 @@ Verified against the installed binary (`pi --help`, `pi --version`,
 ### Input
 
 - `tui.input.submit` is `enter`.
-- While a turn is running, **Enter queues a steering message** delivered after
-  the current assistant turn finishes its tool calls. (`alt+enter` queues a
-  follow-up for after *all* work, which is a different semantic from Brain's
-  `FollowUpAfterActiveTurn`.)
+- While a turn is running, **Enter queues a steering message**, injected into
+  the running turn once it finishes its tool calls, and **`alt+enter`
+  (`app.message.followUp`) queues a follow-up** delivered after the agent
+  finishes all work. `handleFollowUp` falls back to an ordinary submit when pi
+  is not streaming, so the follow-up key is also correct for an idle pi.
+- pi's key parser accepts `alt+enter` as the kitty CSI u sequence
+  `ESC [ 13 ; 3 u` whether or not its kitty keyboard protocol is active, while
+  the legacy `ESC CR` encoding is read as **shift+enter** (a newline) once that
+  protocol is on.
 - `/new` starts a new session.
 
 ### Configuration and readiness
@@ -142,7 +147,7 @@ cd <workspace-root> && <pi_cmd> --no-approve [--no-skills] [--skill <dir>]
 | --- | --- |
 | `TypeText` | bracketed paste |
 | `SubmitNow` | `\r` |
-| `FollowUpAfterActiveTurn` | bracketed paste, settle, `\r` (pi's steering queue) |
+| `FollowUpAfterActiveTurn` | bracketed paste, settle, `ESC [ 13 ; 3 u` (Alt+Enter, pi's follow-up queue) |
 | `StartNewSession` | `/new\r` |
 
 ### 2.4 Lifecycle

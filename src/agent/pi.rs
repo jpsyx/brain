@@ -22,6 +22,11 @@ pub(crate) const DEFAULT_COMMAND: &str = "pi";
 /// project trust and would otherwise discover the same file twice.
 pub(crate) const EXTENSION_RELATIVE_PATH: &str = ".brain/hooks/pi_brain_extension.ts";
 
+/// Alt+Enter as a kitty-protocol CSI u sequence (codepoint 13, modifier
+/// `1 + alt`), which pi decodes as `alt+enter` with or without that protocol
+/// active.
+const ALT_ENTER: &[u8] = b"\x1b[13;3u";
+
 /// Brain's rendered skills inside a workspace, which pi is pointed at directly.
 const WORKSPACE_SKILLS_RELATIVE_PATH: &str = ".agents/skills";
 
@@ -266,10 +271,16 @@ impl AgentFrontend for PiFrontend {
         Ok(match action {
             crate::agent::AgentAction::TypeText(text) => InputSequence::text(text),
             crate::agent::AgentAction::SubmitNow => InputSequence::bytes(b"\r"),
-            // Enter queues a steering message while a turn is running, which pi
-            // delivers once that turn finishes its tool calls.
+            // Alt+Enter, pi's follow-up queue: delivered once the agent has
+            // finished all of its work, and treated as an ordinary submit when
+            // pi is idle. Enter would instead *steer* a running turn, folding
+            // Brain's separate request into whatever pi is already doing.
+            //
+            // Sent as the CSI u encoding rather than `ESC CR`, because pi reads
+            // `ESC CR` as shift+enter (a newline, not a submit) whenever its
+            // kitty keyboard protocol is active.
             crate::agent::AgentAction::FollowUpAfterActiveTurn(text) => {
-                InputSequence::text_then_key(text, b"\r")
+                InputSequence::text_then_key(text, ALT_ENTER)
             }
             crate::agent::AgentAction::StartNewSession => InputSequence::bytes(b"/new\r"),
         })

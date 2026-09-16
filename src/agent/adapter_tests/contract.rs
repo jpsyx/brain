@@ -135,7 +135,9 @@ fn frontend_contracts() -> [FrontendContract; 4] {
             configured_value: "pi-contract",
             frontend: pi_frontend,
             submit: b"\r",
-            busy_turn_follow_up: b"\x1b[200~follow\x1b[201~\r",
+            // Alt+Enter, as the CSI u sequence pi decodes whether or not its
+            // kitty keyboard protocol is active.
+            busy_turn_follow_up: b"\x1b[200~follow\x1b[201~\x1b[13;3u",
             new_session: b"/new\r",
             fresh_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1'",
             resume_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1'",
