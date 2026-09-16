@@ -1768,6 +1768,19 @@ adapter translates that action to `Enter`; Codex translates it to `Tab`.
 Shutdown cancels pending controller input, so a closed panel cannot receive a
 late submit.
 
+Codex's `Tab` was verified against its own source at the installed version
+(`rust-v0.154.0`, `codex-rs/tui/src/bottom_pane/chat_composer.rs`) rather than
+taken from its key hints. The composer declares the two roles separately,
+`submit_keys: Enter` and `queue_keys: Tab`, and its handler resolves the queue
+key to `handle_submission(is_task_running || queue_submissions)`: Tab submits
+immediately when Codex is idle and queues when a task is running. That is the
+behavior Brain wants from one key, because an injected prompt usually arrives at
+an idle panel. The one gap is a composer holding a `!` bang shell command while
+idle, where the queue key is not accepted; Brain's generated prompts are never
+shell commands. Codex also suppresses a submit that lands within 120ms of a
+paste burst (`PASTE_ENTER_SUPPRESS_WINDOW`), which Brain's 400ms paced write
+clears with room to spare.
+
 ## Why personalization is just another brain config (in the brain root)
 
 Personalization (name, role, who you work for, tag styles, namespaces) is
