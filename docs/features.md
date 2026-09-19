@@ -733,7 +733,12 @@ is best-effort during ordinary startup:
 if its directory is read-only, idempotent reconciliation repeats next time and
 the requested command retains its own diagnostics. `install.sh` detects an existing binary and performs the
 same forward transition during upgrade or the registered reverse transition
-before downgrade. The receiver cleanup fence has its own 0.84.8 boundary.
+before downgrade. The installer accepts `--name <command>` to select the binary
+filename (default `brain`) and `BIN_DIR` to select its directory (default
+`$HOME/.local/bin`). Version detection and migrations use that exact named
+binary; repeating the invocation replaces it in place. Help exits before tool
+checks or writes. Unknown arguments, missing names, and path-like names are
+rejected before installation. The receiver cleanup fence has its own 0.84.8 boundary.
 Upgrade reconstructs a missing fence half only from one fully attributed
 registration and native-session row that match the durable conversation's
 frontend, user, channel, and native binding plus the job's workspace,

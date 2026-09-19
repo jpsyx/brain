@@ -1,44 +1,43 @@
 #!/usr/bin/env bash
-# Build the `brain` CLI and install it onto $PATH as a real binary.
-#
-# Re-running this rebuilds and OVERWRITES the installed binary in place, so it
-# doubles as the updater and never leaves a second copy behind. Safe to run
-# directly from a clone; it resolves its own directory and hardcodes no
-# machine-specific path.
+# Install or update the command from this checkout.
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
-install.sh: build brain and install it onto $PATH as a real binary.
+  printf '%s\n' 'Install or update brain as an executable command.
 
-Usage:
-  ./install.sh [--help]
+Usage: ./install.sh [--name <command>] [-h|--help]
 
 Options:
-  -h, --help   Print this help and exit.
+  --name <command>  Command filename (default: brain).
+  -h, --help        Show this help without installing anything.
 
 Environment:
-  BIN_DIR      Directory to install the `brain` binary into. Created if
-               missing. Default: $HOME/.local/bin.
+  BIN_DIR          Installation directory (default: $HOME/.local/bin).
 
 Examples:
-  ./install.sh                      # install to ~/.local/bin/brain
-  BIN_DIR=/usr/local/bin ./install.sh   # install elsewhere on $PATH
-  git pull && ./install.sh          # update an existing install in place
-EOF
+  ./install.sh
+  BIN_DIR="$HOME/bin" ./install.sh --name brain-dev'
 }
 
-case "${1:-}" in
-  -h | --help)
-    usage
-    exit 0
-    ;;
-  "") ;;
-  *)
-    usage >&2
-    exit 1
-    ;;
+for arg in "$@"; do
+  case "$arg" in -h|--help) usage; exit 0 ;; esac
+done
+
+command_name="brain"
+while (($#)); do
+  case "$1" in
+    --name)
+      if (($# < 2)); then usage >&2; exit 2; fi
+      command_name="$2"
+      shift 2
+      ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+case "$command_name" in
+  ''|[.-]*|*..*|*[!a-zA-Z0-9_.-]*) usage >&2; exit 2 ;;
 esac
+if ((${#command_name} > 100)); then usage >&2; exit 2; fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -48,7 +47,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 mkdir -p "$BIN_DIR"
 BIN_DIR="$(cd -- "$BIN_DIR" && pwd)"
-INSTALLED_BINARY="$BIN_DIR/brain"
+INSTALLED_BINARY="$BIN_DIR/$command_name"
+if [[ -d "$INSTALLED_BINARY" ]]; then
+  printf 'Cannot replace directory: %s\n' "$INSTALLED_BINARY" >&2
+  exit 1
+fi
 
 brain_version() {
   local binary="$1"
@@ -115,7 +118,11 @@ if [[ -n "$INSTALLED_VERSION" ]] && version_is_greater "$INSTALLED_VERSION" "$BU
 fi
 
 # Install to a fixed filename so each run overwrites the previous binary.
-install -m 0755 "$BUILT_BINARY" "$INSTALLED_BINARY"
+temporary="$(mktemp "$BIN_DIR/.install.XXXXXXXX")"
+trap 'rm -f -- "$temporary"' EXIT
+install -m 0755 "$BUILT_BINARY" "$temporary"
+mv -f -- "$temporary" "$INSTALLED_BINARY"
+[[ -f "$INSTALLED_BINARY" && -x "$INSTALLED_BINARY" ]]
 
 if [[ -z "$INSTALLED_VERSION" ]] || ! version_is_greater "$INSTALLED_VERSION" "$BUILT_VERSION"; then
   MIGRATION_FROM="${INSTALLED_VERSION:-$BUILT_VERSION}"
@@ -125,14 +132,14 @@ if [[ -z "$INSTALLED_VERSION" ]] || ! version_is_greater "$INSTALLED_VERSION" "$
     --to-version "$BUILT_VERSION"
 fi
 
-echo "installed brain -> $INSTALLED_BINARY"
+echo "installed $command_name -> $INSTALLED_BINARY"
 
 # A binary nobody can invoke is not an install. Say so, with the fix.
 case ":${PATH}:" in
   *":$BIN_DIR:"*) ;;
   *)
     echo >&2
-    echo "note: $BIN_DIR is not on your \$PATH, so \`brain\` won't be found yet." >&2
+    echo "note: $BIN_DIR is not on your \$PATH, so \`$command_name\` won't be found yet." >&2
     echo "      Add it to your shell startup file, e.g.:" >&2
     echo "        echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc   # or ~/.bashrc" >&2
     ;;

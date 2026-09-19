@@ -55,6 +55,10 @@ impl Fixture {
     }
 
     fn run(&self) -> Output {
+        self.run_args(&[])
+    }
+
+    fn run_args(&self, args: &[&str]) -> Output {
         let path = format!(
             "{}:{}",
             self.tools.display(),
@@ -62,6 +66,7 @@ impl Fixture {
         );
         Command::new("bash")
             .arg(self.root.join("install.sh"))
+            .args(args)
             .env("BIN_DIR", &self.bin)
             .env("MIGRATION_LOG", &self.log)
             .env("PATH", path)
@@ -142,4 +147,73 @@ fn installer_declares_the_python_runtime_prerequisite() {
 
     assert!(installer.contains("command -v python3"));
     assert!(installer.contains("'python3' not found"));
+}
+
+#[test]
+fn named_install_migrates_and_replaces_only_the_requested_binary() {
+    for (installed, expected) in [
+        (
+            "0.70.0",
+            "target __migrate --from-version 0.70.0 --to-version 0.71.0\n",
+        ),
+        (
+            "0.72.0",
+            "installed __migrate --from-version 0.72.0 --to-version 0.71.0\n",
+        ),
+    ] {
+        let fixture = Fixture::new(Some(installed), "0.71.0");
+        std::fs::rename(
+            fixture.bin.join("brain"),
+            fixture.bin.join("contract-probe"),
+        )
+        .expect("rename installed command");
+        let output = fixture.run_args(&["--name", "contract-probe"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fixture.migration_log(), expected);
+        assert_eq!(std::fs::read_dir(&fixture.bin).unwrap().count(), 1);
+        assert!(fixture.bin.join("contract-probe").is_file());
+        let output = fixture.run_args(&["--name", "contract-probe"]);
+        assert!(output.status.success());
+        assert!(
+            fixture
+                .migration_log()
+                .ends_with("target __migrate --from-version 0.71.0 --to-version 0.71.0\n")
+        );
+        assert_eq!(std::fs::read_dir(&fixture.bin).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn help_and_invalid_arguments_leave_installation_untouched() {
+    let fixture = Fixture::new(None, "0.71.0");
+    for (args, success) in [
+        (vec!["--help"], true),
+        (vec!["-h"], true),
+        (vec!["--name", "custom", "--help"], true),
+        (vec!["--unknown"], false),
+        (vec!["--name"], false),
+        (vec!["--name", "../escape"], false),
+        (vec!["--name", ""], false),
+    ] {
+        let output = Command::new("/bin/bash")
+            .arg(fixture.root.join("install.sh"))
+            .args(args)
+            .env("BIN_DIR", fixture.bin.join("absent"))
+            .env("PATH", "")
+            .output()
+            .expect("run installer without tools");
+        assert_eq!(output.status.success(), success);
+        let usage = if success {
+            &output.stdout
+        } else {
+            &output.stderr
+        };
+        assert!(String::from_utf8_lossy(usage).contains("Usage:"));
+        assert_eq!(std::fs::read_dir(&fixture.bin).unwrap().count(), 0);
+        assert!(fixture.migration_log().is_empty());
+    }
 }

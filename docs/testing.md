@@ -1,5 +1,13 @@
 # Testing
 
+Installer contract tests execute the real shell parser and filesystem
+replacement against isolated directories. Controlled version-reporting binaries
+and a no-op Cargo boundary keep upgrade, downgrade, fresh-install, and
+same-version migration ordering independent of builds and machine state. Named
+installation repeats those migration checks and verifies exactly one requested
+executable; help and invalid arguments are checked with no tools on PATH and
+must leave the destination untouched.
+
 > **Iron law:** No production code lands without a failing test written
 > first. See [AGENTS.md](../AGENTS.md) → "Red/Green TDD" for the contract.
 

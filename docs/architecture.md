@@ -567,7 +567,10 @@ The version stamp lives at
 
 `install.sh` compares the installed and built versions. An upgrade installs the
 new binary and asks it to migrate forward; a downgrade asks the still-installed
-newer binary to migrate backward before replacement. The hidden `__migrate`
+newer binary to migrate backward before replacement. `--name` selects the exact
+installed filename used by both version detection and migration dispatch;
+the compiled release artifact remains `target/release/brain`. Replacement uses
+a temporary file in `BIN_DIR` and an atomic rename. The hidden `__migrate`
 route exists only for that installer handoff and exits before ordinary
 bootstrap.
 

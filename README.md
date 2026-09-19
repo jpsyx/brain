@@ -32,7 +32,9 @@ brain                      # run it
 Re-run it after a `git pull` to update: it overwrites the same binary in place,
 never leaving a second copy. Set `BIN_DIR` to install somewhere else
 (`BIN_DIR=/usr/local/bin ./install.sh`); if the directory isn't on your `PATH`,
-the installer says so and prints the line to add.
+the installer says so and prints the line to add. `./install.sh --name brain-dev`
+chooses a different command filename. Repeating the same name updates that
+binary and runs the same upgrade or downgrade migrations as the default install.
 
 **B. `cargo install --path .`** (the same idea, the Cargo way):
 
