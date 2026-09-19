@@ -121,6 +121,7 @@ fn a_workspace_registered_on_another_machine_is_created_and_seeded_here() {
     assert!(root.is_dir(), "the workspace root was not created");
     // With no sync configured, setup falls back to seeding PARA and the CSVs.
     for expected in [
+        "capture",
         "projects",
         "areas",
         "resources",

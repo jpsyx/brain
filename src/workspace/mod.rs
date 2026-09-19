@@ -24,7 +24,9 @@ pub use bootstrap_policy::{
 pub(crate) use context::normalize_root;
 pub use context::{WorkspaceContext, WorkspaceContextError};
 pub use id::{WorkspaceId, WorkspaceIdError};
-pub(crate) use initialize::{initialize_if_empty, is_empty_workspace};
+pub(crate) use initialize::{
+    CAPTURE_DIRECTORY, ensure_capture_directory, initialize_if_empty, is_empty_workspace,
+};
 pub use manifest::{MANIFEST_SCHEMA_VERSION, ManifestError, WorkspaceManifest};
 pub use name::{WorkspaceName, WorkspaceNameError};
 pub use paths::WorkspacePaths;

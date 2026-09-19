@@ -3,17 +3,19 @@
 //! Hidden files (`.git`, `.DS_Store`, anything starting with `.`) are skipped,
 //! matching the `fd .` default that the previous zsh helper relied on. Each
 //! entry is tagged with its `Bucket` so the picker can group results into
-//! Projects / Areas / Resources sections.
+//! Capture / Projects / Areas / Resources sections.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use walkdir::{DirEntry, WalkDir};
 
-/// PARA-style top-level bucket inside `~/brain`. The declaration order is the
-/// display order in the picker (`Ord` derives lexicographic enum order).
+/// Top-level bucket inside `~/brain`: the user-managed `capture/` in-basket
+/// plus the four PARA buckets. The declaration order is the display order in
+/// the picker (`Ord` derives lexicographic enum order).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Bucket {
+    Capture,
     Projects,
     Areas,
     Resources,
@@ -24,6 +26,7 @@ impl Bucket {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Capture => "Capture",
             Self::Projects => "Projects",
             Self::Areas => "Areas",
             Self::Resources => "Resources",
@@ -108,6 +111,7 @@ mod tests {
 
     #[test]
     fn bucket_labels_are_stable() {
+        assert_eq!(Bucket::Capture.label(), "Capture");
         assert_eq!(Bucket::Projects.label(), "Projects");
         assert_eq!(Bucket::Areas.label(), "Areas");
         assert_eq!(Bucket::Resources.label(), "Resources");
@@ -115,19 +119,23 @@ mod tests {
     }
 
     #[test]
-    fn bucket_display_order_is_projects_areas_resources_archive() {
+    fn bucket_display_order_is_capture_projects_areas_resources_archive() {
         // The picker relies on this ordering (derived `Ord`) to group
-        // sections P → A → R → Archive, with Archive last as retired material.
+        // sections Capture → P → A → R → Archive. Capture leads because it is
+        // the unprocessed in-basket the user just dumped into; Archive trails
+        // because it is retired material.
         let mut order = [
             Bucket::Archive,
             Bucket::Resources,
             Bucket::Projects,
             Bucket::Areas,
+            Bucket::Capture,
         ];
         order.sort_unstable();
         assert_eq!(
             order,
             [
+                Bucket::Capture,
                 Bucket::Projects,
                 Bucket::Areas,
                 Bucket::Resources,

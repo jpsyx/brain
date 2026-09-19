@@ -1,5 +1,6 @@
 //! Automatic, version-directed machine migrations.
 
+mod capture_directory;
 mod job_socket_cutover;
 mod lifecycle;
 mod manual_session;
@@ -37,6 +38,7 @@ const RECEIVER_NOTICE_CUTOVER_VERSION: Version = Version::new(0, 86, 0);
 const JOB_SOCKET_CUTOVER_VERSION: Version = Version::new(0, 86, 2);
 const MANUAL_SESSION_VERSION: Version = Version::new(0, 87, 0);
 const PI_FRONTEND_VERSION: Version = Version::new(0, 91, 0);
+const CAPTURE_DIRECTORY_VERSION: Version = Version::new(0, 94, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -45,7 +47,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 14] = [
+const MIGRATIONS: [Migration; 15] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -115,6 +117,11 @@ const MIGRATIONS: [Migration; 14] = [
         introduced: PI_FRONTEND_VERSION,
         up: pi_frontend::up,
         down: pi_frontend::down,
+    },
+    Migration {
+        introduced: CAPTURE_DIRECTORY_VERSION,
+        up: capture_directory::up,
+        down: capture_directory::down,
     },
 ];
 

@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Use when the user asks to triage tasks, run "morning triage", run weekly review / in-basket processing, clean up past-due tasks, or asks "what's slipping?" / "what's about to slip?" / "what's rotting?" — supports daily (past-due cleanup + at-risk preview + chronic-ignore sweep) and weekly (in-basket processing + monthly backlog review) modes.
+description: Use when the user asks to triage tasks, run "morning triage", run weekly review / in-basket processing, process the capture/ in-basket, clean up past-due tasks, or asks "what's slipping?" / "what's about to slip?" / "what's rotting?" — supports daily (past-due cleanup + at-risk preview + chronic-ignore sweep) and weekly (scratch + capture/ in-basket processing + monthly backlog review) modes.
 ---
 
 # triage
@@ -98,7 +98,7 @@ Sibling skills: /todo (tasks + agenda), /second-brain (knowledge management). Al
 This skill has two distinct workflows:
 
 - **`/triage daily`** (alias: `/triage morning`) — past-due task triage. The fast-paced "morning triage" pass over `tasks.csv`. See [Daily triage](#daily-triage) below.
-- **`/triage weekly`** — in-basket processing across your brain's scratch inbox (and any cloud in-basket you wire in via an extension). Slower, more deliberate. See [Weekly triage](#weekly-triage) below.
+- **`/triage weekly`** — in-basket processing across your brain's scratch notepad and its `capture/` in-basket (plus any cloud in-basket you wire in via an extension). Slower, more deliberate. See [Weekly triage](#weekly-triage) below.
 
 ### Routing when the user runs bare `/triage` (no mode argument)
 
@@ -496,7 +496,7 @@ there is deliberately no habit state to update.
 
 # Weekly triage
 
-A weekly in-basket review. This is **not** just task management — it's the user's second-brain in-basket sweep. Core weekly triage processes the local scratch inbox; wire any cloud in-basket you use in through the `triage:weekly-inboxes` extension point below.
+A weekly in-basket review. This is **not** just task management — it's the user's second-brain in-basket sweep. Core weekly triage processes **two local in-baskets**: the scratch notepad (`<brain>/scratch.md`) and the `capture/` directory, the user-managed in-basket where they dump notes, photos, PDFs, and anything else during the week. Wire any cloud in-basket you use in through the `triage:weekly-inboxes` extension point below.
 
 **End state: every in-basket is EMPTY.** Every item gets routed to a real home (task, note, project, or a "decide what to do with this" follow-up task).
 
@@ -506,19 +506,79 @@ Default to making decisions yourself (this is assistant mode). Only ask for conf
 
 - `/triage weekly` invoked directly.
 - Bare `/triage` when the Weekly in-basket processing habit is due or past-due (see [Routing](#routing-when-the-user-runs-bare-triage-no-mode-argument)) AND the user picks "weekly".
-- User says: "weekly triage", "in-basket processing", "process my scratch", "clear the in-basket", "weekly review".
+- User says: "weekly triage", "in-basket processing", "process my scratch", "process my capture", "clear the in-basket", "empty my in-basket", "weekly review".
 
-## Step 1 — Process the local scratch inbox
+## Step 1 — Process the local in-baskets (`scratch.md` + `capture/`)
+
+Two local in-baskets, one pass. Both end **empty**. Routing is the same for
+both (classify, then send each item to a task, a note, or a clarifying
+question), so the shared routing rules are stated once in 1a and referenced
+from 1b.
+
+### 1a — The scratch notepad (`<brain>/scratch.md`)
 
 1. **Read** `<brain>/scratch.md` in full (the local scratch notepad — anything the user dumped here during the week).
 2. **Walk it top to bottom**, splitting into discrete items at natural boundaries (paragraph breaks, blank lines, bullet groups, headings). Treat each coherent chunk as one item.
 3. **For each item, classify** as TASK, NOTE, or UNSURE — see [Classification rules](#classification-rules).
-4. **Process**:
+4. **Process** (these three routes are the shared routing rules 1b reuses):
    - **TASK** → invoke `/todo` to create the task with the best-guess fields (priority, due_date, task_type, duration). If the item is clearly a project (multi-step, scope verbs like `launch`/`build`/`migrate`/`research`, multiple checkboxes), CONFIRM with the user and run `/todo turn-into-project`. When creating sub-tasks of a converted project, set `blocked_by` relationships explicitly per [task-project-link.md](../todo/references/task-project-link.md).
    - **NOTE** → place it in the appropriate `/second-brain` location (project / area / resource). Use the `second-brain` skill's decision flow. Create a new subdirectory only if no existing home fits, and ask for confirmation only when you're genuinely unsure. Pair PDFs/media with their notes per the brain conventions.
    - **UNSURE** → ask the user a single specific question: "Found '<short paraphrase>' — looks like it could be X or Y. What did you mean?" Move on to the next item while waiting if the user is batching answers.
 5. **Remove the item from scratch.md** once it's been routed. Edit `<brain>/scratch.md` as you go.
-6. At the end of step 1, `<brain>/scratch.md` should be **empty** (or contain only items the user explicitly chose to leave — but see [Deferring ≠ leaving in the inbox](#deferring--leaving-in-the-inbox)).
+6. At the end of 1a, `<brain>/scratch.md` should be **empty** (or contain only items the user explicitly chose to leave — but see [Deferring ≠ leaving in the inbox](#deferring--leaving-in-the-inbox)).
+
+### 1b — The `capture/` in-basket
+
+`<brain>/capture/` is the user-managed in-basket: notes, photos, screenshots, PDFs,
+audio, whole subdirectories, whatever they dumped there during the week,
+named however they felt like naming it. It is a **directory tree, not a
+file**, so it needs its own walk; the routing decisions are the same three
+routes as 1a step 4.
+
+`/second-brain` owns the full procedure. Follow
+[its "Process capture" flow](../second-brain/SKILL.md#process-capture--move-this-into-my-brain)
+rather than re-deriving it here. The parts that matter most for a weekly
+pass:
+
+1. **Inventory it recursively**, including non-markdown files and nested
+   directories:
+   ```
+   find <brain>/capture -mindepth 1 -not -name '.DS_Store'
+   ```
+   The user's own subdirectories are a **hint** about what belongs together.
+   Never mirror them into PARA, and never rename or reorganize anything
+   inside `capture/`; the in-basket is the user's, not yours.
+2. **Read every item before classifying it.** Not the filename; the
+   contents. Inspect PDFs and images; at minimum identify audio and video.
+   Say exactly which item you could not process, and why, rather than
+   skipping it silently.
+3. **Regroup into real items.** *One file is not one note.* Several files can
+   be a single idea that should land together; one file can hold several
+   unrelated things (a meeting note, a book recommendation, and a to-do)
+   that belong in three different places. The unit you route is the idea, not
+   the file. See
+   [A file is not a note](../second-brain/SKILL.md#a-file-is-not-a-note).
+4. **Classify each item** as TASK, NOTE, or UNSURE using the same
+   [Classification rules](#classification-rules), and route it through the
+   same three routes as 1a step 4. Some captured material is reference (a
+   NOTE, into PARA); some is an action (a TASK, into `tasks.csv`); some is
+   both, in which case file the note, create the task, and point the task's
+   `see_also` at the note. **You decide the destination.** The user usually
+   won't say where something goes; picking the PARA bucket and
+   sub-directory *is* the work. Ask only when an item is genuinely ambiguous
+   between two real homes, or when placement needs confirmation anyway (a new
+   top-level `resources/` topic, a new project namespace).
+5. **Move the source out of `capture/` as you go**: move, never copy, and
+   delete a split original only once every one of its parts has landed
+   somewhere. Clearing each item immediately keeps a long pass recoverable if
+   it is interrupted.
+6. At the end of 1b, `<brain>/capture/` holds **no unprocessed items**. An
+   item the user can't decide about does not stay here: create a task naming
+   the decision and move the item to a real home, per
+   [Deferring ≠ leaving in the inbox](#deferring--leaving-in-the-inbox).
+7. **Report what moved.** `/second-brain`'s
+   [additions table](../second-brain/SKILL.md#always-end-with-an-additions-table)
+   covers everything this pass filed; include it with the weekly summary.
 
 <!-- brain:ext triage:weekly-inboxes -->
 
@@ -641,13 +701,17 @@ Deviate from these defaults when context obviously warrants it (e.g. show `Defer
 
 This is an in-basket of the user's random thoughts captured at random times. Some of it won't make sense. **It is fine to be unsure** — what's NOT fine is asking for confirmation when you're already sure. Asking too much wastes the user's time.
 
+In `capture/` the same three classes apply to **non-text items too**. A photo of a whiteboard is usually a NOTE; a photo of a receipt may be a TASK ("file the expense"); a screenshot of an error may be either. Classify on what the item *is about*, after looking at it, never on its file extension.
+
 ## Deferring ≠ leaving in the inbox
 
-If the user can't decide what to do with a note or task right now, **the inbox is still not where it stays.** Deferring means creating a TASK in `tasks.csv` whose name is the deferred decision itself — e.g.:
+If the user can't decide what to do with a note or task right now, **the inbox is still not where it stays.** This holds for every in-basket, `capture/` included: parking an undecided item back in `capture/` is the one thing `capture/` is not for. Deferring means creating a TASK in `tasks.csv` whose name is the deferred decision itself — e.g.:
 
 > `T###` "Decide what to do with the 'multi-language querying' demo idea — see scratch capture from 2026-06-10"
 
 …and removing the original item from the inbox. The inbox empties out; the decision moves into the task system where it can be triaged like any other open loop.
+
+For a `capture/` item the same move also needs a home for the *material*: file it in the PARA bucket that fits best, then point the task at it (`see_also`), so the decision task carries the thing it is about.
 
 ## Reference
 

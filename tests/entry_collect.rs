@@ -14,7 +14,7 @@ use brain::entry::{self, Bucket};
 fn make_brain(tmp: &Path) -> (PathBuf, PathBuf) {
     let home = tmp.join("home");
     let brain = home.join("brain");
-    for bucket in ["projects", "areas", "resources"] {
+    for bucket in ["capture", "projects", "areas", "resources"] {
         fs::create_dir_all(brain.join(bucket)).unwrap();
     }
     (home, brain)
@@ -48,6 +48,7 @@ fn collects_files_and_dirs_tagged_by_bucket() {
     // Every project-rooted entry is tagged Projects, etc.
     for e in &entries {
         let want = match e.bucket {
+            Bucket::Capture => "/capture/",
             Bucket::Projects => "/projects/",
             Bucket::Areas => "/areas/",
             Bucket::Resources => "/resources/",
@@ -130,4 +131,30 @@ fn a_missing_bucket_is_silently_skipped() {
     let entries = entry::collect(&brain, &roots).unwrap();
     assert!(entries.iter().all(|e| e.bucket == Bucket::Projects));
     assert!(!entries.is_empty());
+}
+
+#[test]
+fn the_capture_in_basket_is_walked_like_any_other_bucket() {
+    // The in-basket holds whatever the user dropped there — unfiled, loosely
+    // named, and often nested — and they still need to find it by searching.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (_home, brain) = make_brain(tmp.path());
+    touch(&brain.join("capture/Screenshot 2026-09-14.png"));
+    touch(&brain.join("capture/work trip/receipts.pdf"));
+
+    let roots = vec![(Bucket::Capture, brain.join("capture"))];
+    let entries = entry::collect(&brain, &roots).unwrap();
+    let ds = displays(&entries);
+
+    assert!(entries.iter().all(|e| e.bucket == Bucket::Capture));
+    assert!(
+        ds.iter()
+            .any(|d| d.ends_with("capture/Screenshot 2026-09-14.png")),
+        "got: {ds:?}"
+    );
+    assert!(
+        ds.iter()
+            .any(|d| d.ends_with("capture/work trip/receipts.pdf")),
+        "got: {ds:?}"
+    );
 }

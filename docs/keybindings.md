@@ -145,6 +145,11 @@ query.
 (`menu/`) is separate from the tasks palette; its own confirm overlays
 (PDF / delete) are captive while open.
 
+The palette's rescope rows cover every bucket: **Search capture** (the
+user-managed in-basket), **Search projects**, **Search areas**, **Search
+resources**, and **Search archive**, plus **Global search**, which restores all
+five. None of them has a direct keystroke, so none carries a gray `[…]` hint.
+
 ## Modals
 
 Shared across the app; a captive modal consumes all input.

@@ -1,8 +1,9 @@
 # Architecture
 
 `brain` is a small Rust CLI that browses one selected PARA-organized workspace
-(projects / areas / resources) and acts as the single terminal entry point for
-the user's knowledge and task workflows.
+(projects / areas / resources, plus the user-managed `capture/` in-basket that
+feeds them) and acts as the single terminal entry point for the user's
+knowledge and task workflows.
 
 As of the tasks↔brain merge, `brain` is the single CLI for both the second
 brain and the task system; the standalone `tasks` binary is gone. Its two
@@ -117,8 +118,13 @@ argv
 Empty-workspace startup is handled at `command::tasks::prepare_empty_workspace`.
 It waits for a configured pull when the selected root contains only setup
 metadata, initializes the portable config, task stores, lookup CSVs, counters,
-and PARA directories, then publishes the initialized tree with a configured
-push before the task CSVs are loaded.
+and the scaffold directories (`capture/` plus the four PARA buckets and
+`tasks/`), then publishes the initialized tree with a configured
+push before the task CSVs are loaded. The `capture/` in-basket is additionally
+ensured on every workspace-resolving command
+(`workspace::ensure_capture_directory`) and provisioned for every registered
+workspace by the `capture_directory` startup migration, so it is never absent
+on a workspace that predates it.
 
 tui::run_tui(TuiLaunch) (thin persistent-shell facade)
  ├─→ command::tasks::browse converts the task clap DTO once into owned
@@ -561,6 +567,15 @@ drops only the manual mappings and records v13 before the existing receiver
 downgrade chain runs; native-session history and receiver data remain intact.
 `startup_migration/manual_session.rs` registers both operations in the same
 version-directed dispatcher used by the installer.
+The 0.94.0 capture migration (`startup_migration/capture_directory.rs`) is the
+only one that touches workspace *content* rather than machine state: it creates
+the `capture/` in-basket in every registered workspace root that exists, so an
+upgrade provisions all of a machine's workspaces instead of whichever one is
+selected next. It skips a root this machine does not have, since creating a
+directory there would invent the empty workspace root resolution refuses to
+invent. Its down operation removes the in-basket only when it is empty; an
+older binary ignores a directory it does not know about, which beats deleting
+the user’s captured material to make a rollback tidy.
 The version stamp lives at
 `$XDG_CONFIG_HOME/brain/migrations/version` (falling back to
 `~/.config/brain/migrations/version`). Help and version exit before this module.

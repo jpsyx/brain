@@ -20,7 +20,23 @@ const HABITS_HEADER: &str = "task_uuid,task_id,task_name,status,priority,due_dat
 const PROJECTS_HEADER: &str = "name,namespace,title,status,priority,due,directory\n";
 const RESOURCES_HEADER: &str = "zotero_key,title,authors,year,item_type,collection,directory,has_pdf,has_html,has_summary,has_other_notes,annotation_count,tags\n";
 
-const PARA_DIRECTORIES: [&str; 5] = ["projects", "areas", "resources", "archive", "tasks"];
+/// The directories every workspace root carries: the four PARA buckets, the
+/// user-managed `capture/` in-basket, and the task store. Also the set
+/// [`seed::is_empty_workspace_inner`] treats as scaffolding rather than user
+/// content, so an empty one never blocks first-run seeding.
+const SCAFFOLD_DIRECTORIES: [&str; 6] = [
+    "capture",
+    "projects",
+    "areas",
+    "resources",
+    "archive",
+    "tasks",
+];
+
+/// The user-managed in-basket. Unlike the PARA buckets it is not something
+/// Brain or an agent organizes: the user dumps notes, photos, and files into
+/// it, and a later pass files them. Brain only guarantees it exists.
+pub(crate) const CAPTURE_DIRECTORY: &str = "capture";
 const INFRASTRUCTURE_DIRECTORIES: [&str; 6] = [
     ".brain",
     ".config",
@@ -142,6 +158,14 @@ pub(crate) fn initialize_workspace_directory(
         ),
     }
 
+    // Before the `may_populate` gate, and unconditionally: `capture/` is where
+    // the user puts things, so it has to be there whether or not this
+    // invocation is allowed to seed or sync anything. A workspace that
+    // predates the in-basket, or one whose in-basket was emptied by a tool
+    // that prunes empty directories, is indistinguishable from a new one here
+    // and self-heals the same way.
+    ensure_capture_directory(root)?;
+
     if !may_populate {
         return Ok(());
     }
@@ -222,6 +246,17 @@ pub(crate) fn initialize_workspace_directory(
         );
     }
     Ok(())
+}
+
+/// Create the workspace's `capture/` in-basket when it is missing.
+///
+/// Idempotent and never destructive: an existing directory (empty or full) is
+/// left exactly as it is, so this is one `create_dir_all` that no-ops on every
+/// run after the first.
+pub(crate) fn ensure_capture_directory(root: &Path) -> Result<()> {
+    let capture = root.join(CAPTURE_DIRECTORY);
+    std::fs::create_dir_all(&capture)
+        .with_context(|| format!("create the capture in-basket {}", capture.display()))
 }
 
 /// Give this machine the workspace's portable manifest before anything reads it.

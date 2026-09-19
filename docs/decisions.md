@@ -5541,3 +5541,84 @@ same bytes are `shift+enter`, which inserts a newline and submits nothing. Its
 key matcher accepts the kitty `CSI 13 ; 3 u` form in both states, so that is
 what Brain sends. This was verified against pi's own `matchesKey`, not inferred
 from the keybinding table.
+
+## Why `capture/` is a fifth top-level directory instead of a PARA folder
+
+PARA sorts material by actionability, and that sort is a *decision*. The
+material a person actually generates during a week (a photo of a whiteboard,
+three lines of markdown, a PDF someone emailed them) arrives before that
+decision has been made, and forcing the decision at capture time is exactly
+what stops people capturing. GTD names the missing piece: an in-basket, whose
+entire job is to be the place where undecided things are allowed to sit.
+
+The alternative was `resources/inbox/`, which fails for two reasons. It makes
+the in-basket look like reference material, so retrieval treats unfiled scraps
+as answers; and `resources/` is agent-organized, which means the one directory
+that must tolerate the user's own mess would sit inside the one bucket that
+enforces kebab-case topic folders. A sibling of the four buckets keeps the
+distinction visible in `ls`: four directories an agent organizes, one the
+user does.
+
+`capture/` is deliberately **not** a `Bucket` destination. Nothing is ever
+filed into it; the `second-brain` skill routes items *out* of it, into a PARA
+bucket or into `tasks.csv`. It is a `Bucket` variant only because the search
+view groups by bucket and the in-basket has to be searchable: an answer the
+user is looking for is often something they captured last week and never
+filed. It sorts **first** for the same reason, recency and unfiledness make it
+the likeliest hit, the mirror of Archive sorting last.
+
+## Why Brain guarantees the in-basket exists and nothing more
+
+Brain creates `capture/` and keeps it walkable. It does not name, move,
+summarize, prune, or lint anything inside it, and it ships no
+`brain capture` command family.
+
+That restraint is the feature. The in-basket's value is that the user can put
+anything in it in any shape without a tool having an opinion, and the moment
+Brain enforces a convention there, capture becomes a filing decision again,
+which is the friction the directory exists to remove. Everything Brain *could* do to
+the contents requires reading them and judging what they mean (is this one
+note or three? is it reference or a to-do?), which is skill work, not CLI
+work. So the code contributes a directory and a search root, and
+`skills/second-brain/SKILL.md` contributes the judgment.
+
+The same reasoning is why a processing pass reads every item rather than
+classifying by filename, and why it regroups by *idea* before routing: several
+files are often one thought, and one file is often a meeting note, a book
+recommendation, and "call the plumber" stacked together. A one-file-one-note
+assumption would scatter the first case and bury the third.
+
+## Why the in-basket is ensured in two places
+
+`workspace::ensure_capture_directory` runs for the selected workspace on every
+command that resolves one, and the `capture_directory` startup migration runs
+`up` for **every registered** workspace root. Either alone leaves a gap.
+
+The migration alone is not enough because migrations are machine-scoped and
+run before registry bootstrap: an unreadable or absent registry yields no
+roots at all, and a root this machine has never had does not exist yet when
+the migration walks it; it is created moments later by bootstrap. Bootstrap
+alone is not enough because a machine can hold several workspaces and the user
+reaches them one at a time; an upgrade should provision all of them, not
+whichever one they happen to select next.
+
+Both are idempotent `create_dir_all`s that never touch existing contents, so
+running both costs a pair of filesystem checks and removes the case where the
+directory the user was told to use isn't there yet.
+
+The migration's `down` removes the in-basket again, **but only when it is
+empty**. An older binary simply ignores a directory it does not know about,
+which is a far better outcome than deleting a person's notes to make a version
+rollback tidy. Emptiness is the whole guard: one file, and the directory stays.
+
+## Why an empty `capture/` does not count as workspace content
+
+`is_empty_workspace` decides whether Brain may seed a root. Because
+`ensure_capture_directory` runs before that check, every root Brain touches has
+a `capture/` by the time emptiness is evaluated, so counting the directory
+itself as content would permanently block first-run seeding for exactly the
+workspaces that need it.
+
+`capture/` therefore joins the scaffold set (`SCAFFOLD_DIRECTORIES`) whose
+*presence* is ignored and whose *contents* are not: a workspace with
+`capture/idea.md` in it holds the user's material and is never seeded over.

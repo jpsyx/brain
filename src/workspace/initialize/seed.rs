@@ -3,8 +3,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use super::{
-    HABITS_HEADER, INFRASTRUCTURE_DIRECTORIES, PARA_DIRECTORIES, PROJECTS_HEADER, RESOURCES_HEADER,
-    TASKS_HEADER, WorkspaceContext,
+    HABITS_HEADER, INFRASTRUCTURE_DIRECTORIES, PROJECTS_HEADER, RESOURCES_HEADER,
+    SCAFFOLD_DIRECTORIES, TASKS_HEADER, WorkspaceContext,
 };
 
 /// Initialize the selected workspace when it contains only Brain's own setup
@@ -84,7 +84,7 @@ fn adopted_remote_schema_document(
 }
 
 pub(super) fn seed_empty_workspace(workspace: &WorkspaceContext) -> Result<()> {
-    for directory in PARA_DIRECTORIES {
+    for directory in SCAFFOLD_DIRECTORIES {
         std::fs::create_dir_all(workspace.root().join(directory))?;
     }
     write_if_missing(&workspace.root().join(".config/config.json"), b"{}\n")?;
@@ -136,7 +136,7 @@ pub(super) fn is_empty_workspace_inner(root: &Path) -> Result<bool> {
         if INFRASTRUCTURE_DIRECTORIES.contains(&name.as_ref()) || name == ".DS_Store" {
             continue;
         }
-        if PARA_DIRECTORIES.contains(&name.as_ref()) {
+        if SCAFFOLD_DIRECTORIES.contains(&name.as_ref()) {
             if contains_file(entry.path())? {
                 return Ok(false);
             }

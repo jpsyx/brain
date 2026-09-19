@@ -1,6 +1,6 @@
 use super::{
-    RootSetup, contains_file, is_empty_workspace_inner, performs_setup_sync, root_setup,
-    startup_sync_direction,
+    RootSetup, contains_file, ensure_capture_directory, is_empty_workspace_inner,
+    performs_setup_sync, root_setup, startup_sync_direction,
 };
 use crate::sync::args::Direction;
 
@@ -102,6 +102,7 @@ fn an_established_populated_workspace_adds_no_extra_startup_sync() {
 #[test]
 fn setup_only_directories_are_empty() {
     let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("capture")).unwrap();
     std::fs::create_dir(root.path().join(".config")).unwrap();
     std::fs::create_dir(root.path().join(".claude")).unwrap();
     std::fs::create_dir_all(root.path().join(".brain/hooks")).unwrap();
@@ -127,4 +128,54 @@ fn nested_empty_para_directories_have_no_files() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("projects/empty")).unwrap();
     assert!(!contains_file(root.path().join("projects")).unwrap());
+}
+
+#[test]
+fn an_empty_capture_in_basket_leaves_the_workspace_initializable() {
+    // Brain creates `capture/` for every workspace it touches, so the
+    // directory is present before the workspace has any content. Counting it
+    // as content would permanently block first-run seeding.
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("capture")).unwrap();
+    assert!(is_empty_workspace_inner(root.path()).unwrap());
+}
+
+#[test]
+fn a_captured_file_makes_the_workspace_non_empty() {
+    // Material the user dumped in the in-basket is user content like any
+    // other: Brain must not seed over a root that already holds it.
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("capture")).unwrap();
+    std::fs::write(root.path().join("capture/idea.md"), "idea").unwrap();
+    assert!(!is_empty_workspace_inner(root.path()).unwrap());
+}
+
+#[test]
+fn the_capture_in_basket_is_created_when_a_workspace_has_none() {
+    // A workspace that predates the in-basket, or one whose root this machine
+    // just created, has nowhere for the user to put things yet.
+    let root = tempfile::tempdir().unwrap();
+    ensure_capture_directory(root.path()).unwrap();
+    assert!(root.path().join("capture").is_dir());
+}
+
+#[test]
+fn ensuring_the_capture_in_basket_never_touches_what_is_already_there() {
+    // It runs on every command that resolves a workspace, so it has to be a
+    // no-op the second time and every time after.
+    let root = tempfile::tempdir().unwrap();
+    let captured = root.path().join("capture/whiteboard.png");
+    std::fs::create_dir(root.path().join("capture")).unwrap();
+    std::fs::write(&captured, b"png").unwrap();
+
+    ensure_capture_directory(root.path()).unwrap();
+    ensure_capture_directory(root.path()).unwrap();
+
+    assert_eq!(std::fs::read(&captured).unwrap(), b"png");
+    assert_eq!(
+        std::fs::read_dir(root.path().join("capture"))
+            .unwrap()
+            .count(),
+        1
+    );
 }

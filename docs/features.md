@@ -336,8 +336,9 @@ a direct keystroke show it dimmed in `[…]`):
   in Finder (a file → its parent dir, a directory → itself), exactly what
   `Ctrl-Enter` does. **Shown whenever an entry is highlighted.** The label
   never shows the absolute path or the filename: it leads with the bucket
-  category (`projects/`, `areas/`, `resources/`, `archive/`) and, when too
-  long, elides the *middle* keeping the tail (`resources/.../final/parts`).
+  category (`capture/`, `projects/`, `areas/`, `resources/`, `archive/`) and,
+  when too long, elides the *middle* keeping the tail
+  (`resources/.../final/parts`).
 - **Copy path to directory** copies the highlighted entry's absolute directory
   path to the clipboard. A file resolves to its parent directory; a directory
   resolves to itself. **Shown whenever an entry is highlighted.**
@@ -351,14 +352,16 @@ a direct keystroke show it dimmed in `[…]`):
    **Show** / **Close** rows for each open manual or skill tab.
 3. **Open tasks** `[^T]`: switch to the tasks main view (task management,
    agenda, triage), in-process.
-4. **Search projects:** rescope search to the selected workspace's `projects/`.
-5. **Search areas:** rescope search to the selected workspace's `areas/`.
-6. **Search resources:** rescope search to the selected workspace's `resources/`.
-7. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
-8. **Global search**: search across projects, areas, resources, and archive.
-9. **Enable receiver / Disable receiver** toggles persistent intent for the
+4. **Search capture:** rescope search to the selected workspace's `capture/`
+   (the user's unfiled in-basket).
+5. **Search projects:** rescope search to the selected workspace's `projects/`.
+6. **Search areas:** rescope search to the selected workspace's `areas/`.
+7. **Search resources:** rescope search to the selected workspace's `resources/`.
+8. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
+9. **Global search**: search across capture, projects, areas, resources, and archive.
+10. **Enable receiver / Disable receiver** toggles persistent intent for the
    selected workspace without starting or stopping the shared process.
-10. **Move brain panel to the left / right**: swap the layout (label names
+11. **Move brain panel to the left / right**: swap the layout (label names
    the direction the panel would move).
 - **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
   directory) to the Trash. **Shown whenever something is highlighted**, and it
@@ -569,10 +572,10 @@ delegated task values.
   being listed as invocation-created.
 - When the selected workspace contains only Brain setup metadata (including
   `.brain/`, `.claude/`, `.codex/`, and `.opencode/` lifecycle artifacts) and
-  empty PARA directories, the first tasks launch completes initialization before
-  loading the task view. It creates the portable config, task and habit CSVs,
-  task counters, lookup CSVs, and `projects/`, `areas/`, `resources/`,
-  `archive/`, and `tasks/`. A configured workspace sync is completed before
+  empty scaffold directories, the first tasks launch completes initialization
+  before loading the task view. It creates the portable config, task and habit
+  CSVs, task counters, lookup CSVs, and `capture/`, `projects/`, `areas/`,
+  `resources/`, `archive/`, and `tasks/`. A configured workspace sync is completed before
   this check, and a successful initialization is pushed afterward. Any user
   file makes the workspace non-empty, so Brain leaves it untouched.
 - `workspace attach [<root>]` requires a strict, compatible manifest, adopts
@@ -2296,6 +2299,31 @@ stored as `markdown_to_pdf_path` **in brain env**
 (`~/.config/brain/env.json`, not `config.json`); see
 [config.md](config.md).
 
+## The `capture/` in-basket
+
+Every workspace root carries a `capture/` directory alongside the four PARA
+buckets. It is the **one directory in the workspace the user manages rather
+than an agent**: the place they drop a half-written note, a photo, a
+screenshot, a PDF, or a whole folder of things without deciding what any of it
+is. Brain's guarantees about it are deliberately small:
+
+- **It always exists.** Every command that resolves a workspace ensures it
+  (see [Workspace setup on first use](#workspace-setup-on-first-use)), and
+  upgrading Brain provisions it for **every registered workspace** at once
+  rather than waiting for each one to be selected. A workspace that predates
+  the in-basket, or one whose in-basket a tool pruned, gets it back on the
+  next invocation.
+- **It is searchable.** The brain-directory view walks it like any other
+  bucket, and the search palette carries a **Search capture** row that
+  rescopes to it alone. Its contents are walked verbatim: spaces, capitals,
+  and the user's own nesting are all preserved and matchable.
+- **Nothing else touches it.** Brain neither organizes, renames, nor prunes
+  it. Filing its contents is skill work, not CLI work: the bundled
+  `second-brain` skill owns the processing pass (read every item, regroup by
+  idea rather than by file, then route each one into a PARA bucket or into
+  the task system), and `triage weekly` runs that pass alongside the scratch
+  notepad so both in-baskets end empty.
+
 ## The fuzzy picker
 
 The search panel of the persistent shell (the brain-directory main view). It
@@ -2307,9 +2335,11 @@ list.
   in the entry. Slug separators (`-`, `_`, `.`) are stripped before
   matching, so `afloat` finds `ann-afloat` and `annafloat` and
   `ann afloat` all hit. See [data-model.md](data-model.md).
-- **Grouping**: matches are grouped under section headers (Projects →
-  Areas → Resources → Archive) showing a per-section count. Headers occupy
-  a row but aren't selectable.
+- **Grouping**: matches are grouped under section headers (Capture →
+  Projects → Areas → Resources → Archive) showing a per-section count.
+  Headers occupy a row but aren't selectable. Capture leads because its
+  contents are the newest and least filed; Archive trails because its
+  contents are retired.
 - **Highlights**: matched characters are colored; the highlight offsets
   are mapped back from the normalized string to the original display
   bytes so they line up exactly.
@@ -2441,11 +2471,18 @@ runs before readiness for every ordinary command and is idempotent:
      change-triggered push own the steady state, so this costs two filesystem
      checks per command once a workspace is established.
 4. **PARA and the task tables**, when the root is still empty afterwards:
-   `projects/`, `areas/`, `resources/`, `archive/`, `tasks/`, `tasks.csv` and
-   `habits.csv` with their headers, both ID counters at `1`, and the two lookup
+   `capture/`, `projects/`, `areas/`, `resources/`, `archive/`, `tasks/`,
+   `tasks.csv` and `habits.csv` with their headers, both ID counters at `1`,
+   and the two lookup
    CSVs. Existing files are never overwritten, and an explicit
    `enable_triage_habits: false` in portable config is honored rather than
    reset. If sync is configured, the freshly seeded workspace is then pushed.
+
+The `capture/` in-basket is the exception to the opt-outs below: it is
+ensured **unconditionally**, right after step 1, for every command that
+resolves a workspace. It is where the user puts things, so it exists from the
+moment the root does, whatever command happened to create the root. Creating
+it is one idempotent `create_dir_all` that never touches existing contents.
 
 Two command families opt out of everything past step 1. A **sync** command
 (`brain sync`, `sync status`, `check`) owns the network for its own run, and a

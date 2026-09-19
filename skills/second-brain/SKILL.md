@@ -1,12 +1,13 @@
 ---
 name: second-brain
-description: Use when adding, moving, or organizing material in the user's brain — deciding between projects/areas/resources/archive, naming a new project folder, retiring finished work, or answering "where does this note belong?".
+description: Use when adding, moving, or organizing material in the user's brain — processing the capture/ in-basket, deciding between projects/areas/resources/archive, naming a new project folder, retiring finished work, or answering "where does this note belong?".
 ---
 
 # second-brain
 
 The user's brain directory is a personal knowledge management system
-organized with the PARA method (Tiago Forte, *Building a Second Brain*).
+organized with the PARA method (Tiago Forte, *Building a Second Brain*),
+plus a user-managed `capture/` in-basket that feeds it.
 This skill is the playbook for deciding **where things go** and **what
 they're named**.
 
@@ -111,6 +112,10 @@ read it someday* (resource).
 by **topic** ("what it is") rather than by actionability ("what it's
 for"). See the `resources/` section below.
 
+**Organizing happens on the way *out* of `capture/`.** Material the user
+dropped in the in-basket hasn't been classified yet, and that's the point;
+see [`capture/`](#capture--the-users-in-basket-not-a-para-bucket).
+
 ## Intermediate Packets (IPs)
 
 An **Intermediate Packet** (IP) — Tiago Forte's term, sometimes
@@ -148,6 +153,10 @@ When deciding where an IP lives:
 | `areas/`      | Ongoing responsibilities to maintain              | Indefinite             | No                 |
 | `resources/`  | Topics of interest, reference material            | Indefinite             | No                 |
 | `archive/`    | Inactive material from any of the above           | Frozen                 | n/a                |
+
+Plus one non-PARA sibling: `capture/`, the user's in-basket, holding material
+that hasn't been classified into any of the four yet. It is covered
+separately in [`capture/`](#capture--the-users-in-basket-not-a-para-bucket).
 
 ### `projects/` — outcome-driven, finite
 
@@ -341,23 +350,169 @@ resources/abandoned-framework-x/      →   archive/resources/abandoned-framewor
 
 Only delete on explicit user instruction.
 
+## `capture/` — the user's in-basket (not a PARA bucket)
+
+`capture/` is a fifth top-level directory alongside the four PARA buckets,
+and it is the **only directory in the brain the user manages rather than
+you**. In GTD terms it is their in-basket: the place they dump a thought, a
+photo, a screenshot, a PDF, a voice-memo transcript, a half-written markdown
+file, or a whole folder of the above, without deciding where any of it
+belongs. Deciding is your job, later.
+
+Everything else in this skill answers "where does this belong?".
+`capture/` is the queue of things that question hasn't been asked about yet.
+
+### Rules for `capture/`
+
+- **The user owns it; you don't tidy it.** Never rename, reorganize,
+  reformat, kebab-case, or "clean up" anything inside `capture/` on your own
+  initiative. Its naming conventions are whatever the user felt like at the
+  time, and that is correct. The
+  [naming conventions](#naming-conventions) below apply to material once it
+  **lands in PARA**, never to the in-basket it came from.
+- **It can hold literally anything.** Markdown, images, PDFs, audio, video,
+  archives, spreadsheets, code, directories of any depth. Never assume the
+  contents are markdown, and never skip an item because you can't read its
+  format; say exactly which item you couldn't process and why.
+- **Subdirectories are a hint, not a schema.** The user may group things into
+  their own folders (`capture/work-trip/`, `capture/2026-09-12/`,
+  `capture/random/`). Read that grouping as evidence about *what the user
+  thought belonged together* (it is often the strongest signal you have),
+  but **do not mirror it into PARA**. The destination structure is decided by
+  the PARA [decision flow](#decision-flow), not by how the in-basket happened
+  to be arranged.
+- **Only touch it when asked, or during weekly triage.** Processing happens
+  when the user says so ("move this into my brain", "process my capture") or
+  as the capture pass of
+  [`/triage weekly`](../triage/SKILL.md#step-1--process-the-local-in-baskets-scratchmd--capture).
+  Outside those, read it freely (it's searchable material like anything else)
+  but leave it alone.
+- **Processing empties it.** An item that has been routed is **moved** out of
+  `capture/`, not copied. The end state of a processing pass is an empty (or
+  near-empty) in-basket. See
+  ["Process capture"](#process-capture--move-this-into-my-brain) for the
+  procedure, which ends with nothing left undecided in the in-basket.
+- **It is searchable.** `capture/` is walked by the brain-directory view's
+  search, and `brain` ships a "Search capture" palette row that rescopes to
+  it. Include it in retrieval searches: an answer the user is looking for may
+  not have been filed yet.
+
+### A file is not a note
+
+**Never assume one file is one note.** Before deciding anything, *read the
+item*. Three shapes show up constantly, and each needs a different move:
+
+| What you find | What it actually is | What to do |
+|---|---|---|
+| Several files circling one idea (a screenshot, a link dump, and three lines of markdown) | **One** note | Merge them into one destination: a single note, or a [paired subdirectory](#paired-subdirectories-for-pdfs--media-with-notes) when media is involved |
+| One file holding unrelated fragments (a meeting note, a book recommendation, and "call the plumber") | **Several** items, with different homes | Split it. Each fragment is routed on its own merits; they may land in three different places |
+| One file that is one coherent thing | One note | Route it as-is |
+
+The same pass also decides **note vs. task**, per
+[Not everything in capture is a note](#not-everything-in-capture-is-a-note).
+
+### Not everything in `capture/` is a note
+
+Some captured material is *reference*, and belongs in a PARA bucket. Some is
+an *action*, and belongs in the task system, where filing it as a note buries
+it. Some is both (a note to keep, plus a thing to do about it). Classify
+every distilled item:
+
+- **Note** → route through this skill's [decision flow](#decision-flow) into
+  `projects/`, `areas/`, or `resources/`.
+- **Task** → create it with [`/todo`](../todo/SKILL.md). Imperative phrasing,
+  a named action, a deadline, a TODO bullet, "remember to…", "ask X about…".
+  A captured item that is clearly multi-step scope (`launch`, `migrate`,
+  `build`, several checkboxes) is a **project**, not a task; see
+  [`/todo turn-into-project`](../todo/references/task-project-link.md).
+- **Both** → do both, and link them: file the note, create the task, and put
+  the note's path in the task's `see_also` so the task carries its context.
+- **Neither** → genuinely nothing worth keeping (a duplicate, an accidental
+  screenshot, a test file). **Ask before deleting.** Archive-don't-delete
+  applies here too; when in doubt, route it to `resources/` rather than
+  destroying it.
+
+This is the same TASK / NOTE / UNSURE classification `/triage` uses; see
+[its classification rules](../triage/SKILL.md#classification-rules). It is
+fine to be unsure and ask; what is not fine is asking about the items you
+were already sure about.
+
+### "Process capture" / "Move this into my brain"
+
+Trigger phrases: "process my capture", "empty my in-basket", "clear capture",
+"file these", "move this into my brain", "put this in my brain", "where does
+this go?", or a bare reference to something the user just dropped in there.
+
+**When the user doesn't say where something goes, you decide.** That is the
+default, not the exception: picking the PARA bucket and sub-directory is the
+work being asked for. Follow the [decision flow](#decision-flow), state the
+destination you picked, and proceed. Only ask when the item is genuinely
+ambiguous between two real homes, or when you'd be creating a new top-level
+`resources/` topic or a new namespace (both already require confirmation).
+If the user *did* name a destination, use it without second-guessing.
+
+1. **Inventory the in-basket.** List everything under `capture/`, recursively,
+   including non-markdown files and nested directories:
+   ```
+   find <brain>/capture -mindepth 1 -not -name '.DS_Store'
+   ```
+   Note the user's own subdirectory grouping as a hint.
+2. **Read every item.** Markdown and text in full; PDFs and images inspected;
+   audio/video at least identified. Do not classify from filenames: the
+   filename is often the least informative thing about a captured item.
+3. **Regroup into real items**, per
+   [A file is not a note](#a-file-is-not-a-note): merge the files that are one
+   idea, split the file that is several. The unit you route is the *idea*, not
+   the file.
+4. **Classify each item** as note, task, both, or neither, per
+   [Not everything in capture is a note](#not-everything-in-capture-is-a-note).
+5. **Route it.**
+   - Notes: place per the [decision flow](#decision-flow) and this skill's
+     placement rules: [paired subdirectories](#paired-subdirectories-for-pdfs--media-with-notes)
+     for media, [auto-summarize](#add-a-resource--save-this-pdf-image-plaintext-notes)
+     substantive prose, and add a
+     [`See also`](#cross-link-new-notes-see-also) when the neighbour search
+     finds something genuinely related.
+   - Tasks: create with `/todo`, with best-guess priority, due date, type and
+     duration, and `see_also` pointing at any note the same item produced.
+6. **Remove the source from `capture/` as you go.** Move the file to its
+   destination (or delete it once every part of a split has landed
+   elsewhere). Processing one item at a time and clearing it immediately is
+   what keeps a long pass recoverable if it's interrupted.
+7. **Leave nothing undecided in the in-basket.** If the user can't decide
+   about an item right now, that is not a reason to leave it sitting there:
+   create a task naming the decision itself ("Decide what to do with the
+   conference-talk outline from capture") and move the item to a real home.
+   Same rule as
+   [/triage's "Deferring ≠ leaving in the inbox"](../triage/SKILL.md#deferring--leaving-in-the-inbox).
+8. **End with the [additions table](#always-end-with-an-additions-table)**,
+   one row per artifact, showing where each item landed. Note anything you
+   could not process and why.
+
 ## Decision flow
 
 Use this when you're about to place a new note and aren't sure where:
 
 ```
-Is the user actively working toward a specific outcome this affects?
-├── yes → projects/<outcome-named-folder>/
+Is it an action rather than reference material?
+├── yes → not a note at all; create a task with /todo
 └── no
     │
-    └── Is it tied to an ongoing responsibility?
-        ├── yes → areas/<responsibility>/
+    └── Is the user actively working toward a specific outcome this affects?
+        ├── yes → projects/<outcome-named-folder>/
         └── no
             │
-            └── Is it worth keeping for someday?
-                ├── yes → resources/<topic>/
-                └── no  → don't create it; ask the user
+            └── Is it tied to an ongoing responsibility?
+                ├── yes → areas/<responsibility>/
+                └── no
+                    │
+                    └── Is it worth keeping for someday?
+                        ├── yes → resources/<topic>/
+                        └── no  → don't create it; ask the user
 ```
+
+`capture/` is never a destination in this flow. It is where the item came
+from, and a processed item leaves it.
 
 ## Naming conventions
 
@@ -376,6 +531,10 @@ Is the user actively working toward a specific outcome this affects?
 - **Files inside a folder** follow the same rules. Prefer `notes.md`,
   `decisions.md`, `meetings/2026-06-07.md` over dated-only filenames.
 - **Dates** use `YYYY-MM-DD` so they sort correctly in `ls`.
+- **`capture/` is exempt.** The in-basket is the user's; its names are
+  whatever they typed. Apply these conventions when you *move* something out
+  of `capture/` into PARA; renaming it in place is not your call. See
+  [`capture/`](#capture--the-users-in-basket-not-a-para-bucket).
 
 ## Referencing markdown files
 
@@ -763,10 +922,13 @@ Use when the user asks for items in any shape: "what have I read
 about X?", "anything on cholera in my brain?", "find that paper about
 CHWs", "what's in my archive about humanitarian AI?"
 
-**Scope: all of `resources/` (and `archive/` when relevant).** Use
-`rg -i 'pattern' <brain>` for full-text and `find` / `fd` for
-filenames. The answer may live anywhere — a hand-written note, a
-project artifact, an archived book summary.
+**Scope: all of `resources/` (and `archive/` when relevant), plus
+`capture/`.** Use `rg -i 'pattern' <brain>` for full-text and `find` / `fd`
+for filenames. The answer may live anywhere: a hand-written note, a
+project artifact, an archived book summary, or something the user dumped in
+the in-basket last week and hasn't filed yet. When a hit comes from
+`capture/`, say so: it is unfiled material, and the user may want it routed
+on the spot.
 
 **Procedure:**
 
@@ -774,7 +936,8 @@ project artifact, an archived book summary.
    when it exists (`title` and `tags` columns hit fast).
 2. Then `rg -i 'pattern' <brain>/resources` for full-text matches
    across `notes.md`, `.METADATA.json`, and other markdown.
-3. Don't forget `archive/` — old material is often the answer.
+3. Don't forget `archive/`, where old material is often the answer, or
+   `capture/`, where unfiled material sits.
 4. Read the candidates before answering. Lead with a 1–3 sentence
    prose synthesis, then list sources as markdown links with a
    one-line description per link.
@@ -1038,7 +1201,13 @@ here. It shares this skill's additions-table and cleanup conventions.
 If you genuinely can't tell which bucket a note belongs to, **ask the
 user** before creating a new top-level folder. Do not invent new
 top-level directories alongside `projects/`, `areas/`, `resources/`,
-`archive/`.
+`archive/`, `capture/`, and `tasks/`; that set is the whole sanctioned
+top level, plus the dot-directories brain owns.
+
+`capture/` is not an escape hatch for this. Parking an undecided note back
+in the in-basket is the one thing the in-basket is not for; ask, or create a
+task naming the decision (see
+["Process capture"](#process-capture--move-this-into-my-brain) step 7).
 
 ## Common mistakes
 
@@ -1051,7 +1220,12 @@ top-level directories alongside `projects/`, `areas/`, `resources/`,
 | Creating a project for something with no finish line       | It's probably an area. Move to `areas/`.                    |
 | Deleting a finished project to "clean up"                  | Archive it. `mv` into `archive/projects/<name>/`.           |
 | Moving a resource into a project when it's referenced      | Copy the relevant excerpt; leave the resource alone.        |
-| Creating `inbox/`, `notes/`, or other top-level folders    | Pick a PARA bucket, or ask the user.                        |
+| Creating `inbox/`, `notes/`, or other top-level folders    | `capture/` **is** the inbox. Otherwise pick a PARA bucket, or ask the user. |
+| Tidying, renaming, or restructuring things inside `capture/` | The in-basket is the user's. Apply naming conventions when material *leaves* it. See [`capture/`](#capture--the-users-in-basket-not-a-para-bucket). |
+| Mirroring the user's `capture/` subdirectories into PARA | Their grouping is a hint about what belongs together, not a destination schema. Route by the [decision flow](#decision-flow). |
+| Treating one file in `capture/` as exactly one note | Read it first. Several files can be one idea; one file can be several, and some of them are tasks. See [A file is not a note](#a-file-is-not-a-note). |
+| Filing a captured *action* as a note | Actions go to `/todo`, not `resources/`. A note that buries a to-do is a lost to-do. See [Not everything in capture is a note](#not-everything-in-capture-is-a-note). |
+| Copying an item out of `capture/` and leaving the original behind | Processing **moves**; the in-basket empties. See ["Process capture"](#process-capture--move-this-into-my-brain). |
 | `Capital_Or_Underscored_Names`                             | Lower-kebab everything: `capital-or-underscored-names`.     |
 | New top-level `resources/<topic>/` when a nested home exists | Search recursively first (`fd -t d <topic> ~/brain/resources`); place under the existing parent. |
 | Referencing a note as a bare path or filename (in prose)   | Use a relative markdown link so the user can jump to it.    |

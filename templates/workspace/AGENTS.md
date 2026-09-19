@@ -2,7 +2,8 @@
 
 This directory is a **brain workspace**: a personal knowledge base organized
 with the PARA method (Projects, Areas, Resources, Archive), plus a task system
-under `tasks/`. See [README.md](README.md) for the layout.
+under `tasks/` and the user's own in-basket at `capture/`. See
+[README.md](README.md) for the layout.
 
 A machine can hold several workspaces (a personal one, a shared family one, …).
 Everything in this file is scoped to *this* one. Brain exports `BRAIN_WORKSPACE`
@@ -42,6 +43,28 @@ engineering**. You will be asked to:
 If a request would create code, infrastructure, or anything outside this
 workspace, confirm before doing it.
 
+## `capture/` is the user's, not yours
+
+`capture/` is the in-basket: where the user dumps notes, photos, screenshots,
+PDFs, and whole folders without deciding what any of it is. It is the **one
+directory here you do not organize on your own initiative.**
+
+- **Never rename, reorganize, reformat, or tidy anything inside it** unless
+  asked. Its names are whatever the user typed, and that is correct.
+- **It can hold anything**: any file type, any directory depth. Don't assume
+  markdown, and don't skip an item you can't open: say which one and why.
+- **The user's subdirectories are a hint**, not a structure to mirror into
+  PARA.
+- **Process it only when asked** ("process my capture", "move this into my
+  brain") or as part of weekly triage. Then read every item, group or split
+  it by *idea* rather than by file, and send each one to a PARA folder (via
+  the `second-brain` skill) or to the task system (via `todo`). Some
+  captured material is reference, some is an action, and filing an action as
+  a note buries it. Move items out as you go; the in-basket ends empty.
+- **You decide where things go.** The user usually won't say. Picking the
+  bucket and sub-directory is the work being asked for; ask only when an item
+  is genuinely ambiguous.
+
 ## The task system
 
 `tasks/` holds this workspace's tasks and habits:
@@ -58,7 +81,8 @@ workspace, confirm before doing it.
 - **CLI-first.** The user explores this workspace with terminal tools. Optimize
   for grep-ability and predictable paths.
 - **All names are lower-case and kebab-case.** Directories, files, attachments.
-  No spaces, no camelCase, no underscores unless a tool requires it.
+  No spaces, no camelCase, no underscores unless a tool requires it. The one
+  exception is `capture/`, whose contents the user names.
 - **Plain text wins.** Prefer `.md` for prose and `.csv` / `.json` / `.jsonl`
   for structured data, so everything stays searchable with ordinary tools.
 - **Archive, don't delete.** Move stale material into `archive/`, mirroring its
@@ -170,8 +194,9 @@ user's other machines. Two consequences worth internalizing:
 ## Things to avoid
 
 - **Don't invent new top-level directories** alongside the four PARA folders.
-  The sanctioned non-PARA entries are `tasks/` and the dot-directories brain
-  owns. If something doesn't fit, ask.
+  The sanctioned non-PARA entries are `capture/`, `tasks/`, and the
+  dot-directories brain owns. If something doesn't fit, ask, and don't park
+  it in `capture/`, which is an inbox, not a junk drawer.
 - **Don't rename or move user-authored files without confirming.**
 - **Don't add tooling or build files at the workspace root** (`package.json`,
   `.venv`, `node_modules/`, lockfiles). Code that *is* a skill belongs in

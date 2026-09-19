@@ -8,7 +8,7 @@
 
 `brain` is the user's **central terminal dispatch** for everything around
 their second brain and task system: manage tasks (agenda, triage, habits),
-fuzzy-pick a note across the PARA buckets, or think with a live agent
+fuzzy-pick a note across the `capture/` in-basket and the PARA buckets, or think with a live agent
 brain panel. Bare `brain` opens a **persistent shell** with three main views
 (tasks, brain-directory search, and logs) alongside a session-resuming agent
 brain panel. `brain workspace …` manages the machine's workspace registry;

@@ -44,6 +44,7 @@ impl App {
 
 pub(crate) fn all_bucket_roots(brain_root: &Path) -> Vec<(Bucket, std::path::PathBuf)> {
     vec![
+        (Bucket::Capture, brain_root.join("capture")),
         (Bucket::Projects, brain_root.join("projects")),
         (Bucket::Areas, brain_root.join("areas")),
         (Bucket::Resources, brain_root.join("resources")),
@@ -53,6 +54,7 @@ pub(crate) fn all_bucket_roots(brain_root: &Path) -> Vec<(Bucket, std::path::Pat
 
 fn single_bucket_root(brain_root: &Path, bucket: Bucket) -> Vec<(Bucket, std::path::PathBuf)> {
     let dir = match bucket {
+        Bucket::Capture => "capture",
         Bucket::Projects => "projects",
         Bucket::Areas => "areas",
         Bucket::Resources => "resources",
@@ -188,6 +190,10 @@ impl App {
                 }
             }
             SearchAction::Delete => {}
+            SearchAction::SearchCapture => {
+                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Capture);
+                self.search_rescope(&roots);
+            }
             SearchAction::SearchProjects => {
                 let roots = single_bucket_root(self.context.workspace_root(), Bucket::Projects);
                 self.search_rescope(&roots);
@@ -254,6 +260,38 @@ pub(crate) fn build_search(brain_root: &Path) -> picker::App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_search_covers_the_capture_in_basket_and_every_para_bucket() {
+        // `capture/` is searchable like any other bucket: the user dumps notes
+        // and files there and needs to find them again before they are filed.
+        let roots = all_bucket_roots(Path::new("/brain"));
+
+        assert_eq!(
+            roots,
+            vec![
+                (Bucket::Capture, std::path::PathBuf::from("/brain/capture")),
+                (
+                    Bucket::Projects,
+                    std::path::PathBuf::from("/brain/projects")
+                ),
+                (Bucket::Areas, std::path::PathBuf::from("/brain/areas")),
+                (
+                    Bucket::Resources,
+                    std::path::PathBuf::from("/brain/resources")
+                ),
+                (Bucket::Archive, std::path::PathBuf::from("/brain/archive")),
+            ]
+        );
+    }
+
+    #[test]
+    fn rescoping_to_capture_walks_only_the_capture_directory() {
+        assert_eq!(
+            single_bucket_root(Path::new("/brain"), Bucket::Capture),
+            vec![(Bucket::Capture, std::path::PathBuf::from("/brain/capture"))]
+        );
+    }
 
     #[test]
     fn clipboard_target_distinguishes_file_and_directory_paths() {

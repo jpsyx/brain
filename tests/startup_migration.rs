@@ -509,3 +509,9 @@ mod pi_frontend {
 
     include!("startup_migration/pi_frontend.rs");
 }
+
+mod capture_directory {
+    use super::*;
+
+    include!("startup_migration/capture_directory.rs");
+}

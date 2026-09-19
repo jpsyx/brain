@@ -38,6 +38,8 @@ pub(crate) enum SearchAction {
     /// a row whenever something is selected (its label carries the filename),
     /// so it's a *conditional* choice, not part of `STATIC_ITEMS`.
     Delete,
+    /// Rescope search to the user-managed `capture/` in-basket.
+    SearchCapture,
     SearchProjects,
     SearchAreas,
     SearchResources,
@@ -53,6 +55,7 @@ const STATIC_ITEMS: &[(SearchAction, &str)] = &[
         "Message brain",
     ),
     (SearchAction::Global(GlobalAction::ShowTasks), "Open tasks"),
+    (SearchAction::SearchCapture, "Search capture"),
     (SearchAction::SearchProjects, "Search projects"),
     (SearchAction::SearchAreas, "Search areas"),
     (SearchAction::SearchResources, "Search resources"),
@@ -184,6 +187,7 @@ pub(crate) const fn shortcut_for(action: SearchAction) -> Option<&'static str> {
         SearchAction::Delete => Some("^D"),
         SearchAction::CopyFilePath
         | SearchAction::CopyDirPath
+        | SearchAction::SearchCapture
         | SearchAction::SearchProjects
         | SearchAction::SearchAreas
         | SearchAction::SearchResources

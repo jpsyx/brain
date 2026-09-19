@@ -8,14 +8,24 @@ shell** adds a UUID-scoped SQLite store (sessions + layout), described under
 ## `Bucket` (`entry.rs`)
 
 ```rust
-enum Bucket { Projects, Areas, Resources, Archive }
+enum Bucket { Capture, Projects, Areas, Resources, Archive }
 ```
 
-The four PARA top-level buckets `brain` searches. **Declaration order is
-display order**: the picker groups sections Projects → Areas → Resources →
-Archive by relying on the derived `Ord`. `label()` returns the human string
-("Projects", etc.). Archive sorts last: it's retired material, so it's
-still searchable but stays out of the way of live work.
+The top-level directories `brain` searches: the user-managed `capture/`
+in-basket plus the four PARA buckets. **Declaration order is display order**:
+the picker groups sections Capture → Projects → Areas → Resources → Archive
+by relying on the derived `Ord`. `label()` returns the human string
+("Capture", "Projects", …). Capture sorts first (it is the unfiled material
+the user most recently put somewhere, and so the likeliest hit), and
+Archive sorts last, because it's retired material that stays searchable
+without crowding live work.
+
+`capture/` is a bucket for *search* only. It is not a PARA destination:
+nothing is ever filed **into** it, and the `second-brain` skill routes items
+out of it into `projects/` / `areas/` / `resources/`, or into the task system.
+Brain guarantees only that the directory exists
+(`workspace::ensure_capture_directory`); its contents and their naming belong
+to the user.
 
 ## `Entry` (`entry.rs`)
 
@@ -39,6 +49,9 @@ pair with `walkdir`:
   root's parent prefix. Paths outside that prefix fall back to absolute form.
 - **Missing roots are silently skipped**, so a brain without an `areas/`
   dir doesn't error.
+- **Nothing in `capture/` is normalized.** The in-basket is walked verbatim:
+  spaces, capitals, and the user's own nesting all survive into `display` and
+  therefore into the fuzzy match.
 
 Both files *and* directories are collected, so you can pick (and reveal /
 cd into) a folder, not just a leaf note.

@@ -1,6 +1,6 @@
 ---
 name: todo
-description: Use when adding, completing, deferring, assigning, or planning tasks in the selected Brain workspace; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; or for converting an oversized task into a project.
+description: Use when adding, completing, deferring, assigning, or planning tasks in the selected Brain workspace; when asking "what should I work on", "structure my day", or "anything slipping?"; for past-due triage; for turning something captured in the brain's capture/ in-basket into a task; or for converting an oversized task into a project.
 ---
 
 # todo
@@ -1570,6 +1570,44 @@ Rules:
 - **Single-chunk "chunks":** `--chunks 1` is rejected — that's just
   a regular task. Use plain `/todo add`.
 
+## Tasks that arrive from the `capture/` in-basket
+
+`<brain>/capture/` is the user's in-basket: the directory they dump notes,
+photos, screenshots, PDFs, and scraps of markdown into without deciding what
+any of it is. Some of what lands there is reference material and becomes a
+note; some of it is an **action** and belongs here instead. Filing an action
+as a note buries it, so the classification matters.
+
+`/second-brain` owns the in-basket and its processing pass; see
+[its `capture/` section](../second-brain/SKILL.md#capture--the-users-in-basket-not-a-para-bucket)
+and [the weekly capture pass](../triage/SKILL.md#1b--the-capture-in-basket).
+This section is only the task half of that handoff.
+
+- **What arrives as a task.** Imperative phrasing ("email the landlord",
+  "book the flights"), a named action, a deadline, a TODO bullet, "remember
+  to…", "ask X about…". Also photographic: a snapshot of a receipt to file,
+  a screenshot of an error to chase. Classify on what the item is *about*,
+  never on its file type.
+- **Create it with the normal `brain tasks add` path**, with best-guess
+  `priority`, `due_date`, `task_type`, and `estimated_duration`. The
+  captured item is usually terse; write a task name that will still make
+  sense in three weeks, and put the original wording in `notes` when the
+  paraphrase loses something.
+- **Keep the material with the task.** When the same captured item also
+  produced a note, file the note through `/second-brain` and put its path in
+  the task's `see_also`, so the task carries its context instead of pointing
+  at a directory the item has already left.
+- **Multi-step scope is a project, not a task.** A captured item with scope
+  verbs (`launch`, `build`, `migrate`, `research`) or several checkboxes goes
+  through `/todo turn-into-project`: the golden rule against sub-tasks in
+  `tasks.csv` applies exactly as it does to any other source. See
+  [task-project-link.md](references/task-project-link.md).
+- **The in-basket is not a holding pen.** Once the task exists, the captured
+  item leaves `capture/`; it does not stay there as a reminder. The task *is*
+  the reminder. An item the user can't decide about becomes a task naming the
+  decision, per
+  [/triage's "Deferring ≠ leaving in the inbox"](../triage/SKILL.md#deferring--leaving-in-the-inbox).
+
 ## Backlog
 
 The **backlog** is for tasks the user wants to keep but isn't going to
@@ -1691,6 +1729,11 @@ Offer the user help proactively when:
   > start now, or convert to a project?"
   Don't silently recommend it as the next action — a stale top
   candidate is itself a signal worth pausing on.
+- **The user mentions something they "dropped in capture"**, or you notice
+  unprocessed material in `<brain>/capture/` while working → offer to
+  process the in-basket (`/second-brain` ["Process capture"](../second-brain/SKILL.md#process-capture--move-this-into-my-brain)),
+  and create tasks for whatever in it turns out to be an action. Don't file
+  an action as a note to get the in-basket empty.
 - **5+ chronic-ignore hits at once** (run
   `brain tasks chronic --count`
   to check) → suggest `/triage daily`; the chronic-ignore sweep

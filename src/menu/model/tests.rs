@@ -270,6 +270,7 @@ fn menu_rows_are_in_the_expected_order() {
             SearchAction::Global(GlobalAction::StartManualSession),
             SearchAction::Global(GlobalAction::RenameSession),
             SearchAction::Global(GlobalAction::ShowTasks),
+            SearchAction::SearchCapture,
             SearchAction::SearchProjects,
             SearchAction::SearchAreas,
             SearchAction::SearchResources,
@@ -317,6 +318,7 @@ fn every_choice_appears_exactly_once() {
         SearchAction::Global(GlobalAction::StartManualSession),
         SearchAction::Global(GlobalAction::RenameSession),
         SearchAction::Global(GlobalAction::ShowTasks),
+        SearchAction::SearchCapture,
         SearchAction::SearchProjects,
         SearchAction::SearchAreas,
         SearchAction::SearchResources,
@@ -350,6 +352,7 @@ fn only_msg_and_tasks_carry_shortcuts() {
         shortcut_for(SearchAction::Global(GlobalAction::ShowTasks)),
         Some("^T")
     );
+    assert_eq!(shortcut_for(SearchAction::SearchCapture), None);
     assert_eq!(shortcut_for(SearchAction::SearchProjects), None);
     assert_eq!(shortcut_for(SearchAction::SearchArchive), None);
     assert_eq!(shortcut_for(SearchAction::GlobalSearch), None);
@@ -415,4 +418,17 @@ fn shared_catalog_rows_use_one_global_action_identity_and_metadata() {
         assert_eq!(search_row.shortcut, search_shortcut);
         assert_eq!(task_row.shortcut, task_shortcut);
     }
+}
+
+#[test]
+fn the_capture_in_basket_has_its_own_search_row() {
+    // The in-basket is where the user dumps raw material; rescoping to it is
+    // how they find something they just captured, so it leads the scope rows.
+    let r = rows();
+    let capture = r
+        .iter()
+        .find(|row| row.action == SearchAction::SearchCapture)
+        .expect("capture scope row exists");
+
+    assert_eq!(capture.label, "Search capture");
 }
