@@ -11,7 +11,7 @@ execution surfaces are a persistent TUI and short-lived command families:
 - **Bare `brain`** (and interactive `brain tasks …` routes) opens a
   **persistent shell**
   (`tui/`) with **three main views**: the **tasks view** (task management,
-  agenda, triage; the startup default) and the **brain-directory search view**
+  agenda, triage) and the **brain-directory search view**
   (fuzzy-pick over the selected root), and the **logs view** (scrollable
   diagnostics), plus one app-level **brain panel** (an
   interactive agent session in a PTY). You switch main views with
@@ -101,7 +101,8 @@ argv
       └─→ command::dispatch::run          (focused handlers under command/)
            ├─→ configuration / sync / server / workspace / reindex handlers
            └─→ settings::ensure_markdown_to_pdf (tasks/TUI prerequisite gate)
-           ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui (MERGED SHELL, tasks view)
+           ├─ no subcommand ─────────→ tasks_launch(default view) → tui::run_tui
+           │                                                      (configured startup target)
            └─ Cmd::Tasks(rest)       ─→ TasksCli::parse_from(rest) → tasks_launch:
                                           complete → complete::run (native CSV completion,
                                                        then tasks::agenda re-syncs the day's agenda)
@@ -128,6 +129,8 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
       │   App/session state, watcher, and periodic puller
       ├─→ command_context.workspace.root()   (immutable selected root snapshot)
       ├─→ build_search(brain_root)            (entry::collect over all buckets → picker::App)
+      ├─→ resolve `default_tui_view`           (tasks / brain directory / brain panel;
+      │                                        empty tasks use brain directory on the left)
       └─→ tick → draw → poll/read → application update
        ├─ agent::SessionStore: reap dead locks, scoped resume / claim or register
        ├─ BrainPanelState owns one AgentController per live main or additional tab

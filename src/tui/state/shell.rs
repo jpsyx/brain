@@ -4,7 +4,7 @@ use crossterm::event::KeyCode;
 use ratatui::{Frame, layout::Rect};
 
 use crate::entry::Entry;
-use crate::main_view::{Dir, MainView};
+use crate::main_view::{Dir, MainView, StartupDestination};
 use crate::menu::SearchPalette;
 use crate::state::PanelSide;
 use crate::tui::logs_view::LogsView;
@@ -72,6 +72,27 @@ impl ShellState {
 
     pub(crate) const fn focus_tasks(&mut self) {
         self.focus = Panel::Tasks;
+    }
+
+    pub(crate) const fn apply_startup_destination(&mut self, destination: StartupDestination) {
+        match destination {
+            StartupDestination::Tasks => {
+                self.main_view = MainView::Tasks;
+                self.focus = Panel::Tasks;
+            }
+            StartupDestination::BrainDirectory => {
+                self.main_view = MainView::BrainSearch;
+                self.focus = Panel::Tasks;
+            }
+            StartupDestination::BrainLlm => {
+                self.main_view = MainView::Tasks;
+                self.focus = Panel::Brain;
+            }
+            StartupDestination::BrainLlmEmpty => {
+                self.main_view = MainView::BrainSearch;
+                self.focus = Panel::Brain;
+            }
+        }
     }
 
     pub(crate) const fn panel_side(&self) -> PanelSide {
@@ -308,7 +329,7 @@ mod tests {
     use ratatui::layout::Rect;
 
     use super::{SearchEffect, ShellState, resolve_active_tab, tab_for_slot, tab_order};
-    use crate::main_view::{Dir, MainView};
+    use crate::main_view::{Dir, MainView, StartupDestination};
     use crate::state::PanelSide;
     use crate::tui::logs_view::{LogKind, LogsView};
     use crate::tui::model::{BrainTab, Panel, SessionTabId};
@@ -344,6 +365,31 @@ mod tests {
         assert_eq!(state.brain_rect(), Some(Rect::new(40, 0, 40, 24)));
         assert_eq!(state.search_query(), "x");
         assert_eq!(state.logs_view().map(|logs| logs.scroll), Some(1));
+    }
+
+    #[test]
+    fn startup_destination_sets_the_main_view_and_panel_focus_together() {
+        let cases = [
+            (StartupDestination::Tasks, MainView::Tasks, Panel::Tasks),
+            (
+                StartupDestination::BrainDirectory,
+                MainView::BrainSearch,
+                Panel::Tasks,
+            ),
+            (StartupDestination::BrainLlm, MainView::Tasks, Panel::Brain),
+            (
+                StartupDestination::BrainLlmEmpty,
+                MainView::BrainSearch,
+                Panel::Brain,
+            ),
+        ];
+
+        for (destination, main_view, focus) in cases {
+            let mut state = ShellState::new(crate::picker::App::new(&[], ""), PanelSide::Right);
+            state.apply_startup_destination(destination);
+            assert_eq!(state.main_view(), main_view, "{destination:?}");
+            assert_eq!(state.focus(), focus, "{destination:?}");
+        }
     }
 
     #[test]

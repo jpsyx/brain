@@ -19,8 +19,11 @@ pub(super) struct VarSpec {
 /// could sensibly differ between two workspaces on one machine: the path to a
 /// binary cannot, and neither can the public receiver origin, since one machine
 /// serves one URL per channel and providers sign the literal URL.
-pub(crate) const MACHINE_GLOBAL_VARS: [&str; 2] =
-    ["markdown_to_pdf_path", "brain_receiver_public_url"];
+pub(crate) const MACHINE_GLOBAL_VARS: [&str; 3] = [
+    "markdown_to_pdf_path",
+    "brain_receiver_public_url",
+    crate::main_view::STARTUP_VIEW_ENV_VAR,
+];
 
 /// Whether `name` is stored once for the whole machine.
 #[must_use]
@@ -35,7 +38,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 18] = [
+pub(super) const VARS: [VarSpec; 19] = [
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",
@@ -82,6 +85,12 @@ pub(super) const VARS: [VarSpec; 18] = [
         name: "default_agent_frontend",
         description: "Frontend the brain panel launches on THIS machine when no --claude/--codex/--open-code/--pi flag is passed. One of claude, codex, opencode, pi. Defaults to claude.",
         default: Some(crate::agent::default_frontend::DEFAULT),
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: crate::main_view::STARTUP_VIEW_ENV_VAR,
+        description: "View or panel the TUI focuses on open for THIS machine. One of tasks, brain_dir, brain_llm. Empty task stores always show brain_dir on the main-view side. Defaults to tasks.",
+        default: Some("tasks"),
         legacy_config_fallback: false,
     },
     VarSpec {

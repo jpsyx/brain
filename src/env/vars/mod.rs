@@ -175,6 +175,15 @@ fn declared_value(name: &str, value: &str) -> Result<Value> {
             value,
         )?));
     }
+    if name == crate::main_view::STARTUP_VIEW_ENV_VAR {
+        let canonical = crate::main_view::canonical_startup_view(value).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown default TUI view `{value}` (expected one of {})",
+                crate::main_view::STARTUP_VIEW_VALUES
+            )
+        })?;
+        return Ok(Value::from(canonical));
+    }
     Ok(parse_value(value))
 }
 

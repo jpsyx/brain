@@ -86,6 +86,37 @@ fn an_unset_default_agent_frontend_resolves_to_claude() {
     );
 }
 
+#[test]
+fn setting_an_unknown_default_tui_view_is_rejected_before_any_write() {
+    let error = set(&command(), "default_tui_view", "logs")
+        .expect_err("unknown startup view")
+        .to_string();
+
+    assert!(error.contains("tasks, brain_dir, brain_llm"), "{error}");
+    assert!(error.contains("logs"), "{error}");
+}
+
+#[test]
+fn default_tui_view_is_machine_global_and_defaults_to_tasks() {
+    let (_home, command) = registry_backed_command();
+
+    assert_eq!(
+        resolve_one(&command, "default_tui_view").as_deref(),
+        Some("tasks")
+    );
+
+    set(&command, "default_tui_view", "brain_llm").expect("set startup view");
+
+    assert_eq!(
+        get_global(&command.registry_store, "default_tui_view").as_deref(),
+        Some("brain_llm")
+    );
+    assert_eq!(
+        resolve_one(&command, "default_tui_view").as_deref(),
+        Some("brain_llm")
+    );
+}
+
 /// A command context backed by a real single-workspace registry file, so `set`
 /// round-trips through the store.
 fn registry_backed_command() -> (tempfile::TempDir, CommandContext) {

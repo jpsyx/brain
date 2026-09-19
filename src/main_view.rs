@@ -9,6 +9,19 @@
 
 use crossterm::event::KeyCode;
 
+pub(crate) const STARTUP_VIEW_ENV_VAR: &str = "default_tui_view";
+pub(crate) const STARTUP_VIEW_VALUES: &str = "tasks, brain_dir, brain_llm";
+
+#[must_use]
+pub(crate) fn canonical_startup_view(value: &str) -> Option<&'static str> {
+    match value.trim() {
+        "tasks" => Some("tasks"),
+        "brain_dir" => Some("brain_dir"),
+        "brain_llm" => Some("brain_llm"),
+        _ => None,
+    }
+}
+
 /// Which full-screen surface is currently showing.
 ///
 /// The main views sit next to (or instead of) the brain panel. The brain
@@ -16,12 +29,33 @@ use crossterm::event::KeyCode;
 /// `MainView` switch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MainView {
-    /// The tasks view (task management, agenda, triage) — the startup default.
+    /// The tasks view (task management, agenda, triage).
     Tasks,
     /// The brain-directory fuzzy-search view (formerly bare `brain`).
     BrainSearch,
     /// The scrollable diagnostic log view.
     Logs,
+}
+
+/// The main view and panel focus selected when the TUI first opens.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum StartupDestination {
+    Tasks,
+    BrainDirectory,
+    BrainLlm,
+    BrainLlmEmpty,
+}
+
+/// Resolve the configured startup preference, keeping an empty task list off
+/// the tasks view even when the brain panel receives focus.
+#[must_use]
+pub(crate) fn startup_destination(configured: Option<&str>, has_tasks: bool) -> StartupDestination {
+    match (configured, has_tasks) {
+        (Some("brain_llm"), true) => StartupDestination::BrainLlm,
+        (Some("brain_llm"), false) => StartupDestination::BrainLlmEmpty,
+        (Some("brain_dir"), _) | (_, false) => StartupDestination::BrainDirectory,
+        _ => StartupDestination::Tasks,
+    }
 }
 
 /// A horizontal cycle direction.
@@ -167,5 +201,27 @@ mod tests {
         assert!(!alt_opens_help(KeyCode::Char('s'), false));
         assert!(!alt_opens_help(KeyCode::Char('?'), true));
         assert!(!alt_opens_help(KeyCode::Char('a'), true));
+    }
+
+    #[test]
+    fn startup_destination_honors_preference_and_empty_task_fallback() {
+        let cases = [
+            (None, true, StartupDestination::Tasks),
+            (None, false, StartupDestination::BrainDirectory),
+            (Some("tasks"), true, StartupDestination::Tasks),
+            (Some("tasks"), false, StartupDestination::BrainDirectory),
+            (Some("brain_dir"), true, StartupDestination::BrainDirectory),
+            (Some("brain_dir"), false, StartupDestination::BrainDirectory),
+            (Some("brain_llm"), true, StartupDestination::BrainLlm),
+            (Some("brain_llm"), false, StartupDestination::BrainLlmEmpty),
+        ];
+
+        for (configured, has_tasks, expected) in cases {
+            assert_eq!(
+                startup_destination(configured, has_tasks),
+                expected,
+                "configured={configured:?} has_tasks={has_tasks}"
+            );
+        }
     }
 }

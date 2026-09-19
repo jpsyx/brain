@@ -2046,6 +2046,7 @@ See [config.md](config.md) for migration and storage details.
 | Variable | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | `String` | *(unset)* | Path to the `markdown-to-pdf` command on this machine. Auto-discovered and self-healed by the startup gate (`settings::markdown_pdf`). |
+| `default_tui_view` | `String` | `tasks` | Machine-global startup target: `tasks`, `brain_dir`, or `brain_llm`. The pure startup resolver substitutes brain directory on the main-view side whenever `tasks.csv` contains no tasks. |
 | `agenda_markdown_dir` | `String` | `/tmp` | Directory holding the day's agenda markdown, `<YYYY-MM-DD>.md`. Tilde-expanded. Read by `tasks::agenda::resolve_targets`. |
 | `claude_cmd` | `String` | `claude --dangerously-skip-permissions` | Command used to launch the Claude brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to the default, and a legacy portable config value is honored only when env is unset. |
 | `codex_cmd` | `String` | `codex` | Command used to launch the Codex brain-panel frontend on this machine. Resolved by `agent::configured_command`; blank falls back to `codex`. |

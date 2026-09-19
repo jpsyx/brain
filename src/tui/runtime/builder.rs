@@ -124,8 +124,8 @@ impl RuntimeBuilder {
     fn prepare_runtime(&mut self, server_lease: &HeartbeatWorker) -> Result<PreparedRuntime> {
         let assignment = self.prepare_assignment()?;
         let terminal = self.acquire_terminal()?;
-        let mut app = self.build_application(server_lease, assignment)?;
-        Self::launch_initial_agent_sessions(&mut app);
+        let (mut app, startup_destination) = self.build_application(server_lease, assignment)?;
+        Self::launch_initial_agent_sessions(&mut app, startup_destination);
         let (watcher, periodic_puller) = self.start_sync_services(&mut app)?;
         anyhow::ensure!(
             self.lifecycle.is_running(),
@@ -194,7 +194,7 @@ impl RuntimeBuilder {
             crate::tasks::task::AssignmentContext,
             Option<crate::users::UserId>,
         ),
-    ) -> Result<App> {
+    ) -> Result<(App, crate::main_view::StartupDestination)> {
         let launch = self
             .launch
             .take()
@@ -212,6 +212,14 @@ impl RuntimeBuilder {
             initial_search,
             skip_daily_triage_check,
         } = launch;
+        let configured = crate::env::resolve_one(
+            &command_context,
+            crate::main_view::STARTUP_VIEW_ENV_VAR,
+        );
+        let startup_destination = crate::main_view::startup_destination(
+            configured.as_deref(),
+            !all_tasks.is_empty(),
+        );
         let db = Db::open(&command_context.workspace)?;
         let config = load_startup_config(&command_context.workspace)?;
         let _ = crate::agent::SessionStore::reap_dead_locks(&db);
@@ -269,13 +277,16 @@ impl RuntimeBuilder {
         });
         self.lifecycle
             .record_acquired(AcquisitionStage::Application)?;
-        Ok(app)
+        Ok((app, startup_destination))
     }
 
-    fn launch_initial_agent_sessions(app: &mut App) {
+    fn launch_initial_agent_sessions(
+        app: &mut App,
+        startup_destination: crate::main_view::StartupDestination,
+    ) {
         crate::logging::log("workspace shared-server lease ready");
         app.restore_manual_sessions();
-        app.focus_tasks();
+        app.shell.apply_startup_destination(startup_destination);
     }
 
     fn start_sync_services(

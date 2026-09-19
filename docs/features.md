@@ -9,7 +9,7 @@ system. Everything below is reachable from the persistent shell (bare
 Bare `brain` (and `brain tasks …`) opens a persistent shell with **three main
 views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 
-- **Tasks view:** the startup default. The task-management surface over the
+- **Tasks view:** the default startup view when tasks exist. The task-management surface over the
   selected workspace's `tasks/{tasks,habits}.csv`: tabbed sub-views (`today`, `mit`,
   `past_due`, `week`, `habits`, `backlog`, `all`; `Tab`/`Shift+Tab` cycle
   them), vim navigation, notes expand/render, mark-complete / remove / defer /
@@ -31,7 +31,10 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 Switch main views with `Ctrl+L`/`Ctrl+H` (cycle) or `Ctrl+T` (tasks) /
 `Ctrl+B` (brain directory). `Alt+S` opens the keyboard-shortcuts help modal
 from either view (the compact footer's `Alt+S  all shortcuts` hint points at
-it). Startup focuses the tasks view with the brain panel open but unfocused.
+it). Startup follows this machine's `default_tui_view` brain-env value:
+`tasks` (the default), `brain_dir`, or `brain_llm`. When the task store is
+empty, the main-view side always starts on brain directory; `brain_llm` still
+focuses the open brain panel.
 
 The rest of this document describes the brain-directory view's picker + brain
 panel in detail; the tasks view's behavior mirrors the pre-merge `tasks`
@@ -383,17 +386,18 @@ overlay and returns to the underlying search (no cd, no claude, no error).
 
 ## Subcommands
 
-Bare `brain` (no subcommand) opens the shell on the tasks view. Short-lived
+Bare `brain` (no subcommand) opens the shell on the configured startup target. Short-lived
 management and reporting commands stay outside the persistent shell.
 
 | Command | Behavior |
 | --- | --- |
-| `brain` | Open the persistent shell on the tasks view (the startup default) with the brain panel on this machine's `default_agent_frontend` (Claude unless set). |
+| `brain` | Open the persistent shell on this machine's `default_tui_view` target (`tasks` unless set, with brain directory substituted when there are no tasks) and the brain panel on this machine's `default_agent_frontend` (Claude unless set). |
 | `brain --claude` / `brain -cl` | Open the same shell with Claude in the brain panel, whatever this machine's `default_agent_frontend` says. |
 | `brain --codex` / `brain -cx` | Open the same shell with Codex in the brain panel. |
 | `brain --open-code` / `brain -oc` | Select the OpenCode brain-panel adapter. Brain launches OpenCode in the selected workspace, passes the initial prompt separately, tracks the OpenCode session ID, and delivers completion through the shared controller lifecycle. Selecting two frontends exits with `🔴 Choose one agent frontend: --claude, --codex, --open-code, or --pi.` |
 | `brain --pi` / `brain -pi` | Select the pi brain-panel adapter. Brain launches pi in the selected workspace with the session id it chose, its own lifecycle extension, and Brain's rendered skills, and delivers completion through the shared controller lifecycle. |
 | `brain env set default_agent_frontend=<claude\|codex\|opencode\|pi>` | Choose which frontend the brain panel launches on **this machine** when no selector flag is passed. Machine-local, so each machine on a workspace can differ. |
+| `brain env set default_tui_view=<tasks\|brain_dir\|brain_llm>` | Choose this machine's TUI startup target. The setting is machine-global across its registered workspaces and never syncs to another machine. |
 | `brain --workspace <workspace>` / `brain -w <workspace>` | Select a workspace by canonical name or alias before an ordinary command runs. Omitting it selects the machine default. The option may appear before or after a subcommand or delegated task positional. `--workspace=<workspace>` is equivalent; `--` ends option extraction. |
 | `brain tasks [view/date/query] [flags]` | Open the shell on the given tasks view/selector/search. `--claude` / `-cl`, `--codex` / `-cx`, `--open-code` / `-oc`, or `--pi` / `-pi` may be passed before or after `tasks` and its delegated positionals. `--` stops selector extraction. |
 | `brain tasks --no-tui …` | Print the resolved task list as plain text (no TUI). |
@@ -505,7 +509,8 @@ back to `~/.config/brain/env.json`). These are values that would be *wrong* if
 copied to another machine: `markdown_to_pdf_path` (a machine-specific binary path, auto-discovered and
 self-healing, and **machine-global**: stored once for the machine rather than per workspace), `claude_cmd`/`codex_cmd` (this machine's functional agent launch commands),
 `opencode_cmd` (the machine-local OpenCode launch command),
-`default_agent_frontend` (which of the three this machine opens by default), and the
+`default_agent_frontend` (which frontend this machine opens by default),
+`default_tui_view` (the machine-global TUI startup target), and the
 Backblaze `sync` block (written by `brain sync setup`, below — see
 [config.md](config.md) for its fields). Mirrors `brain
 config` exactly, over the env store instead:
