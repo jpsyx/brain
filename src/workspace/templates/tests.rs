@@ -5,7 +5,7 @@ fn workspace_root() -> tempfile::TempDir {
 }
 
 #[test]
-fn an_empty_workspace_receives_both_documents() {
+fn an_empty_workspace_receives_the_agent_instructions() {
     let root = workspace_root();
 
     seed_documents(root.path()).unwrap();
@@ -14,10 +14,18 @@ fn an_empty_workspace_receives_both_documents() {
         std::fs::read_to_string(root.path().join("AGENTS.md")).unwrap(),
         AGENTS
     );
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("README.md")).unwrap(),
-        README
-    );
+}
+
+/// A second orientation document is a second copy of the same facts, and the
+/// copy no frontend reads is the one that goes stale. `AGENTS.md` describes
+/// the layout itself; nothing seeds a `README.md` over it.
+#[test]
+fn no_second_orientation_document_is_seeded() {
+    let root = workspace_root();
+
+    seed_documents(root.path()).unwrap();
+
+    assert!(!root.path().join("README.md").exists());
 }
 
 /// These become the user's documents the moment they exist: an edited AGENTS.md
@@ -26,7 +34,6 @@ fn an_empty_workspace_receives_both_documents() {
 fn existing_documents_are_never_overwritten() {
     let root = workspace_root();
     std::fs::write(root.path().join("AGENTS.md"), b"my own rules\n").unwrap();
-    std::fs::write(root.path().join("README.md"), b"my own readme\n").unwrap();
 
     seed_documents(root.path()).unwrap();
 
@@ -34,6 +41,18 @@ fn existing_documents_are_never_overwritten() {
         std::fs::read(root.path().join("AGENTS.md")).unwrap(),
         b"my own rules\n"
     );
+}
+
+/// A workspace that already had one keeps it. Dropping the template is Brain's
+/// decision about what it *writes*, never a licence to delete a document that
+/// became the user's the moment it existed.
+#[test]
+fn an_existing_readme_is_left_alone() {
+    let root = workspace_root();
+    std::fs::write(root.path().join("README.md"), b"my own readme\n").unwrap();
+
+    seed_documents(root.path()).unwrap();
+
     assert_eq!(
         std::fs::read(root.path().join("README.md")).unwrap(),
         b"my own readme\n"
@@ -57,7 +76,7 @@ fn seeding_is_idempotent() {
 /// user's plugins rather than anything brain bundles.
 #[test]
 fn the_templates_carry_nothing_instance_specific() {
-    for (name, body) in [("AGENTS.md", AGENTS), ("README.md", README)] {
+    for (name, body) in [("AGENTS.md", AGENTS)] {
         let lowercase = body.to_lowercase();
         for forbidden in [
             "~/brain",
@@ -95,7 +114,7 @@ fn every_skill_the_templates_name_is_one_brain_bundles() {
 
     // Only passages that actually talk about skills, so an example project slug
     // elsewhere (`launch-team-handbook`) is not mistaken for one.
-    for body in [AGENTS, README] {
+    for body in [AGENTS] {
         for paragraph in body.split("\n\n") {
             if !paragraph.contains("skill") {
                 continue;
@@ -117,8 +136,20 @@ fn every_skill_the_templates_name_is_one_brain_bundles() {
     }
 }
 
+/// With no companion document, the agent instructions have to answer "what is
+/// this directory?" on their own, and must not send the reader to a file that
+/// no longer exists.
 #[test]
-fn the_documents_cross_reference_each_other() {
-    assert!(AGENTS.contains("[README.md](README.md)"));
-    assert!(README.contains("[AGENTS.md](AGENTS.md)"));
+fn the_agent_instructions_describe_the_layout_themselves() {
+    for directory in [
+        "`projects/`",
+        "`areas/`",
+        "`resources/`",
+        "`archive/`",
+        "`capture/`",
+        "`tasks/`",
+    ] {
+        assert!(AGENTS.contains(directory), "AGENTS.md never names {directory}");
+    }
+    assert!(!AGENTS.contains("README.md"), "AGENTS.md links a document brain no longer seeds");
 }

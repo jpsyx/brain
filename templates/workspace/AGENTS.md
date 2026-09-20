@@ -1,14 +1,33 @@
 # Agent instructions for this brain workspace
 
 This directory is a **brain workspace**: a personal knowledge base organized
-with the PARA method (Projects, Areas, Resources, Archive), plus a task system
-under `tasks/` and the user's own in-basket at `capture/`. See
-[README.md](README.md) for the layout.
+with the PARA method, plus the user's own in-basket and a task system.
 
 A machine can hold several workspaces (a personal one, a shared family one, …).
 Everything in this file is scoped to *this* one. Brain exports `BRAIN_WORKSPACE`
 and `BRAIN_ROOT` into the agent sessions it launches, so prefer those over
 hardcoding a path; from a terminal, `brain -w <workspace>` selects one.
+
+## The layout
+
+- **`projects/`** — short-term efforts with a defined outcome and (usually) a
+  deadline. Each folder is named for the outcome it produces
+  (`launch-team-handbook`, not `handbook-stuff`).
+- **`areas/`** — ongoing responsibilities to maintain over time, with no finish
+  line (`health`, `finances`, `team-leadership`).
+- **`resources/`** — topics or reference material that may be useful one day,
+  not tied to a current project or area (`python-tips`, `system-design`).
+- **`archive/`** — anything from the three above that is no longer active. Move
+  things here instead of deleting them; archives are searchable history.
+- **`capture/`** — the user's in-basket, and the one directory here they manage
+  rather than you. See [below](#capture-is-the-users-not-yours).
+- **`tasks/`** — tasks, habits, and the schema documenting them. See
+  [below](#the-task-system).
+
+Material moves in one direction: into `capture/`, out to a PARA bucket or the
+task system once it is processed, and eventually into `archive/`. A note may
+start in `resources/`, get pulled into a `projects/` folder when it becomes
+actively useful, and end up in `archive/` when that project finishes.
 
 ## Always use the `second-brain` skill
 

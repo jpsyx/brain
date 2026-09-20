@@ -232,7 +232,6 @@ fn first_tasks_command_initializes_an_empty_workspace() {
     for path in [
         ".config/config.json",
         "AGENTS.md",
-        "README.md",
         "tasks/tasks.csv",
         "tasks/habits.csv",
         "tasks/.tasks_next_id",
@@ -243,9 +242,12 @@ fn first_tasks_command_initializes_an_empty_workspace() {
     ] {
         assert!(family.join(path).is_file(), "missing {path}");
     }
-    for directory in ["projects", "areas", "resources", "archive", "tasks"] {
+    for directory in ["capture", "projects", "areas", "resources", "archive", "tasks"] {
         assert!(family.join(directory).is_dir(), "missing {directory}");
     }
+    // AGENTS.md is the only orientation document Brain writes; a second copy of
+    // the same facts is the copy that goes stale.
+    assert!(!family.join("README.md").exists());
 
     // Without this document every schema decision fails, so a workspace Brain
     // just created could not complete `brain sync setup`.

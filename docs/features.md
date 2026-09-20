@@ -645,14 +645,17 @@ delegated task values.
   ` exited` appended when the frontend has stopped. With more than one workspace
   open, the title was the one place that could tell them apart and said `Brain`
   for all of them.
-- A workspace Brain creates is seeded with **`AGENTS.md`** (how an agent should
-  behave in this workspace: PARA rules, the `second-brain` skill, media/note
-  coupling, link repair on rename, which files Brain owns, and what not to put in
-  a synced root) and **`README.md`** (the same orientation for a person). Both
-  are written only when absent — from the moment they exist they are the user's
-  documents — and only for a workspace Brain is initializing, never dropped into
-  a root that already holds content. Templates live in `templates/workspace/`,
-  embedded into the binary.
+- A workspace Brain creates is seeded with one document, **`AGENTS.md`**: what
+  this directory is (the layout, bucket by bucket) and how an agent should
+  behave in it (PARA rules, the `second-brain` skill, the user-managed
+  `capture/` in-basket, media/note coupling, link repair on rename, which files
+  Brain owns, and what not to put in a synced root). It is written only when
+  absent — from the moment it exists it is the user's document — and only for a
+  workspace Brain is initializing, never dropped into a root that already holds
+  content. Brain seeds no companion `README.md`: every frontend resolves
+  `AGENTS.md`, nothing resolves a README, and a second copy of the same facts is
+  the copy that goes stale. A workspace that already has a README keeps it.
+  The template lives in `templates/workspace/`, embedded into the binary.
 - **Crash-recovery journals never leave the machine that wrote them.** Brain's
   multi-file writes (portable users, triage habits, task schema) stage a journal
   plus backup copies inside the workspace, and its setup locks live there too.

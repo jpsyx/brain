@@ -5622,3 +5622,28 @@ workspaces that need it.
 `capture/` therefore joins the scaffold set (`SCAFFOLD_DIRECTORIES`) whose
 *presence* is ignored and whose *contents* are not: a workspace with
 `capture/idea.md` in it holds the user's material and is never seeded over.
+
+## Why a workspace is seeded with `AGENTS.md` and no `README.md`
+
+A new workspace used to get two orientation documents: `AGENTS.md` for an agent
+and `README.md` for a person. They said largely the same thing (what the
+buckets are, how material flows, the naming conventions), which made the second
+one a maintenance liability rather than a second audience served.
+
+Nothing resolves a workspace `README.md`. Every supported frontend reads
+`AGENTS.md`, the `second-brain` skill carries the real decision rules, and the
+README's only reader was a person who happened to open the folder. A file no
+tool reads is the file that goes stale, and both of the author's own workspaces
+proved it: when `capture/` landed, their READMEs still described four buckets,
+still omitted `tasks/`, and still linked a skills directory that had moved.
+
+So `AGENTS.md` absorbed the layout (one line per top-level directory, plus the
+one-way flow into `capture/` and out to a bucket) and the README template is
+gone. The human audience loses nothing: `AGENTS.md` opens by saying what the
+directory is before it says how to behave in it, and it is now the single place
+that answer lives.
+
+Dropping the template is a decision about what Brain **writes**, never a licence
+to delete. A workspace that already has a `README.md` keeps it: the moment that
+file existed it became the user's document, exactly like an edited `AGENTS.md`,
+and no migration removes it.

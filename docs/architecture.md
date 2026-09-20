@@ -969,8 +969,8 @@ generic defaults `mit`/`personal`/`work`, and pure label resolution with
 raw-name fallback), `runtime` (explicit selected-workspace style loading for
 the TUI's retained `App` state, from the local person's persona), `command` (the
 `brain persona` show/list/get/set/edit logic — pure helpers + thin IO),
-`workspace/templates.rs` (the `AGENTS.md` / `README.md` a new workspace is
-seeded with, embedded from `templates/workspace/`),
+`workspace/templates.rs` (the `AGENTS.md` a new workspace is seeded with,
+embedded from `templates/workspace/`),
 `personas` (the user-ID-keyed store plus its schema-1 migration), and
 `onboarding` (the skippable prompt, plus the pure decisions behind the
 missing-persona gate every command runs at bootstrap). The task renderer's
