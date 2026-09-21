@@ -257,8 +257,12 @@ first move is a failing test that reproduces it, *then* the fix.
 - **The palette viewport and sizing** (`tui/draw_palette.rs`). `viewport_start`
   is pure: a list that fits never scrolls, a long one scrolls only far enough to
   keep the selection visible, it stops at the last page, and a zero-height list
-  is inert. `palette_width` fits the widest row plus its shortcut hint and the
-  footer, and never outgrows the terminal.
+  is inert. `palette_height` caps a long list well short of the full terminal
+  while still leaving a usable run of rows, sizes a short list (the task actions
+  modal) to its own content, and hands a tiny terminal everything it has.
+  `scroll_position` labels a capped list and stays silent for one that fits.
+  `palette_width` fits the widest row plus its shortcut hint, and a guard proves
+  `FOOTER_MIN` leaves room for the hint row and its position label.
 - **The help modal's width** (`tui/draw_help.rs`). `help_modal_width` is pure: a
   roomy terminal gets more than the old fixed 70 columns, a wide one keeps a
   gutter rather than filling edge to edge, and a narrow one never overflows.

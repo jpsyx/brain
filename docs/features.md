@@ -406,8 +406,10 @@ several (`brain message`) and the list narrows to the hits. Navigate with â†‘/â†
 `Ctrl-k`/`Ctrl-j`, or `Ctrl-p`/`Ctrl-n` (the selection wraps at both ends);
 `Backspace`/`Ctrl-u`/`Ctrl-w` edit the query; `Enter` runs the highlighted row;
 `Esc` or `Ctrl-c` closes the overlay and returns you to where you were. The
-list scrolls to keep the selection visible, and the modal is sized to its
-widest row rather than a fixed width.
+modal is sized to its widest row rather than a fixed width, and it takes at most
+three fifths of the terminal's height: the list scrolls inside that box, keeping
+the selection visible and leaving what's behind it readable, and the footer
+shows your position (`31/55`) whenever there's more list than box.
 
 ## Subcommands
 

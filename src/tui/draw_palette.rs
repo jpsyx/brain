@@ -25,10 +25,20 @@ const GUTTER: u16 = 3;
 const HINT_FRAME: u16 = 4;
 /// Two side borders plus a right-hand breathing gap.
 const CHROME: u16 = 4;
-/// The footer hint's own width, so the modal never clips it.
-const FOOTER_MIN: u16 = 46;
+/// The footer hint's own width, including the trailing scroll position, so the
+/// modal never clips it.
+const FOOTER_MIN: u16 = 55;
 /// Border (2) + filter + separator + footer.
 const VERTICAL_CHROME: u16 = 5;
+/// The share of the terminal's height a list modal may take, as
+/// `NUMERATOR / DENOMINATOR`. The merged catalog is longer than any terminal,
+/// so without a ceiling the palette covered the whole screen; it scrolls
+/// instead, and what's behind it stays visible as context.
+const MAX_HEIGHT_NUMERATOR: u32 = 3;
+const MAX_HEIGHT_DENOMINATOR: u32 = 5;
+/// The shortest the ceiling may make a modal on a terminal with room to spare,
+/// so a scrolling list still shows enough rows to choose from.
+const MIN_CAPPED_HEIGHT: u16 = 12;
 
 /// One list-shaped modal, ready to draw.
 pub(crate) struct PaletteView<'a> {
@@ -55,6 +65,36 @@ pub(crate) fn palette_width(entries: &[(String, Option<&'static str>)], availabl
         .saturating_add(CHROME)
         .max(FOOTER_MIN)
         .min(available)
+}
+
+/// The tallest a list modal may be on a terminal `available` rows high. Falls
+/// back to the whole terminal when even the minimum doesn't fit.
+pub(crate) fn height_cap(available: u16) -> u16 {
+    let ceiling = available.max(1);
+    let proportional = u16::try_from(
+        u32::from(available) * MAX_HEIGHT_NUMERATOR / MAX_HEIGHT_DENOMINATOR,
+    )
+    .unwrap_or(ceiling);
+    proportional
+        .max(MIN_CAPPED_HEIGHT.min(ceiling))
+        .min(ceiling)
+}
+
+/// The height of a list modal showing `rows` rows: its content, capped by
+/// [`height_cap`]. A short list (the task actions modal) is sized to itself and
+/// never grows to the ceiling just because the ceiling exists.
+pub(crate) fn palette_height(rows: usize, has_subtitle: bool, available: u16) -> u16 {
+    let content = u16::try_from(rows.max(1))
+        .unwrap_or(u16::MAX)
+        .saturating_add(VERTICAL_CHROME)
+        .saturating_add(u16::from(has_subtitle));
+    content.min(height_cap(available))
+}
+
+/// The `"<position>/<total>"` label for a list the viewport can't show whole,
+/// or `None` when every row is on screen and the label would be noise.
+pub(crate) fn scroll_position(selected: usize, total: usize, height: usize) -> Option<String> {
+    (total > height && total > 0).then(|| format!("{}/{total}", selected + 1))
 }
 
 /// The first row to render so the selection stays on screen. The list scrolls
@@ -109,9 +149,12 @@ pub(crate) fn draw_task_target_picker(f: &mut Frame, state: &TaskTargetPicker, a
 /// The entry picker is the brain-directory fuzzy picker itself, boxed as a
 /// modal so it looks and behaves the same wherever a command raises it.
 pub(crate) fn draw_entry_target_picker(f: &mut Frame, state: &mut EntryTargetPicker, area: Rect) {
-    let width = area.width.saturating_sub(area.width / 6).max(40).min(area.width);
-    let height = area.height.saturating_sub(4).max(8).min(area.height);
-    let modal = centered_rect(width, height, area);
+    let width = area
+        .width
+        .saturating_sub(area.width / 6)
+        .max(40)
+        .min(area.width);
+    let modal = centered_rect(width, height_cap(area.height), area);
     f.render_widget(Clear, modal);
 
     let block = bordered(state.title());
@@ -122,11 +165,7 @@ pub(crate) fn draw_entry_target_picker(f: &mut Frame, state: &mut EntryTargetPic
 
 pub(crate) fn draw_palette_view(f: &mut Frame, view: &PaletteView, area: Rect) {
     let subtitle_rows = u16::from(view.subtitle.is_some());
-    let rows = u16::try_from(view.entries.len().max(1)).unwrap_or(u16::MAX);
-    let height = rows
-        .saturating_add(VERTICAL_CHROME)
-        .saturating_add(subtitle_rows)
-        .min(area.height);
+    let height = palette_height(view.entries.len(), view.subtitle.is_some(), area.height);
     let modal = centered_rect(palette_width(view.entries, area.width), height, area);
     f.render_widget(Clear, modal);
 
@@ -180,7 +219,8 @@ pub(crate) fn draw_palette_view(f: &mut Frame, view: &PaletteView, area: Rect) {
     index += 1;
     render_palette_list(f, view.entries, view.selected, list);
 
-    f.render_widget(Paragraph::new(palette_footer()), chunks[index]);
+    let position = scroll_position(view.selected, view.entries.len(), usize::from(list.height));
+    f.render_widget(Paragraph::new(palette_footer(position.as_deref())), chunks[index]);
 }
 
 fn bordered(title: &str) -> Block<'static> {
@@ -218,11 +258,11 @@ fn draw_filter(f: &mut Frame, query: &str, area: Rect) {
 }
 
 /// The palette's key-hint footer. The `#` hint advertises the numbered-row
-/// jump.
-pub(crate) fn palette_footer() -> Line<'static> {
+/// jump; `position` is appended when the list scrolls.
+pub(crate) fn palette_footer(position: Option<&str>) -> Line<'static> {
     let key_style = Style::default().fg(TEXT).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(DIM);
-    Line::from(vec![
+    let mut spans = vec![
         Span::raw(" "),
         Span::styled("↑↓", key_style),
         Span::styled(" navigate  ", dim),
@@ -232,7 +272,11 @@ pub(crate) fn palette_footer() -> Line<'static> {
         Span::styled(" run  ", dim),
         Span::styled("Esc", key_style),
         Span::styled(" close", dim),
-    ])
+    ];
+    if let Some(position) = position {
+        spans.push(Span::styled(format!("  {position}"), dim));
+    }
+    Line::from(spans)
 }
 
 pub(crate) fn render_palette_list(
@@ -319,6 +363,64 @@ mod tests {
     }
 
     #[test]
+    fn a_capped_list_says_where_in_it_you_are() {
+        // A modal that no longer shows the whole list has to say so, or a user
+        // can't tell a short catalog from a scrolled one.
+        assert_eq!(scroll_position(0, 55, 20).as_deref(), Some("1/55"));
+        assert_eq!(scroll_position(30, 55, 20).as_deref(), Some("31/55"));
+    }
+
+    #[test]
+    fn a_list_that_fits_needs_no_position_label() {
+        assert_eq!(scroll_position(2, 8, 20), None);
+        assert_eq!(scroll_position(0, 0, 20), None);
+    }
+
+    #[test]
+    fn a_long_palette_stops_well_short_of_filling_the_terminal() {
+        // The merged catalog is longer than any terminal, so without a cap the
+        // modal covered the whole screen. It scrolls instead.
+        for available in [30_u16, 40, 50, 60, 80] {
+            let height = palette_height(60, false, available);
+            assert!(
+                height < available,
+                "a {available}-row terminal got a {height}-row modal"
+            );
+            assert!(
+                height >= available / 3,
+                "a {available}-row terminal got only {height} rows"
+            );
+        }
+    }
+
+    #[test]
+    fn a_short_palette_is_still_sized_to_its_content() {
+        // The task actions modal is a handful of rows; it must not grow to the
+        // cap just because the cap exists.
+        assert_eq!(palette_height(6, false, 50), 6 + VERTICAL_CHROME);
+        assert_eq!(palette_height(6, true, 50), 6 + VERTICAL_CHROME + 1);
+    }
+
+    #[test]
+    fn a_tiny_terminal_gives_the_palette_everything_it_has() {
+        for available in [4_u16, 8, 12] {
+            assert_eq!(palette_height(60, false, available), available);
+        }
+    }
+
+    #[test]
+    fn the_capped_modal_still_shows_a_usable_run_of_rows() {
+        // Whatever the cap costs, enough of the list has to remain visible to
+        // choose from without paging blind.
+        let height = palette_height(60, false, 40);
+        assert!(
+            height.saturating_sub(VERTICAL_CHROME) >= 10,
+            "only {} list rows survived",
+            height.saturating_sub(VERTICAL_CHROME)
+        );
+    }
+
+    #[test]
     fn the_modal_fits_its_widest_row_and_its_footer() {
         let rows = vec![
             ("Mark T123 as complete".to_owned(), Some("^D")),
@@ -329,6 +431,22 @@ mod tests {
 
         assert!(width >= widest + 2, "{width} must fit {widest} plus borders");
         assert!(width >= FOOTER_MIN);
+    }
+
+    #[test]
+    fn the_footer_min_leaves_room_for_the_hints_and_the_position() {
+        // The rendered footer plus the widest realistic position label must fit
+        // inside the borders, or the modal clips its own hint row.
+        let rendered: String = palette_footer(Some("999/999"))
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(
+            FOOTER_MIN >= text_width(&rendered) + 2,
+            "footer is {} columns, FOOTER_MIN is {FOOTER_MIN}",
+            text_width(&rendered)
+        );
     }
 
     #[test]

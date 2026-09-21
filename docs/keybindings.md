@@ -191,7 +191,10 @@ Shared across the app; a captive modal consumes all input.
   the start, `G` returns to following the tail, `PgUp`/`PgDn` page, `q`/`Esc`
   close. Captive over every modal except help.
 - **Command palette** (`Ctrl+P`, any main view) — filterable; numbered rows;
-  `Enter` runs, `Esc` closes; the list scrolls to keep the selection visible.
+  `Enter` runs, `Esc` closes. It takes at most three fifths of the terminal's
+  height and scrolls inside that, keeping the selection visible and what's
+  behind it as context; the footer shows your position (`31/55`) whenever the
+  list is longer than the box.
   It is the **parent set of every command**: task commands, brain-directory
   commands, view switches, session commands, the workspace toggles
   (**Enable/Disable receiver**, **Disable/Enable daily triage alert**),
