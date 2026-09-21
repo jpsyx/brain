@@ -16,13 +16,20 @@ impl App {
     /// that needs a file (or a markdown file) knows whether this one will do.
     pub(crate) fn selected_entry_context(&self) -> Option<EntryContext> {
         let path = self.selected_path()?;
-        let is_file = path.is_file();
+        let is_file = !self.selected_is_dir()?;
         Some(EntryContext {
             filename: self.selected_filename()?,
             dir_reldisplay: self.selected_dir_reldisplay().unwrap_or_default(),
             is_file,
             is_markdown: is_file && open_target::is_markdown(&path),
         })
+    }
+
+    /// Whether the highlighted entry is a directory, from the flag recorded
+    /// during the walk rather than a fresh syscall.
+    pub(crate) fn selected_is_dir(&self) -> Option<bool> {
+        let m = self.matches.get(self.selected)?;
+        Some(self.entries[m.entry_idx].is_dir)
     }
 
     /// The absolute path of the highlighted entry when it is a markdown file,
@@ -58,7 +65,7 @@ impl App {
         let entry = &self.entries[m.entry_idx];
         let category = entry.bucket.label().to_ascii_lowercase();
         let rel = bucket_relative(&entry.display, &category)?;
-        Some(if entry.path.is_dir() {
+        Some(if entry.is_dir {
             rel
         } else {
             parent_reldisplay(&rel)
@@ -103,6 +110,7 @@ mod tests {
             path: PathBuf::from(display.replace('~', "/Users/x")),
             display: display.to_owned(),
             bucket,
+            is_dir: false,
         }
     }
 

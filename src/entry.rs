@@ -43,6 +43,10 @@ pub struct Entry {
     pub display: String,
     /// Which PARA bucket this entry belongs to.
     pub bucket: Bucket,
+    /// Whether this entry is a directory. Recorded during the walk, where
+    /// `walkdir` already knows, so consumers (the tree, the picker's palette
+    /// context) never need a syscall to ask.
+    pub is_dir: bool,
 }
 
 /// Collect pickable entries under each root.
@@ -66,10 +70,12 @@ pub fn collect(brain: &Path, roots: &[(Bucket, PathBuf)]) -> Result<Vec<Entry>> 
                 continue;
             }
             let display = display_path(brain, entry.path());
+            let is_dir = entry.file_type().is_dir();
             out.push(Entry {
                 path: entry.into_path(),
                 display,
                 bucket: *bucket,
+                is_dir,
             });
         }
     }
@@ -142,5 +148,28 @@ mod tests {
                 Bucket::Archive
             ]
         );
+    }
+
+    #[test]
+    fn collect_records_whether_each_entry_is_a_directory() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let brain = temp.path();
+        let projects = brain.join("projects");
+        std::fs::create_dir_all(projects.join("atlas")).expect("create nested dir");
+        std::fs::write(projects.join("atlas/plan.md"), "# plan").expect("write file");
+
+        let entries = collect(brain, &[(Bucket::Projects, projects)]).expect("collect");
+
+        let dir = entries
+            .iter()
+            .find(|e| e.path.ends_with("atlas"))
+            .expect("the atlas directory is collected");
+        let file = entries
+            .iter()
+            .find(|e| e.path.ends_with("plan.md"))
+            .expect("the plan file is collected");
+
+        assert!(dir.is_dir, "a directory entry must be marked as one");
+        assert!(!file.is_dir, "a file entry must not be marked as a directory");
     }
 }

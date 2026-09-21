@@ -148,6 +148,7 @@ mod tests {
             path: PathBuf::from(display.replace('~', "/Users/x")),
             display: display.to_owned(),
             bucket,
+            is_dir: false,
         }
     }
 
