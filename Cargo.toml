@@ -66,6 +66,14 @@ sha2 = "0.10"
 # cleanup without introducing unsafe signal handlers.
 signal-hook = "0.3"
 tui-term = "0.2"
+# The brain-directory tree sub-view. Pinned to 0.23.x: 0.24 moved to
+# ratatui-core 0.1 + ratatui-widgets 0.3, the ratatui 0.30 split, which this
+# crate has not taken yet. The widget is state-only (TreeState exposes
+# key_up/key_down/key_left/key_right, open/close/toggle, selected) with no
+# event handling and no filesystem access, which is what lets brain keep the
+# walk, the keymap, and every decision in its own pure functions.
+# See docs/decisions.md and docs/architecture.md.
+tui-tree-widget = "0.23.1"
 # Per-shell/session/task ids plus deterministic legacy task migration ids.
 uuid = { version = "1", features = ["v4", "v5"] }
 vt100 = "0.15"
