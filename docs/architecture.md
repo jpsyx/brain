@@ -145,18 +145,17 @@ tui::run_tui(TuiLaunch) (thin persistent-shell facade)
        │    ├─ agent::registry owns construction, lifecycle, health, and compatibility metadata
        │    └─ PtyPane clears inherited env, spawns the complete spec, and carries bytes
        ├─ Ctrl+L/H cycle views, Ctrl+T/B jump; Alt+H/L switch panel focus
-       ├─ Ctrl+P opens a contextual command palette backed by tui::palette::CommandPalette
-       │    ├─ task/log rows wrap app commands (including habits and agenda) in GlobalAction
-       │    │  and keep only task-specific operations in TaskAction
-       │    ├─ search rows carry feature-owned SearchAction values
-       │    └─ every app command wraps one closed GlobalAction and runs through App::execute_global_action
+       ├─ Ctrl+P opens the one global command palette (tui::palette::CommandPalette)
+       │    ├─ one Command vocabulary: Global(GlobalAction) | Task(TaskCommand) | Entry(EntryCommand)
+       │    ├─ the catalog is complete — every command in every view; only the wording moves
+       │    ├─ a command whose target is missing raises a task or entry target picker first
+       │    └─ every command runs through App::execute_command / execute_global_action
        ├─ Enter on a file opens it in place (open_target spawners) — shell stays up
        └─ quit → the loop just returns (no plan, no wrapper handoff)
 ```
 
 The task and brain-search views share the pure picker logic (`picker::App` matching /
-navigation, rendered via `picker::draw_into`) and the `menu` palette in the
-search view. The search panel lives in a bordered half of the shell alongside
+navigation, rendered via `picker::draw_into`) and the one command palette. The search panel lives in a bordered half of the shell alongside
 the live brain panel; opening a file or rescoping a bucket happens in place
 and the shell stays up.
 
@@ -1068,8 +1067,9 @@ section-grouped rows. Navigation (`move_up`/`down`, `page_*`,
 `ensure_visible`) keeps the cursor and its section header on screen.
 Rendering is delegated to `render.rs` and exposed as `draw_into(f, app,
 area)` so `tui`'s embedded search panel paints it. It owns no modal state:
-`selection` returns the contextual `SearchPalette` or `Confirm` data that the shell
-wraps in its one `Overlay` slot. The `App` is driven
+`selection` returns the highlighted entry as the palette's `EntryContext` (its
+filename, bucket-relative directory, and whether it is a file / markdown), which
+the shell folds into the `PaletteContext` it opens the palette with. The `App` is driven
 key-by-key by the search view (`tui/search_view.rs`): `Enter` opens the
 selection in place (a directory falls back to a Finder reveal), `Ctrl-Enter`
 reveals, `Ctrl-G` confirms a markdown→PDF conversion, `Ctrl-D` confirms a
@@ -1078,40 +1078,52 @@ place; the shell never tears down on a selection. On `Accept`, Delete trashes
 the path and `drop_path`s the entry (`reload_entries` keeps the query), and
 the picker stays open.
 
-### `menu/`
-Split into `labels` (contextual-row elision), `model`
-(`SearchAction`/`Targets`/the row list/`shortcut_for`), and `view`
-(`draw_modal`). It has **no screen of its own**: the host opens it with
-`Ctrl-p`, drives the shared pure `CommandPalette<SearchAction>` state, and
-paints it with `draw_modal` as a centered overlay. `SearchAction` owns only
-search-specific operations and wraps `GlobalAction` for application commands.
-The row list is built per-open by `items(side, include_msg, targets)` because
-the rows are contextual: the **layout
-toggle** has a dynamic label (`layout_choice_label`: "Move brain panel to the
-left" / "...right"), the **"Create PDF for '…'"** row (label via
-`create_pdf_label`, which elides a long filename) leads the list only when
-`pdf_target` is a highlighted `.md` filename, the **"Delete '…'"** row (label
-via `delete_label`, which shares `create_pdf_label`'s ellipsis threshold via
-`truncate_label_filename`/`LABEL_MAX_FILENAME`) **trails** the list when
-`delete_target` is a highlighted entry of any kind (trailing, so a destructive
-action is never the default-selected row). The persistent shell always includes
-"Message brain" to select Main. Its `Targets` also receives App's runnable skill
-definitions and `BrainPanelState::user_session_rows()` snapshot. Both catalogs
-use `tui/palette/sessions.rs` for Start, Rename, the conditional Close picker,
-configured Run, conditional Main Show, and each user tab's Show row. Stable
-`SessionTabId` values flow through Show actions. Receiver rows are excluded
-from that projection. Rename and Close build their own all-session snapshots at
-execution time, sort actionable entries first, and keep disabled entries last.
-The shared state owns the filtered row indices and key handling (each row's
-matchable text includes its 1-based number) and returns
-`Continue`/`Confirm`/`Cancel`. `Cancel` (Esc) tells the host to drop the
-overlay, not to exit. In the persistent shell `GlobalAction::MessageBrain`
-selects Main and launches it if unavailable; `GlobalAction::ToggleLayout` swaps
-which side it sits on.
+### `tui/palette/`
+The one command palette, and the only place a command is declared.
+
+- `command/` owns the **vocabulary**: `Command` is
+  `Global(GlobalAction) | Task(TaskCommand) | Entry(EntryCommand)`, and a
+  command's variant is exactly what it needs before it can run — nothing, a
+  task/habit, or a brain-directory path. `catalog.rs` is the ordered table plus
+  the two row builders (`catalog_rows` for the palette, `task_action_rows` for
+  the actions modal); `naming.rs` turns a command plus a context into a row
+  label; `labels.rs` elides an overlong filename or path so one row can't
+  stretch the content-sized modal.
+- `context.rs` is `PaletteContext` — the highlighted task, the highlighted
+  entry, the workspace's assignment capabilities, the receiver and daily-triage
+  toggles, the panel side, and the session snapshots — plus `task_target` /
+  `entry_target`, which decide whether a command can run straight away. A
+  target counts only while the view that owns it is showing, so a task
+  selection sitting behind the brain-directory view is not treated as one.
+- `state.rs` builds the two surfaces: the global palette and the task actions
+  modal (`Enter` on a task), which is the task-scoped slice of the same table
+  bound to that entry.
+- `target.rs` is the other half of the invariant: `TaskTargetPicker` (a
+  filterable list of every task, matched on ID or name) and `EntryTargetPicker`
+  (the brain-directory fuzzy picker, boxed as a modal) ask for the target a
+  generic row lacked, then run the command they were opened for.
+- `model.rs` is the generic filterable widget state (rows, filter, selection,
+  key handling) with one `PaletteControls::COMMANDS` set — the union of what
+  the two pre-merge palettes each accepted. `sessions.rs` supplies the
+  per-session data rows the catalog splices in after the session block.
+
+The catalog is **complete**: every declared command is listed in every context.
+What changes is a row's wording (named when its target is in context, generic
+otherwise) and, for a generic row, that running it asks for the target first.
+The only rows a workspace can lack are the assignment controls, which turn on a
+workspace capability rather than on app state. Stable `SessionTabId` values flow
+through Show actions; receiver rows are excluded from that projection. Rename
+and Close build their own all-session snapshots at execution time, sort
+actionable entries first, and keep disabled entries last. The shared state owns
+the filtered row indices and key handling (each row's matchable text includes
+its 1-based number) and returns `Continue`/`Confirm`/`Cancel`; `Cancel` (Esc)
+drops the overlay rather than exiting. Rendering for all four list surfaces goes
+through one `draw_palette_view`, which sizes the modal to its widest row and
+scrolls a list too long for the terminal.
 
 ### `confirm.rs`
-The shared yes/no confirmation modal. Like `menu`, it has **no screen of its
-own**: the shell holds a `Confirm { path, kind, yes }` in its active overlay, the host
+The shared yes/no confirmation modal. Like the palette, it has **no screen of
+its own**: the shell holds a `Confirm { path, kind, yes }` in its active overlay, the host
 drives its pure `handle_key` (returns `Continue`/`Cancel`/`Accept`), and paints
 it with `draw_modal` as a centered overlay. `ConfirmKind` selects the flavor:
 **Pdf** (green, defaults to Yes; opened by `Ctrl-G` on a `.md` file) and
@@ -1633,10 +1645,11 @@ workspace/runtime identity lives in `AppContext`; agent and skill-session
 controller state lives in `BrainPanelState`; injected runners, the state DB,
 and sync effects live in `AppServices`; and transient status lives in
 `StatusState`. Cross-feature coordination remains on `App`. `App` also owns
-exactly one `overlay: Option<Overlay>`. The data-bearing variants cover the task palette,
-brain input, session rename picker, manual-session rename input, task
-confirmation, search palette, search confirmation, link picker, assignee
-filter, help, and sync log. This makes simultaneous modals
+exactly one `overlay: Option<Overlay>`. The data-bearing variants cover the
+command palette (which also backs the task actions modal), the task and entry
+target pickers, brain input, session rename picker, manual-session rename input,
+task confirmation, search confirmation, link picker, assignee filter, help, and
+sync log. This makes simultaneous modals
 unrepresentable; `overlay/mod.rs` owns the pure open, replace, route, and close
 transitions. Input routing and drawing exhaustively match that same enum, so no
 boolean precedence model can disagree with what is visible. The task
@@ -1665,9 +1678,9 @@ the log handler accepts `&mut ShellState`, and task-search handling accepts
 returns a closed `SearchEffect` for file, overlay, or refresh work that `App`
 must coordinate. The brain renderer accepts a `BrainPanelContext` assembled by
 the top-level mediator from display values and the active controller; it never
-receives `App`. The logs renderer accepts only the selected `LogsView`. Task and app-level overlays
-span that composed shell; search palette and confirmation variants stay
-centered inside the search `main_area`, matching the picker's pre-shell render.
+receives `App`. The logs renderer accepts only the selected `LogsView`. Overlays span that composed shell; the
+search confirmation stays centered inside the search `main_area`, matching the
+picker's pre-shell render.
 `search_view.rs` is the brain-directory view's handler (its picker nav, in-place
 open, and the search-specific variants of the shell overlay). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
@@ -1722,12 +1735,13 @@ and terminal removal preserve the
 current main view, effective tab, panel visibility, and keyboard focus. The
 `Overlay` owner and transitions live in
 `overlay/mod.rs`. The per-variant state
-structs (`TaskPalette`, `ConfirmState`, `BrainInputState`,
+structs (`ConfirmState`, `BrainInputState`,
 `SessionRenamePickerState`, `SessionClosePickerState`,
 `ManualSessionRenameState`, `HelpState`,
 `SyncLogState`, `LinkPickerState`, `AssigneeFilterState`, and the confirm enums)
 live in `modal_state.rs` with
-`pub(super)` fields; shared panel and tab types live in
+`pub(super)` fields, while the palette and target-picker states live in
+`palette/`; shared panel and tab types live in
 `model.rs`, while `mod.rs` keeps only the coordinating eight-field `App` type,
 narrow shell entry exports, and module wiring. Receiver representation is
 private to `receiver/runtime.rs` and its focused sync child.
@@ -2363,13 +2377,21 @@ rebuild:
   `receiver email` / `receiver phone` addresses, explicit plain-task output,
   help, and non-TUI logs mirrored by `--verbose`. Clap errors and diagnostics go to
   stderr. The TUI renders to `/dev/tty`.
-- **Every `SearchAction` has exactly one applicable palette row** (guarded by
-  tests on `items(side, …)`) so the search catalog cannot silently drop an
-  action. Shared task/search rows also assert the same `GlobalAction` while
-  preserving each surface's contextual label and direct-key metadata. Every
-  direct shortcut for a `GlobalAction`, including Show tasks, Message brain,
-  and Open agenda, enters `App::execute_global_action`. `Ctrl+X` dispatches by
-  typed tab metadata through `close_active_user_session`.
+- **Every keyboard shortcut has a command-palette row.** Each row in
+  `tasks::shortcuts::ALL` (`src/tasks/shortcuts/table.rs`) names the `Command`s
+  its key runs, and a guard test
+  fails the build if `catalog_rows` does not list one of them. A second guard
+  pins the exempt list — cursor movement, paging, scrolling, `Esc` on an error
+  banner, and `Ctrl+P` itself — so widening it is a deliberate edit. Every
+  direct shortcut enters `App::execute_command` or
+  `App::execute_global_action` rather than reimplementing its action inline.
+  `Ctrl+X` dispatches by typed tab metadata through
+  `close_active_user_session`.
+- **The command palette is the parent set of every command.** `catalog_rows`
+  returns the same commands in every context; only the wording changes, and a
+  command whose target is missing raises a target picker instead of being
+  hidden. The sole permitted omission is a workspace capability (the assignment
+  controls of a single-member workspace).
 - **The brain panel and Main tab are permanent.** Startup restores Main first,
   then saved Additional manual sessions. Main exits relaunch in place; a
   launch failure leaves the panel visible. Additional manual and skill tabs

@@ -1,6 +1,5 @@
-//! `App` command handlers: the `run_*` actions behind palette rows / confirm
-//! Yes-paths (mark-complete, remove, agenda, habits, links), native completion,
-//! and the palette-action dispatcher.
+//! Command dispatch plus the `run_*` handlers shared by palette rows and
+//! confirm Yes-paths (mark-complete, remove, agenda, habits, links).
 
 use std::path::Path;
 
@@ -8,106 +7,29 @@ use anyhow::Result;
 
 use crate::tasks::complete;
 use crate::tui::App;
-use crate::tui::action::GlobalAction;
 use crate::tui::logs_view::{LogKind, LogsView};
-use crate::tui::modal_state::{
-    AssigneeFilterState, BrainInputState, ConfirmState, FlashKind, LinkPickerState, SyncLogState,
-};
-use crate::tui::model::BrainTab;
+use crate::tui::modal_state::{ConfirmState, FlashKind, LinkPickerState};
 use crate::tui::overlay::{Overlay, close_overlay, open_overlay};
-use crate::tui::palette::TaskAction;
+use crate::tui::palette::Command;
 use crate::tui::state::TaskLinksPlan;
 
-use super::triage::{TriageAlertEvent, should_check_daily_triage};
-
 impl App {
-    pub(crate) fn execute_global_action(&mut self, action: GlobalAction) {
-        match action {
-            GlobalAction::MessageBrain => {
-                self.open_or_focus_brain(None);
-            }
-            GlobalAction::StartManualSession => self.start_default_manual_session(),
-            GlobalAction::RenameSession => self.open_session_rename_picker(),
-            GlobalAction::CloseSession => self.open_session_close_picker(),
-            GlobalAction::ShowSessionTab(id) => {
-                self.select_brain_tab(BrainTab::Session(id));
-            }
-            GlobalAction::ToggleReceiver => self.toggle_receiver(),
-            GlobalAction::ToggleLayout => {
-                self.shell.toggle_panel_side();
-                let _ = self.services.save_panel_side(self.shell.panel_side());
-            }
-            GlobalAction::ShowTasks => self.shell.show_main_view(crate::main_view::MainView::Tasks),
-            GlobalAction::ShowReceiverServerStatus => self.show_receiver_status(),
-            GlobalAction::ShowReceiverServerLogs => {
-                crate::logging::log("palette request receiver server logs");
-                self.show_logs_view(LogKind::Receiver);
-            }
-            GlobalAction::ShowBrainLogs => {
-                crate::logging::log("palette request brain TUI logs");
-                self.show_logs_view(LogKind::Brain);
-            }
-            GlobalAction::OpenHabits => self.run_open_habits(),
-            GlobalAction::SyncBrainNow => {
-                if crate::sync::trigger::spawn_detached_sync(
-                    self.context.workspace(),
-                    crate::sync::args::Direction::Both,
-                )
-                .is_some()
-                {
-                    self.status
-                        .set_flash(FlashKind::Info("✓ sync started".to_owned()));
-                } else {
-                    self.status
-                        .set_flash(FlashKind::Error("sync could not start".to_owned()));
-                }
-            }
-            GlobalAction::ShowSyncStatus => {
-                crate::logging::log("palette request sync status");
-                open_overlay(
-                    &mut self.overlay,
-                    Overlay::SyncLog(SyncLogState { scroll: u16::MAX }),
-                );
-            }
-            GlobalAction::OpenAgenda => self.run_open_agenda(),
-            GlobalAction::ToggleDailyTriageAlert => self.toggle_daily_triage_alert(),
-            GlobalAction::ShowMainBrainSession => {
-                self.select_brain_tab(BrainTab::Main);
-            }
-            GlobalAction::RunSkillSession(key) => self.run_skill_session(key),
-        }
-    }
-
-    fn toggle_daily_triage_alert(&mut self) {
-        let disabled = self.status.toggle_daily_triage_check();
-        let persisted = self.persist_daily_triage_check();
-        if disabled {
-            crate::logging::log("palette disabled daily triage alert");
-            self.status.set_flash(FlashKind::Info(persisted.map_or_else(
-                |error| {
-                    format!(
-                        "daily triage alert disabled for this session only; saving it failed: {error:#}"
-                    )
-                },
-                |()| "daily triage alert disabled (saved to config)".to_owned(),
-            )));
-        } else {
-            crate::logging::log("palette enabled daily triage alert");
-            self.status.set_flash(FlashKind::Info(persisted.map_or_else(
-                |error| {
-                    format!(
-                        "daily triage alert enabled for this session only; saving it failed: {error:#}"
-                    )
-                },
-                |()| "daily triage alert enabled (saved to config)".to_owned(),
-            )));
-            if should_check_daily_triage(
-                TriageAlertEvent::PaletteEnabled,
-                self.status.triage_gate_is_armed(),
-                self.status.daily_triage_check_disabled(),
-            ) {
-                self.check_daily_triage();
-            }
+    /// Run one palette command. Commands that need a target they don't have
+    /// raise the matching picker instead of failing — the palette lists every
+    /// command from every view, so "no task highlighted" is a question to ask,
+    /// not a reason to do nothing.
+    pub(crate) fn execute_command(&mut self, command: Command) {
+        close_overlay(&mut self.overlay);
+        match command {
+            Command::Global(action) => self.execute_global_action(action),
+            Command::Task(task) => match self.resolve_task_target(task) {
+                Some(target) => self.run_task_command(task, &target),
+                None => self.open_task_target_picker(task),
+            },
+            Command::Entry(entry) => match self.resolve_entry_target(entry) {
+                Some(path) => self.run_entry_command(entry, &path),
+                None => self.open_entry_target_picker(entry),
+            },
         }
     }
 
@@ -151,7 +73,7 @@ impl App {
     /// `flash` instead of a modal so the user isn't asked to dismiss a
     /// popup just to look at the agenda window that already opened on
     /// top of the tasks shell.
-    fn run_open_agenda(&mut self) {
+    pub(super) fn run_open_agenda(&mut self) {
         match self.services.run_agenda() {
             Ok(()) => {
                 self.status
@@ -172,7 +94,7 @@ impl App {
     /// "Open habits page" palette entry. Uses the already-attached shared
     /// process, then opens this workspace's ingress-scoped habits page
     /// through the injected `open_runner`, flashing success / error.
-    fn run_open_habits(&mut self) {
+    pub(super) fn run_open_habits(&mut self) {
         let flash = match crate::server::lifecycle::ServerClient::default().connect_existing() {
             Ok(record) => {
                 let url = self.context.habits_url(record.port);
@@ -183,17 +105,17 @@ impl App {
         self.status.set_flash(flash);
     }
 
-    /// Ctrl+O / "open link" entry point. Collects the selected entry's
-    /// openable links (Linear issue first, then see_also / notes URLs). Zero links is a
-    /// silent no-op; a single link opens directly via the injected
-    /// `open_runner`; multiple links raise the picker modal so the user can
-    /// choose. The picker is bound to the task's id at open time.
-    pub(crate) fn run_open_links(&mut self) {
-        match self
-            .tasks
-            .selected_links_plan(&self.context.linear_base_url())
-        {
-            TaskLinksPlan::None => {}
+    /// Open the link(s) of `plan`. Zero links flashes which entry had none (a
+    /// silent no-op reads as a broken command from a palette row); a single
+    /// link opens directly; several raise the picker.
+    pub(crate) fn apply_links_plan(&mut self, plan: TaskLinksPlan, named: Option<&str>) {
+        match plan {
+            TaskLinksPlan::None => {
+                if let Some(id) = named {
+                    self.status
+                        .set_flash(FlashKind::Info(format!("{id} has no links to open")));
+                }
+            }
             TaskLinksPlan::Open { url } => {
                 let flash = self.open_url(&url);
                 self.status.set_flash(flash);
@@ -213,20 +135,7 @@ impl App {
         let Some(url) = self
             .overlay
             .as_ref()
-            .and_then(|overlay| match overlay {
-                Overlay::LinkPicker(picker) => picker.selected_url(),
-                Overlay::TaskPalette(_)
-                | Overlay::BrainInput(_)
-                | Overlay::ManualSessionRename(_)
-                | Overlay::SessionClosePicker(_)
-                | Overlay::SessionRenamePicker(_)
-                | Overlay::TaskConfirmation(_)
-                | Overlay::SearchPalette(_)
-                | Overlay::SearchConfirmation(_)
-                | Overlay::AssigneeFilter(_)
-                | Overlay::Help(_)
-                | Overlay::SyncLog(_) => None,
-            })
+            .and_then(Overlay::picked_link_url)
             .map(str::to_owned)
         else {
             return;
@@ -259,102 +168,7 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn execute_task_action(&mut self, action: TaskAction) {
-        close_overlay(&mut self.overlay);
-        match action {
-            TaskAction::Global(action) => self.execute_global_action(action),
-            TaskAction::AddTask => {
-                let message = add_task_prompt(self.tasks.assignment_snapshot().actor_id.as_str());
-                self.send_brain_prompt(&message);
-            }
-            TaskAction::MessageBrainAboutTask => {
-                // Clone (id, name) before opening the brain-input overlay so
-                // the borrow on visible_tasks ends first.
-                let target = self.tasks.selected_identity();
-                if let Some((id, label)) = target {
-                    open_overlay(
-                        &mut self.overlay,
-                        Overlay::BrainInput(BrainInputState::about(id, label)),
-                    );
-                }
-            }
-            TaskAction::MarkTaskComplete => {
-                // Open a Yes/No confirmation rather than completing
-                // immediately — same guard as the Ctrl+Enter shortcut,
-                // since this mutates tasks.csv. The Yes path calls
-                // `run_mark_complete`.
-                let target = self.tasks.selected_identity();
-                if let Some((id, label)) = target {
-                    open_overlay(
-                        &mut self.overlay,
-                        Overlay::TaskConfirmation(ConfirmState::mark_complete(id, label)),
-                    );
-                }
-            }
-            TaskAction::DeferTask(days) => {
-                let Some(id) = self.tasks.current_task_id() else {
-                    return;
-                };
-                // Hand off to the brain agent (which has the /todo skill
-                // loaded) rather than calling defer_task.py directly —
-                // keeps the user in the loop in case the defer has
-                // chunked-task cascade implications worth a glance.
-                let day_word = if days == 1 { "day" } else { "days" };
-                let message = format!("Defer task {id} by {days} {day_word}");
-                self.send_brain_prompt(&message);
-            }
-            TaskAction::RemoveTask => {
-                // Open a Yes/No confirmation rather than firing off the
-                // remove immediately — destructive enough to warrant the
-                // extra keystroke. The Yes path calls `run_remove`.
-                let target = self.tasks.selected_identity();
-                if let Some((id, label)) = target {
-                    open_overlay(
-                        &mut self.overlay,
-                        Overlay::TaskConfirmation(ConfirmState::remove(id, label)),
-                    );
-                }
-            }
-            TaskAction::ReassignTask => {
-                let Some(id) = self.tasks.current_task_id() else {
-                    return;
-                };
-                let message = reassign_task_prompt(&id);
-                self.send_brain_prompt(&message);
-            }
-            TaskAction::ChooseAssigneeFilter => {
-                open_overlay(
-                    &mut self.overlay,
-                    Overlay::AssigneeFilter(AssigneeFilterState::new(
-                        self.tasks.assignment_snapshot().users,
-                        self.tasks.assignment_snapshot().filter,
-                    )),
-                );
-            }
-            TaskAction::ToggleNotes => {
-                self.tasks.toggle_notes();
-            }
-            TaskAction::OpenLinks => {
-                self.run_open_links();
-            }
-            TaskAction::StartTask => {
-                let Some(id) = self.tasks.current_task_id() else {
-                    return;
-                };
-                // Asks the brain agent to (1) gather the task's context
-                // (notes / project / see_also / blockers) before
-                // proposing anything, (2) give a short list of concrete
-                // first steps, and (3) explicitly call out where it can
-                // help right now — drafting, research, code, etc. —
-                // so the next reply is actionable rather than just
-                // advisory.
-                let message = start_task_prompt(&id, self.context.workspace_root());
-                self.send_brain_prompt(&message);
-            }
-        }
-    }
-
-    fn open_url(&self, url: &str) -> FlashKind {
+    pub(super) fn open_url(&self, url: &str) -> FlashKind {
         match self.services.open_url(url) {
             Ok(()) => FlashKind::Info(format!("✓ opened {url}")),
             Err(error) => FlashKind::Error(format!("⚠ open failed: {error}")),
@@ -393,6 +207,7 @@ pub(crate) fn reassign_task_prompt(id: &str) -> String {
         "Use the /todo assign {id} flow to reassign this task to a portable workspace member. Show me the available members and ask which one should own it."
     )
 }
+
 #[cfg(test)]
 #[path = "commands_tests.rs"]
 mod commands_tests;

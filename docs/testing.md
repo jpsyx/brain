@@ -216,33 +216,59 @@ first move is a failing test that reproduces it, *then* the fix.
   no matches; highlight bytes recorded), section grouping in
   `build_display_rows`, and navigation clamping (`move_*`, `page_*`,
   `selected_path`).
-- **Palette state and menu navigation.** The generic `CommandPalette<A>` is a
-  pure state machine tested for the search palette's case-insensitive
-  word-atom/number filtering, the task palette's case-insensitive contiguous
-  substring filtering, empty-query restoration and empty results, selection
-  clamping, wrapping versus saturating movement, each surface's established
-  Ctrl/Alt handling, Enter confirmation, and Esc/Ctrl-c cancellation. Catalog
-  guards prove shared task/search application rows wrap the same `GlobalAction`
-  and preserve their exact shared or contextual label/shortcut metadata. Task
-  palette tests also pin globally scoped habits and agenda rows to
-  `GlobalAction`, preventing them from bypassing the one global executor. A
-  direct-shortcut architecture guard requires Show tasks, Message brain, and
-  Open agenda to enter `App::execute_global_action`; `Ctrl+X` uses the same
-  kind-gated close path as the close picker's stable-ID selection.
-  Manual-session modal tests route real key events through App to cover blank
-  and duplicate input, editing, cancellation, captive accelerators, rendering,
-  and trimmed fresh launches for Claude, Codex, OpenCode, and pi. Catalog and
-  runtime tests compare stable manual/skill Show actions and the shared Close
-  command in both palettes, reserve Main and Receiver from Close, keep disabled
-  rows visible at the end of both pickers, and keep task-actions/log scopes
-  intact.
-  Search structural guards keep the layout toggle last and ensure every
-  `SearchAction` appears exactly once when applicable (including `CreatePdf`
-  when a markdown target is present). The two contextual rows: "Create PDF"
-  appears only with a `.md` target, leads the list, and carries `^G`;
-  "Delete" appears with any target, **trails** the list, and carries `^D`.
-  Both elide a long filename through the shared `truncate_label_filename` /
-  `LABEL_MAX_FILENAME` (`create_pdf_label` and `delete_label` line up).
+- **Palette state and navigation.** The generic `CommandPalette<A>` is a pure
+  state machine tested for word-atom/number filtering in any order and any
+  case, empty-query restoration and empty results, selection clamping, wrapping
+  movement, both Ctrl navigation alias families (`Ctrl+J/K`, `Ctrl+P/N`, upper
+  and lower case), Alt-modified characters as plain text, Enter confirmation,
+  and Esc/Ctrl-c cancellation.
+- **The parent-set invariant** (`palette/command/catalog.rs`,
+  `tui/tests/palette*`). The catalog returns the *same* commands with a task
+  highlighted, an entry highlighted, and nothing highlighted, so the command set
+  cannot drift with app state; every declared command is listed; and a
+  single-member workspace loses exactly the three assignment controls and
+  nothing else. Row numbering stays 1-based and gapless, and one guard asserts
+  the merged catalog is long enough to need the renderer's viewport.
+- **The shortcut-parity invariant** (`src/tasks/shortcuts/tests.rs`). Every row in
+  `shortcuts::ALL` names the `Command`s its key runs, and the guard fails if
+  `catalog_rows` does not list one. A second guard pins the exempt list —
+  cursor movement, paging, scrolling, `Esc` on an error banner, and `Ctrl+P`
+  itself — so widening it is a deliberate edit. A direct-shortcut architecture
+  guard additionally requires each `GlobalAction` chord in the event loop to
+  enter `App::execute_global_action`; `Ctrl+X` uses the same kind-gated close
+  path as the close picker's stable-ID selection.
+- **Contextual versus generic wording** (`palette/command/naming.rs` through the
+  palette tests). A highlighted task names every task row; nothing highlighted
+  makes each read generically; a habit leaves the tasks-only rows generic; the
+  notes row tracks expansion; the open-link row names what it will open. The
+  same three-way split is covered for entry rows across a markdown file, a
+  plain file, a directory, and no selection, including the shared
+  `truncate_label_filename` / `LABEL_MAX_FILENAME` elision that keeps one long
+  name from stretching the modal.
+- **Target resolution and the pickers** (`palette/context.rs`,
+  `palette/target.rs`, `app_brain/tests/command_targets.rs`). Unit tests pin
+  which targets satisfy which command; App-level tests then run a command with
+  and without a highlight and assert the two paths converge — the highlighted
+  case acts immediately, the missing case raises the picker, filters by name,
+  and lands on the same confirmation for the chosen row. Escaping a picker runs
+  nothing, an entry command with an empty brain directory says so instead of
+  opening an empty picker, and the palette's **Quit brain** and **Show keyboard
+  shortcuts** rows are driven end to end through `update_application`.
+- **The palette viewport and sizing** (`tui/draw_palette.rs`). `viewport_start`
+  is pure: a list that fits never scrolls, a long one scrolls only far enough to
+  keep the selection visible, it stops at the last page, and a zero-height list
+  is inert. `palette_width` fits the widest row plus its shortcut hint and the
+  footer, and never outgrows the terminal.
+- **The help modal's width** (`tui/draw_help.rs`). `help_modal_width` is pure: a
+  roomy terminal gets more than the old fixed 70 columns, a wide one keeps a
+  gutter rather than filling edge to edge, and a narrow one never overflows.
+- **Session rows.** Catalog and runtime tests compare stable manual/skill Show
+  actions in the one palette, keep the static session commands always listed,
+  reserve Main and Receiver from Close, keep disabled rows visible at the end of
+  both pickers, and leave every per-session row without a direct-shortcut
+  annotation. Manual-session modal tests route real key events through App to
+  cover blank and duplicate input, editing, cancellation, captive accelerators,
+  rendering, and trimmed fresh launches for Claude, Codex, OpenCode, and pi.
 - **The confirmation modal** (`confirm.rs`). `handle_key` as a pure state
   machine: PDF is Yes-by-default so Enter accepts while Delete is No-by-default
   so a stray Enter cancels, toggling flips it, `y`/`n` answer directly,
@@ -254,8 +280,9 @@ first move is a failing test that reproduces it, *then* the fix.
   otherwise) and the Delete modal on any selection; confirming converts a PDF
   in place or trashes and `drop_path`s the entry (the shell stays open), and
   `reload_entries` / `drop_path` keep the query while updating the list.
-- **The palette layout label** (`menu/model.rs`). `layout_choice_label` names the
-  opposite side; the toggle row is searchable and appears exactly once.
+- **The palette layout label** (`palette/command/naming.rs`).
+  `layout_choice_label` names the opposite side, and the toggle row reads from
+  the panel side the context carries.
 - **Render helpers.** That `entry_line` preserves the full text, coalesces
   a highlighted run into one correctly-colored span, and paints the
   selection background; that headers/empty-states carry the right text.
@@ -1498,7 +1525,7 @@ nested siblings, proving every current and future split part enters the guard.
 
 | Location | Scope |
 | --- | --- |
-| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, menu, confirm, render, session, entry). |
+| `src/<module>.rs` → `#[cfg(test)] mod tests` | Pure-function unit tests for that module's branches (paths, settings, config, open_target, picker, palette, confirm, render, session, entry). |
 | `tests/module_structure.rs` | Directory-wide architecture guard: every tracked Rust test location under `src/` and `tests/` must use behavior-owned section filenames, never `part_<digits>.rs`; failures enumerate every offending path. Large suites retain shared lexical fixture scope through a parent `include!` list and a sibling `*_sections/` directory. The receiver guard recursively discovers model, schema, completion-store, and delivery-store modules, excludes exact inline `#[cfg(test)]` items from the production budget, and resumes counting later production. It also bounds the split completion and privacy suites, keeps the completion root thin, rejects the obsolete answerless completion branch, and applies the production bound to the producer-matrix and native-cleanup fixture modules. |
 | `tests/tui_construction_boundary.rs` | Command-to-runtime seam: owned `TuiLaunch`, a lifetime-free `App`, no retained task clap command, no obsolete receiver launch argument, a focused startup builder module, and no TUI-root `PanelSide` re-export. |
 | `tests/tui_dependencies_architecture.rs` | Directory-wide TUI dependency seam: production imports name their owner path explicitly, production modules cannot obtain sibling APIs through `use super::*`, and `tui/mod.rs` has no wildcard child re-exports. It also pins the lifetime-free App, sole overlay and receiver ownership, and one-request `run_tui`; token-aware self-fixtures cover direct and grouped use trees, arbitrary `pub(...)` visibility, lifetimes versus character literals, each forbidden spelling, and external test-module classification. |
@@ -1679,7 +1706,7 @@ cargo test --release -- --nocapture
    push the logic to a pure function and test that instead.
 4. Setup helpers go under `#[cfg(test)]` or in the test file, never as
    `pub fn make_test_*` on a production module.
-5. If the behavior is user-visible (a new key, menu item, or config
+5. If the behavior is user-visible (a new key, palette row, or config
    variable), update the relevant `docs/` file in the same change.
 
 Receiver enablement tests under `command/server/receiver/enablement/tests.rs`

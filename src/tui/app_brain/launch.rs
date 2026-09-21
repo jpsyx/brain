@@ -4,7 +4,6 @@ use crate::tui::App;
 use crate::tui::handlers::half_page_step;
 use crate::tui::model::{BrainTab, Panel};
 
-use crossterm::event::KeyCode;
 
 pub(crate) mod arrival;
 
@@ -40,19 +39,20 @@ impl App {
 
     /// Handle the Ctrl-N shortcut before normal key forwarding. Returning
     /// `true` tells the event loop that the chord was consumed.
-    pub(crate) fn handle_new_session_shortcut(&mut self, code: KeyCode, ctrl: bool) -> bool {
-        if ctrl && matches!(code, KeyCode::Char('n' | 'N')) && self.brain.any_panel_visible() {
-            let active_tab = self.effective_brain_tab();
-            self.focus_brain();
-            let started = self
-                .active_brain_controller_mut()
-                .is_some_and(|controller| controller.start_new_session().is_ok());
-            if started && active_tab == BrainTab::Main {
-                self.mark_brain_turn_started();
-            }
-            return true;
+    /// Run the selected adapter's semantic "new conversation" sequence in the
+    /// live session tab. Shared by the `Ctrl+N` chord and its palette row.
+    pub(crate) fn start_new_conversation(&mut self) {
+        if !self.brain.any_panel_visible() {
+            return;
         }
-        false
+        let active_tab = self.effective_brain_tab();
+        self.focus_brain();
+        let started = self
+            .active_brain_controller_mut()
+            .is_some_and(|controller| controller.start_new_session().is_ok());
+        if started && active_tab == BrainTab::Main {
+            self.mark_brain_turn_started();
+        }
     }
 
     pub(crate) fn focus_brain(&mut self) {

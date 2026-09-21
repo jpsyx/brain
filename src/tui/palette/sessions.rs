@@ -1,41 +1,29 @@
+//! The per-session rows the catalog splices in after the static session block.
+//!
+//! These are *data* rows, not declared commands: one per skill session the
+//! workspace configures and one per open brain-panel tab. The static session
+//! commands (start, rename, close, new conversation, show main) live in the
+//! catalog and are always listed.
+
 use crate::skill_session::SkillSessionKey;
 use crate::tui::action::GlobalAction;
 use crate::tui::state::SessionPaletteEntry;
 
-/// The common brain-session group inserted after Message brain in both catalogs.
-pub(crate) fn session_actions(
+/// The runnable skill sessions followed by one Show row per open tab, in the
+/// tab strip's own order so the palette and the strip agree.
+pub(crate) fn session_rows(
     runnable: &[(SkillSessionKey, String)],
     open: &[SessionPaletteEntry],
 ) -> Vec<(String, GlobalAction)> {
-    let mut actions = vec![
+    let mut rows: Vec<(String, GlobalAction)> = runnable
+        .iter()
+        .map(|(key, label)| (label.clone(), GlobalAction::RunSkillSession(*key)))
+        .collect();
+    rows.extend(open.iter().map(|entry| {
         (
-            "Start new brain session".to_owned(),
-            GlobalAction::StartManualSession,
-        ),
-        ("Rename session".to_owned(), GlobalAction::RenameSession),
-    ];
-    if !open.is_empty() {
-        actions.push((
-            "Close a brain session".to_owned(),
-            GlobalAction::CloseSession,
-        ));
-    }
-    actions.extend(
-        runnable
-            .iter()
-            .map(|(key, label)| (label.clone(), GlobalAction::RunSkillSession(*key))),
-    );
-    if !open.is_empty() {
-        actions.push((
-            "Show main brain session".to_owned(),
-            GlobalAction::ShowMainBrainSession,
-        ));
-    }
-    for entry in open {
-        actions.push((
             format!("Show {} session", entry.title),
             GlobalAction::ShowSessionTab(entry.id),
-        ));
-    }
-    actions
+        )
+    }));
+    rows
 }

@@ -2,6 +2,10 @@
 //! each keystroke through the fixed precedence: unconditional quit → modal
 //! overlays → panel-close/new chords → focus/scroll chords → app-level view
 //! switches → palette/brain/agenda accelerators → the focused panel/view.
+//!
+//! Every accelerator here runs the same [`GlobalAction`] or
+//! [`Command`](crate::tui::palette::Command) its palette row runs, so a key and
+//! its row can never drift apart.
 
 use std::time::Duration as StdDuration;
 
@@ -20,9 +24,9 @@ use crate::tui::keymap::{
     ctrl_messages_brain_about_task, ctrl_opens_brain, ctrl_opens_palette, ctrl_quits,
     is_count_relevant_key,
 };
-use crate::tui::modal_state::{BrainInputState, HelpState, TaskPalette};
 use crate::tui::model::{BrainTab, Panel};
 use crate::tui::overlay::{Overlay, open_overlay};
+use crate::tui::palette::{Command, CommandPaletteState, TaskCommand};
 use crate::tui::search_view::{apply_search_view_effect, handle_search_view_key};
 
 use super::modal_route::route_modal_key;
@@ -76,10 +80,6 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
         ApplicationEvent::Key(key) => key,
     };
 
-    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = k.modifiers.contains(KeyModifiers::ALT);
-    let shift = k.modifiers.contains(KeyModifiers::SHIFT);
-
     // Ctrl+Q is the unconditional "quit the whole shell" accelerator,
     // resolved before modal routing and panel dispatch so nothing can
     // swallow it: it quits from either panel and even while a modal is
@@ -88,9 +88,20 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     // the agent in the brain panel.) 0x11, so no kitty-protocol dependency;
     // the caller releases the session lock and tears down the terminal on
     // this return.
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl_quits(k.code, ctrl) {
         return true;
     }
+
+    // The palette's "Quit brain" row sets the same flag the chord returns, so
+    // either route leaves through one door.
+    dispatch_key(app, &k) || app.shell.take_quit_request()
+}
+
+fn dispatch_key(app: &mut App, k: &KeyEvent) -> bool {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = k.modifiers.contains(KeyModifiers::ALT);
+    let shift = k.modifiers.contains(KeyModifiers::SHIFT);
 
     // Any keystroke clears a transient flash from the previous action,
     // so the status line never lingers across user interactions.
@@ -111,7 +122,7 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
 
     // Modal overlays take all input, resolved before any panel / chord /
     // leader handling.
-    if route_modal_key(app, &k, ctrl) {
+    if route_modal_key(app, k, ctrl) {
         return false;
     }
 
@@ -131,7 +142,17 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     // Intercepted before forwarding so it fires from either panel; only
     // while the panel is open (nothing to send to otherwise). 0x0E, so no
     // kitty-protocol dependency.
-    if app.handle_new_session_shortcut(k.code, ctrl) {
+    if ctrl && matches!(k.code, KeyCode::Char('n' | 'N')) && app.brain.any_panel_visible() {
+        app.execute_global_action(GlobalAction::NewConversation);
+        return false;
+    }
+
+    // Alt+S opens the keyboard-shortcuts help modal. Bound to Alt+S (not a
+    // bare key) so a literal `s` still types into the always-filtering
+    // brain-search view; the Meta sequence is distinct on every terminal,
+    // no kitty protocol needed.
+    if main_view::alt_opens_help(k.code, alt) {
+        app.execute_global_action(GlobalAction::ShowShortcuts);
         return false;
     }
 
@@ -141,23 +162,14 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     // Alt+L focuses the brain panel when one is open (no-op otherwise).
     // We use Alt+letter rather than a Space leader or Alt+arrow because
     // both of those collide with editing inside the agent's prompt.
-    // Alt+S opens the keyboard-shortcuts help modal. Bound to Alt+S (not a
-    // bare key) so a literal `s` still types into the always-filtering
-    // brain-search view; the Meta sequence is distinct on every terminal,
-    // no kitty protocol needed.
-    if main_view::alt_opens_help(k.code, alt) {
-        open_overlay(&mut app.overlay, Overlay::Help(HelpState { scroll: 0 }));
-        return false;
-    }
-
     if alt {
         match k.code {
             KeyCode::Char('h' | 'H') => {
-                app.focus_tasks();
+                app.execute_global_action(GlobalAction::FocusMainPanel);
                 return false;
             }
             KeyCode::Char('l' | 'L') => {
-                app.focus_brain();
+                app.execute_global_action(GlobalAction::FocusBrainPanel);
                 return false;
             }
             _ => {}
@@ -173,17 +185,17 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
     // missed is still a tab request). A bare Option-produced glyph is also a
     // typeable character, so when it selects nothing it must fall through to
     // the panel rather than vanish.
-    if let Some(slot) = alt_selects_brain_tab_slot(k.code, k.modifiers) {
-        if app.select_brain_tab_slot(slot.index) || slot.from_chord {
-            return false;
-        }
+    if let Some(slot) = alt_selects_brain_tab_slot(k.code, k.modifiers)
+        && (app.select_brain_tab_slot(slot.index) || slot.from_chord)
+    {
+        return false;
     }
     // Alt+[ / Alt+] cycle the brain-panel tab (previous / next). The
     // reliable switch: terminal Alt+digit handling above is flaky, while
     // the bracket keys resolve either as Alt-modified brackets or the macOS
     // Option smart-quote glyphs. From either panel.
     if let Some(forward) = alt_cycles_brain_tab(k.code, k.modifiers) {
-        app.cycle_brain_tab(forward);
+        app.execute_global_action(GlobalAction::CycleBrainTab(forward));
         return false;
     }
     // Alt+U / Alt+D scroll the focused panel a half-page up / down.
@@ -196,108 +208,7 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
         return false;
     }
 
-    // App-level main-view switching (main panel only, so the brain panel
-    // keeps the agent's readline chords when it has focus): Ctrl+H / Ctrl+L
-    // cycle left / right, Ctrl+T jumps to the tasks view, Ctrl+B jumps to
-    // the brain-directory view. The brain panel stays open across a switch.
-    if app.shell.focus() == Panel::Tasks {
-        if let Some(dir) = main_view::ctrl_cycles_view(k.code, ctrl) {
-            app.shell.cycle_main_view(dir);
-            return false;
-        }
-        if let Some(mv) = main_view::ctrl_jumps_view(k.code, ctrl) {
-            match mv {
-                MainView::Tasks => app.execute_global_action(GlobalAction::ShowTasks),
-                MainView::BrainSearch | MainView::Logs => app.shell.show_main_view(mv),
-            }
-            return false;
-        }
-    }
-
-    // Ctrl+P opens the global command palette from the tasks panel only
-    // (in the brain panel it's a readline binding for the child).
-    if ctrl
-        && ctrl_opens_palette(k.code)
-        && app.shell.focus() == Panel::Tasks
-        && matches!(app.shell.main_view(), MainView::Tasks | MainView::Logs)
-    {
-        let palette = if app.shell.main_view() == MainView::Logs {
-            app.refresh_receiver_enabled();
-            TaskPalette::new_logs_view(app.receiver.is_enabled())
-        } else {
-            app.refresh_receiver_enabled();
-            let task_id = app.tasks.current_task_id();
-            let is_habit = app.tasks.current_is_habit();
-            let has_notes = app.tasks.current_has_notes();
-            let notes_expanded = app.tasks.current_notes_expanded();
-            let link_kind = app.tasks.selected_link_kind(&app.context.linear_base_url());
-            TaskPalette::new(task_id, is_habit, has_notes, notes_expanded, link_kind)
-                .with_assignment_mode(app.tasks.assignment_snapshot().mode)
-        };
-        let receiver_enabled = app.receiver.is_enabled();
-        let daily_triage_alert_disabled = app.status.daily_triage_check_disabled();
-        let runnable_sessions = app.runnable_skill_session_rows();
-        let open_sessions = app.brain.user_session_rows();
-        let palette = palette.with_runtime_context(
-            receiver_enabled,
-            daily_triage_alert_disabled,
-            runnable_sessions,
-            open_sessions,
-        );
-        open_overlay(&mut app.overlay, Overlay::TaskPalette(palette));
-        return false;
-    }
-
-    // Ctrl+M (no Shift) opens (or focuses) the persistent brain panel,
-    // resuming the shell's most-recently-active session. Note: many
-    // terminals encode Ctrl+M identically to Enter (both → 0x0D), so this
-    // only fires distinctly under the kitty keyboard protocol or
-    // modifyOtherKeys; on default Terminal.app it collapses to
-    // KeyCode::Enter and routes through Enter's handler instead. The
-    // Shift-modified sibling Ctrl+Shift+M is the task-scoped message
-    // (handled below).
-    if ctrl_opens_brain(k.code, ctrl, shift) && app.shell.focus() == Panel::Tasks {
-        app.execute_global_action(GlobalAction::MessageBrain);
-        return false;
-    }
-
-    // Ctrl+A: open today's agenda PDF via the user's `agenda` zsh
-    // function (which generates the PDF on demand from
-    // /tmp/<today>.md). When `agenda` reports "no markdown for
-    // today", we fall back to a Yes/No modal offering to ask the
-    // brain agent to generate it. Tasks-panel only; in the brain
-    // panel Ctrl+A is the readline "beginning of line" binding and
-    // we don't want to steal it from the child.
-    if ctrl
-        && matches!(k.code, KeyCode::Char('a' | 'A'))
-        && app.shell.focus() == Panel::Tasks
-        && app.shell.main_view() == MainView::Tasks
-    {
-        app.execute_global_action(GlobalAction::OpenAgenda);
-        return false;
-    }
-
-    // (Ctrl+H is now the "cycle main view left" accelerator, handled
-    // above. Opening the habits page in the browser moved to the command
-    // palette's "Open habits page" row.)
-
-    // Ctrl+Shift+M: task-scoped counterpart to Ctrl+M. Opens the input
-    // modal preloaded with the highlighted task as context so the brain
-    // agent knows which task the message is about. No-op when nothing is
-    // selected. Distinguishing it from the bare Ctrl+M panel toggle relies
-    // on the kitty protocol reporting the Shift modifier; without it,
-    // Ctrl+Shift+M collapses to Enter and the palette is the fallback.
-    if ctrl_messages_brain_about_task(k.code, ctrl, shift)
-        && app.shell.focus() == Panel::Tasks
-        && app.shell.main_view() == MainView::Tasks
-    {
-        let target = app.tasks.selected_identity();
-        if let Some((id, label)) = target {
-            open_overlay(
-                &mut app.overlay,
-                Overlay::BrainInput(BrainInputState::about(id, label)),
-            );
-        }
+    if app.shell.focus() == Panel::Tasks && main_panel_accelerator(app, k, ctrl, shift) {
         return false;
     }
 
@@ -306,15 +217,15 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
         // session gets a plain forwarder; the main session keeps the
         // receiver/turn-aware handler.
         Panel::Brain => match app.effective_brain_tab() {
-            BrainTab::Session(_) => handle_session_tab_key(app, &k, ctrl),
-            BrainTab::Main => handle_brain_key(app, &k, ctrl),
+            BrainTab::Session(_) => handle_session_tab_key(app, k, ctrl),
+            BrainTab::Main => handle_brain_key(app, k, ctrl),
         },
         // The main panel routes to whichever main view is showing. The
         // tasks view has its own normal/search modes; the brain-directory
         // view is an always-filtering picker.
         Panel::Tasks => match app.shell.main_view() {
             MainView::BrainSearch => {
-                let effect = handle_search_view_key(&mut app.shell, &k, ctrl, alt);
+                let effect = handle_search_view_key(&mut app.shell, k, ctrl, alt);
                 apply_search_view_effect(app, effect)
             }
             MainView::Logs => handle_logs_key(&mut app.shell, k.code, ctrl),
@@ -327,6 +238,68 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
             MainView::Tasks => handle_normal_key(app, k.code, ctrl),
         },
     }
+}
+
+/// The accelerators that only fire while the main panel has focus, so the
+/// brain panel keeps the agent's own readline chords when it is focused.
+/// Returns whether the key was consumed.
+fn main_panel_accelerator(app: &mut App, k: &KeyEvent, ctrl: bool, shift: bool) -> bool {
+    // Ctrl+H / Ctrl+L cycle the main view left / right; Ctrl+T and Ctrl+B jump
+    // straight to one. The brain panel stays open across a switch.
+    if let Some(dir) = main_view::ctrl_cycles_view(k.code, ctrl) {
+        app.shell.cycle_main_view(dir);
+        return true;
+    }
+    if let Some(view) = main_view::ctrl_jumps_view(k.code, ctrl) {
+        match view {
+            MainView::Tasks => app.execute_global_action(GlobalAction::ShowTasks),
+            MainView::BrainSearch | MainView::Logs => {
+                app.execute_global_action(GlobalAction::ShowBrainSearch);
+            }
+        }
+        return true;
+    }
+
+    // Ctrl+P opens the one global command palette, from whichever main view is
+    // showing. In the brain panel it stays a readline binding for the child.
+    if ctrl && ctrl_opens_palette(k.code) {
+        let context = app.palette_context();
+        open_overlay(
+            &mut app.overlay,
+            Overlay::CommandPalette(CommandPaletteState::new(&context)),
+        );
+        return true;
+    }
+
+    // Ctrl+M (no Shift) opens (or focuses) the persistent brain panel,
+    // resuming the shell's most-recently-active session. Note: many terminals
+    // encode Ctrl+M identically to Enter (both → 0x0D), so this only fires
+    // distinctly under the kitty keyboard protocol; on default Terminal.app it
+    // collapses to KeyCode::Enter and routes through Enter's handler instead.
+    if ctrl_opens_brain(k.code, ctrl, shift) {
+        app.execute_global_action(GlobalAction::MessageBrain);
+        return true;
+    }
+
+    // Ctrl+A: open today's agenda, offering to generate it when missing. In
+    // the brain panel Ctrl+A is the readline "beginning of line" binding and
+    // we don't want to steal it from the child.
+    if ctrl && matches!(k.code, KeyCode::Char('a' | 'A')) {
+        app.execute_global_action(GlobalAction::OpenAgenda);
+        return true;
+    }
+
+    // Ctrl+Shift+M: the task-scoped counterpart to Ctrl+M. Telling it apart
+    // from the bare chord relies on the kitty protocol reporting Shift;
+    // without it, Ctrl+Shift+M collapses to Enter and the palette is the
+    // fallback. With nothing highlighted it asks which task, exactly as the
+    // palette row does.
+    if ctrl_messages_brain_about_task(k.code, ctrl, shift) {
+        app.execute_command(Command::Task(TaskCommand::MessageBrainAbout));
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]

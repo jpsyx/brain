@@ -56,6 +56,7 @@ fn receiver_job(
     }
 }
 
+mod command_targets;
 mod fixtures;
 mod input;
 mod launch;

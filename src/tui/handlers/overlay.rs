@@ -11,7 +11,7 @@ use crate::tui::modal_state::{
     SessionRenamePickerState,
 };
 use crate::tui::overlay::{Overlay, close_overlay, open_overlay, replace_overlay};
-use crate::tui::palette::PaletteStep;
+use crate::tui::palette::{EntryPickerStep, PaletteStep};
 
 impl App {
     pub(crate) fn open_session_rename_picker(&mut self) {
@@ -165,7 +165,7 @@ pub(crate) fn handle_manual_session_rename_key(app: &mut App, key: &crossterm::e
 }
 
 pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, _ctrl: bool) {
-    let Some(Overlay::TaskPalette(palette)) = app.overlay.as_mut() else {
+    let Some(Overlay::CommandPalette(palette)) = app.overlay.as_mut() else {
         return;
     };
     match palette.handle_key(*k) {
@@ -173,7 +173,45 @@ pub(crate) fn handle_palette_key(app: &mut App, k: &crossterm::event::KeyEvent, 
         PaletteStep::Cancel => {
             close_overlay(&mut app.overlay);
         }
-        PaletteStep::Confirm(action) => app.execute_task_action(action),
+        PaletteStep::Confirm(command) => app.execute_command(command),
+    }
+}
+
+/// The "which task?" picker a task command raises when nothing was
+/// highlighted. Confirming runs the command it was opened for.
+pub(crate) fn handle_task_target_picker_key(app: &mut App, k: &crossterm::event::KeyEvent) {
+    let Some(Overlay::TaskTargetPicker(picker)) = app.overlay.as_mut() else {
+        return;
+    };
+    let command = picker.command();
+    match picker.handle_key(*k) {
+        PaletteStep::Continue => {}
+        PaletteStep::Cancel => {
+            close_overlay(&mut app.overlay);
+        }
+        PaletteStep::Confirm(choice) => {
+            close_overlay(&mut app.overlay);
+            app.run_task_command(command, &choice);
+        }
+    }
+}
+
+/// The "which file or directory?" picker an entry command raises when nothing
+/// was highlighted.
+pub(crate) fn handle_entry_target_picker_key(app: &mut App, k: &crossterm::event::KeyEvent) {
+    let Some(Overlay::EntryTargetPicker(picker)) = app.overlay.as_mut() else {
+        return;
+    };
+    let command = picker.command();
+    match picker.handle_key(*k) {
+        EntryPickerStep::Continue => {}
+        EntryPickerStep::Cancel => {
+            close_overlay(&mut app.overlay);
+        }
+        EntryPickerStep::Confirm(path) => {
+            close_overlay(&mut app.overlay);
+            app.run_entry_command(command, &path);
+        }
     }
 }
 
@@ -239,20 +277,7 @@ pub(crate) fn handle_confirm_key(app: &mut App, k: &crossterm::event::KeyEvent, 
         }
         // Enter resolves with the currently-focused button.
         KeyCode::Enter => {
-            if let Some(choice) = app.overlay.as_ref().and_then(|overlay| match overlay {
-                Overlay::TaskConfirmation(confirm) => Some(confirm.focus),
-                Overlay::TaskPalette(_)
-                | Overlay::BrainInput(_)
-                | Overlay::ManualSessionRename(_)
-                | Overlay::SessionClosePicker(_)
-                | Overlay::SessionRenamePicker(_)
-                | Overlay::SearchPalette(_)
-                | Overlay::SearchConfirmation(_)
-                | Overlay::LinkPicker(_)
-                | Overlay::AssigneeFilter(_)
-                | Overlay::Help(_)
-                | Overlay::SyncLog(_) => None,
-            }) {
+            if let Some(choice) = app.overlay.as_ref().and_then(Overlay::confirm_focus) {
                 run_confirm_choice(app, choice);
             }
         }

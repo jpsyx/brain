@@ -57,7 +57,7 @@ command (or a shell-mutating one-shot subcommand) the user has to discover.
 Every non-default action (per-bucket search, message brain, open tasks, move
 the panel, create a PDF, delete) lives in the **command palette**, reachable
 with `Ctrl-p` from the search view, so it is one keystroke from the search box
-without cluttering the screen. `Ctrl-p` is the palette hotkey (matching the
+without cluttering the screen. `Ctrl-p` is the palette shortcut (matching the
 `tasks` TUI), which is why it is no longer an up-motion alias in the picker (up
 is `↑` / `Ctrl-k`).
 
@@ -5647,3 +5647,76 @@ Dropping the template is a decision about what Brain **writes**, never a licence
 to delete. A workspace that already has a `README.md` keeps it: the moment that
 file existed it became the user's document, exactly like an edited `AGENTS.md`,
 and no migration removes it.
+
+## Why there is one command palette, and why it lists everything
+
+Brain used to have two palettes with two vocabularies: `TaskAction` for the
+tasks and logs views, `SearchAction` for the brain directory. Each hid rows it
+judged inapplicable — task rows vanished with no task highlighted, the "Create
+PDF" row appeared only on a markdown file, the logs view whitelisted six
+commands — and each carried its own catalog, its own `shortcut_for`, and its
+own renderer.
+
+That produced two problems a user actually hits. First, **discovery went
+backwards**: the palette is where you look when you don't already know how to
+do something, and it answered "that isn't possible here" for things that were
+perfectly possible one keystroke away. Second, **the two halves drifted**: the
+same action carried different labels, different shortcut hints, and in some
+cases existed on one side only, so "use the palette" stopped being reliable
+advice for a terminal that swallows a chord.
+
+So the two merged into one `Command` vocabulary
+(`Global(GlobalAction) | Task(TaskCommand) | Entry(EntryCommand)`) behind one
+catalog, one renderer, and one `PaletteControls` set that is the union of what
+each surface previously accepted, so no muscle memory was dropped.
+
+The rule that replaced conditional visibility is: **a command's variant says
+what it needs, not whether it shows.** Every command is listed in every
+context. What context changes is the *wording* ("Mark T123 as complete" when a task is
+highlighted, "Mark a task as complete" when none is) and what running a generic
+row does first, which is ask. That question is the two target pickers
+in `palette/target.rs`.
+
+Two consequences worth stating, because both were deliberate:
+
+- **A target counts only while the view that owns it is showing.** The tasks
+  view keeps its selection alive behind the brain directory, but a user looking
+  at files is not pointing at a task, so acting on that stale highlight would be
+  a surprise. `PaletteContext` is built with that gate, which is why the same
+  command reads named from one view and generic from another.
+- **The task actions modal keeps hiding rows.** It is the one surface already
+  committed to a specific entry, so a habit showing "Defer +1d" would be
+  offering something it cannot do. The global palette has the picker as its
+  escape hatch; a modal bound to one row does not.
+
+The single exception to "always listed" is a capability the **workspace**
+lacks: a single-member workspace has no assignees, so Add task, Reassign, and
+Filter by assignee stay out. That turns on how the workspace is configured, not
+on what is on screen, which is exactly the distinction the rule is drawing.
+
+## Why the shortcut table names the command each key runs
+
+The invariant — no keyboard shortcut without a command-palette row — is easy to
+state and easy to break, because the two live in different files and a new
+binding only has to compile.
+
+Rather than trust a convention, `tasks::shortcuts::ALL` now carries a
+`commands: &'static [Command]` field per row, and a guard test fails the build
+when the palette does not list one. Nothing dispatches through that field; it is
+a specification the test reads, which is why it carries an explicit
+`allow(dead_code)` outside test builds.
+
+A slice rather than a single command because several bindings legitimately
+reach more than one: `t m p w h b a` jumps to seven sub-views, `Alt+H`/`Alt+L`
+move focus two ways, `Enter` on a task opens the whole task-scoped slice.
+
+The escape hatch is an **empty** list, and a second guard pins exactly which
+rows may use it: cursor movement, paging, panel scrolling, `Esc` dismissing an
+error banner, and `Ctrl+P` itself. Those are not commands (they move, scroll, or open the palette), and each says
+so in its own description. Pinning the list
+means widening it is a visible, deliberate edit rather than a quiet omission.
+
+The same reasoning drove routing the key handlers through
+`App::execute_command` / `execute_global_action` instead of reimplementing each
+action inline: parity you have to remember is parity you eventually lose, so
+the key and the row now run the same code.

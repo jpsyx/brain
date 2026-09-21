@@ -10,8 +10,8 @@ use crate::tui::keymap::{
     ctrl_opens_links, ctrl_removes_task, h_collapses_notes, search_delegates_ctrl_chord,
     search_edit_key_exits_when_empty, search_key_abandons_filter, view_shortcut,
 };
-use crate::tui::modal_state::{ConfirmState, TaskPalette};
 use crate::tui::overlay::{Overlay, open_overlay};
+use crate::tui::palette::{Command, CommandPaletteState, TaskCommand};
 use crate::tui::state::TasksState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,10 +64,11 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
     }
 
     // Ctrl+O opens the selected task's links (Linear issue + notes URLs):
-    // one link opens directly, several raise the picker modal. No-op when
-    // the task has no openable link.
+    // one link opens directly, several raise the picker modal. It runs the
+    // same command the palette row runs, so with nothing highlighted it asks
+    // which entry instead of silently doing nothing.
     if ctrl_opens_links(code, ctrl) {
-        app.run_open_links();
+        app.execute_command(Command::Task(TaskCommand::OpenLinks));
         return false;
     }
 
@@ -109,15 +110,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // aliasing, so it works on every terminal regardless of the kitty
         // keyboard protocol.
         KeyCode::Char('d') if ctrl => {
-            // Clone fields before opening the overlay to drop the
-            // shared borrow on visible_tasks first.
-            let target = app.tasks.selected_identity();
-            if let Some((id, label)) = target {
-                open_overlay(
-                    &mut app.overlay,
-                    Overlay::TaskConfirmation(ConfirmState::mark_complete(id, label)),
-                );
-            }
+            app.execute_command(Command::Task(TaskCommand::MarkComplete));
         }
 
         // Ctrl+Backspace on a highlighted task is a destructive shortcut for
@@ -127,16 +120,7 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // since their removal path is different (handled elsewhere via the
         // brain agent's habit-specific flow).
         KeyCode::Backspace if ctrl_removes_task(code, ctrl) => {
-            if app.tasks.current_is_habit() {
-                return false;
-            }
-            let target = app.tasks.selected_identity();
-            if let Some((id, label)) = target {
-                open_overlay(
-                    &mut app.overlay,
-                    Overlay::TaskConfirmation(ConfirmState::remove(id, label)),
-                );
-            }
+            app.execute_command(Command::Task(TaskCommand::Remove));
         }
 
         // Enter on a selected entry opens a focused palette of only
@@ -146,27 +130,11 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         // bare Enter exits `/`, so Ctrl+Enter is how the user opens the
         // actions modal without leaving the search input.
         KeyCode::Enter => {
-            // Clone (id, name) up front so the shared borrow on
-            // visible_tasks ends before we open the palette overlay.
-            let target = app.tasks.selected_identity();
-            if let Some((id, label)) = target {
-                let is_habit = app.tasks.current_is_habit();
-                let has_notes = app.tasks.current_has_notes();
-                let notes_expanded = app.tasks.current_notes_expanded();
-                let link_kind = app.tasks.selected_link_kind(&app.context.linear_base_url());
+            let context = app.palette_context();
+            if context.task.is_some() {
                 open_overlay(
                     &mut app.overlay,
-                    Overlay::TaskPalette(
-                        TaskPalette::new_task_actions(
-                            id,
-                            label,
-                            is_habit,
-                            has_notes,
-                            notes_expanded,
-                            link_kind,
-                        )
-                        .with_assignment_mode(app.tasks.assignment_snapshot().mode),
-                    ),
+                    Overlay::CommandPalette(CommandPaletteState::new_task_actions(&context)),
                 );
             }
         }
@@ -198,8 +166,8 @@ pub(crate) fn handle_normal_key(app: &mut App, code: KeyCode, ctrl: bool) -> boo
         KeyCode::End | KeyCode::Char('G') => app.tasks.select_last(),
 
         // Toggle the selected task's notes between a single-line preview and
-        // the full markdown-rendered body. Inert when the task has no notes.
-        KeyCode::Char('l') => app.tasks.toggle_notes(),
+        // the full markdown-rendered body.
+        KeyCode::Char('l') => app.execute_command(Command::Task(TaskCommand::ToggleNotes)),
 
         // Arrow aliases for notes on a task that has them: → expands,
         // ← collapses. No-op otherwise.

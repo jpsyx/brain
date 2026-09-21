@@ -15,8 +15,7 @@ fn ctrl_n_routes_new_session_through_the_selected_controller_adapter() {
             "capture panel did not become ready"
         );
 
-        assert!(!app.handle_new_session_shortcut(KeyCode::Char('n'), false));
-        assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+        app.start_new_conversation();
         assert_eq!(app.shell.focus(), Panel::Brain);
         assert!(app.brain.turn_active());
         let expected_bytes = match agent_kind {
@@ -51,7 +50,7 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     );
 
     app.select_brain_tab(BrainTab::Main);
-    assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+    app.start_new_conversation();
     assert_eq!(
         main_recording.events(),
         vec![ControllerEvent::StartNewSession]
@@ -59,7 +58,7 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
     assert!(triage_recording.events().is_empty());
 
     app.select_brain_tab(BrainTab::Session(session_tab));
-    assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+    app.start_new_conversation();
     assert_eq!(
         main_recording.events(),
         vec![ControllerEvent::StartNewSession]
@@ -79,6 +78,6 @@ fn ctrl_n_targets_the_active_main_or_skill_session_controller_including_session_
         triage,
     );
 
-    assert!(triage_only.handle_new_session_shortcut(KeyCode::Char('n'), true));
+    triage_only.start_new_conversation();
     assert_eq!(recording.events(), vec![ControllerEvent::StartNewSession]);
 }

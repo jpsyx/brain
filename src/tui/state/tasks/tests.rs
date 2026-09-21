@@ -148,7 +148,7 @@ fn selected_link_planning_keeps_task_policy_inside_the_owner() {
         LinkKind::Multiple
     );
     let TaskLinksPlan::Choose { task_id, links } =
-        state.selected_links_plan("https://linear.example/issue/")
+        state.links_plan_for("T1", "https://linear.example/issue/")
     else {
         panic!("the selected task has two destinations");
     };

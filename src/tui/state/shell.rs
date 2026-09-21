@@ -5,7 +5,6 @@ use ratatui::{Frame, layout::Rect};
 
 use crate::entry::Entry;
 use crate::main_view::{Dir, MainView, StartupDestination};
-use crate::menu::SearchPalette;
 use crate::state::PanelSide;
 use crate::tui::logs_view::LogsView;
 use crate::tui::model::{BrainTab, Panel, SessionTabId};
@@ -18,6 +17,10 @@ pub(crate) struct ShellState {
     search: crate::picker::App,
     logs_view: Option<LogsView>,
     active_brain_tab: BrainTab,
+    /// Set by the palette's "Quit brain" row. The event loop reads and clears
+    /// it after every keystroke, so a command leaves the shell through the same
+    /// door as the `Ctrl+Q` chord.
+    quit_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,7 +62,19 @@ impl ShellState {
             search,
             logs_view: None,
             active_brain_tab: BrainTab::Main,
+            quit_requested: false,
         }
+    }
+
+    pub(crate) const fn request_quit(&mut self) {
+        self.quit_requested = true;
+    }
+
+    /// Whether a command asked to leave, clearing the request as it answers.
+    pub(crate) const fn take_quit_request(&mut self) -> bool {
+        let requested = self.quit_requested;
+        self.quit_requested = false;
+        requested
     }
 
     pub(crate) const fn main_view(&self) -> MainView {
@@ -124,26 +139,9 @@ impl ShellState {
         self.search.selected_path()
     }
 
-    pub(crate) fn selected_markdown_search_path(&self) -> Option<PathBuf> {
-        self.search.selected_markdown_path()
-    }
-
-    pub(crate) fn search_palette(
-        &self,
-        receiver_enabled: bool,
-        runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
-        user_sessions: Vec<crate::tui::state::SessionPaletteEntry>,
-    ) -> SearchPalette {
-        self.search.search_palette(
-            self.panel_side,
-            true,
-            crate::menu::Targets {
-                receiver_enabled: Some(receiver_enabled),
-                runnable_skill_sessions,
-                user_sessions,
-                ..crate::menu::Targets::default()
-            },
-        )
+    /// The highlighted brain-directory entry as palette context.
+    pub(crate) fn selected_entry_context(&self) -> Option<crate::tui::palette::EntryContext> {
+        self.search.selected_entry_context()
     }
 
     pub(crate) fn render_search(&mut self, frame: &mut Frame, area: Rect) {

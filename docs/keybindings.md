@@ -9,12 +9,33 @@ See [glossary.md](glossary.md) for the vocabulary. Startup: the **tasks
 view** is showing, the **brain panel is open** (on the right) but unfocused, so
 `j`/`k` work immediately.
 
+## The shortcut-parity invariant
+
+**Every keyboard shortcut has a command-palette row.** ("Hotkey" and "shortcut"
+mean the same thing here.) A key that performs an action always runs the same
+`Command` its palette row runs (the event loop calls `App::execute_command` or
+`App::execute_global_action` rather than reimplementing anything inline), so the
+two can never drift apart, and a user whose terminal swallows a chord (see
+*Kitty keyboard protocol* below) can always reach the same action from
+`Ctrl+P`.
+
+The table in `src/tasks/shortcuts/` records which command each binding runs,
+and a guard test fails the build if the palette does not list it. The only
+bindings exempt are the ones that are not commands at all: cursor movement
+(`j`/`k`, `d`/`u`, `PgDn`/`PgUp`, `g`/`G`), panel scrolling (`Alt+U`/`Alt+D`),
+`Esc` dismissing an error banner, and `Ctrl+P` itself. A second guard test pins
+that exempt list.
+
+The converse does not hold: plenty of commands are palette-only. The palette is
+the parent set.
+
 Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
 1. **Unconditional quit:** `Ctrl+Q` exits even while a modal is open.
-2. **Modal overlays:** a captive modal (help, sync log, palette, confirmation,
-   brain input, session rename picker or input, link picker, or assignee filter)
-   consumes the key before any panel accelerator.
+2. **Modal overlays:** a captive modal (help, sync log, the command palette,
+   the task or entry target picker, confirmation, brain input, session rename
+   picker or input, link picker, or assignee filter) consumes the key before any
+   panel accelerator.
 3. **App-level accelerators:** Esc dismisses a pending error banner before
    reaching a panel. `Ctrl+X` closes the selected user session,
    `Ctrl+N` starts a new conversation, `Alt+S` opens help, `Alt+H/L` moves focus,
@@ -39,7 +60,8 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Alt+[` / `Alt+]` | Cycle the brain-panel tab (previous / next): **main** session ↔ each open additional tab | Manual, skill-session, and receiver-run tabs share one stable insertion order, which also drives `Alt+1` / `Alt+<n>` slots and the rendered tab strip. At most one receiver-run tab is live in a workspace process, and its insertion never invokes selection. The reliable bracket switch resolves as Alt-modified brackets or the macOS Option smart-quote glyphs. On macOS layouts that send an Option-produced glyph (`¡`, `™`, `£`, …), that glyph addresses the same slot; an unoccupied slot selects nothing and the glyph remains ordinary panel input. From either panel |
 | `Ctrl+X` | Close the selected Additional manual or skill-session tab | From either panel. Main is permanent and ignores this action; receiver runs are removed only by their lifecycle owner. Closing an Additional manual session removes its saved mapping, while shell shutdown preserves mappings. |
 | `Alt+S` | Open the keyboard-shortcuts help modal | Replaces the old bare `?`; bound to `Alt+S` so a literal `?` still types into the brain-search filter. Distinct Meta sequence on every terminal |
-| `Ctrl+Q` | Unconditional quit | Intercepted before modals/panels; quits even from the brain panel or a modal. `0x11`, no kitty protocol needed |
+| `Ctrl+P` | Open the global command palette | Main-panel focus only, from any main view; in the brain panel it stays the agent's own binding |
+| `Ctrl+Q` | Unconditional quit | Intercepted before modals/panels; quits even from the brain panel or a modal. `0x11`, no kitty protocol needed. The palette's **Quit brain** row leaves through the same door |
 
 **Panel focus vs. view switching** are two different axes: `Alt+H/L` move
 *focus* between the main view and the brain panel; `Ctrl+H/L` change *which
@@ -51,13 +73,13 @@ OpenCode checks the selected workspace's live root session. Missing evidence
 starts fresh under the same Manual identity, without selecting another recent
 conversation.
 
-Both task and brain-search command palettes offer **Start new brain session**,
-**Rename session**, configured skill starts, and stable Show rows for open
-manual and skill tabs. Start immediately creates an Additional manual session
-named `<workspace>-<three random lowercase letters>`. **Show main brain
-session** and **Close a brain session** appear only while an Additional manual
-or Skill session is open. Receiver tabs have no Show row. No session row adds
-a direct shortcut annotation.
+There is **one** command palette, shared by every main view. It offers
+**Start new brain session**, **Rename session**, **Close a brain session**,
+**Start a new conversation in this session**, **Show main brain session**,
+configured skill starts, and stable Show rows for open manual and skill tabs.
+Start immediately creates an Additional manual session named
+`<workspace>-<three random lowercase letters>`. Receiver tabs have no Show row.
+No per-session row adds a direct shortcut annotation.
 
 The Rename and Close pickers accept Up/Down and `Ctrl+K`/`Ctrl+J` navigation.
 Both place actionable rows first and disabled rows last. Rename advances only
@@ -98,16 +120,17 @@ startup default.
 | `Ctrl+Backspace` | Remove the selected task (confirm modal) — tasks only. Bare Backspace is a no-op |
 | `Ctrl+O` | Open the selected entry's links (Linear issue + notes URLs) |
 | `Ctrl+Enter` | Open the task actions modal (mainly for search mode) |
-| `Ctrl+P` | Open the command palette (global + task commands, including the dynamic **Enable receiver** / **Disable receiver** action) |
+| `Ctrl+P` | Open the global command palette (every command brain has) |
 | `Ctrl+Shift+M` | Brain-input modal seeded with the selected task as context |
 | `Ctrl+A` | Open today's agenda (offers to generate it when missing) |
 | `q` / `Esc` | Quit (Esc clears an active filter first). Also `Ctrl+C` |
 
-`Ctrl+P`, `Ctrl+A`, `Ctrl+Shift+M`, and the task actions are **tasks-view
-only** (gated on `main_view == Tasks`). Opening today's habits page in the
-browser is now the palette's **"Open habits in browser"** row (served by the
-bundled brain server; the old `Ctrl+H` binding became the cycle-view
-accelerator).
+`Ctrl+P`, `Ctrl+A`, and `Ctrl+Shift+M` fire from any main view while the main
+panel has focus; the task actions modal and the bare-letter keys are tasks-view
+only. `Ctrl+Shift+M` with nothing highlighted asks which task, exactly as its
+palette row does. Opening today's habits page in the browser is the palette's
+**"Open habits in browser"** row (served by the bundled brain server; the old
+`Ctrl+H` binding became the cycle-view accelerator).
 
 ### Search mode (`/` active)
 
@@ -138,40 +161,65 @@ query.
 | `Ctrl+G` | Create a PDF from the highlighted `.md` file (green confirm modal) |
 | `Ctrl+D` | Delete the highlighted entry (red confirm modal → Trash) |
 | `Ctrl+R` | Refresh the list (re-walk the current scope, keep the query) |
-| `Ctrl+P` | Open the brain-search command palette (rescope, layout, receiver enablement, message brain, open tasks, PDF/delete/open, copy file or directory path) |
+| `Ctrl+P` | Open the global command palette (the same one every view opens) |
 | `Esc` / `Ctrl+C` | Quit the shell |
 
-`Tab` / `Shift+Tab` do nothing here (no sub-views). The brain-search palette
-(`menu/`) is separate from the tasks palette; its own confirm overlays
-(PDF / delete) are captive while open.
+`Tab` / `Shift+Tab` do nothing here (no sub-views). Each direct key above
+resolves the highlighted path and hands it to the same `EntryCommand` the
+palette row runs, so the two can't drift; the PDF / delete confirm overlays are
+captive while open.
 
 The palette's rescope rows cover every bucket: **Search capture** (the
 user-managed in-basket), **Search projects**, **Search areas**, **Search
 resources**, and **Search archive**, plus **Global search**, which restores all
 five. None of them has a direct keystroke, so none carries a gray `[…]` hint.
+Choosing one brings the brain-directory view forward, since the rescope is
+otherwise invisible.
 
 ## Modals
 
 Shared across the app; a captive modal consumes all input.
 
-- **Help** (`Alt+S`) — the `shortcuts::ALL` reference, grouped. `j/k`, `PgUp/PgDn`, `g`, `?`/`q`/`Esc` close.
+- **Help** (`Alt+S`, or the palette's **Show keyboard shortcuts** row) — the
+  `shortcuts::ALL` reference, grouped by surface (Navigation, Views, Task
+  actions, Brain directory, Brain panel, Search, Global). Sized to the terminal
+  (a ~10% gutter, 70–112 columns) so descriptions don't wrap to ribbons.
+  `j/k`, `PgUp/PgDn`, `g`, `?`/`q`/`Esc` close.
 - **Sync log** (palette: **Show sync status**) — tails the running sync's live
   transcript, re-read every frame. Says "No sync is running right now." when
   there is none; an earlier run's log is not shown. `j`/`k` scroll, `g` jumps to
   the start, `G` returns to following the tail, `PgUp`/`PgDn` page, `q`/`Esc`
   close. Captive over every modal except help.
-- **Command palette** (`Ctrl+P`, tasks view) — filterable; numbered rows;
-  `Enter` runs, `Esc` closes. In `--verbose` TUI runs it includes **Show
-  logs**, which asks whether to reveal the timestamped `/tmp` log file. It
-  also includes the selected workspace's dynamic **Enable receiver** or
-  **Disable receiver** action, **Sync brain now**, **Show sync status** (opens a modal tailing the live sync log; `j`/`k` scroll, `G` follows the tail, `Esc` closes), and a
-  **Disable/Enable daily triage alert** toggle (the session-scoped counterpart
-  to the portable `enable_daily_triage_check` config variable), all with no
-  direct shortcut. In a shared
-  workspace it also includes **Add task** and **Filter by assignee**; both are
-  intentionally palette-only.
-- **Task actions** (`Enter` on a task): per-task command list. Shared
-  workspaces add the palette-only **Reassign this task** row.
+- **Command palette** (`Ctrl+P`, any main view) — filterable; numbered rows;
+  `Enter` runs, `Esc` closes; the list scrolls to keep the selection visible.
+  It is the **parent set of every command**: task commands, brain-directory
+  commands, view switches, session commands, the workspace toggles
+  (**Enable/Disable receiver**, **Disable/Enable daily triage alert**),
+  **Sync brain now**, **Show sync status**, **Show keyboard shortcuts**, and
+  **Quit brain** are all listed no matter which view is showing. The set never
+  changes with app state — only each row's wording does:
+  - A command whose target is already highlighted names it: *Mark T123 as
+    complete*, *Delete 'plan.md'*.
+  - A command whose target is missing reads generically: *Mark a task as
+    complete*, *Delete a file or directory*. Running it opens a picker for the
+    target first (see below), then does exactly what the named row would.
+  The only rows a workspace can lack are the assignment controls (**Add task**,
+  **Filter by assignee**, **Reassign**), which a single-member workspace has no
+  use for. That is a workspace capability, not app state.
+- **Task target picker** (a task command with nothing highlighted) — a
+  filterable list of every task (and habit, when the command accepts one),
+  matched on ID or name. `Enter` runs the pending command on the chosen row,
+  `Esc` abandons it.
+- **Entry target picker** (a brain-directory command with nothing highlighted)
+  — the same fuzzy picker the brain-directory view uses, boxed as a modal. Type
+  to filter, `↑`/`↓` or `Ctrl+K`/`Ctrl+J` to move, `Enter` to run the pending
+  command on the chosen path, `Esc` to abandon. A chosen entry that can't
+  satisfy the command (a directory for *Copy a file's path*, a non-markdown
+  file for *Create a PDF*) is refused with a message rather than acted on.
+- **Task actions** (`Enter` on a task): the palette's task rows, already bound
+  to that entry, so their labels drop the ID the title carries. Unlike the
+  global palette it hides commands the entry can't take — a habit shows no
+  defer or remove row — because it is already committed to one row.
 - **Confirm** — Yes/No (the daily-triage nudge adds **Skip**, which marks today's
   Morning Triage habit done deterministically in-process — no agent). `y`/`n`/`s`/`Esc`,
   `←`/`→`/`Tab` move, `Enter` resolves.

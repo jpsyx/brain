@@ -12,9 +12,10 @@ pub(super) mod tasks_view;
 pub(crate) use input::{half_page_step, handle_brain_key, handle_mouse, handle_session_tab_key};
 pub(crate) use logs::handle_logs_key;
 pub(crate) use overlay::{
-    handle_assignee_filter_key, handle_brain_input_key, handle_confirm_key, handle_help_key,
-    handle_link_picker_key, handle_manual_session_rename_key, handle_palette_key,
-    handle_session_close_picker_key, handle_session_rename_picker_key, handle_sync_log_key,
+    handle_assignee_filter_key, handle_brain_input_key, handle_confirm_key,
+    handle_entry_target_picker_key, handle_help_key, handle_link_picker_key,
+    handle_manual_session_rename_key, handle_palette_key, handle_session_close_picker_key,
+    handle_session_rename_picker_key, handle_sync_log_key, handle_task_target_picker_key,
 };
 pub(crate) use tasks_view::{TaskSearchEffect, handle_normal_key, handle_search_key};
 

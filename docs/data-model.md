@@ -98,26 +98,34 @@ enum DisplayRow { Header(Bucket, count), Match(usize) }
 
 ### Shell-owned search overlays
 
-`picker::App` owns no modal state. `ShellState` derives the contextual
-`menu::SearchPalette` or `confirm::Confirm` data from the highlighted picker
-entry, and the persistent shell stores that value in its single
-`Option<Overlay>`. The palette
-still adds a leading **"Create PDF for '…'"** row for a selected markdown file
-and a trailing **"Delete '…'"** row for any selected entry. Search confirmation
-holds the target `path`, a `ConfirmKind` (`Pdf` → green, defaults Yes; `Delete`
-→ red, defaults No), and the highlighted button. On `Accept`, Pdf converts the
-file in place and Delete trashes it; the picker refreshes and the shell stays
-open.
+`picker::App` owns no modal state. `ShellState` derives the highlighted entry's
+`palette::EntryContext` (filename, bucket-relative directory, and whether it is
+a file / markdown) and `confirm::Confirm` data, and the persistent shell stores
+the resulting overlay in its single `Option<Overlay>`. The entry context is what
+lets an entry row read **"Create PDF for 'plan.md'"** or **"Delete 'plan.md'"**
+instead of its generic wording, and what decides whether the command can run
+without a picker. Search confirmation holds the target `path`, a `ConfirmKind`
+(`Pdf` → green, defaults Yes; `Delete` → red, defaults No), and the highlighted
+button. On `Accept`, Pdf converts the file in place and Delete trashes it; the
+picker refreshes and the shell stays open.
 
-At palette open, App supplies both task `TaskPalette` and search `Targets` with
-the same `Vec<SessionPaletteEntry>` projection from
-`BrainPanelState::user_session_rows()`. Each entry holds a `SessionTabId` and
-title for an open Manual or Skill tab. The shared session catalog maps them to
-`GlobalAction::ShowSessionTab(id)`. It also adds the ID-free
-`GlobalAction::CloseSession` while this list is nonempty; display order and
-skill configuration indices never serve as action identities. Main's Show row
-is conditional on this list being nonempty, and Receiver contributes no Show
-entry.
+At palette open, `App::palette_context()` assembles one `PaletteContext`: the
+highlighted task (only while the tasks view is showing), the highlighted entry
+(only while the brain-directory view is showing), the workspace's assignment
+capabilities, the receiver and daily-triage toggles, the panel side, the
+runnable skill sessions, and the `Vec<SessionPaletteEntry>` projection from
+`BrainPanelState::user_session_rows()`. Each session entry holds a
+`SessionTabId` and title for an open Manual or Skill tab, and the catalog maps
+them to `GlobalAction::ShowSessionTab(id)`; display order and skill
+configuration indices never serve as action identities. Receiver contributes no
+Show entry. `GlobalAction::CloseSession` and `ShowMainBrainSession` are declared
+commands, always listed, whose pickers handle the no-other-tab case.
+
+`PaletteContext::task_target(command)` and `entry_target(command)` are the
+prerequisite check: they return the in-context target only when the view that
+owns it is showing *and* it satisfies the command (a habit is not a target for
+a tasks-only command, a directory is not one for "copy a file's path"). A `None`
+answer is what turns a row generic and routes it through a target picker.
 
 `SessionRenameEntry` projects every rendered brain-panel tab into the rename
 picker as an optional stable `SessionTabId`, title, and renameable flag. Main

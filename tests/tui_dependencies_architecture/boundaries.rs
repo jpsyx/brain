@@ -94,8 +94,13 @@ fn direct_global_shortcuts_cross_the_application_mediator() {
     assert_eq!(
         audit.mediated,
         BTreeSet::from([
+            "FocusBrainPanel".to_owned(),
+            "FocusMainPanel".to_owned(),
             "MessageBrain".to_owned(),
+            "NewConversation".to_owned(),
             "OpenAgenda".to_owned(),
+            "ShowBrainSearch".to_owned(),
+            "ShowShortcuts".to_owned(),
             "ShowTasks".to_owned(),
         ]),
         "every direct GlobalAction shortcut must appear at the event-loop mediator boundary"

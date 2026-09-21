@@ -72,8 +72,10 @@ These are deliberately distinct and use different modifiers:
 
 | Plain English | What it is | Code |
 | --- | --- | --- |
-| **command palette** | The filterable list of every command, opened with `Ctrl+P`. | `tui::palette::CommandPalette`; `menu::SearchPalette`; `tui::modal_state::TaskPalette` |
-| **task actions modal** | The per-task command list opened with `Enter` on a task. | `tui::modal_state::TaskPalette::new_task_actions` |
+| **command palette** | The one filterable list of **every** command, opened with `Ctrl+P` from any main view. The set never changes with app state; only each row's wording does. | `tui::palette::{Command, CommandPaletteState, catalog_rows}` |
+| **named row** / **generic row** | A palette row whose target is already highlighted ("Mark T123 as complete") versus one whose target is missing ("Mark a task as complete"). | `palette::command::naming::label_for` |
+| **target picker** | The "which task?" / "which file or directory?" modal a generic row raises before it runs. | `TaskTargetPicker`, `EntryTargetPicker`; `Overlay::{TaskTargetPicker, EntryTargetPicker}` |
+| **task actions modal** | The palette's task rows, bound to the entry `Enter` was pressed on, with the ID dropped from each label. | `CommandPaletteState::new_task_actions` |
 | **shortcuts modal** / **help** | The `Alt+S` keyboard-shortcuts reference. (Was bare `?` in `tasks`.) | `shortcuts::ALL`, `tui::draw_help` |
 | **status line `?` hint** | The dim `Alt+S  all shortcuts` pointer at the end of the compact footer. | `shortcuts::footer_subset`, footer renderer |
 | **confirm modal** | The Yes/No (or Yes/No/Skip) overlay for destructive or expensive actions. | `confirm` / `ConfirmState` |
@@ -81,7 +83,7 @@ These are deliberately distinct and use different modifiers:
 | **session rename picker** | The captive all-session list opened by Rename session. Only Additional manual rows advance; Main, Skill, and Receiver rows are marked not renameable. | `SessionRenamePickerState`; `Overlay::SessionRenamePicker` |
 | **session rename modal** | The captive single-line title input opened from a renameable picker row. It starts prefilled and keeps validation errors inline until Enter succeeds or Esc/Ctrl+C cancels. | `ManualSessionRenameState`; `Overlay::ManualSessionRename` |
 | **error banner** | Persistent failure feedback below both panels in every main view. Typing and navigation preserve it; Esc dismisses it after any active modal has closed. | `StatusState::error`; `tui::draw::error` |
-| **session palette entry** | A snapshot of an open manual or skill tab's stable ID and title, shared by the task and search palettes. Receiver tabs are excluded. | `SessionPaletteEntry`; `BrainPanelState::user_session_rows` |
+| **session palette entry** | A snapshot of an open manual or skill tab's stable ID and title, spliced into the palette after the session block. Receiver tabs are excluded. | `SessionPaletteEntry`; `BrainPanelState::user_session_rows` |
 | **link picker** | The numbered list of a task's openable links (`Ctrl+O`). | `LinkPickerState` |
 
 ## Infrastructure shared by both views

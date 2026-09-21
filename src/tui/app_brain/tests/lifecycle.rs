@@ -168,7 +168,7 @@ fn opencode_new_session_input_and_plugin_event_rotate_the_app_to_the_new_root() 
         .map(str::to_owned)
         .expect("pending frontend session");
 
-    assert!(app.handle_new_session_shortcut(KeyCode::Char('n'), true));
+    app.start_new_conversation();
     assert_eq!(recording.inputs(), [b"/new\r".to_vec()]);
     run_new_session_plugin_bridge(&app);
 

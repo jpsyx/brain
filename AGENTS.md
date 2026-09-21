@@ -68,9 +68,8 @@ is the source-of-truth for *how*. They must agree on *what*.
 | Module list, data flow, subcommand/main-view routing | `docs/architecture.md` |
 | User-visible behavior (main views, menu items, subcommands, picker/tasks behavior) | `docs/features.md` |
 | `Bucket` / `Entry`, the picker match model, the `Task`/sub-view model | `docs/data-model.md` |
-| A **tasks-view** keybinding | `docs/keybindings.md`, the `src/tasks/shortcuts.rs` table (footer + help modal), `compact_footer_line` in `src/tasks/render/chrome.rs`, **and** (if it's also a palette / task-action row) `shortcut_for` in `src/tui/palette/command.rs` |
-| A **main-view-switch** or app-level keybinding (`Ctrl+H/L/T/B`, `Alt+S`) | `docs/keybindings.md`, the pure classifiers in `src/main_view.rs`, and the Global rows in `src/tasks/shortcuts.rs` |
-| A **brain-search-view** keybinding or menu row | `docs/keybindings.md`, `src/menu/model.rs` (`items` + `shortcut_for`), `src/tui/search_view.rs` |
+| **Any keyboard shortcut** (tasks view, brain directory, or app-level) | `docs/keybindings.md`, the `src/tasks/shortcuts/` table — including each row's `commands` field, which the parity guard test reads — `compact_footer_line` in `src/tasks/render/chrome.rs`, the pure classifiers in `src/main_view.rs` / `src/tui/keymap.rs`, **and** the matching palette command (see the shortcut-parity rule below) |
+| **A command-palette command** (the `Command` vocabulary, the catalog order, a row's wording, or what a command needs before it runs) | `docs/keybindings.md` + `docs/features.md`, `src/tui/palette/command/` (`mod` for the vocabulary, `catalog` for the order, `naming` for the wording, `labels` for elision), `src/tui/palette/context.rs` for target resolution, and `src/tui/app_actions/` for what running it does |
 | How the brain panel launches Claude, Codex, OpenCode, or pi (`claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`, frontend selectors), or the file-open / Finder path | `docs/integrations.md` (controller/adapters in `src/agent/`; compatibility builders in `src/session.rs`; agent commands in `src/env/`; openers in `src/open_target.rs`) |
 | The session-start/session-stop bridges, frontend registry, frontend-neutral state DB schema, or `BRAIN_*` env | `docs/integrations.md`, `scripts/{agent_session_start_hook,agent_session_stop_hook}.py`, `scripts/opencode_brain_plugin.js`, `scripts/pi_brain_extension.ts`, `src/agent/registry.rs`, `src/agent/registry/contract.rs`, `src/command/server/receiver/hooks.rs`, `src/state.rs` |
 | Brain-config schema, the `brain config` command, or the config dir location (`<brain-root>/.config/`) | `docs/config.md` (store + schema in `src/settings/`; typed knobs in `src/config.rs`) |
@@ -252,14 +251,42 @@ users in `skills/`.)
   instead of a catch-all fake process, server, builder, or support module.
   Don't split a file that's already cohesive just to hit a number; the
   400-line figure is a prompt to look, not a hard cap.
+- **Every shortcut has a command-palette command. No exceptions.** "Hotkey"
+  and "shortcut" mean the same thing (a keyboard shortcut), and I use the two
+  words interchangeably when giving you instructions; read either as this rule's
+  subject. When I ask you to add or change one, adding the matching palette
+  command is *part of that request*, not a follow-up: a key that does something
+  the palette cannot do is a bug. Concretely, in the same change:
+  - declare the action in the `Command` vocabulary (`src/tui/palette/command/`)
+    and place it in the catalog (`catalog.rs`) with its wording (`naming.rs`);
+  - add its row to `src/tasks/shortcuts/table.rs`, naming the `Command`(s) it
+    runs in that row's `commands` field; the guard test beside it fails the
+    build if the palette does not list them;
+  - route the key handler through `App::execute_command` /
+    `App::execute_global_action` rather than reimplementing the action inline,
+    so the key and the row can never drift;
+  - update `docs/keybindings.md` and `docs/features.md`.
+
+  The **only** bindings that may carry an empty `commands` list are the ones
+  that are not commands at all: cursor movement, paging, scrolling, and input
+  typed into a captive modal. Each one says so in its own `desc`, and a second
+  guard test pins that exempt list, so widening it is a deliberate edit.
+- **The command palette is the parent set of every command.** It lists every
+  command in every context; what changes with app state is a row's *wording*
+  and what running it does first, never whether the row is there. A command
+  that needs a target it does not have (a task, a brain-directory entry) opens
+  a picker for that target instead of being hidden or doing nothing. See
+  `PaletteContext::task_target` / `entry_target` and `src/tui/palette/target.rs`.
+  The one permitted omission is a capability the *workspace* does not have (the
+  assignment controls of a single-member workspace), which is not app state.
+  When you add a command that acts on something, give it a target kind and a
+  picker rather than a visibility predicate.
 - **Keep the dimmed shortcut annotation in sync with the binding.** Every
-  command palette row that has a direct keystroke shows it as a gray `[…]`
-  hint, driven by `shortcut_for` in `src/menu/model.rs`. Whenever you add or
-  change a keybinding for an action that also appears in the palette,
-  update `shortcut_for` in the same change so the gray hint matches the
-  real binding. If I tell you a new (or changed) action's shortcut is
-  `[abc]`, register `[abc]` in `shortcut_for` as part of the work. Don't
-  make me ask for it.
+  palette row with a direct keystroke shows it as a gray `[…]` hint, driven by
+  `shortcut_for` in `src/tui/palette/command/mod.rs`. Whenever you add or change
+  a keybinding, update that in the same change so the hint matches the real
+  binding. If I tell you a new (or changed) action's shortcut is `[abc]`,
+  register `[abc]` there as part of the work. Don't make me ask for it.
 - **Comments only when the *why* is non-obvious.** The function name and
   the docs cover the *what*.
 - **Terminal output always prioritizes aesthetics and user-friendliness.**
@@ -392,7 +419,6 @@ palette is the same decision as `brain config set …`, so it survives a restart
 and reaches the workspace's other machines. Write the store *and* the live field
 in one action, and if the write fails, keep honoring it for the running session
 while saying so — silently degrading a persistent choice to a session-only one is
-the surprise this rule exists to prevent. Keep the palette label
-registered in both palette surfaces (`src/tui/palette/` and, for global rows,
-`src/menu/model.rs`) and the docs (`docs/features.md`, `docs/keybindings.md`) in
-sync, per the docs contract.
+the surprise this rule exists to prevent. Keep the palette label registered in
+the one palette catalog (`src/tui/palette/command/`) and the docs
+(`docs/features.md`, `docs/keybindings.md`) in sync, per the docs contract.

@@ -1,23 +1,27 @@
 //! The shell's single modal owner and its explicit state transitions.
 
 use crate::confirm::Confirm;
-use crate::menu::SearchPalette;
 use crate::tui::modal_state::{
     AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
     ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
-    TaskPalette,
 };
+use crate::tui::palette::{CommandPaletteState, EntryTargetPicker, TaskTargetPicker};
 
 /// The only modal state the shell can represent. Each variant owns exactly the
 /// data its input and draw routes need.
 pub(crate) enum Overlay {
-    TaskPalette(TaskPalette),
+    /// The global command palette *and* the task actions modal: one state,
+    /// which of the two is open is a flag on it.
+    CommandPalette(CommandPaletteState),
+    /// A task command asking which task to run on.
+    TaskTargetPicker(TaskTargetPicker),
+    /// An entry command asking which file or directory to run on.
+    EntryTargetPicker(EntryTargetPicker),
     BrainInput(BrainInputState),
     ManualSessionRename(ManualSessionRenameState),
     SessionClosePicker(SessionClosePickerState),
     SessionRenamePicker(SessionRenamePickerState),
     TaskConfirmation(ConfirmState),
-    SearchPalette(SearchPalette),
     SearchConfirmation(Confirm),
     LinkPicker(LinkPickerState),
     AssigneeFilter(AssigneeFilterState),
@@ -25,16 +29,35 @@ pub(crate) enum Overlay {
     SyncLog(SyncLogState),
 }
 
+impl Overlay {
+    /// The link-picker's highlighted URL, when a link picker is what's open.
+    pub(crate) fn picked_link_url(&self) -> Option<&str> {
+        match self {
+            Self::LinkPicker(picker) => picker.selected_url(),
+            _ => None,
+        }
+    }
+
+    /// The confirm modal's focused button, when a confirm modal is open.
+    pub(crate) fn confirm_focus(&self) -> Option<crate::tui::modal_state::ConfirmChoice> {
+        match self {
+            Self::TaskConfirmation(confirm) => Some(confirm.focus),
+            _ => None,
+        }
+    }
+}
+
 /// Input destination derived from the active overlay variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModalInput {
-    TaskPalette,
+    CommandPalette,
+    TaskTargetPicker,
+    EntryTargetPicker,
     BrainInput,
     ManualSessionRename,
     SessionClosePicker,
     SessionRenamePicker,
     TaskConfirmation,
-    SearchPalette,
     SearchConfirmation,
     LinkPicker,
     AssigneeFilter,
@@ -45,13 +68,14 @@ pub(crate) enum ModalInput {
 
 pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
     match active {
-        Some(Overlay::TaskPalette(_)) => ModalInput::TaskPalette,
+        Some(Overlay::CommandPalette(_)) => ModalInput::CommandPalette,
+        Some(Overlay::TaskTargetPicker(_)) => ModalInput::TaskTargetPicker,
+        Some(Overlay::EntryTargetPicker(_)) => ModalInput::EntryTargetPicker,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
         Some(Overlay::ManualSessionRename(_)) => ModalInput::ManualSessionRename,
         Some(Overlay::SessionClosePicker(_)) => ModalInput::SessionClosePicker,
         Some(Overlay::SessionRenamePicker(_)) => ModalInput::SessionRenamePicker,
         Some(Overlay::TaskConfirmation(_)) => ModalInput::TaskConfirmation,
-        Some(Overlay::SearchPalette(_)) => ModalInput::SearchPalette,
         Some(Overlay::SearchConfirmation(_)) => ModalInput::SearchConfirmation,
         Some(Overlay::LinkPicker(_)) => ModalInput::LinkPicker,
         Some(Overlay::AssigneeFilter(_)) => ModalInput::AssigneeFilter,
@@ -85,22 +109,21 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::confirm::Confirm;
-    use crate::menu::{SearchPalette, Targets, items};
-    use crate::state::PanelSide;
-    use crate::tui::links::LinkKind;
     use crate::tui::modal_state::{
         AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
         ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
-        TaskPalette,
     };
     use crate::tui::model::SessionTabId;
     use crate::tui::overlay::{
         ModalInput, Overlay, close_overlay, modal_input_target, open_overlay, replace_overlay,
     };
-    use crate::tui::palette::PaletteControls;
+    use crate::tui::palette::{
+        CommandPaletteState, EntryCommand, EntryTargetPicker, PaletteContext, TaskCommand,
+        TaskTargetPicker,
+    };
 
-    fn task_palette() -> Overlay {
-        Overlay::TaskPalette(TaskPalette::new(None, false, false, false, LinkKind::None))
+    fn command_palette() -> Overlay {
+        Overlay::CommandPalette(CommandPaletteState::new(&PaletteContext::default()))
     }
 
     #[test]
@@ -163,7 +186,21 @@ mod tests {
     #[test]
     fn every_data_bearing_variant_routes_by_its_enum_identity() {
         let cases = [
-            (task_palette(), ModalInput::TaskPalette),
+            (command_palette(), ModalInput::CommandPalette),
+            (
+                Overlay::TaskTargetPicker(TaskTargetPicker::new(
+                    TaskCommand::MarkComplete,
+                    Vec::new(),
+                )),
+                ModalInput::TaskTargetPicker,
+            ),
+            (
+                Overlay::EntryTargetPicker(EntryTargetPicker::new(
+                    EntryCommand::Delete,
+                    crate::picker::App::new(&[], ""),
+                )),
+                ModalInput::EntryTargetPicker,
+            ),
             (
                 Overlay::BrainInput(BrainInputState::about("T1".to_owned(), "Task".to_owned())),
                 ModalInput::BrainInput,
@@ -186,15 +223,6 @@ mod tests {
             (
                 Overlay::TaskConfirmation(ConfirmState::generate_agenda()),
                 ModalInput::TaskConfirmation,
-            ),
-            (
-                Overlay::SearchPalette(SearchPalette::new(
-                    "Command palette",
-                    None,
-                    items(PanelSide::Right, true, &Targets::default()),
-                    PaletteControls::SEARCH,
-                )),
-                ModalInput::SearchPalette,
             ),
             (
                 Overlay::SearchConfirmation(Confirm::pdf(PathBuf::from("plan.md"))),

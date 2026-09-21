@@ -65,10 +65,6 @@ impl TasksState {
         self.selected_task().is_some_and(Task::is_habit)
     }
 
-    pub(crate) fn current_task_id(&self) -> Option<String> {
-        self.selected_task().map(|task| task.id.clone())
-    }
-
     pub(crate) fn toggle_notes(&mut self) {
         let Some(task) = self.selected_task() else {
             return;

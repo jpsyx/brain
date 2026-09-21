@@ -5,32 +5,24 @@
 
 use std::path::PathBuf;
 
-use crate::menu;
 use crate::open_target;
-use crate::tui::palette::{CommandPalette, PaletteControls};
+use crate::tui::palette::EntryContext;
 
 use super::App;
 
 impl App {
-    pub(crate) fn search_palette(
-        &self,
-        side: crate::state::PanelSide,
-        include_msg: bool,
-        runtime_targets: menu::Targets,
-    ) -> menu::SearchPalette {
-        let targets = menu::Targets {
-            pdf: self.selected_markdown_filename(),
-            open_file: self.selected_file_filename(),
-            open_dir: self.selected_dir_reldisplay(),
-            delete: self.selected_filename(),
-            ..runtime_targets
-        };
-        CommandPalette::new(
-            "Command palette",
-            None,
-            menu::items(side, include_msg, &targets),
-            PaletteControls::SEARCH,
-        )
+    /// The highlighted entry as the palette's contextual target: the wording
+    /// it lends each entry row, plus what kind of thing it is so a command
+    /// that needs a file (or a markdown file) knows whether this one will do.
+    pub(crate) fn selected_entry_context(&self) -> Option<EntryContext> {
+        let path = self.selected_path()?;
+        let is_file = path.is_file();
+        Some(EntryContext {
+            filename: self.selected_filename()?,
+            dir_reldisplay: self.selected_dir_reldisplay().unwrap_or_default(),
+            is_file,
+            is_markdown: is_file && open_target::is_markdown(&path),
+        })
     }
 
     /// The absolute path of the highlighted entry when it is a markdown file,
@@ -42,6 +34,7 @@ impl App {
 
     /// The filename (not the full path) of the highlighted markdown entry, for
     /// the palette row label.
+    #[cfg(test)]
     pub(crate) fn selected_markdown_filename(&self) -> Option<String> {
         self.selected_markdown_path()?
             .file_name()
@@ -54,17 +47,6 @@ impl App {
         self.selected_path()?
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-    }
-
-    /// The filename of the highlighted entry when it is a **file**, for the
-    /// contextual "Open file '…'" palette row. `None` for a directory (there's
-    /// no file to open) so the row is suppressed.
-    pub(crate) fn selected_file_filename(&self) -> Option<String> {
-        let path = self.selected_path()?;
-        if !path.is_file() {
-            return None;
-        }
-        path.file_name().map(|n| n.to_string_lossy().into_owned())
     }
 
     /// The highlighted entry's directory as a bucket-relative display path
@@ -81,16 +63,6 @@ impl App {
         } else {
             parent_reldisplay(&rel)
         })
-    }
-
-    /// Build the "Create PDF" confirmation data for shell ownership.
-    pub(crate) fn pdf_confirmation(path: PathBuf) -> crate::confirm::Confirm {
-        crate::confirm::Confirm::pdf(path)
-    }
-
-    /// Build the red "Delete" confirmation data for shell ownership.
-    pub(crate) fn delete_confirmation(path: PathBuf) -> crate::confirm::Confirm {
-        crate::confirm::Confirm::delete(path)
     }
 
     pub(crate) fn selected_path(&self) -> Option<PathBuf> {

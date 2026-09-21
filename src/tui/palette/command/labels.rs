@@ -82,7 +82,7 @@ fn truncate_label_dir(rel: &str, max: usize) -> String {
 /// The "Create PDF" row label for a given markdown filename, with the
 /// filename elided if it would overflow the palette row.
 #[must_use]
-pub fn create_pdf_label(filename: &str) -> String {
+pub(crate) fn create_pdf_label(filename: &str) -> String {
     format!(
         "Create PDF for '{}'",
         truncate_label_filename(filename, LABEL_MAX_FILENAME)
@@ -92,7 +92,7 @@ pub fn create_pdf_label(filename: &str) -> String {
 /// The "Open file" row label for a given filename, elided with the same
 /// threshold and head+tail logic as the "Create PDF" row.
 #[must_use]
-pub fn open_file_label(filename: &str) -> String {
+pub(crate) fn open_file_label(filename: &str) -> String {
     format!(
         "Open file '{}'",
         truncate_label_filename(filename, LABEL_MAX_FILENAME)
@@ -102,14 +102,43 @@ pub fn open_file_label(filename: &str) -> String {
 /// The "Open dir" row label for a bucket-relative directory path, elided with
 /// the middle-ellipsis path logic.
 #[must_use]
-pub fn open_dir_label(rel_dir: &str) -> String {
+pub(crate) fn open_dir_label(rel_dir: &str) -> String {
     format!("Open dir '{}'", truncate_label_dir(rel_dir, LABEL_MAX_DIR))
+}
+
+/// The "Reveal in Finder" row label for a bucket-relative directory path.
+/// Worded differently from [`open_dir_label`] because the two commands can
+/// both target a directory and must stay tellable apart in one list.
+#[must_use]
+pub(crate) fn reveal_dir_label(rel_dir: &str) -> String {
+    format!(
+        "Reveal '{}' in Finder",
+        truncate_label_dir(rel_dir, LABEL_MAX_DIR)
+    )
+}
+
+/// The "copy this file's path" row label for a given filename.
+#[must_use]
+pub(crate) fn copy_file_path_label(filename: &str) -> String {
+    format!(
+        "Copy path to '{}'",
+        truncate_label_filename(filename, LABEL_MAX_FILENAME)
+    )
+}
+
+/// The "copy this directory's path" row label for a bucket-relative path.
+#[must_use]
+pub(crate) fn copy_dir_path_label(rel_dir: &str) -> String {
+    format!(
+        "Copy path to '{}'",
+        truncate_label_dir(rel_dir, LABEL_MAX_DIR)
+    )
 }
 
 /// The "Delete" row label for a given filename, elided with the same
 /// threshold as the "Create PDF" row so the two contextual rows line up.
 #[must_use]
-pub fn delete_label(filename: &str) -> String {
+pub(crate) fn delete_label(filename: &str) -> String {
     format!(
         "Delete '{}'",
         truncate_label_filename(filename, LABEL_MAX_FILENAME)

@@ -87,13 +87,13 @@ session (including a normal agent exit) removes its saved mapping; quitting the
 shell preserves every mapping and releases each exact manual-session lock
 after shutting down all controllers.
 
-**Start and rename manual sessions.** Both task and brain-search command
-palettes offer **Start new brain session** immediately after **Message brain**.
+**Start and rename manual sessions.** The command palette offers **Start new
+brain session** immediately after **Message brain**.
 It starts a fresh Additional manual session immediately, without asking for a
 name. The title is the selected workspace's canonical name, a hyphen, and three
 random lowercase letters, such as `brain-abc` or `family-xyz`.
 
-Both palettes also offer **Rename session**. Its picker lists Main and every
+It also offers **Rename session**. Its picker lists Main and every
 Additional tab. Main, Skill, and Receiver rows are dimmed, struck through, and
 marked `[not renameable]`; only Additional manual sessions can be selected.
 Selecting one opens a single-line input prefilled with its current title.
@@ -101,8 +101,8 @@ Enter saves the trimmed unique title, Backspace edits, `Ctrl+U` clears, and Esc
 or `Ctrl+C` cancels. Blank names and ASCII case-insensitive duplicates of
 Main's `Brain` title or another open manual title remain visible with an inline
 error. Renaming updates Brain's durable tab title without changing the native
-session identity tracked by Claude, Codex, OpenCode, or pi. Neither palette command
-has a direct shortcut annotation.
+session identity tracked by Claude, Codex, OpenCode, or pi. Neither row has a
+direct shortcut annotation.
 
 Manual-session launch, persistence, and close failures appear in a red error
 banner below both panels, visible in Tasks, Brain Search, and Logs. The message
@@ -154,15 +154,14 @@ twice. Several *different* skill sessions can run at once, each in its own tab.
 
 **Switching tabs.** Cycle with **`Alt+[`** / **`Alt+]`** (previous / next) from
 either panel; the panel shows a `1 Brain` · `2 Daily triage` · `3 Email triage` …
-strip while any additional tab is live, in the order tabs were opened. The **command
-palettes** in tasks and brain search carry **Show main brain session** while
-any manual or skill tab is open, followed by **Show <title> session** rows in
-stable tab order. They also carry one **Close a brain session** command while
-at least one manual or skill tab is open. It opens a picker containing every
-session: Additional manual and Skill sessions are closeable and appear first;
-Main and Receiver sessions appear last, dimmed and crossed out with a yellow
-`[not closeable]` annotation. The task-actions and logs palettes keep their
-existing scopes. (`Alt+1` selects the
+strip while any additional tab is live, in the order tabs were opened. The
+**command palette** carries **Show main brain session** followed by **Show
+<title> session** rows in stable tab order for each open manual or skill tab,
+plus **Next brain tab** / **Previous brain tab**. It always carries **Close a
+brain session**, which opens a picker containing every session: Additional
+manual and Skill sessions are closeable and appear first; Main and Receiver
+sessions appear last, dimmed and crossed out with a yellow `[not closeable]`
+annotation. (`Alt+1` selects the
 main session and `Alt+<n>` the nth additional tab directly too, but terminal
 `Alt+digit` handling is unreliable, so the bracket cycle and palette rows are the
 dependable paths.)
@@ -316,76 +315,99 @@ open in a **new iTerm2 tab**, everything else hands off to the system
 
 ## The command palette (`Ctrl-p`)
 
-The full list of things `brain` can do lives in the **command palette**,
-opened with `Ctrl-p`. It opens as a **modal overlay** on top of the current
-search, so pressing `Esc` (or `Ctrl-c`) just closes it and drops you back
-where you were — it does **not** exit `brain`. Its rows, in order (rows with
-a direct keystroke show it dimmed in `[…]`):
+**Everything `brain` can do is in the command palette**, opened with `Ctrl-p`
+from any main view. It is a **modal overlay** on top of whatever you were
+doing, so `Esc` (or `Ctrl-c`) just closes it and drops you back where you were;
+it does **not** exit `brain`.
 
-- **Create PDF for '<file>'** `[^G]` — convert the highlighted markdown file
-  to a colocated same-name PDF and open it. **Shown only when a `.md` file is
-  highlighted**, where it leads the list (default-selected) so the palette
-  opens ready to run it; a long filename is elided in the label
-  (`Create PDF for 'really-long-na...md'`). See "Create a PDF from markdown"
-  below.
-- **Open file '<file>'** `[↵]` — open the highlighted file (text → a new
-  iTerm2 tab / `$EDITOR`; blob → system `open`), exactly what plain `Enter`
-  does in the picker. **Shown only when a file is highlighted** (a directory
-  has no file to open); a long filename is elided head+tail like the PDF row.
-- **Open dir '<dir>'** `[^↵]` — reveal the highlighted entry's directory
-  in Finder (a file → its parent dir, a directory → itself), exactly what
-  `Ctrl-Enter` does. **Shown whenever an entry is highlighted.** The label
-  never shows the absolute path or the filename: it leads with the bucket
-  category (`capture/`, `projects/`, `areas/`, `resources/`, `archive/`) and,
-  when too long, elides the *middle* keeping the tail
-  (`resources/.../final/parts`).
-- **Copy path to directory** copies the highlighted entry's absolute directory
-  path to the clipboard. A file resolves to its parent directory; a directory
-  resolves to itself. **Shown whenever an entry is highlighted.**
-- **Copy path to file** copies the highlighted file's absolute path to the
-  clipboard. **Shown only when a file is highlighted.**
-1. **Message brain** `[^M]`: select and focus Main, launching it if unavailable.
-   Always present in both main-view palettes.
-2. **Start new brain session** immediately opens a workspace-named Additional
-   manual tab. **Rename session** opens the all-session picker. Configured
-   **Run** skill rows follow, then **Show main brain session** and paired
-   **Show** / **Close** rows for each open manual or skill tab.
-3. **Open tasks** `[^T]`: switch to the tasks main view (task management,
-   agenda, triage), in-process.
-4. **Search capture:** rescope search to the selected workspace's `capture/`
-   (the user's unfiled in-basket).
-5. **Search projects:** rescope search to the selected workspace's `projects/`.
-6. **Search areas:** rescope search to the selected workspace's `areas/`.
-7. **Search resources:** rescope search to the selected workspace's `resources/`.
-8. **Search archive:** rescope search to the selected workspace's `archive/` (retired material).
-9. **Global search**: search across capture, projects, areas, resources, and archive.
-10. **Enable receiver / Disable receiver** toggles persistent intent for the
-   selected workspace without starting or stopping the shared process.
-11. **Move brain panel to the left / right**: swap the layout (label names
-   the direction the panel would move).
-- **Delete '<file>'** `[^D]` — move the highlighted entry (file **or**
-  directory) to the Trash. **Shown whenever something is highlighted**, and it
-  **trails** the list (never default-selected) so a stray `Enter` on open
-  can't delete; the label is elided with the same threshold as the PDF row.
-  See "Delete an entry" below.
+Two rules define it:
 
-The search rows rescope the left panel **in place**; "Open tasks" switches
-to the tasks main view in-process (the same as `Ctrl-T`). The keystrokes
-(`Ctrl-g`, `Ctrl-d`, `Ctrl-m`, `Ctrl-t`) also fire directly without opening
-the palette first — `Ctrl-g` and `Ctrl-d` open a confirmation modal (see
-below); the rest run their action. `Ctrl-R` **refreshes** the search list
-(re-walks the current scope, keeping the query); the list also auto-refreshes
-after a PDF is created or an entry is deleted, so the change shows without a
-manual refresh.
+1. **The palette is the parent set of every command.** Every keyboard shortcut
+   has a palette row (see [keybindings.md](keybindings.md)), and plenty of
+   commands are palette-only. If `brain` can do it, it is in this list.
+2. **The list never changes with what you are looking at.** Task commands are
+   there from the brain directory; file commands are there from the tasks view.
+   What changes is how each row is *worded*, and what running it does first.
 
-The palette is a filterable text input: typing narrows the rows. Each
-row's matchable text includes its 1-based number, so you can type a digit
-(`6`), any word from the label (`message`), or several words (`search
-projects`) and the list narrows to the hits. Navigate the filtered list
-with ↑/↓, `Ctrl-k`/`Ctrl-j`, or `Ctrl-p`/`Ctrl-n`;
-`Backspace`/`Ctrl-u`/`Ctrl-w` edit the query; `Enter` runs the highlighted
-row (and exits the picker into that action); `Esc` or `Ctrl-c` closes the
-overlay and returns to the underlying search (no cd, no claude, no error).
+### Named rows and generic rows
+
+A command that needs something to act on (a task, a file, a directory) reads
+one of two ways:
+
+- **Named**, when the thing is already highlighted: *Mark T123 as complete*,
+  *Defer T123 +7d*, *Create PDF for 'plan.md'*, *Delete 'plan.md'*,
+  *Open dir 'projects/atlas'*. Running it acts on exactly that.
+- **Generic**, when it isn't: *Mark a task as complete*, *Defer a task +7d*,
+  *Create a PDF from a markdown file*, *Delete a file or directory*. Running it
+  **asks which one first**, then does exactly what the named row would.
+
+A long filename or path is elided in a named label so one row can't stretch the
+modal: a filename keeps its head and its full extension
+(`Create PDF for 'really-long-na...md'`), while a directory keeps its bucket
+category and drops the middle (`resources/.../final/parts`).
+
+The "ask which one" step is a picker of its own:
+
+- **Which task?** A filterable list of every task (and habit, where the command
+  accepts one), matched on ID or name. Habit-only rows never appear for a
+  tasks-only command like defer or remove.
+- **Which file or directory?** The same fuzzy brain-directory picker the search
+  view uses, boxed as a modal. Pick something the command can't use (a directory
+  for *Copy a file's path*, a non-markdown file for *Create a PDF*) and `brain`
+  says so rather than doing the wrong thing.
+
+`Esc` in either picker abandons the pending command.
+
+### What's in it
+
+- **Brain sessions.** *Message brain* `[^M]` selects and focuses Main,
+  launching it if unavailable; *Start new brain session* immediately opens a
+  workspace-named Additional manual tab; *Rename session* and *Close a brain
+  session* `[^X]` open the all-session pickers; *Start a new conversation in
+  this session* `[^N]`; *Show main brain session*, each configured skill-session
+  **Run** row, and a **Show** row per open manual or skill tab.
+- **Tasks.** *Add task*, *Start*, *Mark as complete* `[^D]`, *Message brain
+  about* `[^⇧M]`, *Expand / Collapse notes* `[l]`, *Open link* `[^O]`, *Remove*
+  `[^⌫]`, *Reassign*, *Defer +1d / +7d / +14d*, *Filter by assignee*, *Search
+  tasks* `[/]`, *Clear the task filters* `[Esc]`, *Reload tasks and habits*
+  `[r]`, and a row per sub-view (*Show today's tasks* `[t]`, *MIT* `[m]`,
+  *past-due* `[p]`, *this week's* `[w]`, *habits* `[h]`, *the backlog* `[b]`,
+  *all tasks* `[a]`).
+- **Brain directory.** *Open a file or directory* `[↵]`, *Reveal a directory in
+  Finder* `[^↵]`, *Copy a file's path*, *Copy a directory's path*, *Create a PDF
+  from a markdown file* `[^G]`, *Delete a file or directory* `[^D]`, the rescope
+  rows (*Search capture* for the unfiled in-basket, *Search projects*, *areas*,
+  *resources*, *archive*), *Global search* across all five, and *Refresh the
+  brain directory* `[^R]`.
+- **Views and layout.** *Show the tasks view* `[^T]`, *Show the brain
+  directory* `[^B]`, *Show brain logs*, *Move brain panel to the left / right*
+  (the label names the direction it would move), *Focus the brain panel* `[⌥L]`,
+  *Focus the main view* `[⌥H]`, *Next / Previous brain tab* `[⌥]` / `[⌥[`].
+- **Workspace.** *Open today's agenda* `[^A]`, *Open habits in browser*,
+  *Sync brain now*, *Show sync status*, *Enable / Disable receiver*, *Show
+  receiver server status*, *Show receiver logs*, *Disable / Enable daily triage
+  alert*, *Show keyboard shortcuts* `[⌥S]`, and *Quit brain* `[^Q]`.
+
+The only rows a workspace can be missing are the assignment controls (*Add
+task*, *Filter by assignee*, *Reassign*), which a single-member workspace has
+no use for. That is a property of the workspace, not of what you're looking at.
+
+A direct keystroke, where one exists, does the same thing without opening the
+palette: `Ctrl-g` and `Ctrl-d` on an entry open a confirmation modal (see
+below); the rest run their action. The list also auto-refreshes after a PDF is
+created or an entry is deleted, so the change shows without a manual refresh.
+
+### Driving it
+
+The palette is a filterable text input: typing narrows the rows. Each row's
+matchable text includes its 1-based number, and the words may come in any
+order, so you can type a digit (`6`), any word from the label (`message`), or
+several (`brain message`) and the list narrows to the hits. Navigate with ↑/↓,
+`Ctrl-k`/`Ctrl-j`, or `Ctrl-p`/`Ctrl-n` (the selection wraps at both ends);
+`Backspace`/`Ctrl-u`/`Ctrl-w` edit the query; `Enter` runs the highlighted row;
+`Esc` or `Ctrl-c` closes the overlay and returns you to where you were. The
+list scrolls to keep the selection visible, and the modal is sized to its
+widest row rather than a fixed width.
 
 ## Subcommands
 
@@ -2021,7 +2043,7 @@ Brain starts a push before delivering the reply.
 
 Receiver enablement is persistent workspace intent, separate from process and
 lease availability. `brain receiver start`, `brain receiver stop`, startup
-`--with-receiver`, and both command palettes share one transition and an exact
+`--with-receiver`, and the command palette share one transition and an exact
 canonical-name plus UUID registry transaction. A live shared process is
 notified by workspace UUID after persistence and reloads the authoritative
 record; no process is elected for a short-lived mutation. `brain receiver
@@ -2317,7 +2339,7 @@ is. Brain's guarantees about it are deliberately small:
   the in-basket, or one whose in-basket a tool pruned, gets it back on the
   next invocation.
 - **It is searchable.** The brain-directory view walks it like any other
-  bucket, and the search palette carries a **Search capture** row that
+  bucket, and the command palette carries a **Search capture** row that
   rescopes to it alone. Its contents are walked verbatim: spaces, capitals,
   and the user's own nesting are all preserved and matchable.
 - **Nothing else touches it.** Brain neither organizes, renames, nor prunes
@@ -2353,11 +2375,10 @@ list.
     Finder. The brain shell stays open in all cases.
   - `Ctrl-Enter` → **reveal in Finder**. Files resolve to their parent
     directory.
-- **Command palette**: `Ctrl-p` opens the top-level command palette (the
-  menu) as a modal overlay for any action `brain` can run; `Esc` closes it
-  back to the picker. Its contextual rows can copy the highlighted file path
-  or its directory path to the clipboard. The tasks-view palette includes
-  **Sync brain now**, which
+- **Command palette**: `Ctrl-p` opens the one command palette as a modal
+  overlay for any action `brain` can run; `Esc` closes it back to the picker.
+  Its entry rows name the highlighted file or directory, and can copy either
+  path to the clipboard. It includes **Sync brain now**, which
   kicks off a nonblocking background `brain sync`, plus **Show sync status**,
   which reports whether a sync is active. It also includes a
   **Show sync status**, which opens a modal tailing the running sync's live
@@ -2373,13 +2394,12 @@ list.
   workspace's other machines. Because a TUI can stay open across day
   rollovers, this flips the daily-triage nudge on or off for the current session
   without a persistent config change; enabling it re-checks immediately, so an
-  outstanding triage surfaces the modal at once. Both main-view palettes also
-  carry one **Run \<label\>** row per skill session the workspace offers (see
-  "Skill sessions" above), **Start new brain session**, and **Rename session**.
-  While a manual or skill tab is open, they also carry **Close a brain
-  session**, **Show main brain session**, and one **Show \<title\> session** row
-  per open manual or skill tab. None of these has a direct shortcut. Rename and
-  Close list actionable sessions first and disabled sessions last.
+  outstanding triage surfaces the modal at once. The palette also carries one
+  **Run \<label\>** row per skill session the workspace offers (see "Skill
+  sessions" above), **Start new brain session**, **Rename session**, **Close a
+  brain session**, **Show main brain session**, and one **Show \<title\>
+  session** row per open manual or skill tab. Rename and Close list actionable
+  sessions first and disabled sessions last.
 - **Cancel**: `Esc` / `Ctrl-c` exits with no action.
 
 See [keybindings.md](keybindings.md) for the complete key table including

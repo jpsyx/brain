@@ -1,29 +1,29 @@
 //! The brain-directory (fuzzy search) main view's key handling and actions.
 //!
 //! Ported from the pre-merge standalone brain shell. Drives the embedded
-//! `picker::App` (owned by `ShellState`) stores its query, navigation, and in-place file
-//! opening. Search palette and confirmation data live in the shell's single
-//! overlay slot. Only invoked while `main_view == MainView::BrainSearch`
-//! and the main panel is focused; the app-level chords (view switching,
-//! brain-panel open/close/new, `Alt+S` help, `Ctrl+Q` quit) are intercepted
-//! upstream in `event_loop` and never reach here.
+//! `picker::App` (owned by `ShellState`) and stores its query, navigation, and
+//! in-place file opening. Its direct keys resolve a path and hand it to the
+//! same [`EntryCommand`](crate::tui::palette::EntryCommand) the palette runs,
+//! so a shortcut and its palette row can never drift apart. Only invoked while
+//! `main_view == MainView::BrainSearch` and the main panel is focused; the
+//! app-level chords (view switching, brain-panel open/close/new, `Alt+S` help,
+//! `Ctrl+Q` quit) are intercepted upstream in `event_loop`.
 
 use std::path::Path;
 
 use crossterm::event::KeyEvent;
 
 use crate::entry::{self, Bucket};
-use crate::menu::SearchAction;
 use crate::open_target;
 use crate::tui::App;
-use crate::tui::overlay::{Overlay, close_overlay, open_overlay, replace_overlay};
-use crate::tui::palette::PaletteStep;
+use crate::tui::overlay::{Overlay, close_overlay, open_overlay};
+use crate::tui::palette::{CommandPaletteState, EntryCommand};
 use crate::tui::state::{SearchEffect, ShellState};
 use crate::{confirm, picker};
 
 impl App {
     /// Re-walk `roots` into the search picker, clearing the query (a scope
-    /// switch from the brain-search palette).
+    /// switch from the command palette).
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
         if let Ok(entries) = entry::collect(self.context.workspace_root(), roots) {
             self.shell.replace_search_entries(&entries);
@@ -52,7 +52,10 @@ pub(crate) fn all_bucket_roots(brain_root: &Path) -> Vec<(Bucket, std::path::Pat
     ]
 }
 
-fn single_bucket_root(brain_root: &Path, bucket: Bucket) -> Vec<(Bucket, std::path::PathBuf)> {
+pub(crate) fn single_bucket_root(
+    brain_root: &Path,
+    bucket: Bucket,
+) -> Vec<(Bucket, std::path::PathBuf)> {
     let dir = match bucket {
         Bucket::Capture => "capture",
         Bucket::Projects => "projects",
@@ -76,74 +79,27 @@ pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> b
     match effect {
         SearchEffect::None => {}
         SearchEffect::Quit => return true,
-        SearchEffect::Open(path) => open_selection(&path),
-        SearchEffect::Reveal(path) => reveal_in_finder(&path),
+        SearchEffect::Open(path) => app.run_entry_command(EntryCommand::Open, &path),
+        SearchEffect::Reveal(path) => app.run_entry_command(EntryCommand::Reveal, &path),
         SearchEffect::OpenPalette => {
-            app.refresh_receiver_enabled();
-            let palette = app.shell.search_palette(
-                app.receiver.is_enabled(),
-                app.runnable_skill_session_rows(),
-                app.brain.user_session_rows(),
+            let context = app.palette_context();
+            open_overlay(
+                &mut app.overlay,
+                Overlay::CommandPalette(CommandPaletteState::new(&context)),
             );
-            open_overlay(&mut app.overlay, Overlay::SearchPalette(palette));
         }
-        SearchEffect::ConfirmPdf(path) => {
-            let confirm = picker::App::pdf_confirmation(path);
-            open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
-        }
+        SearchEffect::ConfirmPdf(path) => app.run_entry_command(EntryCommand::CreatePdf, &path),
         SearchEffect::Refresh => app.search_refresh(),
-        SearchEffect::ConfirmDelete(path) => {
-            let confirm = picker::App::delete_confirmation(path);
-            open_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
-        }
+        SearchEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
     }
     false
 }
 
-pub(crate) fn route_search_palette(app: &mut App, k: &KeyEvent) {
-    let Some(Overlay::SearchPalette(palette)) = app.overlay.as_mut() else {
+pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
+    let Some(Overlay::SearchConfirmation(confirm)) = app.overlay.as_mut() else {
         return;
     };
-    match palette.handle_key(*k) {
-        PaletteStep::Continue => {}
-        PaletteStep::Cancel => {
-            close_overlay(&mut app.overlay);
-        }
-        PaletteStep::Confirm(action) => {
-            if action == SearchAction::Delete {
-                if let Some(path) = app.shell.selected_search_path() {
-                    let confirm = picker::App::delete_confirmation(path);
-                    replace_overlay(&mut app.overlay, Overlay::SearchConfirmation(confirm));
-                } else {
-                    close_overlay(&mut app.overlay);
-                }
-                return;
-            }
-            close_overlay(&mut app.overlay);
-            app.execute_search_action(action);
-        }
-    }
-}
-
-pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
-    let step = match app.overlay.as_mut() {
-        Some(Overlay::SearchConfirmation(confirm)) => confirm::handle_key(confirm, *k),
-        Some(
-            Overlay::TaskPalette(_)
-            | Overlay::BrainInput(_)
-            | Overlay::ManualSessionRename(_)
-            | Overlay::SessionClosePicker(_)
-            | Overlay::SessionRenamePicker(_)
-            | Overlay::TaskConfirmation(_)
-            | Overlay::SearchPalette(_)
-            | Overlay::LinkPicker(_)
-            | Overlay::AssigneeFilter(_)
-            | Overlay::Help(_)
-            | Overlay::SyncLog(_),
-        )
-        | None => return,
-    };
-    match step {
+    match confirm::handle_key(confirm, *k) {
         confirm::Step::Continue => {}
         confirm::Step::Cancel => {
             close_overlay(&mut app.overlay);
@@ -162,63 +118,7 @@ pub(crate) fn route_search_confirm(app: &mut App, k: &KeyEvent) {
     }
 }
 
-impl App {
-    fn execute_search_action(&mut self, action: SearchAction) {
-        match action {
-            SearchAction::Global(action) => self.execute_global_action(action),
-            SearchAction::CreatePdf => {
-                if let Some(path) = self.shell.selected_markdown_search_path() {
-                    create_pdf_inline(self, &path);
-                    self.search_refresh();
-                }
-            }
-            SearchAction::OpenFile => {
-                if let Some(path) = self.shell.selected_search_path() {
-                    open_selection(&path);
-                }
-            }
-            action @ (SearchAction::CopyFilePath | SearchAction::CopyDirPath) => {
-                if let Some(path) = self.shell.selected_search_path()
-                    && let Some(target) = clipboard_target(action, &path, path.is_file())
-                {
-                    let _ = open_target::copy_to_clipboard(target);
-                }
-            }
-            SearchAction::OpenDir => {
-                if let Some(path) = self.shell.selected_search_path() {
-                    reveal_in_finder(&path);
-                }
-            }
-            SearchAction::Delete => {}
-            SearchAction::SearchCapture => {
-                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Capture);
-                self.search_rescope(&roots);
-            }
-            SearchAction::SearchProjects => {
-                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Projects);
-                self.search_rescope(&roots);
-            }
-            SearchAction::SearchAreas => {
-                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Areas);
-                self.search_rescope(&roots);
-            }
-            SearchAction::SearchResources => {
-                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Resources);
-                self.search_rescope(&roots);
-            }
-            SearchAction::SearchArchive => {
-                let roots = single_bucket_root(self.context.workspace_root(), Bucket::Archive);
-                self.search_rescope(&roots);
-            }
-            SearchAction::GlobalSearch => {
-                let roots = all_bucket_roots(self.context.workspace_root());
-                self.search_rescope(&roots);
-            }
-        }
-    }
-}
-
-fn create_pdf_inline(app: &App, md: &Path) {
+pub(crate) fn create_pdf_inline(app: &App, md: &Path) {
     if let Ok(pdf) = open_target::create_pdf(app.context.command(), md) {
         let _ = open_target::open_with_system(&pdf);
     }
@@ -227,7 +127,7 @@ fn create_pdf_inline(app: &App, md: &Path) {
 /// Open a picked path without tearing down the shell: directories reveal in
 /// Finder, text files open in a new iTerm2 tab, everything else hands off to
 /// the system `open`. Best-effort — a failed spawn is silently ignored.
-fn open_selection(path: &Path) {
+pub(crate) fn open_selection(path: &Path) {
     if path.is_dir() {
         let _ = open_target::open_with_system(path);
     } else if open_target::is_textlike(path) {
@@ -237,17 +137,9 @@ fn open_selection(path: &Path) {
     }
 }
 
-fn reveal_in_finder(path: &Path) {
+pub(crate) fn reveal_in_finder(path: &Path) {
     let target = open_target::finder_target(path, path.is_file());
     let _ = open_target::open_with_system(target);
-}
-
-fn clipboard_target(action: SearchAction, path: &Path, is_file: bool) -> Option<&Path> {
-    match action {
-        SearchAction::CopyFilePath if is_file => Some(path),
-        SearchAction::CopyDirPath => Some(open_target::finder_target(path, is_file)),
-        _ => None,
-    }
 }
 
 /// Build the search picker for the brain-directory view over the full bucket
@@ -290,29 +182,6 @@ mod tests {
         assert_eq!(
             single_bucket_root(Path::new("/brain"), Bucket::Capture),
             vec![(Bucket::Capture, std::path::PathBuf::from("/brain/capture"))]
-        );
-    }
-
-    #[test]
-    fn clipboard_target_distinguishes_file_and_directory_paths() {
-        let file = Path::new("/brain/projects/atlas/plan.md");
-        let directory = Path::new("/brain/projects/atlas");
-
-        assert_eq!(
-            clipboard_target(SearchAction::CopyDirPath, file, true),
-            Some(directory)
-        );
-        assert_eq!(
-            clipboard_target(SearchAction::CopyDirPath, directory, false),
-            Some(directory)
-        );
-        assert_eq!(
-            clipboard_target(SearchAction::CopyFilePath, file, true),
-            Some(file)
-        );
-        assert_eq!(
-            clipboard_target(SearchAction::CopyFilePath, directory, false),
-            None
         );
     }
 }

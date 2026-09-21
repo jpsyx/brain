@@ -25,7 +25,7 @@ use crate::tui::draw_modals::{
     draw_brain_input, draw_confirm, draw_link_picker, draw_manual_session_rename,
     draw_session_close_picker, draw_session_rename_picker,
 };
-use crate::tui::draw_palette::draw_palette;
+use crate::tui::draw_palette::{draw_entry_target_picker, draw_palette, draw_task_target_picker};
 use crate::tui::draw_sync_log::draw_sync_log;
 use crate::tui::logs_view::draw_logs;
 use crate::tui::model::{Panel, SessionCloseKind};
@@ -101,25 +101,27 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     // The same enum that routes input selects the one modal drawn over both
     // panels. No precedence chain exists because simultaneous overlays cannot
     // be represented.
-    match app.overlay.as_ref() {
-        Some(Overlay::TaskPalette(state)) => draw_palette(f, state, area),
+    // Re-read every frame so the sync-log modal tails a running sync. Read
+    // before the overlay borrow so the two don't overlap.
+    let live_sync_log = matches!(app.overlay, Some(Overlay::SyncLog(_)))
+        .then(|| crate::sync::current::live_log(app.context.workspace().paths()))
+        .flatten();
+    match app.overlay.as_mut() {
+        Some(Overlay::CommandPalette(state)) => draw_palette(f, state, area),
+        Some(Overlay::TaskTargetPicker(state)) => draw_task_target_picker(f, state, area),
+        Some(Overlay::EntryTargetPicker(state)) => draw_entry_target_picker(f, state, area),
         Some(Overlay::BrainInput(state)) => draw_brain_input(f, state, area),
         Some(Overlay::ManualSessionRename(state)) => draw_manual_session_rename(f, state, area),
         Some(Overlay::SessionClosePicker(state)) => draw_session_close_picker(f, state, area),
         Some(Overlay::SessionRenamePicker(state)) => draw_session_rename_picker(f, state, area),
         Some(Overlay::TaskConfirmation(state)) => draw_confirm(f, state, area),
-        Some(Overlay::SearchPalette(state)) => crate::menu::draw_modal(f, state, main_area),
         Some(Overlay::SearchConfirmation(state)) => {
             crate::confirm::draw_modal(f, state, main_area);
         }
         Some(Overlay::LinkPicker(state)) => draw_link_picker(f, state, area),
         Some(Overlay::AssigneeFilter(state)) => draw_assignee_filter(f, state, area),
         Some(Overlay::Help(state)) => draw_help(f, state, area),
-        Some(Overlay::SyncLog(state)) => {
-            // Re-read every frame so the modal tails a running sync.
-            let live = crate::sync::current::live_log(app.context.workspace().paths());
-            draw_sync_log(f, state, live.as_deref(), area);
-        }
+        Some(Overlay::SyncLog(state)) => draw_sync_log(f, state, live_sync_log.as_deref(), area),
         None => {}
     }
 }

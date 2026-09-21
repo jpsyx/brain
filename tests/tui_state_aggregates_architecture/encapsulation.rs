@@ -151,8 +151,8 @@ fn aggregate_surfaces_and_consumers_stay_focused() {
     }
     for (name, expected) in [
         (
-            "selected_links_plan",
-            "fnselected_links_plan(&self,linear_base:&str)->TaskLinksPlan",
+            "links_plan_for",
+            "fnlinks_plan_for(&self,id:&str,linear_base:&str)->TaskLinksPlan",
         ),
         (
             "daily_triage_nudge",

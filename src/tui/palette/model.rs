@@ -1,18 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FilterPolicy {
-    WordAtoms,
-    Contiguous,
-}
-
-impl FilterPolicy {
-    fn matches(self, query: &str, text: &str) -> bool {
-        match self {
-            Self::WordAtoms => query.split_whitespace().all(|word| text.contains(word)),
-            Self::Contiguous => text.contains(query),
-        }
-    }
+/// Whether a row matches the query: every whitespace-separated word must
+/// appear somewhere in the row, in any order, so "brain message" and
+/// "message brain" both find "Message brain".
+fn matches_query(query: &str, text: &str) -> bool {
+    query.split_whitespace().all(|word| text.contains(word))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,7 +28,6 @@ impl<A> PaletteRow<A> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PaletteControls {
-    filter_policy: FilterPolicy,
     wrap_navigation: bool,
     ctrl_pn_navigation: bool,
     ctrl_query_edits: bool,
@@ -45,20 +36,17 @@ pub(crate) struct PaletteControls {
 }
 
 impl PaletteControls {
-    pub(crate) const SEARCH: Self = Self {
-        filter_policy: FilterPolicy::WordAtoms,
-        wrap_navigation: false,
+    /// The one control set every palette surface uses.
+    ///
+    /// It is the union of what the two pre-merge palettes each supported, so
+    /// no muscle memory was dropped when they became a single surface: word
+    /// atoms filter (each typed word must appear somewhere in the row, in any
+    /// order), wrapping navigation, both `Ctrl+J/K` and `Ctrl+P/N`, the
+    /// readline query edits, and Alt-modified characters as plain text.
+    pub(crate) const COMMANDS: Self = Self {
+        wrap_navigation: true,
         ctrl_pn_navigation: true,
         ctrl_query_edits: true,
-        uppercase_ctrl_jk: false,
-        allow_alt_text: false,
-    };
-
-    pub(crate) const TASKS: Self = Self {
-        filter_policy: FilterPolicy::Contiguous,
-        wrap_navigation: true,
-        ctrl_pn_navigation: false,
-        ctrl_query_edits: false,
         uppercase_ctrl_jk: true,
         allow_alt_text: true,
     };
@@ -108,18 +96,16 @@ impl<A: Copy> CommandPalette<A> {
         &self.query
     }
 
+    #[cfg(test)]
     pub(crate) fn rows(&self) -> &[PaletteRow<A>] {
         &self.rows
-    }
-
-    pub(crate) fn filtered(&self) -> &[usize] {
-        &self.filtered
     }
 
     pub(crate) const fn selected(&self) -> usize {
         self.selected
     }
 
+    #[cfg(test)]
     pub(crate) fn visible(&self) -> Vec<&PaletteRow<A>> {
         self.filtered
             .iter()
@@ -134,8 +120,9 @@ impl<A: Copy> CommandPalette<A> {
     }
 
     pub(crate) fn numbered_entries(&self) -> Vec<(String, Option<&'static str>)> {
-        self.visible()
-            .into_iter()
+        self.filtered
+            .iter()
+            .map(|&index| &self.rows[index])
             .map(|row| (format!("{}. {}", row.number, row.label), row.shortcut))
             .collect()
     }
@@ -148,10 +135,7 @@ impl<A: Copy> CommandPalette<A> {
             .enumerate()
             .filter_map(|(index, row)| {
                 let text = format!("{}. {}", row.number, row.label).to_lowercase();
-                self.controls
-                    .filter_policy
-                    .matches(&query, &text)
-                    .then_some(index)
+                matches_query(&query, &text).then_some(index)
             })
             .collect();
         self.selected = 0;

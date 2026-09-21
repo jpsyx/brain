@@ -67,14 +67,9 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             calls: Arc::clone(&calls),
             fail: false,
         }));
-    app.overlay = Some(crate::tui::overlay::Overlay::TaskPalette(
-        crate::tui::modal_state::TaskPalette::new(
-            None,
-            false,
-            false,
-            false,
-            crate::tui::links::LinkKind::None,
-        ),
+    let context = app.palette_context();
+    app.overlay = Some(crate::tui::overlay::Overlay::CommandPalette(
+        crate::tui::palette::CommandPaletteState::new(&context),
     ));
     for character in "enable receiver".chars() {
         crate::tui::handlers::handle_palette_key(
@@ -96,17 +91,20 @@ fn tasks_and_search_palettes_persist_both_directions_and_refresh_exact_workspace
             calls: Arc::clone(&calls),
             fail: true,
         }));
-    app.overlay = Some(crate::tui::overlay::Overlay::SearchPalette(
-        app.shell
-            .search_palette(app.receiver.is_enabled(), Vec::new(), Vec::new()),
+    app.shell
+        .show_main_view(crate::main_view::MainView::BrainSearch);
+    let context = app.palette_context();
+    app.overlay = Some(crate::tui::overlay::Overlay::CommandPalette(
+        crate::tui::palette::CommandPaletteState::new(&context),
     ));
     for character in "disable receiver".chars() {
-        crate::tui::search_view::route_search_palette(
+        crate::tui::handlers::handle_palette_key(
             &mut app,
             &plain_key(KeyCode::Char(character)),
+            false,
         );
     }
-    crate::tui::search_view::route_search_palette(&mut app, &plain_key(KeyCode::Enter));
+    crate::tui::handlers::handle_palette_key(&mut app, &plain_key(KeyCode::Enter), false);
 
     assert!(!app.receiver.is_enabled());
     assert!(matches!(

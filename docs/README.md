@@ -73,7 +73,6 @@ src/
   state/         : UUID-scoped SQLite sessions, durable receiver state, and metadata
   sync/          : UUID-scoped runtime, remote identity, triggers, and CSV merge
   picker/        — ratatui fuzzy picker (matching, grouping, navigation)
-  menu/          — ratatui command palette (Ctrl-p overlay)
   render.rs      — pure functions → styled ratatui Lines (picker UI)
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/

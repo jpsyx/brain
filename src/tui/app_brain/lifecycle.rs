@@ -92,7 +92,7 @@ impl App {
         }
     }
 
-    /// User-triggered refresh (the `r` hotkey). Re-reads the CSVs and
+    /// User-triggered refresh (the `r` shortcut). Re-reads the CSVs and
     /// flashes a confirmation so the user sees that the repaint
     /// actually happened, even when nothing visible changed.
     pub(crate) fn refresh(&mut self) {

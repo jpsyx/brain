@@ -147,7 +147,7 @@ controller spawns the selected agent frontend inside a PTY (`pty_pane.rs`).
 time; callers cannot supply a second actor that disagrees with the controller
 used for launch and completion validation.
 
-Both main-view palettes start manual sessions immediately through
+The command palette starts manual sessions immediately through
 `App::start_default_manual_session`, using a workspace-based random title and
 the same frontend-neutral launch path for Claude, Codex, OpenCode, and pi. Their
 Rename action opens a snapshot of every tab, but only an Additional Manual row

@@ -1,5 +1,5 @@
 //! State for the overlay modals the shell can raise over its panels: the
-//! command palette, the confirm dialog (with its intent/kind/choice enums),
+//! confirm dialog (with its intent/kind/choice enums),
 //! the brain-input composer, the transient flash line, the help scroller, and
 //! the link picker. The `App` shell state itself lives in the `tui` root.
 //!
@@ -9,58 +9,8 @@
 
 use ratatui::style::Color;
 
-use crate::tasks::task::{AssignmentUiMode, AssignmentUser};
-use crate::tui::links::{Link, LinkKind};
-use crate::tui::palette::{CommandPalette, TaskAction};
-
-/// One row in the command palette. See `palette` for the command table.
-pub(crate) struct TaskPalette {
-    pub(super) palette: CommandPalette<TaskAction>,
-    /// ID of the currently-selected task / habit at the moment the
-    /// palette was opened, if any. Drives the task actions modal title ("Task
-    /// T123 actions") AND the labels of task-specific commands when
-    /// shown in the global command palette ("Defer T123 +1d").
-    pub(super) task_id: Option<String>,
-    /// Task name captured at open time. Shown as a dim subtitle in the
-    /// task actions modal so the user can sanity-check what they're about
-    /// to act on. Unused in the global command palette (task IDs already appear
-    /// in command labels there).
-    pub(super) task_label: Option<String>,
-    /// Whether the in-context selection is a habit (id starts with `H`).
-    /// Task-specific commands with `works_on_habits: false` are hidden
-    /// for habits.
-    pub(super) context_is_habit: bool,
-    /// Whether the in-context selection has notes. The "Expand/Collapse
-    /// notes" command is hidden when false.
-    pub(super) context_has_notes: bool,
-    /// Whether the in-context selection's notes are currently expanded.
-    /// Drives the toggle command's label (Expand vs Collapse).
-    pub(super) context_notes_expanded: bool,
-    /// The in-context selection's link situation (Linear issue and/or notes
-    /// URLs). The "open link" command is hidden when `LinkKind::None` and its
-    /// label is chosen from this.
-    pub(super) context_links: LinkKind,
-    /// When true, hide global commands so only task-scoped actions show.
-    /// Set by Enter-on-task to give a focused task actions modal.
-    pub(super) task_actions_modal: bool,
-    /// Persistent receiver intent for the selected workspace.
-    pub(super) receiver_enabled: bool,
-    /// The skill sessions that can be started right now, each with the
-    /// `command_label` its palette row shows. A session already running is
-    /// absent, which is what stops a user starting the same one twice. Seeded at
-    /// open time like `receiver_enabled`.
-    pub(super) runnable_skill_sessions: Vec<(crate::skill_session::SkillSessionKey, String)>,
-    /// Open manual and skill tabs captured with stable identities at palette open.
-    pub(super) user_sessions: Vec<crate::tui::state::SessionPaletteEntry>,
-    pub(super) logs_view: bool,
-    /// Whether the daily-triage startup nudge is currently suppressed for this
-    /// session (mirrors `App::skip_daily_triage_check`). Seeded at open time
-    /// like `receiver_enabled`; drives the toggle command's
-    /// Disable/Enable label.
-    pub(super) daily_triage_alert_disabled: bool,
-    /// Per-surface assignment visibility for the selected workspace.
-    pub(super) assignment_mode: AssignmentUiMode,
-}
+use crate::tasks::task::AssignmentUser;
+use crate::tui::links::Link;
 
 /// Visual intent of a confirm modal — drives the accent (border, title,
 /// focused button) and so signals whether the action is constructive or

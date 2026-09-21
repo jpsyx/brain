@@ -17,21 +17,25 @@ impl TasksState {
         classify(task, &links_for(task, linear_base))
     }
 
-    pub(crate) fn selected_links_plan(&self, linear_base: &str) -> TaskLinksPlan {
-        let Some(task) = self.selected_task() else {
-            return TaskLinksPlan::None;
-        };
-        let links = links_for(task, linear_base);
-        match links.as_slice() {
-            [] => TaskLinksPlan::None,
-            [link] => TaskLinksPlan::Open {
-                url: link.url.clone(),
-            },
-            _ => TaskLinksPlan::Choose {
-                task_id: task.id.clone(),
-                links,
-            },
-        }
+    /// The same plan for an entry addressed by ID, so a palette row can open
+    /// the links of a task the active sub-view isn't showing.
+    pub(crate) fn links_plan_for(&self, id: &str, linear_base: &str) -> TaskLinksPlan {
+        self.row_with_id(id)
+            .map_or(TaskLinksPlan::None, |task| plan_for(task, linear_base))
+    }
+}
+
+fn plan_for(task: &Task, linear_base: &str) -> TaskLinksPlan {
+    let links = links_for(task, linear_base);
+    match links.as_slice() {
+        [] => TaskLinksPlan::None,
+        [link] => TaskLinksPlan::Open {
+            url: link.url.clone(),
+        },
+        _ => TaskLinksPlan::Choose {
+            task_id: task.id.clone(),
+            links,
+        },
     }
 }
 

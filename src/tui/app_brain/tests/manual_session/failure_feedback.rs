@@ -26,7 +26,7 @@ fn choose_search_command(app: &mut App, label: &str) {
     app.shell.show_main_view(MainView::BrainSearch);
     app.focus_tasks();
     press(app, KeyCode::Char('p'), KeyModifiers::CONTROL);
-    assert!(matches!(app.overlay, Some(Overlay::SearchPalette(_))));
+    assert!(matches!(app.overlay, Some(Overlay::CommandPalette(_))));
     type_text(app, label);
     press(app, KeyCode::Enter, KeyModifiers::NONE);
 }

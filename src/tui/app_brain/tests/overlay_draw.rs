@@ -48,15 +48,6 @@ fn rendered_modal_right_edge(overlay: Overlay, title: &str) -> u16 {
 fn search_modals_stay_inside_the_search_half_when_the_brain_panel_is_open() {
     let overlays = [
         (
-            Overlay::SearchPalette(crate::menu::SearchPalette::new(
-                "Command palette",
-                None,
-                crate::menu::items(PanelSide::Right, false, &crate::menu::Targets::default()),
-                crate::tui::palette::PaletteControls::SEARCH,
-            )),
-            "Command palette",
-        ),
-        (
             Overlay::SearchConfirmation(crate::confirm::Confirm::pdf(PathBuf::from("plan.md"))),
             "Create PDF",
         ),

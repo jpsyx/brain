@@ -19,29 +19,19 @@ fn open_palette(app: &mut App, view: MainView) {
 }
 
 fn palette_rows(app: &App) -> Vec<(String, GlobalAction, Option<&'static str>)> {
-    match app.overlay.as_ref().unwrap() {
-        Overlay::TaskPalette(palette) => palette
-            .rows()
-            .iter()
-            .filter_map(|row| match row.action {
-                crate::tui::palette::TaskAction::Global(action) => {
-                    Some((row.label.clone(), action, row.shortcut))
-                }
-                _ => None,
-            })
-            .collect(),
-        Overlay::SearchPalette(palette) => palette
-            .rows()
-            .iter()
-            .filter_map(|row| match row.action {
-                crate::menu::SearchAction::Global(action) => {
-                    Some((row.label.clone(), action, row.shortcut))
-                }
-                _ => None,
-            })
-            .collect(),
-        _ => panic!("expected a command palette"),
-    }
+    let Some(Overlay::CommandPalette(palette)) = app.overlay.as_ref() else {
+        panic!("expected the command palette");
+    };
+    palette
+        .rows()
+        .iter()
+        .filter_map(|row| match row.action {
+            crate::tui::palette::Command::Global(action) => {
+                Some((row.label.clone(), action, row.shortcut))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn choose(app: &mut App, label: &str) {
@@ -89,21 +79,38 @@ fn runtime_palettes_receive_identical_user_tabs_and_exclude_receiver_rows() {
     for view in [MainView::Tasks, MainView::BrainSearch] {
         open_palette(&mut app, view);
         let rows = palette_rows(&app);
-        for (label, action) in [
-            ("Start new brain session", GlobalAction::StartManualSession),
-            ("Rename session", GlobalAction::RenameSession),
-            ("Close a brain session", GlobalAction::CloseSession),
+        for (label, action, shortcut) in [
+            (
+                "Start new brain session",
+                GlobalAction::StartManualSession,
+                None,
+            ),
+            ("Rename session", GlobalAction::RenameSession, None),
+            (
+                "Close a brain session",
+                GlobalAction::CloseSession,
+                Some("^X"),
+            ),
             (
                 "Show main brain session",
                 GlobalAction::ShowMainBrainSession,
+                None,
             ),
-            ("Show Atlas session", GlobalAction::ShowSessionTab(atlas)),
+            (
+                "Show Atlas session",
+                GlobalAction::ShowSessionTab(atlas),
+                None,
+            ),
             (
                 "Show Daily triage session",
                 GlobalAction::ShowSessionTab(triage),
+                None,
             ),
         ] {
-            assert!(rows.contains(&(label.to_owned(), action, None)), "{rows:?}");
+            assert!(
+                rows.contains(&(label.to_owned(), action, shortcut)),
+                "{rows:?}"
+            );
         }
         assert!(
             rows.iter()

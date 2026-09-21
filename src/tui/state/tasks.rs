@@ -17,6 +17,7 @@ mod interaction;
 mod links;
 mod panel;
 mod policy;
+mod targets;
 mod triage;
 
 use filter::filter_tasks;
