@@ -41,6 +41,7 @@ pub mod state;
 pub mod sync;
 pub mod tasks;
 pub mod theme;
+mod tree;
 pub mod tui;
 pub mod users;
 pub mod workspace;
