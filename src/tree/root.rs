@@ -85,7 +85,10 @@ mod tests {
 
     #[test]
     fn no_entries_root_at_the_brain_root() {
-        assert_eq!(scope_root(&[], Path::new("/brain")), PathBuf::from("/brain"));
+        assert_eq!(
+            scope_root(&[], Path::new("/brain")),
+            PathBuf::from("/brain")
+        );
     }
 
     #[test]

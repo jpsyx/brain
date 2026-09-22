@@ -31,7 +31,10 @@ pub(crate) fn build_items(
         .filter(|entry| entry.path.starts_with(root) && entry.path != root)
     {
         if let Some(parent) = entry.path.parent() {
-            children.entry(parent.to_path_buf()).or_default().push(entry);
+            children
+                .entry(parent.to_path_buf())
+                .or_default()
+                .push(entry);
         }
     }
 
@@ -63,7 +66,12 @@ fn items_under(
             if entry.is_dir {
                 // `new` only errors on duplicate child identifiers, which
                 // cannot happen: every identifier is a distinct absolute path.
-                TreeItem::new(entry.path.clone(), label, items_under(&entry.path, children)).ok()
+                TreeItem::new(
+                    entry.path.clone(),
+                    label,
+                    items_under(&entry.path, children),
+                )
+                .ok()
             } else {
                 Some(TreeItem::new_leaf(entry.path.clone(), label))
             }
