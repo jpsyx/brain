@@ -13,14 +13,14 @@ use crate::entry::Entry;
 use crate::main_view::MainView;
 use crate::tui::App;
 use crate::tui::search_view::all_bucket_roots;
-use crate::tui::state::{SearchEffect, ShellState};
+use crate::tui::state::{BrainDirEffect, ShellState};
 
 pub(crate) fn handle_tree_view_key(
     shell: &mut ShellState,
     k: &KeyEvent,
     ctrl: bool,
     alt: bool,
-) -> SearchEffect {
+) -> BrainDirEffect {
     shell.handle_tree_input(k.code, ctrl, alt)
 }
 

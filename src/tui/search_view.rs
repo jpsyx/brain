@@ -18,7 +18,7 @@ use crate::open_target;
 use crate::tui::App;
 use crate::tui::overlay::{Overlay, close_overlay, open_overlay};
 use crate::tui::palette::{CommandPaletteState, EntryCommand};
-use crate::tui::state::{SearchEffect, ShellState};
+use crate::tui::state::{BrainDirEffect, ShellState};
 use crate::{confirm, picker};
 
 impl App {
@@ -31,22 +31,23 @@ impl App {
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
         if let Ok(entries) = entry::collect(self.context.workspace_root(), roots) {
             self.shell.replace_search_entries(&entries);
-            self.shell.rescope_tree();
+            self.shell.resync_tree();
         }
     }
 
     /// Re-walk the full bucket set into the brain-directory view, keeping the
     /// query (`Ctrl-R`, or after a PDF is created / an entry is trashed).
     ///
-    /// One walk feeds both sub-views: a refresh from the tree must not leave
-    /// the search sub-view holding a deleted entry behind it, and vice versa.
+    /// One walk feeds both sub-views, through the same `resync_tree` a
+    /// rescope uses: a refresh must not leave the search sub-view holding a
+    /// deleted entry, nor the tree rooted in a scope the picker has left.
     pub(crate) fn search_refresh(&mut self) {
         if let Ok(entries) = entry::collect(
             self.context.workspace_root(),
             &all_bucket_roots(self.context.workspace_root()),
         ) {
             self.shell.reload_search_entries(&entries);
-            self.shell.rebuild_tree();
+            self.shell.resync_tree();
         }
     }
 }
@@ -76,29 +77,29 @@ pub(crate) fn handle_search_view_key(
     k: &KeyEvent,
     ctrl: bool,
     alt: bool,
-) -> SearchEffect {
+) -> BrainDirEffect {
     shell.handle_search_input(k.code, ctrl, alt)
 }
 
-pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> bool {
+pub(crate) fn apply_brain_dir_effect(app: &mut App, effect: BrainDirEffect) -> bool {
     match effect {
-        SearchEffect::None => {}
-        SearchEffect::Quit => return true,
-        SearchEffect::Open(path) => app.run_entry_command(EntryCommand::Open, &path),
-        SearchEffect::Reveal(path) => app.run_entry_command(EntryCommand::Reveal, &path),
-        SearchEffect::OpenPalette => {
+        BrainDirEffect::None => {}
+        BrainDirEffect::Quit => return true,
+        BrainDirEffect::Open(path) => app.run_entry_command(EntryCommand::Open, &path),
+        BrainDirEffect::Reveal(path) => app.run_entry_command(EntryCommand::Reveal, &path),
+        BrainDirEffect::OpenPalette => {
             let context = app.palette_context();
             open_overlay(
                 &mut app.overlay,
                 Overlay::CommandPalette(CommandPaletteState::new(&context)),
             );
         }
-        SearchEffect::ConfirmPdf(path) => app.run_entry_command(EntryCommand::CreatePdf, &path),
-        SearchEffect::Refresh => app.search_refresh(),
-        SearchEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
-        SearchEffect::Explore(path) => app.explore_entry(&path),
-        SearchEffect::BackToSearch => app.shell.show_search(),
-        SearchEffect::Reroot(root) => app.reroot_tree(&root),
+        BrainDirEffect::ConfirmPdf(path) => app.run_entry_command(EntryCommand::CreatePdf, &path),
+        BrainDirEffect::Refresh => app.search_refresh(),
+        BrainDirEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
+        BrainDirEffect::Explore(path) => app.explore_entry(&path),
+        BrainDirEffect::BackToSearch => app.shell.show_search(),
+        BrainDirEffect::Reroot(root) => app.reroot_tree(&root),
     }
     false
 }

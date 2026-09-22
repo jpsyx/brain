@@ -27,7 +27,7 @@ use crate::tui::keymap::{
 use crate::tui::model::{BrainTab, Panel};
 use crate::tui::overlay::{Overlay, open_overlay};
 use crate::tui::palette::{Command, CommandPaletteState, TaskCommand};
-use crate::tui::search_view::{apply_search_view_effect, handle_search_view_key};
+use crate::tui::search_view::{apply_brain_dir_effect, handle_search_view_key};
 use crate::tui::state::BrainDirView;
 use crate::tui::tree_view::handle_tree_view_key;
 
@@ -232,7 +232,7 @@ fn dispatch_key(app: &mut App, k: &KeyEvent) -> bool {
                     BrainDirView::Search => handle_search_view_key(&mut app.shell, k, ctrl, alt),
                     BrainDirView::Tree => handle_tree_view_key(&mut app.shell, k, ctrl, alt),
                 };
-                apply_search_view_effect(app, effect)
+                apply_brain_dir_effect(app, effect)
             }
             MainView::Logs => handle_logs_key(&mut app.shell, k.code, ctrl),
             MainView::Tasks if app.tasks.is_searching() => {

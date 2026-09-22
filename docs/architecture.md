@@ -192,7 +192,7 @@ rule applies across the large runtime families:
 | Shared HTTP server | `server/mod.rs` | `server/request.rs` owns request dispatch; `workspace_route/loader.rs` owns verified context loading; `lifecycle/table/mutation.rs` owns lease mutations; `receiver/http/email/fetch.rs` owns Resend retrieval and parsing |
 | Durable receiver state | `state/receiver/` | `identity.rs` owns logical conversation identity; `job_state.rs` owns lifecycle transitions; `recovery_policy.rs`, `delivery_policy.rs`, and `fallback.rs` own the clock-injected recovery, provider retry, and frozen-authority fallback decisions; `schema.rs` owns the receiver schema coordinator and the thin `schema/delivery.rs` coordinator delegates v12 contract, repair, legacy-notice, fallback-success, index, cleanup, and downgrade work to focused modules under `schema/delivery/`; `model/delivery/` owns validated immutable envelopes and redacted status; `store/response_intent.rs` freezes semantic notices and acknowledgements; `store/completion/` owns the atomic final-answer transaction; `store/control.rs` owns atomic `/new`, `/restart`, dropped-job notice, and acknowledgement transactions; `store/delivery/{claim,decode,result,status}.rs` own generic exact response claims, typed row decoding, result CAS, and content-free counts; the thin `store/delivery/reconciliation.rs` coordinator delegates semantic repair and retry/requeue work to focused children; `store/answer_cleanup.rs` owns post-answer cleanup; `store/reconciliation.rs` and `store/claim/` own recovery repair and FIFO selection; `store/session.rs` owns exact receiver registration and release |
 | Sync | `sync/{csv_sync,identity,setup}.rs` and `sync/command/reporting.rs` | `csv_sync/transport.rs`, `identity/probe.rs`, `setup/prompt.rs`, and `command/reporting/findings.rs` isolate external transport, probing, terminal input, and formatting |
-| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns bounded effects for the durably authorized run, never endpoint or queue authority; `app_brain/launch/session.rs` owns Main selection and prompt queueing; `app_manual_session/launch.rs` owns shared Manual launch; `app_actions/triage/decision.rs` owns pure triage decisions; `palette/command/catalog.rs` owns the command catalog |
+| TUI | `tui/runtime/mod.rs` and focused state/coordinator modules | `runtime/builder.rs` owns ordered startup acquisition and application assembly; `runtime/mod.rs` owns process-lifetime execution and resources; `state/tasks.rs` owns task-list view, query, selection, and layout state; `state/shell.rs` owns main-view, focus, search, logs, layout, and active-tab navigation, with `state/shell/tree.rs` holding its brain-directory sub-view surface; `runtime/tick.rs` owns the sole recurring receiver-consumer call; `runtime/shutdown.rs` pins acquisition and teardown state; `runtime/terminal.rs` owns `/dev/tty`, ratatui, and terminal-mode restoration; `receiver/runtime.rs` owns bounded effects for the durably authorized run, never endpoint or queue authority; `app_brain/launch/session.rs` owns Main selection and prompt queueing; `app_manual_session/launch.rs` owns shared Manual launch; `app_actions/triage/decision.rs` owns pure triage decisions; `palette/command/catalog.rs` owns the command catalog |
 | Live receiver runtime | `tui/receiver/{planning,runtime,run,session,failure,attachments}.rs` and `tui/app_brain/receiver/` | The runtime retains only one transient agent effect plus bounded cleanup effects, revalidated against the state DB across ticks. `app_brain/receiver/dispatch.rs` advances the generic durable delivery lane before recovery and ordinary dispatch, then performs a reconciliation-only pass afterward. `control.rs` applies durable control transactions without provider calls. `tui/state/services/receiver_delivery.rs` is the sole nonblocking provider executor facade. Provider formatting and credential access remain under `server/`. No process-local inbound queue, endpoint, warm-panel lease, or reply handoff remains. |
 | Structured env | `env/vars/mod.rs` | `env/vars/path.rs` owns dotted-path traversal and flattening |
 
@@ -1108,8 +1108,8 @@ temp dir.
   parent, directories sorted before files (each case-insensitively), the `../`
   leaf prepended off-root. Also `identifier_path` / `opened_for`, which address
   a node by its full root-relative identifier path the way the widget does.
-- `input.rs` — `handle_tree_input`, one keystroke to one `SearchEffect`.
-  Movement mutates the widget state and yields `SearchEffect::None`, because
+- `input.rs` — `handle_tree_input`, one keystroke to one `BrainDirEffect`.
+  Movement mutates the widget state and yields `BrainDirEffect::None`, because
   navigating is not a command. `navigate` also restores the previous selection
   whenever a move would empty it, so no keystroke can leave the tree without a
   cursor.
@@ -1118,7 +1118,10 @@ temp dir.
   visually interchangeable.
 
 Glue lives in `tui/tree_view.rs` (below), and the sub-view axis itself is
-`tui::state::BrainDirView` on `ShellState`.
+`tui::state::BrainDirView` on `ShellState`. The methods that read the picker's
+entries and the tree's widget state together sit in
+`tui/state/shell/tree.rs` — a child module of `shell`, so it can reach those
+private fields without widening the aggregate's surface.
 
 ### `tui/palette/`
 The one command palette, and the only place a command is declared.
@@ -1719,7 +1722,7 @@ panel and the brain panel beside it (`ShellState::panel_side`). The task
 renderer accepts `&mut TasksState` plus a small cross-feature chrome context;
 the log handler accepts `&mut ShellState`, and task-search handling accepts
 `&mut TasksState`. Shell search input mutates the embedded picker locally and
-returns a closed `SearchEffect` for file, overlay, or refresh work that `App`
+returns a closed `BrainDirEffect` for file, overlay, or refresh work that `App`
 must coordinate. The brain renderer accepts a `BrainPanelContext` assembled by
 the top-level mediator from display values and the active controller; it never
 receives `App`. The logs renderer accepts only the selected `LogsView`. Overlays span that composed shell; the
@@ -1728,7 +1731,7 @@ picker's pre-shell render.
 `search_view.rs` is the brain-directory view's search-sub-view handler (its
 picker nav, in-place open, and the search-specific variants of the shell
 overlay); `tree_view.rs` is the same glue for the tree sub-view, with the pure
-decision in `tree::input`. Both sub-views return the **same** `SearchEffect`
+decision in `tree::input`. Both sub-views return the **same** `BrainDirEffect`
 enum — `Open`, `Reveal`, PDF, delete, refresh, palette, and quit are shared
 rather than duplicated into a parallel `TreeEffect`, and the tree adds
 `Explore`, `BackToSearch`, and `Reroot` to it — so one applier

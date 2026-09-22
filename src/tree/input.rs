@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crossterm::event::KeyCode;
 
-use crate::tui::state::SearchEffect;
+use crate::tui::state::BrainDirEffect;
 
 use super::TreeView;
 
@@ -25,28 +25,28 @@ pub(crate) fn handle_tree_input(
     code: KeyCode,
     ctrl: bool,
     alt: bool,
-) -> SearchEffect {
+) -> BrainDirEffect {
     match code {
-        KeyCode::Char('c') if ctrl => SearchEffect::Quit,
+        KeyCode::Char('c') if ctrl => BrainDirEffect::Quit,
         // Esc backs out of the tree rather than quitting the shell: the tree
         // is somewhere you drill into, so Esc is how you come back up.
-        KeyCode::Esc => SearchEffect::BackToSearch,
-        KeyCode::Enter if alt => SearchEffect::BackToSearch,
+        KeyCode::Esc => BrainDirEffect::BackToSearch,
+        KeyCode::Enter if alt => BrainDirEffect::BackToSearch,
         KeyCode::Enter => match view.selected_path() {
             // The ../ row is navigation wearing an entry's clothes: it moves
             // the root rather than acting on a file.
-            Some(path) if view.is_parent_row(&path) => SearchEffect::Reroot(path),
-            Some(path) if ctrl => SearchEffect::Reveal(path),
-            Some(path) => SearchEffect::Open(path),
-            None => SearchEffect::None,
+            Some(path) if view.is_parent_row(&path) => BrainDirEffect::Reroot(path),
+            Some(path) if ctrl => BrainDirEffect::Reveal(path),
+            Some(path) => BrainDirEffect::Open(path),
+            None => BrainDirEffect::None,
         },
-        KeyCode::Char('p') if ctrl => SearchEffect::OpenPalette,
-        KeyCode::Char('r') if ctrl => SearchEffect::Refresh,
+        KeyCode::Char('p') if ctrl => BrainDirEffect::OpenPalette,
+        KeyCode::Char('r') if ctrl => BrainDirEffect::Refresh,
         KeyCode::Char('g') if ctrl => {
-            entry_selection(view).map_or(SearchEffect::None, SearchEffect::ConfirmPdf)
+            entry_selection(view).map_or(BrainDirEffect::None, BrainDirEffect::ConfirmPdf)
         }
         KeyCode::Char('d') if ctrl => {
-            entry_selection(view).map_or(SearchEffect::None, SearchEffect::ConfirmDelete)
+            entry_selection(view).map_or(BrainDirEffect::None, BrainDirEffect::ConfirmDelete)
         }
         KeyCode::Up => navigate(view, TreeMove::Up),
         KeyCode::Down => navigate(view, TreeMove::Down),
@@ -59,7 +59,7 @@ pub(crate) fn handle_tree_input(
         KeyCode::PageDown => navigate(view, TreeMove::PageDown),
         KeyCode::Home => navigate(view, TreeMove::First),
         KeyCode::End => navigate(view, TreeMove::Last),
-        _ => SearchEffect::None,
+        _ => BrainDirEffect::None,
     }
 }
 
@@ -84,7 +84,7 @@ enum TreeMove {
 /// render. Either one erases the cursor, drops the highlight gutter (shifting
 /// every row three columns), and leaves `Enter` inert until an arrow key
 /// happens to recover.
-fn navigate(view: &mut TreeView, movement: TreeMove) -> SearchEffect {
+fn navigate(view: &mut TreeView, movement: TreeMove) -> BrainDirEffect {
     let previous = view.state_mut().selected().to_vec();
     let state = view.state_mut();
     match movement {
@@ -124,7 +124,7 @@ fn navigate(view: &mut TreeView, movement: TreeMove) -> SearchEffect {
         state.select(previous);
     }
     state.scroll_selected_into_view();
-    SearchEffect::None
+    BrainDirEffect::None
 }
 
 /// The selected path when it is a real entry, filtering out the `../` row so
@@ -180,7 +180,7 @@ mod tests {
         let mut view = view();
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Enter, false, false),
-            SearchEffect::Open(PathBuf::from("/brain/projects/atlas/plan.md"))
+            BrainDirEffect::Open(PathBuf::from("/brain/projects/atlas/plan.md"))
         );
     }
 
@@ -189,7 +189,7 @@ mod tests {
         let mut view = view();
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Enter, true, false),
-            SearchEffect::Reveal(PathBuf::from("/brain/projects/atlas/plan.md"))
+            BrainDirEffect::Reveal(PathBuf::from("/brain/projects/atlas/plan.md"))
         );
     }
 
@@ -202,7 +202,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Enter, false, false),
-            SearchEffect::Reroot(PathBuf::from("/brain"))
+            BrainDirEffect::Reroot(PathBuf::from("/brain"))
         );
     }
 
@@ -211,11 +211,11 @@ mod tests {
         let mut view = view();
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Esc, false, false),
-            SearchEffect::BackToSearch
+            BrainDirEffect::BackToSearch
         );
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Enter, false, true),
-            SearchEffect::BackToSearch
+            BrainDirEffect::BackToSearch
         );
     }
 
@@ -224,11 +224,11 @@ mod tests {
         let mut view = view();
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('c'), true, false),
-            SearchEffect::Quit
+            BrainDirEffect::Quit
         );
         assert_ne!(
             handle_tree_input(&mut view, KeyCode::Esc, false, false),
-            SearchEffect::Quit
+            BrainDirEffect::Quit
         );
     }
 
@@ -237,19 +237,19 @@ mod tests {
         let mut view = view();
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('g'), true, false),
-            SearchEffect::ConfirmPdf(PathBuf::from("/brain/projects/atlas/plan.md"))
+            BrainDirEffect::ConfirmPdf(PathBuf::from("/brain/projects/atlas/plan.md"))
         );
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('d'), true, false),
-            SearchEffect::ConfirmDelete(PathBuf::from("/brain/projects/atlas/plan.md"))
+            BrainDirEffect::ConfirmDelete(PathBuf::from("/brain/projects/atlas/plan.md"))
         );
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('r'), true, false),
-            SearchEffect::Refresh
+            BrainDirEffect::Refresh
         );
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('p'), true, false),
-            SearchEffect::OpenPalette
+            BrainDirEffect::OpenPalette
         );
     }
 
@@ -260,11 +260,11 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('g'), true, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('d'), true, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
     }
 
@@ -283,7 +283,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Right, false, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert!(
             view.state.opened().contains(&atlas),
@@ -292,7 +292,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char(' '), false, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert!(
             !view.state.opened().contains(&atlas),
@@ -301,7 +301,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char(' '), false, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert!(view.state.opened().contains(&atlas), "and opens it back");
     }
@@ -321,7 +321,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Left, false, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
 
         assert_eq!(
@@ -339,7 +339,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Left, false, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
 
         assert!(
@@ -371,7 +371,7 @@ mod tests {
         ] {
             assert_eq!(
                 handle_tree_input(&mut view, code, false, false),
-                SearchEffect::None,
+                BrainDirEffect::None,
                 "{code:?} is navigation, not a command"
             );
             assert_eq!(
@@ -395,7 +395,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('k'), true, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert_eq!(
             view.selected_path(),
@@ -405,7 +405,7 @@ mod tests {
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('j'), true, false),
-            SearchEffect::None
+            BrainDirEffect::None
         );
         assert_eq!(
             view.selected_path(),
@@ -420,7 +420,7 @@ mod tests {
         for character in ['a', 'Z', '/', '?'] {
             assert_eq!(
                 handle_tree_input(&mut view, KeyCode::Char(character), false, false),
-                SearchEffect::None
+                BrainDirEffect::None
             );
         }
     }

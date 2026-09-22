@@ -68,7 +68,25 @@ fn aggregate_representation_does_not_leak_outside_its_owner() {
 fn aggregate_surfaces_and_consumers_stay_focused() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let tasks = std::fs::read_to_string(root.join("src/tui/state/tasks.rs")).expect("task state");
-    let shell = std::fs::read_to_string(root.join("src/tui/state/shell.rs")).expect("shell state");
+    let mut shell =
+        std::fs::read_to_string(root.join("src/tui/state/shell.rs")).expect("shell state");
+    // ShellState's sub-view surface lives in `state/shell/`, the same shape
+    // TasksState uses, so the guard has to read that subtree too.
+    for entry in walkdir::WalkDir::new(root.join("src/tui/state/shell")) {
+        let entry = entry.expect("walk shell state source");
+        if entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .and_then(|extension| extension.to_str())
+                == Some("rs")
+        {
+            shell.push('\n');
+            shell.push_str(
+                &std::fs::read_to_string(entry.path()).expect("read shell state child source"),
+            );
+        }
+    }
     let logs = std::fs::read_to_string(root.join("src/tui/handlers/logs.rs")).expect("log handler");
     let task_handler =
         std::fs::read_to_string(root.join("src/tui/handlers/tasks_view.rs")).expect("task handler");
@@ -187,6 +205,10 @@ fn aggregate_surfaces_and_consumers_stay_focused() {
     assert!(
         root.join("src/tui/state/tasks/filter.rs").is_file(),
         "task matching must live beneath TasksState"
+    );
+    assert!(
+        root.join("src/tui/state/shell/tree.rs").is_file(),
+        "the brain-directory sub-view surface must live beneath ShellState"
     );
     assert_eq!(
         compact_signature(function_signature(&logs, "handle_logs_key")),

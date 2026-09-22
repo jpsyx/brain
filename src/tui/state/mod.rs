@@ -18,6 +18,6 @@ pub(crate) use brain::{
 };
 pub(crate) use context::{AppContext, AppContextInit};
 pub(crate) use services::{AppServices, AppServicesInit};
-pub(crate) use shell::{BrainDirView, SearchEffect, ShellState};
+pub(crate) use shell::{BrainDirView, BrainDirEffect, ShellState};
 pub(crate) use status::{StatusState, StatusStateInit};
 pub(crate) use tasks::{TaskLinksPlan, TasksState, TasksStateInit};
