@@ -34,6 +34,7 @@ struct Entry {
     path: PathBuf,   // absolute path on disk; handed to `open` / the editor / trash
     display: String, // `~/<selected-root-name>/...` form when root is below HOME
     bucket: Bucket,  // which section it renders under
+    is_dir: bool,    // recorded during the walk, so nothing re-stats to ask
 }
 ```
 
@@ -54,7 +55,13 @@ pair with `walkdir`:
   therefore into the fuzzy match.
 
 Both files *and* directories are collected, so you can pick (and reveal /
-cd into) a folder, not just a leaf note.
+cd into) a folder, not just a leaf note. Which of the two an entry is comes
+from **`is_dir`, captured during the walk** (`walkdir` already knows), not from
+a later `path.is_dir()`. That is what makes the tree's shape a pure function of
+the entry list — buildable and testable with no filesystem at all — and it also
+removes the per-selection `is_file()` syscall the picker's palette context used
+to make. An empty directory is still a directory, rather than being mistaken for
+a file because nothing nests under it.
 
 ## Picker match model (`picker/`)
 
@@ -139,6 +146,49 @@ the selected stable ID, original title, prefilled single-line `buffer`, and
 optional inline `error` in `Overlay::ManualSessionRename`. Enter parses against
 `Brain` plus the other open manual titles, preserves invalid input, and updates
 the exact Additional mapping and live tab title.
+
+## Tree model (`tree/`)
+
+The brain-directory view's second sub-view renders the **same `Entry` list**
+the picker holds, nested instead of ranked. No second walk, and therefore no
+second source of truth about what exists.
+
+```rust
+struct TreeView {
+    root: PathBuf,                        // what the tree is currently showing
+    brain_root: PathBuf,                  // the ceiling; never ascended past
+    items: Vec<TreeItem<'static, PathBuf>>,
+    state: TreeState<PathBuf>,            // the widget's own selection + opened set
+    parent_row: Option<PathBuf>,          // where the synthetic `../` row re-roots to
+}
+```
+
+- **Identifiers are absolute paths.** Each `TreeItem`'s identifier is the
+  entry's own `path`, so identifiers are unique by construction (the widget's
+  `TreeItem::new` / `Tree::new` only error on duplicates, which distinct
+  absolute paths cannot produce) and a selection converts back to a path with
+  no lookup table. The widget addresses a node by the **full path of
+  identifiers** from the root down to it, which is what `build::identifier_path`
+  builds and `build::opened_for` slices into the ancestor set that must be open
+  for a target to be visible.
+- **The root is derived, not stored.** `picker::App` keeps entries, not a
+  scope, so `root::scope_root` reads the scope back off the entries' buckets:
+  exactly one bucket means a scoped search and roots at that bucket's
+  directory; several buckets or none roots at the brain root. Deriving it keeps
+  one source of truth rather than a stored scope that could drift from the
+  entries themselves.
+- **The `../` row is a synthetic leaf carrying its target.** Off the brain root
+  the item list opens with a leaf labelled `../` whose *identifier is the
+  directory it re-roots to*. A selection is therefore told apart from a real
+  entry by identity (`is_parent_row`), not by label, and acting on it needs no
+  extra state. `root::ascend` is the single place the ceiling rule lives — it
+  returns `None` at or above the brain root, and for any path that was never
+  inside it — and `shows_parent_row` is defined in terms of `ascend`, so the row
+  can never offer a move the model would refuse.
+- **Ordering** is directories before files, then name, each case-insensitively.
+- **A re-root drops the selection** (`reroot` resets `TreeState`), because a
+  different root is a different tree and an old selection could name a node
+  that is no longer there. A refresh in place (`rebuild`) keeps it.
 
 ## Workspace identity (`workspace/`)
 

@@ -148,7 +148,7 @@ pub(crate) const ALL: &[Shortcut] = &[
     Shortcut {
         keys: "↵",
         label: "open",
-        desc: "Open the highlighted entry (text → editor tab, blob → system open, dir → Finder)",
+        desc: "Open the highlighted entry (text → editor tab, blob → system open, dir → Finder). On the tree's ../ row it re-roots one level up instead, never above the brain root",
         group: Group::BrainDirectory,
         in_footer: false,
         commands: &[Entry(EntryCommand::Open)],
@@ -160,6 +160,22 @@ pub(crate) const ALL: &[Shortcut] = &[
         group: Group::BrainDirectory,
         in_footer: false,
         commands: &[Entry(EntryCommand::Reveal)],
+    },
+    Shortcut {
+        keys: "⌥↵",
+        label: "explore",
+        desc: "Explore the highlighted entry in the directory tree. ⌥↵ again, or Esc, returns to search. Bound to Alt rather than Shift because the kitty keyboard protocol exempts Enter from modifier reporting, so Shift+Enter is byte-identical to Enter",
+        group: Group::BrainDirectory,
+        in_footer: false,
+        commands: &[Entry(EntryCommand::Explore)],
+    },
+    Shortcut {
+        keys: "→ / ← / Space",
+        label: "expand",
+        desc: "Expand / collapse / toggle the selected tree node. Pure navigation, so it runs no command",
+        group: Group::BrainDirectory,
+        in_footer: false,
+        commands: &[],
     },
     Shortcut {
         keys: "^G",
@@ -338,4 +354,3 @@ pub(crate) const ALL: &[Shortcut] = &[
         commands: &[Global(GlobalAction::Quit)],
     },
 ];
-

@@ -1048,9 +1048,12 @@ service state.
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
 display order, Archive last) and `Entry` (absolute selected-workspace `path`,
-home-abbreviated `display`, `bucket`).
+home-abbreviated `display`, `bucket`, `is_dir`).
 `collect()` walks each root with `walkdir`, skips hidden files
-(`.`-prefixed) and the root itself, and tags every entry with its bucket.
+(`.`-prefixed) and the root itself, and tags every entry with its bucket and
+whether it is a directory. `is_dir` is recorded during the walk, where
+`walkdir` already knows it, so neither the tree builder nor the picker's
+palette context needs a per-selection `is_file()` syscall.
 Missing roots are silently skipped.
 
 ### `picker/`
@@ -1077,6 +1080,37 @@ trash, and a confirmed palette row runs its action. Every action happens in
 place; the shell never tears down on a selection. On `Accept`, Delete trashes
 the path and `drop_path`s the entry (`reload_entries` keeps the query), and
 the picker stays open.
+
+### `tree/`
+The brain-directory view's **tree sub-view**, the search picker's sibling.
+Everything here is pure — it reads `Entry::is_dir` rather than the filesystem —
+so the shape of the tree, its root, and its keymap are all testable without a
+temp dir.
+
+- `mod.rs` — `TreeView`, the state: the root it is showing, the brain root that
+  ceilings it, the built `TreeItem`s, the widget's own `TreeState`, and the
+  directory the synthetic `../` row re-roots to. `explore` builds it from a
+  target (root, opened ancestors, selection); `reroot` moves the root and drops
+  the selection; `rebuild` refreshes in place.
+- `root.rs` — where the tree opens and how far up it may walk. `scope_root`
+  derives the root from the entries' buckets (one bucket → that bucket's
+  directory, several or none → the brain root), so there is no stored scope to
+  drift from the entries. `ascend` is the single place the "never above the
+  brain root" rule lives; `shows_parent_row` is defined in terms of it, so the
+  `../` row can never offer a move the model would refuse.
+- `build.rs` — the flat entry list to nested `TreeItem`s: children keyed by
+  parent, directories sorted before files (each case-insensitively), the `../`
+  leaf prepended off-root. Also `identifier_path` / `opened_for`, which address
+  a node by its full root-relative identifier path the way the widget does.
+- `input.rs` — `handle_tree_input`, one keystroke to one `SearchEffect`.
+  Movement mutates the widget state and yields `SearchEffect::None`, because
+  navigating is not a command.
+- `view.rs` — `draw_into`: header / separator / `Tree` widget / footer, in the
+  same bordered sub-rect the search panel uses, so the two sub-views are
+  visually interchangeable.
+
+Glue lives in `tui/tree_view.rs` (below), and the sub-view axis itself is
+`tui::state::BrainDirView` on `ShellState`.
 
 ### `tui/palette/`
 The one command palette, and the only place a command is declared.
@@ -1630,7 +1664,8 @@ operation actually coordinates multiple owners.
 owns task/habit source rows, view materialization, assignment and query
 filtering, selection, notes expansion, rendered body lines, and viewport
 layout. `ShellState` owns the active main view, panel focus and side, the brain
-panel's hit-test rectangle, the embedded brain-directory `picker::App`, the
+panel's hit-test rectangle, the embedded brain-directory `picker::App` and
+`tree::TreeView` plus which of the two `BrainDirView` is showing, the
 logs view, and the selected brain-tab identity. Both expose semantic
 transitions and purpose-specific results rather than their internal field
 representation. Task link selection, managed-task removal validation, and
@@ -1669,8 +1704,9 @@ a one-actor compatibility context with hidden assignment controls.
 `event_loop` routes keys in the precedence documented in
 [keybindings.md](keybindings.md): unconditional `Ctrl+Q` quit → captive modal
 → panel and app-level accelerators → brain panel (forward bytes) → active main
-view (`handlers` for tasks, `search_view` for the
-brain-directory picker). `draw` renders the active main view in the main
+view (`handlers` for tasks; for the brain-directory view, `search_view` or
+`tree_view` depending on which sub-view `ShellState::brain_dir_view` reports).
+`draw` renders the active main view in the main
 panel and the brain panel beside it (`ShellState::panel_side`). The task
 renderer accepts `&mut TasksState` plus a small cross-feature chrome context;
 the log handler accepts `&mut ShellState`, and task-search handling accepts
@@ -1681,8 +1717,15 @@ the top-level mediator from display values and the active controller; it never
 receives `App`. The logs renderer accepts only the selected `LogsView`. Overlays span that composed shell; the
 search confirmation stays centered inside the search `main_area`, matching the
 picker's pre-shell render.
-`search_view.rs` is the brain-directory view's handler (its picker nav, in-place
-open, and the search-specific variants of the shell overlay). The remaining
+`search_view.rs` is the brain-directory view's search-sub-view handler (its
+picker nav, in-place open, and the search-specific variants of the shell
+overlay); `tree_view.rs` is the same glue for the tree sub-view, with the pure
+decision in `tree::input`. Both sub-views return the **same** `SearchEffect`
+enum — `Open`, `Reveal`, PDF, delete, refresh, palette, and quit are shared
+rather than duplicated into a parallel `TreeEffect`, and the tree adds
+`Explore`, `BackToSearch`, and `Reroot` to it — so one applier
+(`apply_search_view_effect`) serves the whole main view. A re-root is the one
+effect that re-walks, because it widens past the entries the picker holds. The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `app_*`, `shell`) are the tasks view's. The assignee picker has its own
 `draw_assignee` module so the shared-workspace overlay stays separate from the
@@ -2477,6 +2520,23 @@ sibling so the two projects share a stack:
   watcher integration test. All decision logic remains in the pure,
   clock-injected `watch::Debouncer`, so we depend on neither
   `notify-debouncer-full` nor `notify-debouncer-mini`.
+- `tui-tree-widget` (pinned `0.23.1`) — the brain-directory **tree sub-view**'s
+  widget. It is **state-only**: `TreeState` exposes `key_up`/`key_down`/
+  `key_left`/`key_right`, `open`/`close`/`toggle`, and `selected`, with no event
+  handling and no filesystem access of its own. That is exactly what lets brain
+  keep the walk, the keymap, and every decision in its own pure functions
+  (`src/tree/`) and hand the widget nothing but built items and a selection.
+  Pinned to `0.23.x` deliberately: `0.24` moved to `ratatui-core 0.1` +
+  `ratatui-widgets 0.3`, the ratatui 0.30 split, which this crate has not taken.
+  The rejected alternatives were `ratatui-explorer` (a single-directory `cd`
+  in/out list rather than a tree, which owns its own filesystem reads, input
+  handling, and theme — duplicating `entry`, `open_target`, and `keymap` — and
+  wants crossterm 0.29 against our 0.28) and hand-rolling (~150 lines the widget
+  already provides and tests). See [decisions.md](decisions.md).
+  One gotcha the tests have to know: `TreeState`'s navigation reads the
+  identifier list the widget recorded on its **last render**, so it is inert
+  until the tree has been drawn once. Harmless in the running app (a frame is
+  drawn between keystrokes); in tests, select directly rather than navigate.
 - `pulldown-cmark` (`default-features = false`, `html`) — CommonMark parsing for
   the email channel's HTML part (`src/server/reply/html.rs`). The agent answers
   in markdown and a mail client renders HTML, so the two have to be bridged;

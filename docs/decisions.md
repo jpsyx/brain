@@ -5720,3 +5720,120 @@ The same reasoning drove routing the key handlers through
 `App::execute_command` / `execute_global_action` instead of reimplementing each
 action inline: parity you have to remember is parity you eventually lose, so
 the key and the row now run the same code.
+
+The tree sub-view's `→` / `←` / `Space` were the first addition to that exempt
+list since it was pinned. They expand, collapse, and toggle a node — movement
+and disclosure, not an action on an entry — so they take the declared exemption
+rather than inventing a palette row that would do nothing a user could name.
+Everything else the tree binds runs an `EntryCommand` that was already listed.
+
+## Why the tree is `Alt+Enter`, not `Shift+Enter`
+
+`Shift+Enter` was what we originally wanted, and it cannot be made to work.
+
+The shell pushes only `KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`
+(`src/tui/runtime/terminal.rs`), and the kitty keyboard protocol **explicitly
+exempts Enter from that flag**: its C0-controls table gives Enter the byte
+`0xd` for no-modifier, Ctrl, Shift, *and* Ctrl+Shift alike. `Shift+Enter` is
+therefore byte-identical to a plain `Enter` — not "unreliable on old
+terminals", but indistinguishable on every terminal, including the ones that
+implement the protocol fully. (This is the same table that makes `Ctrl+M`
+share Enter's byte, which is why `Ctrl+M` needs the protocol; Shift on Enter is
+a step beyond what the protocol will report at this level at all.)
+
+Reporting it would need `REPORT_ALL_KEYS_AS_ESCAPE_CODES`, and that is not a
+flag we can push for one binding. It stops the terminal sending text as text,
+which puts the search sub-view's query line, the brain panel's `key_to_bytes`
+PTY forwarding, and every non-ASCII keystroke at risk — an enormous blast
+radius for one shortcut, on a surface whose whole job is forwarding a user's
+typing to an agent.
+
+`Alt+Enter` arrives as `ESC 0x0D` on every terminal, with no protocol needed.
+That is not a guess: `keymap::enter_inserts_newline` already relies on exactly
+that byte sequence for the brain-input modal's newline, so the binding is
+proven in this codebase before the tree used it.
+
+## Why the tree is a sub-view, not a fourth main view
+
+`MainView::CYCLE` is three, and the tree does not make it four.
+
+The tree is not a *different place*; it is a different way of looking at the
+same thing the brain-directory view already shows — the same entries, the same
+scope, the same commands. A fourth main view would put it a `Ctrl+L` away from
+tasks and logs, as though "the tree" were a peer of "my tasks", and would make
+`Ctrl+L`/`Ctrl+H` a four-stop cycle for every user, including the ones who
+never open it. So the axis is *inside* the view: `BrainDirView { Search, Tree }`
+on `ShellState`, switched with `Alt+Enter`, exactly as the tasks view has its
+own sub-view axis (`View::CYCLE`) inside one main view.
+
+That also settles a question the CLI ↔ palette parity rule would otherwise
+raise. `default_tui_view` is a *main-view* selector — its declared values are
+`tasks`, `brain_dir`, and `brain_llm` — so a sub-view needs no startup surface
+of its own, the same way no one can start directly in the tasks view's `week`
+tab. The startup target is the brain-directory view; which sub-view it opens on
+is a runtime choice, and `Alt+Enter` plus the palette's **Explore** row are both
+runtime surfaces. Nothing about the tree is persisted configuration, so there is
+no half of a parity pair missing.
+
+## Why the tree is built from the collected entries, not a lazy `read_dir`
+
+The obvious implementation of a directory tree reads each directory when the
+user expands it. We build from `picker::App::entries()` instead — the list the
+search sub-view already walked.
+
+Three things follow, all of them properties we wanted rather than happy
+accidents:
+
+- **Entering the tree costs no disk I/O.** `Alt+Enter` is a state change over
+  data already in memory, so it is instant and cannot fail.
+- **The tree shows exactly what search showed.** Same scope, same hidden-file
+  exclusion, same entries. A lazy `read_dir` would quietly disagree with the
+  list the user was just looking at — showing dotfiles the picker hides, or
+  material outside the current scope — and "the tree found something search
+  didn't" is a bug report, not a feature.
+- **The shape of the tree is a pure function.** `build.rs` reads `Entry::is_dir`
+  (recorded during the walk) rather than the filesystem, so every question about
+  nesting, ordering, and the `../` row is answered by a unit test with no temp
+  dir. That is what let the whole model land before the sub-view that drives it.
+
+The cost is that the tree is as fresh as the walk, which is why `Ctrl+R` now
+rebuilds **both** sub-views from one walk: a refresh from the tree must not
+leave the search list holding a deleted entry, or the other way round.
+
+The single exception is the `../` row. Re-rooting deliberately widens **past**
+the current scope, so it is the one action the picker's entries cannot answer
+and the one that re-walks. `root::ascend` still ceilings it at the brain root,
+so widening can never leave the workspace.
+
+## Why `tui-tree-widget`, pinned to 0.23.1
+
+The widget is **state-only**, which is the whole reason to take it: `TreeState`
+exposes `key_up`/`key_down`/`key_left`/`key_right`, `open`/`close`/`toggle`, and
+`selected`, and does no event handling and no filesystem access. Brain keeps the
+walk, the keymap, and every decision in its own pure functions (`src/tree/`) and
+hands the widget nothing but built items and a selection — which is exactly the
+pure/impure split the rest of this codebase follows.
+
+Rejected alternatives:
+
+- **`ratatui-explorer`** — not a tree at all but a single-directory list you
+  `cd` in and out of, and it owns its own filesystem reads, input handling, and
+  theme. That duplicates `entry`, `open_target`, and `keymap` and would give
+  brain a second, differently-behaved idea of what a directory contains. It also
+  wants crossterm 0.29 against our 0.28.
+- **Hand-rolling it** — roughly 150 lines of flattening, opened-set bookkeeping,
+  and scroll math that the widget already provides and tests.
+
+The pin is deliberate and should not be bumped casually: `0.24` moved to
+`ratatui-core 0.1` + `ratatui-widgets 0.3`, the ratatui 0.30 split, which this
+crate has not taken. `tui-tree-widget` moves to `0.24+` when brain moves to
+ratatui 0.30, not before.
+
+**One gotcha, recorded because it costs an hour to rediscover:** `TreeState`'s
+navigation (`key_up`, `key_down`, `select_first`, `select_last`) reads the
+identifier list the widget recorded on its **last render**, so it is inert until
+the tree has been drawn at least once. This is harmless in the running app,
+where a frame is drawn between keystrokes, but it means a test must **select
+directly** (`ShellState::select_tree_path`, `TreeState::select`) rather than
+navigate to the node it wants to act on. A navigation-based test passes
+vacuously against an unrendered tree.

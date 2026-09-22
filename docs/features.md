@@ -15,9 +15,12 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
   them), vim navigation, notes expand/render, mark-complete / remove / defer /
   open-links, agenda (`Ctrl+A`), and the daily-triage startup nudge. The full
   key list is in [keybindings.md](keybindings.md).
-- **Brain-directory (search) view** — the fuzzy search across projects,
-  areas, resources, and archive (the picker described later in this doc);
-  formerly what bare `brain` opened.
+- **Brain-directory view** — the surface over `capture/` plus the four PARA
+  buckets, with **two sub-views**: the fuzzy **search** picker (the startup
+  sub-view, formerly what bare `brain` opened) and the directory **tree**,
+  reached with `Alt+Enter` on the highlighted entry. Both are described later
+  in this doc. The tree is a sub-view, not a fourth main view: the main-view
+  cycle is still three.
 - **Logs view:** a scrollable view of the current run log, opened from the
   palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
@@ -2406,6 +2409,59 @@ list.
 
 See [keybindings.md](keybindings.md) for the complete key table including
 movement, paging, and query editing (`Ctrl-u`, `Ctrl-w`, Backspace).
+
+## The directory tree
+
+The brain-directory view's second sub-view. A flat ranked list answers "where
+is the thing I can name"; a tree answers "what is *in* here", which is the
+question you have once you have landed somewhere and want to see its
+neighbours. Both are the same main view, so the three-view cycle is unchanged.
+
+- **Entering it.** `Alt+Enter` on the highlighted search result, or the
+  palette's **Explore** row. The tree opens **rooted at the current search
+  scope**, expanded along that entry's ancestors, with the entry selected — so
+  you arrive looking at the thing you were already pointing at, in context.
+  (`Alt+Enter` rather than `Shift+Enter`: see [keybindings.md](keybindings.md)
+  and [decisions.md](decisions.md).)
+- **Leaving it.** `Alt+Enter` again, or `Esc`. `Esc` here means "back to
+  search", not "quit" — the one key whose meaning differs between the two
+  sub-views. `Ctrl+C` still quits from either.
+- **What it shows.** Exactly the entries the search picker already collected:
+  the same scope, the same hidden-file exclusion, no second walk of the disk.
+  Entering the tree therefore costs no disk I/O. It also means the tree is
+  refreshed the way the list is — `Ctrl+R` re-walks the brain directory and
+  rebuilds **both** sub-views from that one walk, so a refresh from either side
+  can never leave the other holding a deleted entry.
+- **Ordering.** Directories before files, each case-insensitively, so folders
+  read as a block at the top of every level.
+- **Real directories, not sections.** The tree nests every entry under its
+  actual parent directory, so what you read is the filesystem, not the search
+  view's `Capture` / `Projects` section headers.
+- **The `../` row.** When the tree is rooted below the brain root (a scoped
+  search), a synthetic `../` row sits at the top. `Enter` on it re-roots the
+  tree one level up — the one action that re-walks, because it deliberately
+  widens past what the picker is holding. It disappears at the brain root, and
+  the model refuses to return a parent at or above it, so the tree can never
+  walk out of the workspace. `Ctrl+G` / `Ctrl+D` skip the row rather than
+  acting on it.
+- **Acting on a node.** `Enter` opens it exactly as the search sub-view would
+  (text → editor tab, blob → system `open`, directory → Finder); `Ctrl+Enter`
+  reveals, `Ctrl+G` converts a markdown file to PDF, `Ctrl+D` trashes. These
+  are the same `EntryCommand`s the palette runs, resolved against whichever
+  sub-view is in front, so the palette's contextual rows name what you are
+  pointing at in the tree.
+- **Navigating.** `↑`/`↓` (or `Ctrl+K`/`Ctrl+J`), `PgUp`/`PgDn`, `Home`/`End`,
+  `→`/`←` to expand and collapse, `Space` to toggle. There is no query line, so
+  a printable character does nothing.
+
+**Explore is a palette command**, listed in every view like every other
+command. With an entry in context it reads *Explore 'atlas'*; with none it
+reads *Explore a file or directory in the tree* and asks **"Explore which
+entry?"** through the entry target picker first, then opens the tree on the
+chosen path (bringing the brain-directory view forward with it). It accepts a
+file or a directory alike: either way the root comes from the current search
+scope, and the chosen path is what the tree opens to and selects. Its gray hint
+is `[⌥↵]`.
 
 ## Create a PDF from markdown
 

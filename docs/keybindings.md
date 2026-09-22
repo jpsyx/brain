@@ -22,9 +22,9 @@ two can never drift apart, and a user whose terminal swallows a chord (see
 The table in `src/tasks/shortcuts/` records which command each binding runs,
 and a guard test fails the build if the palette does not list it. The only
 bindings exempt are the ones that are not commands at all: cursor movement
-(`j`/`k`, `d`/`u`, `PgDn`/`PgUp`, `g`/`G`), panel scrolling (`Alt+U`/`Alt+D`),
-`Esc` dismissing an error banner, and `Ctrl+P` itself. A second guard test pins
-that exempt list.
+(`j`/`k`, `d`/`u`, `PgDn`/`PgUp`, `g`/`G`), expanding and collapsing a tree node
+(`→`/`←`/`Space`), panel scrolling (`Alt+U`/`Alt+D`), `Esc` dismissing an error
+banner, and `Ctrl+P` itself. A second guard test pins that exempt list.
 
 The converse does not hold: plenty of commands are palette-only. The palette is
 the parent set.
@@ -144,11 +144,18 @@ palette row does. Opening today's habits page in the browser is the palette's
 | `Ctrl+Enter` | Open the task actions modal for the selected entry |
 | other `Ctrl+<key>` | Falls through to the normal-mode shortcut |
 
-## Brain-directory (search) view
+## Brain-directory view
 
-An always-filtering fuzzy picker over the selected workspace's projects,
-areas, resources, and archive directories. Every printable key edits the
-query.
+One main view with **two sub-views**: the always-filtering fuzzy **search**
+picker (the startup sub-view) and the directory **tree**. `Alt+Enter` moves
+between them; `Ctrl+H`/`Ctrl+L` and `Ctrl+T`/`Ctrl+B` still switch *main* views,
+so the tree adds no fourth entry to that cycle.
+
+### Search sub-view
+
+An always-filtering fuzzy picker over the selected workspace's capture,
+projects, areas, resources, and archive directories. Every printable key edits
+the query.
 
 | Key | Action |
 | --- | --- |
@@ -158,16 +165,17 @@ query.
 | `PgUp` / `PgDn` / `Home` / `End` | Page / jump |
 | `Enter` | Open the highlighted entry in place (text → editor tab, blob → system open, dir → Finder) — shell stays up |
 | `Ctrl+Enter` | Reveal the entry in Finder |
+| `Alt+Enter` | **Explore**: switch to the tree sub-view, rooted at the current search scope, expanded along the highlighted entry's ancestors, with it selected |
 | `Ctrl+G` | Create a PDF from the highlighted `.md` file (green confirm modal) |
 | `Ctrl+D` | Delete the highlighted entry (red confirm modal → Trash) |
 | `Ctrl+R` | Refresh the list (re-walk the current scope, keep the query) |
 | `Ctrl+P` | Open the global command palette (the same one every view opens) |
 | `Esc` / `Ctrl+C` | Quit the shell |
 
-`Tab` / `Shift+Tab` do nothing here (no sub-views). Each direct key above
-resolves the highlighted path and hands it to the same `EntryCommand` the
-palette row runs, so the two can't drift; the PDF / delete confirm overlays are
-captive while open.
+`Tab` / `Shift+Tab` do nothing here (the sub-view axis is `Alt+Enter`, not a
+tab cycle). Each direct key above resolves the highlighted path and hands it to
+the same `EntryCommand` the palette row runs, so the two can't drift; the PDF /
+delete confirm overlays are captive while open.
 
 The palette's rescope rows cover every bucket: **Search capture** (the
 user-managed in-basket), **Search projects**, **Search areas**, **Search
@@ -175,6 +183,49 @@ resources**, and **Search archive**, plus **Global search**, which restores all
 five. None of them has a direct keystroke, so none carries a gray `[…]` hint.
 Choosing one brings the brain-directory view forward, since the rescope is
 otherwise invisible.
+
+### Tree sub-view
+
+The same entries the search sub-view collected, nested under the current search
+scope instead of listed flat. It has no query line, so a printable character
+does nothing.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` (`Ctrl+K` / `Ctrl+J`) | Move the selection |
+| `PgUp` / `PgDn` / `Home` / `End` | Page / first / last |
+| `→` / `←` | Expand / collapse the selected node |
+| `Space` | Toggle the selected node |
+| `Enter` | Open the selected entry (text → editor tab, blob → system open, dir → Finder) |
+| `Enter` on `../` | Re-root the tree one level up (never above the brain root) |
+| `Ctrl+Enter` | Reveal the entry's directory in Finder |
+| `Ctrl+G` | Create a PDF from the selected `.md` file (green confirm modal) |
+| `Ctrl+D` | Delete the selected entry (red confirm modal → Trash) |
+| `Ctrl+R` | Re-walk the brain directory (refreshes **both** sub-views from one walk) |
+| `Alt+Enter` | Back to the search sub-view |
+| `Esc` | Back to the search sub-view — **not** quit |
+| `Ctrl+C` | Quit the shell |
+| `Ctrl+P` | Open the global command palette |
+
+`Esc` is the one key that means something different in the two sub-views: in
+search it quits the shell, in the tree it backs out to search. The tree is
+somewhere you drill into, so `Esc` is how you come back up; `Ctrl+C` remains the
+unambiguous quit from either.
+
+`→` / `←` / `Space` are the tree's only bindings with no palette row. They
+expand, collapse, and toggle a node, which is navigation rather than a command,
+so they take the same declared exemption `j`/`k` and `PgUp`/`PgDn` do.
+
+Everything else runs the same `EntryCommand` the search sub-view and the palette
+run, on whichever path the tree has selected. The `../` row is the exception: it
+carries the directory it re-roots to rather than an entry, so `Ctrl+G` and
+`Ctrl+D` skip it rather than acting on it.
+
+**Explore** is also a palette row, so the tree is reachable without the
+keystroke and from any main view. With an entry in context it reads *Explore
+'atlas'*; with none it reads *Explore a file or directory in the tree* and asks
+**"Explore which entry?"** through the entry target picker first. Its gray hint
+is `[⌥↵]`.
 
 ## Modals
 
@@ -252,3 +303,12 @@ are distinct from `Enter`, `Ctrl+H`/`Ctrl+L` from Backspace/Tab-family, and
 - `Ctrl+M` / `Ctrl+Enter` / `Ctrl+Shift+M` collapse to `Enter` → use the palette.
 - `Ctrl+H` collapses to Backspace, so **cycle-view-left is unavailable**; use `Ctrl+L` (right) or the palette. `Ctrl+T` / `Ctrl+B` / `Ctrl+L` have no aliasing.
 - `Alt+S`, `Alt+U`, `Alt+D`, `Ctrl+D`, `Ctrl+A`, `Ctrl+Q`, `Ctrl+X`, `Ctrl+N` are all reliable (Meta sequence, macOS Option-glyph fallback, or control bytes with no aliasing).
+
+`Alt+Enter` (explore / back to search) is reliable everywhere too, and that is
+why the tree is bound to it rather than to `Shift+Enter`. `DISAMBIGUATE_ESCAPE_CODES`
+does **not** report Shift on Enter: the kitty protocol's C0-controls table gives
+Enter the byte `0xd` for no-modifier, Ctrl, Shift, and Ctrl+Shift alike, so
+`Shift+Enter` is byte-identical to a plain `Enter`. Reporting it would need
+`REPORT_ALL_KEYS_AS_ESCAPE_CODES`, which stops the terminal sending text at all.
+`Alt+Enter` arrives as `ESC 0x0D` on every terminal — the same fact
+`keymap::enter_inserts_newline` already relies on for the brain-input modal.

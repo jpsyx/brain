@@ -55,6 +55,9 @@ fn only_navigation_and_modal_input_may_declare_no_command() {
             "d / u",
             "PgDn / PgUp",
             "g / G",
+            // The tree sub-view's expand / collapse / toggle: it moves the
+            // cursor and opens nodes, which is navigation, not a command.
+            "→ / ← / Space",
             "Alt+U / Alt+D",
             "Esc",
             "^P",
@@ -102,7 +105,7 @@ fn help_lists_the_brain_directory_bindings() {
     // The brain-directory view's keys used to be absent from help entirely.
     let rows = in_group(Group::BrainDirectory);
     let keys: Vec<&str> = rows.iter().map(|s| s.keys).collect();
-    assert_eq!(keys, ["↵", "^↵", "^G", "^D", "^R"]);
+    assert_eq!(keys, ["↵", "^↵", "⌥↵", "→ / ← / Space", "^G", "^D", "^R"]);
 }
 
 #[test]
