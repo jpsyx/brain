@@ -110,6 +110,9 @@ pub(crate) enum EntryCommand {
     Open,
     /// Reveal the entry's directory in Finder. A file resolves to its parent.
     Reveal,
+    /// Switch the brain-directory view to its tree sub-view, rooted at the
+    /// current search scope and opened on this entry.
+    Explore,
     /// Copy the entry's absolute file path.
     CopyFilePath,
     /// Copy the entry's directory path.
@@ -134,7 +137,9 @@ pub(crate) enum EntryRequirement {
 impl EntryCommand {
     pub(crate) const fn requirement(self) -> EntryRequirement {
         match self {
-            Self::Open | Self::Reveal | Self::CopyDirPath | Self::Delete => EntryRequirement::Any,
+            Self::Open | Self::Reveal | Self::Explore | Self::CopyDirPath | Self::Delete => {
+                EntryRequirement::Any
+            }
             Self::CopyFilePath => EntryRequirement::File,
             Self::CreatePdf => EntryRequirement::Markdown,
         }
@@ -144,6 +149,7 @@ impl EntryCommand {
         match self {
             Self::Open => Some("↵"),
             Self::Reveal => Some("^↵"),
+            Self::Explore => Some("⌥↵"),
             Self::CreatePdf => Some("^G"),
             Self::Delete => Some("^D"),
             Self::CopyFilePath | Self::CopyDirPath => None,
@@ -156,6 +162,7 @@ impl EntryCommand {
         match self {
             Self::Open => "Open which entry?",
             Self::Reveal => "Reveal which directory?",
+            Self::Explore => "Explore which entry?",
             Self::CopyFilePath => "Copy which file's path?",
             Self::CopyDirPath => "Copy which directory's path?",
             Self::CreatePdf => "Create a PDF from which markdown file?",
@@ -181,5 +188,37 @@ pub(crate) const fn shortcut_for(command: Command) -> Option<&'static str> {
         Command::Global(action) => action.shortcut(),
         Command::Task(task) => task.shortcut(),
         Command::Entry(entry) => entry.shortcut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explore_accepts_a_file_or_a_directory_and_advertises_alt_enter() {
+        // Both kinds explore fine: a file roots the tree beside it, a
+        // directory roots it at itself.
+        assert_eq!(EntryCommand::Explore.requirement(), EntryRequirement::Any);
+        assert_eq!(EntryCommand::Explore.shortcut(), Some("⌥↵"));
+        assert_eq!(EntryCommand::Explore.picker_title(), "Explore which entry?");
+    }
+
+    #[test]
+    fn every_entry_command_declares_a_requirement_a_title_and_an_error() {
+        // A command whose target is missing must be able to ask for one, and
+        // must be able to explain a target it cannot use.
+        for command in [
+            EntryCommand::Open,
+            EntryCommand::Reveal,
+            EntryCommand::Explore,
+            EntryCommand::CopyFilePath,
+            EntryCommand::CopyDirPath,
+            EntryCommand::CreatePdf,
+            EntryCommand::Delete,
+        ] {
+            assert!(!command.picker_title().is_empty(), "{command:?}");
+            assert!(!command.requirement_error().is_empty(), "{command:?}");
+        }
     }
 }

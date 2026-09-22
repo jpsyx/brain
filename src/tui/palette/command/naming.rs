@@ -17,8 +17,8 @@ use crate::tui::action::GlobalAction;
 use crate::tui::links::LinkKind;
 
 use super::labels::{
-    copy_dir_path_label, copy_file_path_label, create_pdf_label, delete_label, open_dir_label,
-    open_file_label, reveal_dir_label,
+    copy_dir_path_label, copy_file_path_label, create_pdf_label, delete_label, explore_label,
+    open_dir_label, open_file_label, reveal_dir_label,
 };
 use super::{Command, EntryCommand, TaskCommand};
 use crate::tui::palette::context::{EntryContext, PaletteContext, TaskContext};
@@ -208,6 +208,7 @@ fn named_entry_label(command: EntryCommand, target: &EntryContext) -> String {
         EntryCommand::Open if target.is_file => open_file_label(&target.filename),
         EntryCommand::Open => open_dir_label(&target.dir_reldisplay),
         EntryCommand::Reveal => reveal_dir_label(&target.dir_reldisplay),
+        EntryCommand::Explore => explore_label(&target.filename),
         EntryCommand::CopyFilePath => copy_file_path_label(&target.filename),
         EntryCommand::CopyDirPath => copy_dir_path_label(&target.dir_reldisplay),
         EntryCommand::CreatePdf => create_pdf_label(&target.filename),
@@ -219,6 +220,7 @@ const fn generic_entry_label(command: EntryCommand) -> &'static str {
     match command {
         EntryCommand::Open => "Open a file or directory",
         EntryCommand::Reveal => "Reveal a directory in Finder",
+        EntryCommand::Explore => "Explore a file or directory in the tree",
         EntryCommand::CopyFilePath => "Copy a file's path",
         EntryCommand::CopyDirPath => "Copy a directory's path",
         EntryCommand::CreatePdf => "Create a PDF from a markdown file",

@@ -106,6 +106,16 @@ pub(crate) fn open_dir_label(rel_dir: &str) -> String {
     format!("Open dir '{}'", truncate_label_dir(rel_dir, LABEL_MAX_DIR))
 }
 
+/// The "Explore" row label for a given entry name, elided with the same
+/// threshold as the other contextual filename rows.
+#[must_use]
+pub(crate) fn explore_label(name: &str) -> String {
+    format!(
+        "Explore '{}'",
+        truncate_label_filename(name, LABEL_MAX_FILENAME)
+    )
+}
+
 /// The "Reveal in Finder" row label for a bucket-relative directory path.
 /// Worded differently from [`open_dir_label`] because the two commands can
 /// both target a directory and must stay tellable apart in one list.
@@ -248,6 +258,17 @@ mod tests {
         let bare = truncate_label_filename("a-really-long-name-without-ext", 24);
         assert!(bare.contains("..."), "got: {bare}");
         assert_eq!(bare.chars().count(), 24);
+    }
+
+    #[test]
+    fn explore_label_names_the_entry_and_elides_a_long_one() {
+        assert_eq!(explore_label("atlas"), "Explore 'atlas'");
+
+        let shown = explore_label("really-long-note-name-that-overflows.md")
+            .trim_start_matches("Explore '")
+            .trim_end_matches('\'')
+            .to_owned();
+        assert_eq!(shown.chars().count(), LABEL_MAX_FILENAME);
     }
 
     #[test]

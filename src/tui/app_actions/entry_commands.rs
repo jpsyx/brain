@@ -21,6 +21,10 @@ impl App {
         match command {
             EntryCommand::Open => open_selection(path),
             EntryCommand::Reveal => reveal_in_finder(path),
+            // Inert until the tree sub-view exists to switch to. The command
+            // is declared first so the palette, its wording, and its target
+            // picker can be built and tested against it.
+            EntryCommand::Explore => {}
             EntryCommand::CopyFilePath => self.copy_path(path),
             EntryCommand::CopyDirPath => {
                 let target = open_target::finder_target(path, path.is_file());

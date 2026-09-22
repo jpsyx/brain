@@ -54,6 +54,7 @@ const COMMANDS: &[Command] = &[
     // --- brain directory ---
     Entry(EntryCommand::Open),
     Entry(EntryCommand::Reveal),
+    Entry(EntryCommand::Explore),
     Entry(EntryCommand::CopyFilePath),
     Entry(EntryCommand::CopyDirPath),
     Entry(EntryCommand::CreatePdf),
@@ -189,6 +190,17 @@ mod tests {
         for command in COMMANDS {
             assert!(listed.contains(command), "{command:?} is missing");
         }
+    }
+
+    #[test]
+    fn exploring_an_entry_is_a_listed_command() {
+        // The tree sub-view has to be reachable without the keystroke, from
+        // any view, which is what the parent-set invariant guarantees.
+        assert!(
+            catalog_rows(&shared())
+                .into_iter()
+                .any(|row| row.action == Entry(EntryCommand::Explore))
+        );
     }
 
     #[test]
