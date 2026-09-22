@@ -23,7 +23,17 @@ pub(crate) fn scope_root(entries: &[Entry], brain_root: &Path) -> PathBuf {
     if buckets.any(|bucket| bucket != first) {
         return brain_root.to_path_buf();
     }
-    brain_root.join(first.label().to_ascii_lowercase())
+    brain_root.join(first.dir_name())
+}
+
+/// Whether `target` sits inside the tree `entries` would open.
+///
+/// The palette's target picker walks every bucket, so it can hand back a path
+/// the current search scope does not contain. A caller that gets `false` here
+/// has to widen the entry set, or the tree would open on the wrong root with
+/// nothing selected.
+pub(crate) fn covers(entries: &[Entry], brain_root: &Path, target: &Path) -> bool {
+    target.starts_with(scope_root(entries, brain_root))
 }
 
 /// The directory one level above `root`, or `None` when there is nowhere
@@ -89,6 +99,50 @@ mod tests {
             scope_root(&[], Path::new("/brain")),
             PathBuf::from("/brain")
         );
+    }
+
+    #[test]
+    fn a_single_bucket_scope_covers_that_bucket_and_nothing_else() {
+        let entries = vec![entry("/brain/capture/inbox.md", Bucket::Capture)];
+        let brain = Path::new("/brain");
+
+        assert!(covers(
+            &entries,
+            brain,
+            Path::new("/brain/capture/inbox.md")
+        ));
+        assert!(covers(
+            &entries,
+            brain,
+            Path::new("/brain/capture/deep/note.md")
+        ));
+        assert!(!covers(
+            &entries,
+            brain,
+            Path::new("/brain/projects/plan.md")
+        ));
+    }
+
+    #[test]
+    fn a_scope_spanning_buckets_or_holding_nothing_covers_the_whole_brain_root() {
+        let spanning = vec![
+            entry("/brain/projects/atlas", Bucket::Projects),
+            entry("/brain/areas/health", Bucket::Areas),
+        ];
+        let brain = Path::new("/brain");
+
+        assert!(covers(
+            &spanning,
+            brain,
+            Path::new("/brain/projects/plan.md")
+        ));
+        assert!(covers(
+            &spanning,
+            brain,
+            Path::new("/brain/capture/inbox.md")
+        ));
+        assert!(covers(&[], brain, Path::new("/brain/capture/inbox.md")));
+        assert!(!covers(&[], brain, Path::new("/etc/passwd")));
     }
 
     #[test]

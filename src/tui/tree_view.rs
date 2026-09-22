@@ -29,7 +29,15 @@ impl App {
     /// reachable from the tasks view, so it brings the brain-directory view
     /// along with it rather than switching a view nobody is looking at.
     pub(crate) fn explore_entry(&mut self, target: &Path) {
-        self.shell.show_tree(target);
+        if self.shell.scope_covers(target) {
+            self.shell.show_tree(target);
+        } else {
+            // The palette's target picker walks every bucket, so its pick can
+            // sit outside the current search scope. Widen rather than open a
+            // tree the target is not in.
+            let entries = self.brain_dir_entries();
+            self.shell.show_tree_from(&entries, target);
+        }
         self.shell.show_main_view(MainView::BrainSearch);
     }
 
@@ -39,8 +47,8 @@ impl App {
         self.shell.reroot_tree(&entries, root);
     }
 
-    /// The full bucket set. Only a re-root needs this: it widens past the
-    /// current scope, so the entries the picker holds are not enough.
+    /// The full bucket set, for the two paths that widen past the current
+    /// scope: a re-root, and exploring a target the scope does not hold.
     fn brain_dir_entries(&self) -> Vec<Entry> {
         let root = self.context.workspace_root();
         crate::entry::collect(root, &all_bucket_roots(root)).unwrap_or_default()

@@ -24,9 +24,14 @@ use crate::{confirm, picker};
 impl App {
     /// Re-walk `roots` into the search picker, clearing the query (a scope
     /// switch from the command palette).
+    ///
+    /// One walk feeds both sub-views, as a refresh does: the rescope rows are
+    /// palette rows and `Ctrl+P` works from the tree, so a rescope with the
+    /// tree in front has to move the tree to the new scope too.
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
         if let Ok(entries) = entry::collect(self.context.workspace_root(), roots) {
             self.shell.replace_search_entries(&entries);
+            self.shell.rescope_tree();
         }
     }
 
@@ -47,27 +52,23 @@ impl App {
 }
 
 pub(crate) fn all_bucket_roots(brain_root: &Path) -> Vec<(Bucket, std::path::PathBuf)> {
-    vec![
-        (Bucket::Capture, brain_root.join("capture")),
-        (Bucket::Projects, brain_root.join("projects")),
-        (Bucket::Areas, brain_root.join("areas")),
-        (Bucket::Resources, brain_root.join("resources")),
-        (Bucket::Archive, brain_root.join("archive")),
+    [
+        Bucket::Capture,
+        Bucket::Projects,
+        Bucket::Areas,
+        Bucket::Resources,
+        Bucket::Archive,
     ]
+    .into_iter()
+    .map(|bucket| (bucket, brain_root.join(bucket.dir_name())))
+    .collect()
 }
 
 pub(crate) fn single_bucket_root(
     brain_root: &Path,
     bucket: Bucket,
 ) -> Vec<(Bucket, std::path::PathBuf)> {
-    let dir = match bucket {
-        Bucket::Capture => "capture",
-        Bucket::Projects => "projects",
-        Bucket::Areas => "areas",
-        Bucket::Resources => "resources",
-        Bucket::Archive => "archive",
-    };
-    vec![(bucket, brain_root.join(dir))]
+    vec![(bucket, brain_root.join(bucket.dir_name()))]
 }
 
 pub(crate) fn handle_search_view_key(

@@ -63,8 +63,7 @@ impl App {
     pub(crate) fn selected_dir_reldisplay(&self) -> Option<String> {
         let m = self.matches.get(self.selected)?;
         let entry = &self.entries[m.entry_idx];
-        let category = entry.bucket.label().to_ascii_lowercase();
-        let rel = bucket_relative(&entry.display, &category)?;
+        let rel = bucket_relative(&entry.display, entry.bucket.dir_name())?;
         Some(if entry.is_dir {
             rel
         } else {

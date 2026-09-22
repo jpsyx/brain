@@ -2428,10 +2428,20 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   sub-views. `Ctrl+C` still quits from either.
 - **What it shows.** Exactly the entries the search picker already collected:
   the same scope, the same hidden-file exclusion, no second walk of the disk.
-  Entering the tree therefore costs no disk I/O. It also means the tree is
-  refreshed the way the list is — `Ctrl+R` re-walks the brain directory and
-  rebuilds **both** sub-views from that one walk, so a refresh from either side
-  can never leave the other holding a deleted entry.
+  Entering the tree therefore costs no disk I/O. (Two paths deliberately widen
+  past the picker's entries, and only those two re-walk: the `../` row, and a
+  palette-picked Explore target from outside the current scope.) It also means
+  the tree is refreshed the way the list is: `Ctrl+R` re-walks the brain
+  directory and rebuilds **both** sub-views from that one walk, so a refresh
+  from either side can never leave the other holding a deleted entry. A
+  refresh keeps the cursor where it was, unless the walk came back without it
+  (you just trashed it), in which case the selection is dropped rather than
+  left naming a path that is gone.
+- **Rescoping follows.** The palette's *Search capture* / *Search projects* /
+  … / *Global search* rows re-walk one bucket (or all of them) into the
+  brain-directory view, and the tree moves to the new scope's root with them.
+  The palette opens over the tree as readily as over the list, so a rescope
+  chosen from the tree changes what the tree is showing.
 - **Ordering.** Directories before files, each case-insensitively, so folders
   read as a block at the top of every level.
 - **Real directories, not sections.** The tree nests every entry under its
@@ -2452,16 +2462,21 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   pointing at in the tree.
 - **Navigating.** `↑`/`↓` (or `Ctrl+K`/`Ctrl+J`), `PgUp`/`PgDn`, `Home`/`End`,
   `→`/`←` to expand and collapse, `Space` to toggle. There is no query line, so
-  a printable character does nothing.
+  a printable character does nothing. **A movement never clears the
+  highlight**: `←` on a top-level row has nothing to collapse, and leaves the
+  row selected rather than leaving the tree with no cursor at all.
 
 **Explore is a palette command**, listed in every view like every other
 command. With an entry in context it reads *Explore 'atlas'*; with none it
 reads *Explore a file or directory in the tree* and asks **"Explore which
 entry?"** through the entry target picker first, then opens the tree on the
 chosen path (bringing the brain-directory view forward with it). It accepts a
-file or a directory alike: either way the root comes from the current search
-scope, and the chosen path is what the tree opens to and selects. Its gray hint
-is `[⌥↵]`.
+file or a directory alike, and **the chosen path is always what the tree opens
+to and selects**: the root comes from the current search scope when that scope
+contains the path, and otherwise from the full bucket set, because the target
+picker offers every bucket while the search may be scoped to one. (Entering the
+tree with `Alt+Enter`, or on a target the scope already holds, still costs no
+disk I/O.) Its gray hint is `[⌥↵]`.
 
 ## Create a PDF from markdown
 

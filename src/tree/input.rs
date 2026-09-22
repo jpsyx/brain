@@ -77,7 +77,15 @@ enum TreeMove {
 }
 
 /// Apply a movement and report that nothing else needs to happen.
+///
+/// No movement may leave the tree with nothing selected. `key_left` pops the
+/// last identifier when there is no open node to close, and every vertical
+/// move falls back to an empty identifier until the widget has recorded a
+/// render. Either one erases the cursor, drops the highlight gutter (shifting
+/// every row three columns), and leaves `Enter` inert until an arrow key
+/// happens to recover.
 fn navigate(view: &mut TreeView, movement: TreeMove) -> SearchEffect {
+    let previous = view.state_mut().selected().to_vec();
     let state = view.state_mut();
     match movement {
         TreeMove::Up => {
@@ -112,6 +120,9 @@ fn navigate(view: &mut TreeView, movement: TreeMove) -> SearchEffect {
             state.select_last();
         }
     }
+    if state.selected().is_empty() && !previous.is_empty() {
+        state.select(previous);
+    }
     state.scroll_selected_into_view();
     SearchEffect::None
 }
@@ -127,6 +138,7 @@ fn entry_selection(view: &TreeView) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::entry::{Bucket, Entry};
+    use ratatui::{Terminal, backend::TestBackend};
     use std::path::Path;
 
     fn entries() -> Vec<Entry> {
@@ -152,6 +164,15 @@ mod tests {
             Path::new("/brain"),
             Path::new("/brain/projects/atlas/plan.md"),
         )
+    }
+
+    /// Draw the panel once, so the widget has recorded the identifier list its
+    /// vertical moves read. They are inert until it has.
+    fn render_once(view: &mut TreeView) {
+        let mut terminal = Terminal::new(TestBackend::new(48, 10)).expect("test terminal");
+        terminal
+            .draw(|frame| crate::tree::view::draw_into(frame, view, frame.area()))
+            .expect("draw the tree panel");
     }
 
     #[test]
@@ -248,14 +269,101 @@ mod tests {
     }
 
     #[test]
-    fn arrows_move_and_expand_without_producing_an_effect() {
+    fn right_opens_the_selected_node_and_space_toggles_it() {
+        // `key_right` and `toggle_selected` read only the selection, never the
+        // identifier list from the last render, so the open set is observable
+        // here without drawing anything.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas"),
+        );
+        let atlas = vec![PathBuf::from("/brain/projects/atlas")];
+        assert!(view.state.opened().is_empty(), "nothing starts open");
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Right, false, false),
+            SearchEffect::None
+        );
+        assert!(
+            view.state.opened().contains(&atlas),
+            "\u{2192} opens the selected directory"
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char(' '), false, false),
+            SearchEffect::None
+        );
+        assert!(
+            !view.state.opened().contains(&atlas),
+            "Space closes it again"
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char(' '), false, false),
+            SearchEffect::None
+        );
+        assert!(view.state.opened().contains(&atlas), "and opens it back");
+    }
+
+    #[test]
+    fn collapsing_a_top_level_row_keeps_it_selected() {
+        // With nothing open, `key_left` has no node to close and falls through
+        // to popping the last identifier, which on a depth-0 row leaves no
+        // cursor at all: no highlight, every row shifted three columns, and
+        // Enter inert until an arrow key recovers.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas"),
+        );
+        assert!(view.state.opened().is_empty(), "nothing to collapse");
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Left, false, false),
+            SearchEffect::None
+        );
+
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas"))
+        );
+    }
+
+    #[test]
+    fn collapsing_an_open_node_still_closes_it() {
         let mut view = view();
+        let atlas = vec![PathBuf::from("/brain/projects/atlas")];
+        view.state.select(atlas.clone());
+        assert!(view.state.opened().contains(&atlas));
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Left, false, false),
+            SearchEffect::None
+        );
+
+        assert!(
+            !view.state.opened().contains(&atlas),
+            "\u{2190} still collapses an open node"
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas")),
+            "and collapsing does not move the cursor"
+        );
+    }
+
+    #[test]
+    fn movement_keys_produce_no_effect_and_always_leave_a_cursor() {
+        // Before a render these moves cannot be observed by where they land:
+        // the widget has no identifier list to move through. What they must
+        // never do is observable, and is the whole bug.
+        let mut view = view();
+        let selected = view.selected_path();
+
         for code in [
             KeyCode::Up,
             KeyCode::Down,
-            KeyCode::Left,
-            KeyCode::Right,
-            KeyCode::Char(' '),
             KeyCode::PageUp,
             KeyCode::PageDown,
             KeyCode::Home,
@@ -266,19 +374,43 @@ mod tests {
                 SearchEffect::None,
                 "{code:?} is navigation, not a command"
             );
+            assert_eq!(
+                view.selected_path(),
+                selected,
+                "{code:?} must not leave the tree with nothing selected"
+            );
         }
     }
 
     #[test]
     fn ctrl_j_and_ctrl_k_move_the_selection_like_the_search_view() {
+        // Drawn once, the vertical moves really do step through the visible
+        // rows: `../`, `atlas`, and the open directory's `plan.md`.
         let mut view = view();
+        render_once(&mut view);
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/plan.md"))
+        );
+
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('k'), true, false),
             SearchEffect::None
         );
         assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas")),
+            "Ctrl+K moves up one visible row"
+        );
+
+        assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('j'), true, false),
             SearchEffect::None
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/plan.md")),
+            "Ctrl+J moves back down"
         );
     }
 

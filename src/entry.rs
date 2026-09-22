@@ -33,6 +33,23 @@ impl Bucket {
             Self::Archive => "Archive",
         }
     }
+
+    /// The bucket's directory name directly under the brain root.
+    ///
+    /// The single bucket-to-directory mapping: the search walk, the rescope
+    /// rows, and the tree's root all read it. Derived from the label instead,
+    /// a label that stopped matching its directory would leave the tree rooted
+    /// at a path no entry starts with, rendering nothing at all.
+    #[must_use]
+    pub const fn dir_name(self) -> &'static str {
+        match self {
+            Self::Capture => "capture",
+            Self::Projects => "projects",
+            Self::Areas => "areas",
+            Self::Resources => "resources",
+            Self::Archive => "archive",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +139,36 @@ mod tests {
         assert_eq!(Bucket::Areas.label(), "Areas");
         assert_eq!(Bucket::Resources.label(), "Resources");
         assert_eq!(Bucket::Archive.label(), "Archive");
+    }
+
+    #[test]
+    fn bucket_dir_names_are_the_directories_under_the_brain_root() {
+        assert_eq!(Bucket::Capture.dir_name(), "capture");
+        assert_eq!(Bucket::Projects.dir_name(), "projects");
+        assert_eq!(Bucket::Areas.dir_name(), "areas");
+        assert_eq!(Bucket::Resources.dir_name(), "resources");
+        assert_eq!(Bucket::Archive.dir_name(), "archive");
+    }
+
+    #[test]
+    fn every_bucket_dir_name_is_its_lowercased_label_today() {
+        // The walk, the rescope rows, and the tree root used to lowercase the
+        // label independently. Pinning the equivalence makes the move to one
+        // mapping behavior-preserving, and leaves the freedom to break it
+        // deliberately later in exactly one place.
+        for bucket in [
+            Bucket::Capture,
+            Bucket::Projects,
+            Bucket::Areas,
+            Bucket::Resources,
+            Bucket::Archive,
+        ] {
+            assert_eq!(
+                bucket.dir_name(),
+                bucket.label().to_ascii_lowercase(),
+                "{bucket:?}"
+            );
+        }
     }
 
     #[test]

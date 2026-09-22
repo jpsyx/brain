@@ -257,13 +257,30 @@ impl ShellState {
         self.brain_dir_view
     }
 
-    /// Open the tree sub-view on `target`, rebuilt from `entries`.
-    /// Open the tree on `target`, built from the entries the search picker is
-    /// already holding. That is what carries the current search scope into the
-    /// tree, and what makes entering it free of disk I/O.
+    /// Open the tree sub-view on `target`.
+    ///
+    /// Built from the entries the search picker is already holding, which is
+    /// what carries the current search scope into the tree and what makes
+    /// entering it free of disk I/O.
     pub(crate) fn show_tree(&mut self, target: &Path) {
         let brain_root = self.tree.brain_root().to_path_buf();
         self.tree = crate::tree::TreeView::explore(self.search.entries(), &brain_root, target);
+        self.brain_dir_view = BrainDirView::Tree;
+    }
+
+    /// Whether the tree the current search scope would open contains `target`.
+    ///
+    /// A caller holding a path from outside that scope has to widen the entry
+    /// set before opening the tree on it.
+    pub(crate) fn scope_covers(&self, target: &Path) -> bool {
+        crate::tree::root::covers(self.search.entries(), self.tree.brain_root(), target)
+    }
+
+    /// Open the tree sub-view on `target` from `entries` rather than the
+    /// picker's own, for a target the current search scope does not contain.
+    pub(crate) fn show_tree_from(&mut self, entries: &[Entry], target: &Path) {
+        let brain_root = self.tree.brain_root().to_path_buf();
+        self.tree = crate::tree::TreeView::explore(entries, &brain_root, target);
         self.brain_dir_view = BrainDirView::Tree;
     }
 
@@ -273,6 +290,17 @@ impl ShellState {
 
     pub(crate) fn reroot_tree(&mut self, entries: &[Entry], root: &Path) {
         self.tree.reroot(entries, root);
+    }
+
+    /// Move the tree to the scope the picker's entries now describe, after a
+    /// rescope.
+    ///
+    /// A re-root rather than a rebuild: the rescope rows are palette rows and
+    /// the palette opens over the tree too, so the sub-view behind it must
+    /// follow the new scope instead of staying at a root the old scope chose.
+    pub(crate) fn rescope_tree(&mut self) {
+        let root = crate::tree::root::scope_root(self.search.entries(), self.tree.brain_root());
+        self.tree.reroot(self.search.entries(), &root);
     }
 
     /// Rebuild the tree at the root it is already showing, for a refresh in
@@ -612,6 +640,16 @@ mod tests {
         )
     }
 
+    /// A scope holding one other bucket, the shape a rescope leaves behind.
+    fn capture_entries() -> Vec<crate::entry::Entry> {
+        vec![crate::entry::Entry {
+            path: PathBuf::from("/brain/capture/inbox.md"),
+            display: "~/brain/capture/inbox.md".to_owned(),
+            bucket: crate::entry::Bucket::Capture,
+            is_dir: false,
+        }]
+    }
+
     #[test]
     fn the_brain_directory_starts_on_search_and_toggles_to_the_tree() {
         let mut state = shell_state_with_entries();
@@ -636,6 +674,49 @@ mod tests {
         state.show_tree(Path::new("/brain/projects/plan.md"));
 
         assert_eq!(state.tree_root(), Path::new("/brain/projects"));
+    }
+
+    #[test]
+    fn a_target_outside_the_scope_is_opened_from_a_wider_entry_set() {
+        // The palette's target picker walks every bucket, so it hands back
+        // paths the current scope does not hold. Built from the picker's own
+        // entries, such a tree would root at the scoped bucket -- which the
+        // target is not under, so nothing would be selected and a tree scoped
+        // to an empty bucket would render blank.
+        let mut state = ShellState::new(
+            crate::picker::App::new(&capture_entries(), ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        );
+
+        assert!(state.scope_covers(Path::new("/brain/capture/inbox.md")));
+        assert!(!state.scope_covers(Path::new("/brain/projects/plan.md")));
+
+        let mut wide = capture_entries();
+        wide.extend(entries_fixture());
+        state.show_tree_from(&wide, Path::new("/brain/projects/plan.md"));
+
+        assert_eq!(state.brain_dir_view(), BrainDirView::Tree);
+        assert_eq!(state.tree_root(), Path::new("/brain"));
+        assert_eq!(
+            state.selected_tree_path(),
+            Some(PathBuf::from("/brain/projects/plan.md")),
+            "the chosen path is what the tree opens to and selects"
+        );
+    }
+
+    #[test]
+    fn rescoping_the_search_moves_the_tree_to_the_new_scope() {
+        // Rescoping is a palette row and Ctrl+P works from the tree, so a
+        // rescope with the tree showing must change what is on screen.
+        let mut state = shell_state_with_entries();
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        assert_eq!(state.tree_root(), Path::new("/brain/projects"));
+
+        state.replace_search_entries(&capture_entries());
+        state.rescope_tree();
+
+        assert_eq!(state.tree_root(), Path::new("/brain/capture"));
     }
 
     #[test]

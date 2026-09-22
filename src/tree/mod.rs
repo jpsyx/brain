@@ -4,14 +4,6 @@
 //! currently showing and the items built for it. Every decision about *what*
 //! the tree contains lives in `build` and `root`; this type only holds the
 //! result and hands the selection back as a path.
-// The model is built bottom-up over several commits, so its functions are
-// written and tested before the sub-view that calls them exists. The tests do
-// use them, so the allowance is scoped to non-test builds only, mirroring
-// `tasks::shortcuts`.
-#![cfg_attr(
-    not(test),
-    allow(dead_code, reason = "wired up when the sub-view lands")
-)]
 
 pub(crate) mod build;
 pub(crate) mod input;
@@ -74,12 +66,31 @@ impl TreeView {
         self.rebuild(entries, root);
     }
 
-    /// Rebuild the items for `root` without touching the selection, for a
+    /// Rebuild the items for `root`, keeping the cursor where it is, for a
     /// refresh in place.
+    ///
+    /// A selection the new entry set no longer renders is dropped: after a
+    /// delete the cursor would otherwise still name the trashed path, and both
+    /// `Enter` and every palette entry row would act on it.
     pub(crate) fn rebuild(&mut self, entries: &[Entry], root: &Path) {
         self.root = root.to_path_buf();
         self.items = build::build_items(entries, root, &self.brain_root);
         self.parent_row = root::ascend(root, &self.brain_root);
+        let stale = self
+            .selected_path()
+            .is_some_and(|selected| !self.renders(entries, &selected));
+        if stale {
+            self.state.select(Vec::new());
+        }
+    }
+
+    /// Whether `path` still names a row the tree draws: the `../` row, an
+    /// entry, or one of the directories synthesized above an entry.
+    fn renders(&self, entries: &[Entry], path: &Path) -> bool {
+        self.is_parent_row(path)
+            || entries
+                .iter()
+                .any(|entry| entry.path == path || entry.path.starts_with(path))
     }
 
     pub(crate) fn root(&self) -> &Path {
@@ -133,6 +144,14 @@ mod tests {
         ]
     }
 
+    /// The tree's top-level rows, which is what a rebuild replaces.
+    fn identifiers(view: &TreeView) -> Vec<PathBuf> {
+        view.items()
+            .iter()
+            .map(|item| item.identifier().clone())
+            .collect()
+    }
+
     #[test]
     fn exploring_an_entry_roots_at_the_scope_and_selects_that_entry() {
         let view = TreeView::explore(
@@ -165,17 +184,98 @@ mod tests {
     }
 
     #[test]
-    fn re_rooting_moves_the_root_and_rebuilds() {
+    fn re_rooting_moves_the_root_rebuilds_the_items_and_drops_the_cursor() {
         let mut view = TreeView::explore(
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
         );
         assert_eq!(view.root(), Path::new("/brain/projects"));
+        assert_eq!(
+            identifiers(&view),
+            vec![
+                PathBuf::from("/brain"),
+                PathBuf::from("/brain/projects/atlas"),
+                PathBuf::from("/brain/projects/loose.md"),
+            ],
+            "the ../ row, then the scoped bucket's own contents"
+        );
 
         view.reroot(&entries(), Path::new("/brain"));
 
         assert_eq!(view.root(), Path::new("/brain"));
+        assert_eq!(
+            identifiers(&view),
+            vec![PathBuf::from("/brain/projects")],
+            "a different tree: the bucket directory, and no ../ row above it"
+        );
+        assert_eq!(
+            view.selected_path(),
+            None,
+            "the old selection addressed the old root, so it cannot be carried over"
+        );
+    }
+
+    #[test]
+    fn a_refresh_drops_a_selection_the_new_entries_no_longer_hold() {
+        // What happens after a delete: the walk comes back without the file,
+        // and a cursor left on it would offer `Open 'loose.md'` for a path
+        // that is gone.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/loose.md"))
+        );
+
+        let survivors = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/atlas/plan.md", false),
+        ];
+        view.rebuild(&survivors, Path::new("/brain/projects"));
+
+        assert_eq!(view.selected_path(), None);
+    }
+
+    #[test]
+    fn a_refresh_keeps_a_selection_that_is_still_there() {
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+        );
+
+        view.rebuild(&entries(), Path::new("/brain/projects"));
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/loose.md"))
+        );
+
+        // The ../ row is a row too, though no entry's path equals it.
+        view.state.select(vec![PathBuf::from("/brain")]);
+        view.rebuild(&entries(), Path::new("/brain/projects"));
+        assert_eq!(view.selected_path(), Some(PathBuf::from("/brain")));
+    }
+
+    #[test]
+    fn a_refresh_keeps_a_directory_that_only_exists_through_its_children() {
+        // `entry::collect` skips each walk root, so the bucket directory has
+        // no Entry of its own; it is a row only because its children nest
+        // under it. Dropping it as "gone" would clear the cursor on a refresh.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+        );
+        view.reroot(&entries(), Path::new("/brain"));
+        view.state.select(vec![PathBuf::from("/brain/projects")]);
+
+        view.rebuild(&entries(), Path::new("/brain"));
+
+        assert_eq!(view.selected_path(), Some(PathBuf::from("/brain/projects")));
     }
 
     #[test]

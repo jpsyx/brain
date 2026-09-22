@@ -15,7 +15,12 @@ The top-level directories `brain` searches: the user-managed `capture/`
 in-basket plus the four PARA buckets. **Declaration order is display order**:
 the picker groups sections Capture → Projects → Areas → Resources → Archive
 by relying on the derived `Ord`. `label()` returns the human string
-("Capture", "Projects", …). Capture sorts first (it is the unfiled material
+("Capture", "Projects", …) and `dir_name()` the directory name under the brain
+root ("capture", "projects", …). `dir_name()` is the **only** bucket-to-directory
+mapping: the search walk's roots, the palette's rescope rows, and the tree's
+derived root all read it, so a label that stopped matching its directory can no
+longer leave one of them pointing at a path nothing is under. Capture sorts
+first (it is the unfiled material
 the user most recently put somewhere, and so the likeliest hit), and
 Archive sorts last, because it's retired material that stays searchable
 without crowding live work.
@@ -177,6 +182,15 @@ struct TreeView {
   directory; several buckets or none roots at the brain root. Deriving it keeps
   one source of truth rather than a stored scope that could drift from the
   entries themselves.
+- **A target outside the derived root has to widen the entries.**
+  `root::covers` answers whether a path sits inside the tree a given entry set
+  would open. The palette's target picker walks *every* bucket, so its pick can
+  be a path the current search scope does not contain; opening the tree from
+  the picker's entries anyway would root it at the scoped bucket, select
+  nothing (the identifier path would be empty), and render blank whenever that
+  bucket is empty. `App::explore_entry` therefore takes the free path only when
+  `covers` says the scope holds the target, and otherwise re-walks the full
+  bucket set for that one open.
 - **The `../` row is a synthetic leaf carrying its target.** Off the brain root
   the item list opens with a leaf labelled `../` whose *identifier is the
   directory it re-roots to*. A selection is therefore told apart from a real
@@ -188,7 +202,17 @@ struct TreeView {
 - **Ordering** is directories before files, then name, each case-insensitively.
 - **A re-root drops the selection** (`reroot` resets `TreeState`), because a
   different root is a different tree and an old selection could name a node
-  that is no longer there. A refresh in place (`rebuild`) keeps it.
+  that is no longer there. A refresh in place (`rebuild`) keeps the cursor,
+  **unless the new entry set no longer renders it**: a selection survives only
+  if it is the `../` row's target, an entry's own path, or a directory some
+  entry sits under. Otherwise a refresh after a delete would leave the cursor
+  naming the trashed path, and every entry command would act on it.
+- **No movement may clear the selection.** The widget's `key_left` pops the
+  last identifier when there is nothing open to close, and its vertical moves
+  fall back to an empty identifier until a render has recorded the visible
+  rows; `input::navigate` restores the previous selection whenever a move
+  empties it, so the tree always has a cursor to draw and `Enter` always has a
+  target.
 
 ## Workspace identity (`workspace/`)
 

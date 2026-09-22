@@ -15,13 +15,10 @@ use super::root::{ascend, shows_parent_row};
 /// The label of the synthetic row that re-roots the tree one level up.
 pub(crate) const PARENT_ROW_LABEL: &str = "../";
 
-/// The nested rows the tree renders under `root`.
+/// The nodes directly under each directory: each child's path, and whether it
+/// is a directory.
 ///
-/// Off the brain root the list opens with a synthetic `../` leaf whose
-/// identifier is the directory it re-roots to, so selecting it needs no
-/// special state, only a look at the identifier.
-/// The nodes directly under each directory: a path, and whether it is a
-/// directory. Values are keyed by path so a node contributed twice collapses.
+/// Keyed by path, so a node contributed twice collapses into one.
 type Children = BTreeMap<PathBuf, BTreeMap<PathBuf, bool>>;
 
 /// The nested rows the tree renders under `root`.
@@ -230,19 +227,21 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_directory_is_still_a_node_with_no_children() {
-        // is_dir comes from the walk, so an empty directory is not mistaken
-        // for a file just because nothing nests under it.
+    fn a_directory_with_nothing_under_it_is_still_a_row() {
+        // A row comes from the parent index, not from having children, so a
+        // directory the walk found empty is not dropped. It is deliberately
+        // *not* asserted to look like a directory: the widget picks its marker
+        // from `children.is_empty()`, so an empty directory renders like a
+        // leaf. `view::tests` covers the marker a populated one gets.
         let entries = vec![dir("/brain/projects/empty")];
 
-        let items = build_items(
-            &entries,
-            Path::new("/brain/projects"),
-            Path::new("/brain/projects"),
-        );
+        let items = build_items(&entries, Path::new("/brain/projects"), Path::new("/brain"));
 
-        assert_eq!(items.len(), 1);
-        assert!(items[0].children().is_empty());
+        assert_eq!(
+            labels(&items),
+            vec!["/brain".to_owned(), "/brain/projects/empty".to_owned()]
+        );
+        assert!(items[1].children().is_empty());
     }
 
     #[test]

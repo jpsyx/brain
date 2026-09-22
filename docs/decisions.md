@@ -5837,3 +5837,74 @@ where a frame is drawn between keystrokes, but it means a test must **select
 directly** (`ShellState::select_tree_path`, `TreeState::select`) rather than
 navigate to the node it wants to act on. A navigation-based test passes
 vacuously against an unrendered tree.
+
+The same gotcha is why `input::navigate` restores the previous selection
+whenever a move empties it (see below), and why a test that wants to observe
+where a vertical move *lands* renders the panel once first
+(`tree::input::tests::render_once`) instead of asserting on an unrendered tree.
+
+## Why the tree widens only when Explore's target is outside the scope
+
+`App::explore_entry` has two paths, and the asymmetry is the point.
+
+`Alt+Enter` explores the entry the search sub-view has highlighted, which by
+construction is one of the picker's own entries, so the tree can be built from
+what is already in memory: no disk I/O, and the scope carried over intact. But
+**Explore is also a palette command**, and the palette's target picker is built
+from a fresh walk of *every* bucket (`open_entry_target_picker`), precisely so
+it can offer a target when nothing is in context. Rescope the search to one
+bucket and pick a path in another and the two disagree: `root::scope_root`
+would root the tree at the scoped bucket, `build::identifier_path` would return
+an empty identifier for a target that is not under it, and the tree would open
+on the wrong bucket with **nothing selected** (blank, if the scoped bucket is
+empty).
+
+Neither half can be dropped. Always re-walking would cost the free `Alt+Enter`
+entry and lose the scope the user chose; always trusting the scope would break
+the promise that "the chosen path is what the tree opens to and selects". So
+`root::covers` asks the question once, and only a `false` re-walks. Keeping the
+check in `root.rs` next to `scope_root` is what makes it impossible for the two
+to disagree about where a given entry set puts the tree.
+
+## Why no movement may leave the tree with nothing selected
+
+`TreeState::key_left` closes the selected node when it is open, and otherwise
+**pops the last identifier** to move to the parent. On a depth-0 row there is
+no parent, so it pops the selection empty; the vertical moves do the same thing
+by a different route, falling back to an empty identifier whenever the widget
+has no rendered identifier list to search. An empty selection is not a neutral
+state: the widget reserves the highlight gutter only when something is
+selected, so the whole tree shifts three columns, there is no cursor to read,
+and `Enter` does nothing until an arrow key happens to recover.
+
+`input::navigate` therefore captures the selection before the move and restores
+it if the move emptied it. It sits in `navigate` rather than in the `Collapse`
+arm because every arm can produce the same state, and because "a movement keeps
+a cursor" is a property of movement, not of one key.
+
+## Why a refresh drops a selection the new walk no longer holds
+
+`rebuild` deliberately keeps the widget state, so a `Ctrl+R` that changes
+nothing leaves the cursor where the user left it. After a delete that is
+exactly wrong: the selection still names the trashed path, the palette offers
+`Open '<gone>'`, and `Enter` acts on a file that no longer exists. So `rebuild`
+now clears a selection the new entry set does not render: one that is neither
+the `../` row's target, nor an entry's own path, nor a directory some entry
+sits under (the synthesized levels are rows too, and
+`entry::collect` emits no `Entry` for a walk root).
+
+The check reads the entries rather than the built items because that is the
+same input `build_items` renders from, so "is this still a row?" cannot drift
+from what is on screen.
+
+## Why `Bucket::dir_name` exists
+
+The bucket-to-directory mapping was written three times: the search walk's
+roots, the palette's rescope rows, and the tree's derived root, two of them by
+lowercasing `Bucket::label()`. Three copies of a mapping are three chances for
+one to disagree, and the tree's copy fails *silently*: `scope_root` returns a
+path no entry starts with, `group_children` filters everything out, and the
+sub-view renders empty with no error anywhere. `dir_name` makes the mapping one
+`const fn` next to `label`, and a test pins that it still equals the lowercased
+label today, so the refactor changed no behavior and a future divergence is a
+deliberate edit in one place.

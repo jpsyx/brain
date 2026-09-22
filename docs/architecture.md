@@ -1091,20 +1091,28 @@ temp dir.
   ceilings it, the built `TreeItem`s, the widget's own `TreeState`, and the
   directory the synthetic `../` row re-roots to. `explore` builds it from a
   target (root, opened ancestors, selection); `reroot` moves the root and drops
-  the selection; `rebuild` refreshes in place.
+  the selection; `rebuild` refreshes in place, keeping the cursor unless the
+  new entry set no longer renders it (a refresh after a delete must not leave
+  the cursor naming the trashed path).
 - `root.rs` — where the tree opens and how far up it may walk. `scope_root`
   derives the root from the entries' buckets (one bucket → that bucket's
   directory, several or none → the brain root), so there is no stored scope to
-  drift from the entries. `ascend` is the single place the "never above the
-  brain root" rule lives; `shows_parent_row` is defined in terms of it, so the
-  `../` row can never offer a move the model would refuse.
+  drift from the entries; a bucket's directory name comes from
+  `Bucket::dir_name`, the one bucket-to-directory mapping. `covers` answers
+  whether a target sits inside the tree a given entry set would open, which is
+  what tells `explore_entry` to widen instead of opening a tree the target is
+  not in. `ascend` is the single place the "never above the brain root" rule
+  lives; `shows_parent_row` is defined in terms of it, so the `../` row can
+  never offer a move the model would refuse.
 - `build.rs` — the flat entry list to nested `TreeItem`s: children keyed by
   parent, directories sorted before files (each case-insensitively), the `../`
   leaf prepended off-root. Also `identifier_path` / `opened_for`, which address
   a node by its full root-relative identifier path the way the widget does.
 - `input.rs` — `handle_tree_input`, one keystroke to one `SearchEffect`.
   Movement mutates the widget state and yields `SearchEffect::None`, because
-  navigating is not a command.
+  navigating is not a command. `navigate` also restores the previous selection
+  whenever a move would empty it, so no keystroke can leave the tree without a
+  cursor.
 - `view.rs` — `draw_into`: header / separator / `Tree` widget / footer, in the
   same bordered sub-rect the search panel uses, so the two sub-views are
   visually interchangeable.
@@ -1724,8 +1732,12 @@ decision in `tree::input`. Both sub-views return the **same** `SearchEffect`
 enum — `Open`, `Reveal`, PDF, delete, refresh, palette, and quit are shared
 rather than duplicated into a parallel `TreeEffect`, and the tree adds
 `Explore`, `BackToSearch`, and `Reroot` to it — so one applier
-(`apply_search_view_effect`) serves the whole main view. A re-root is the one
-effect that re-walks, because it widens past the entries the picker holds. The remaining
+(`apply_search_view_effect`) serves the whole main view. Two paths re-walk,
+both because they widen past the entries the picker holds: a re-root, and an
+`Explore` whose target the current scope does not contain, which
+`ShellState::scope_covers` decides and only the palette's every-bucket target
+picker can produce. A palette rescope feeds both sub-views the way a refresh
+does (`search_rescope` → `replace_search_entries` + `rescope_tree`). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `app_*`, `shell`) are the tasks view's. The assignee picker has its own
 `draw_assignee` module so the shared-workspace overlay stays separate from the
