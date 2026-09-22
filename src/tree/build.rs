@@ -20,23 +20,21 @@ pub(crate) const PARENT_ROW_LABEL: &str = "../";
 /// Off the brain root the list opens with a synthetic `../` leaf whose
 /// identifier is the directory it re-roots to, so selecting it needs no
 /// special state, only a look at the identifier.
+/// The nodes directly under each directory: a path, and whether it is a
+/// directory. Values are keyed by path so a node contributed twice collapses.
+type Children = BTreeMap<PathBuf, BTreeMap<PathBuf, bool>>;
+
+/// The nested rows the tree renders under `root`.
+///
+/// Off the brain root the list opens with a synthetic `../` leaf whose
+/// identifier is the directory it re-roots to, so selecting it needs no
+/// special state, only a look at the identifier.
 pub(crate) fn build_items(
     entries: &[Entry],
     root: &Path,
     brain_root: &Path,
 ) -> Vec<TreeItem<'static, PathBuf>> {
-    let mut children: BTreeMap<PathBuf, Vec<&Entry>> = BTreeMap::new();
-    for entry in entries
-        .iter()
-        .filter(|entry| entry.path.starts_with(root) && entry.path != root)
-    {
-        if let Some(parent) = entry.path.parent() {
-            children
-                .entry(parent.to_path_buf())
-                .or_default()
-                .push(entry);
-        }
-    }
+    let children = group_children(entries, root);
 
     let mut items = Vec::new();
     if let Some(parent) = ascend(root, brain_root) {
@@ -47,33 +45,67 @@ pub(crate) fn build_items(
     items
 }
 
+/// Index every entry under its parent, synthesizing the directories in
+/// between.
+///
+/// `entry::collect` skips each walk root, so a bucket directory has no `Entry`
+/// of its own even though its contents do. Without synthesizing those the tree
+/// would lose whole levels, and at the brain root it would render nothing at
+/// all, which is exactly where an unscoped search puts it.
+fn group_children(entries: &[Entry], root: &Path) -> Children {
+    let mut children: Children = BTreeMap::new();
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.path.starts_with(root) && entry.path != root)
+    {
+        let Some(parent) = entry.path.parent() else {
+            continue;
+        };
+        children
+            .entry(parent.to_path_buf())
+            .or_default()
+            .insert(entry.path.clone(), entry.is_dir);
+
+        let mut current = parent;
+        while current != root {
+            let Some(grandparent) = current.parent() else {
+                break;
+            };
+            children
+                .entry(grandparent.to_path_buf())
+                .or_default()
+                .insert(current.to_path_buf(), true);
+            if !grandparent.starts_with(root) {
+                break;
+            }
+            current = grandparent;
+        }
+    }
+    children
+}
+
 /// The rows directly under `parent`, recursing into each directory.
-fn items_under(
-    parent: &Path,
-    children: &BTreeMap<PathBuf, Vec<&Entry>>,
-) -> Vec<TreeItem<'static, PathBuf>> {
-    let mut entries = children.get(parent).cloned().unwrap_or_default();
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| sort_key(&a.path).cmp(&sort_key(&b.path)))
+fn items_under(parent: &Path, children: &Children) -> Vec<TreeItem<'static, PathBuf>> {
+    let mut nodes: Vec<(&PathBuf, bool)> = children
+        .get(parent)
+        .map(|nodes| nodes.iter().map(|(path, dir)| (path, *dir)).collect())
+        .unwrap_or_default();
+    nodes.sort_by(|(a_path, a_dir), (b_path, b_dir)| {
+        b_dir
+            .cmp(a_dir)
+            .then_with(|| sort_key(a_path).cmp(&sort_key(b_path)))
     });
 
-    entries
+    nodes
         .into_iter()
-        .filter_map(|entry| {
-            let label = label_for(&entry.path);
-            if entry.is_dir {
+        .filter_map(|(path, is_dir)| {
+            let label = label_for(path);
+            if is_dir {
                 // `new` only errors on duplicate child identifiers, which
                 // cannot happen: every identifier is a distinct absolute path.
-                TreeItem::new(
-                    entry.path.clone(),
-                    label,
-                    items_under(&entry.path, children),
-                )
-                .ok()
+                TreeItem::new(path.clone(), label, items_under(path, children)).ok()
             } else {
-                Some(TreeItem::new_leaf(entry.path.clone(), label))
+                Some(TreeItem::new_leaf(path.clone(), label))
             }
         })
         .collect()
@@ -229,7 +261,9 @@ mod tests {
 
     #[test]
     fn at_the_brain_root_there_is_no_parent_row() {
-        let entries = vec![dir("/brain/projects")];
+        // Entries as `collect` really emits them: nothing for the bucket
+        // directory itself, only for what is inside it.
+        let entries = vec![file("/brain/projects/plan.md")];
 
         let items = build_items(&entries, Path::new("/brain"), Path::new("/brain"));
 
@@ -237,6 +271,36 @@ mod tests {
             labels(&items),
             vec!["/brain/projects".to_owned()],
             "nothing above the brain root, so nothing to ascend to"
+        );
+    }
+
+    #[test]
+    fn the_brain_root_lists_the_bucket_directories_the_walk_skipped() {
+        // `entry::collect` skips each walk root, so there is no Entry for
+        // `/brain/projects` itself, only for what is inside it. The tree has
+        // to show it anyway: the default unscoped search spans every bucket,
+        // which roots the tree here, and an empty tree would be the whole
+        // feature failing on its most common path.
+        let entries = vec![
+            file("/brain/projects/plan.md"),
+            file("/brain/areas/health/log.md"),
+        ];
+
+        let items = build_items(&entries, Path::new("/brain"), Path::new("/brain"));
+
+        assert_eq!(
+            labels(&items),
+            vec!["/brain/areas".to_owned(), "/brain/projects".to_owned()]
+        );
+        let areas = &items[0];
+        assert_eq!(
+            areas.children()[0].identifier(),
+            &PathBuf::from("/brain/areas/health"),
+            "an intermediate directory with no Entry of its own still nests"
+        );
+        assert_eq!(
+            areas.children()[0].children()[0].identifier(),
+            &PathBuf::from("/brain/areas/health/log.md")
         );
     }
 
