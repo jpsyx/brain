@@ -2480,7 +2480,7 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   nothing draws.
 - **The cursor brightens the row, it does not repaint it.** The selected row
   takes the selection background, bold weight, and a **brighter version of its
-  own colour** — 18% more perceptual lightness, computed in Oklab so the hue
+  own colour** — 15% more perceptual lightness, computed in Oklab so the hue
   does not drift — so moving the cursor never costs you what the colour was
   telling you. Brightening rather than bolding is what makes the cursor visible
   on a **directory**, whose base style is already bold. A hidden row stays

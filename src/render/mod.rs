@@ -37,11 +37,12 @@ pub const SELECTED_BG: Color = Color::Rgb(36, 40, 59);
 ///
 /// Enough to read as lit next to a base style that is already bold, little
 /// enough that the hue still says what the row is. Measured against the
-/// palette rather than picked: at 0.18 the two commonest rows leave the sRGB
-/// gamut and clip to near-white, which throws away exactly the colour the
-/// highlight is meant to be showing off. At 0.10 every kind stays itself and
-/// still gains a clearly visible step (+0.08 in Oklab L on a note).
-const SELECTION_LIFT: f32 = 0.10;
+/// palette rather than picked: by 0.18 the two commonest rows are far enough
+/// outside the sRGB gamut to clip to near-white, throwing away exactly the
+/// colour the highlight exists to show off. At 0.15 every kind still reads as
+/// itself (a note lands on `233,244,255`, a directory on `165,248,255`) while
+/// gaining a clear step of +0.13 in Oklab L.
+const SELECTION_LIFT: f32 = 0.15;
 
 // ---------------------------------------------------------------------------
 // Reusable styles
