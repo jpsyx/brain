@@ -113,6 +113,18 @@ mod tests {
     }
 
     #[test]
+    fn a_sibling_whose_name_merely_starts_with_the_brain_root_is_still_outside() {
+        // `Path::starts_with` matches whole components, not bytes, so
+        // `/brainstorming` is not inside `/brain`. Pinning it because a
+        // byte-wise prefix check here would silently let the tree escape the
+        // workspace into a same-prefixed sibling.
+        let brain = Path::new("/brain");
+
+        assert_eq!(ascend(Path::new("/brainstorming/notes"), brain), None);
+        assert!(!shows_parent_row(Path::new("/brainstorming"), brain));
+    }
+
+    #[test]
     fn the_parent_row_shows_exactly_when_there_is_somewhere_to_ascend_to() {
         for (root, expected) in [
             ("/brain/projects/atlas", true),
