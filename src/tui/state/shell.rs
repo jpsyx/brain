@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crossterm::event::KeyCode;
 use ratatui::{Frame, layout::Rect};
@@ -15,6 +15,8 @@ pub(crate) struct ShellState {
     panel_side: PanelSide,
     brain_rect: Option<Rect>,
     search: crate::picker::App,
+    brain_dir_view: BrainDirView,
+    tree: crate::tree::TreeView,
     logs_view: Option<LogsView>,
     active_brain_tab: BrainTab,
     /// Set by the palette's "Quit brain" row. The event loop reads and clears
@@ -23,6 +25,11 @@ pub(crate) struct ShellState {
     quit_requested: bool,
 }
 
+/// The brain-directory main view's effect enum, covering **both** sub-views
+/// (fuzzy search and the directory tree). `Open`/`Reveal`/`Quit`/
+/// `OpenPalette`/`Refresh` are shared rather than duplicated into a parallel
+/// `TreeEffect`, since both sub-views act on the same picked path and the
+/// same app-level actions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SearchEffect {
     None,
@@ -33,6 +40,23 @@ pub(crate) enum SearchEffect {
     ConfirmPdf(PathBuf),
     Refresh,
     ConfirmDelete(PathBuf),
+    /// Switch to the tree sub-view, rooted at the current scope and opened on
+    /// this path.
+    Explore(PathBuf),
+    /// Leave the tree sub-view for the search sub-view.
+    BackToSearch,
+    /// Move the tree's root to this directory and rebuild.
+    Reroot(PathBuf),
+}
+
+/// Which sub-view the brain-directory main view is showing.
+///
+/// This is an axis *inside* one main view, like the tasks view's `View`, not a
+/// fourth entry in `MainView::CYCLE`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrainDirView {
+    Search,
+    Tree,
 }
 
 fn resolve_active_tab(requested: BrainTab, open: &[SessionTabId]) -> BrainTab {
@@ -53,13 +77,19 @@ fn tab_for_slot(slot: usize, open: &[SessionTabId]) -> Option<BrainTab> {
 }
 
 impl ShellState {
-    pub(crate) fn new(search: crate::picker::App, panel_side: PanelSide) -> Self {
+    pub(crate) fn new(
+        search: crate::picker::App,
+        panel_side: PanelSide,
+        brain_root: &Path,
+    ) -> Self {
         Self {
             main_view: MainView::Tasks,
             focus: Panel::Tasks,
             panel_side,
             brain_rect: None,
             search,
+            brain_dir_view: BrainDirView::Search,
+            tree: crate::tree::TreeView::empty(brain_root),
             logs_view: None,
             active_brain_tab: BrainTab::Main,
             quit_requested: false,
@@ -161,7 +191,9 @@ impl ShellState {
                 .search
                 .selected_path()
                 .map_or(SearchEffect::None, |path| {
-                    if ctrl {
+                    if alt {
+                        SearchEffect::Explore(path)
+                    } else if ctrl {
                         SearchEffect::Reveal(path)
                     } else {
                         SearchEffect::Open(path)
@@ -219,6 +251,101 @@ impl ShellState {
             }
             _ => SearchEffect::None,
         }
+    }
+
+    pub(crate) const fn brain_dir_view(&self) -> BrainDirView {
+        self.brain_dir_view
+    }
+
+    /// Open the tree sub-view on `target`, rebuilt from `entries`.
+    /// Open the tree on `target`, built from the entries the search picker is
+    /// already holding. That is what carries the current search scope into the
+    /// tree, and what makes entering it free of disk I/O.
+    pub(crate) fn show_tree(&mut self, target: &Path) {
+        let brain_root = self.tree.brain_root().to_path_buf();
+        self.tree = crate::tree::TreeView::explore(self.search.entries(), &brain_root, target);
+        self.brain_dir_view = BrainDirView::Tree;
+    }
+
+    pub(crate) const fn show_search(&mut self) {
+        self.brain_dir_view = BrainDirView::Search;
+    }
+
+    pub(crate) fn reroot_tree(&mut self, entries: &[Entry], root: &Path) {
+        self.tree.reroot(entries, root);
+    }
+
+    /// Rebuild the tree at the root it is already showing, for a refresh in
+    /// place.
+    pub(crate) fn rebuild_tree(&mut self) {
+        let root = self.tree.root().to_path_buf();
+        self.tree.rebuild(self.search.entries(), &root);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tree_root(&self) -> &Path {
+        self.tree.root()
+    }
+
+    /// Select a tree node directly. Tests need this because the widget's own
+    /// navigation (`key_up`, `select_first`, ...) reads the identifier list it
+    /// recorded on its last render, so it is inert until the tree has been
+    /// drawn at least once.
+    #[cfg(test)]
+    pub(crate) fn select_tree_path(&mut self, path: &Path) {
+        self.tree.state_mut().select(vec![path.to_path_buf()]);
+    }
+
+    pub(crate) fn handle_tree_input(
+        &mut self,
+        code: KeyCode,
+        ctrl: bool,
+        alt: bool,
+    ) -> SearchEffect {
+        crate::tree::input::handle_tree_input(&mut self.tree, code, ctrl, alt)
+    }
+
+    pub(crate) fn render_tree(&mut self, frame: &mut Frame, area: Rect) {
+        crate::tree::view::draw_into(frame, &mut self.tree, area);
+    }
+
+    pub(crate) fn selected_tree_path(&self) -> Option<PathBuf> {
+        self.tree.selected_path()
+    }
+
+    /// The highlighted tree node as palette context. The `../` row is
+    /// navigation rather than an entry, so it offers nothing to act on.
+    pub(crate) fn selected_tree_entry_context(&self) -> Option<crate::tui::palette::EntryContext> {
+        let path = self.tree.selected_path()?;
+        if self.tree.is_parent_row(&path) {
+            return None;
+        }
+        // The tree holds paths, not entries, so "is it a file?" is a question
+        // for the filesystem rather than a recorded walk flag.
+        let is_file = !path.is_dir();
+        Some(crate::tui::palette::EntryContext {
+            filename: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            dir_reldisplay: self.tree_dir_reldisplay(&path, is_file),
+            is_file,
+            is_markdown: is_file && crate::open_target::is_markdown(&path),
+        })
+    }
+
+    /// The selected node's directory relative to the brain root, the shape the
+    /// palette's directory rows read. A directory stands for itself and a file
+    /// for its parent, mirroring `open_target::finder_target`.
+    fn tree_dir_reldisplay(&self, path: &Path, is_file: bool) -> String {
+        let dir = if is_file {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+        dir.strip_prefix(self.tree.brain_root())
+            .map(|relative| relative.display().to_string())
+            .unwrap_or_default()
     }
 
     pub(crate) fn cycle_main_view(&mut self, direction: Dir) {
@@ -323,10 +450,14 @@ impl ShellState {
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use crossterm::event::KeyCode;
     use ratatui::layout::Rect;
 
-    use super::{SearchEffect, ShellState, resolve_active_tab, tab_for_slot, tab_order};
+    use super::{
+        BrainDirView, SearchEffect, ShellState, resolve_active_tab, tab_for_slot, tab_order,
+    };
     use crate::main_view::{Dir, MainView, StartupDestination};
     use crate::state::PanelSide;
     use crate::tui::logs_view::{LogKind, LogsView};
@@ -337,7 +468,11 @@ mod tests {
 
     #[test]
     fn construction_owns_main_view_focus_layout_search_and_logs() {
-        let mut state = ShellState::new(crate::picker::App::new(&[], ""), PanelSide::Right);
+        let mut state = ShellState::new(
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        );
 
         assert_eq!(state.main_view(), MainView::Tasks);
         assert_eq!(state.focus(), Panel::Tasks);
@@ -383,7 +518,11 @@ mod tests {
         ];
 
         for (destination, main_view, focus) in cases {
-            let mut state = ShellState::new(crate::picker::App::new(&[], ""), PanelSide::Right);
+            let mut state = ShellState::new(
+                crate::picker::App::new(&[], ""),
+                PanelSide::Right,
+                Path::new("/brain"),
+            );
             state.apply_startup_destination(destination);
             assert_eq!(state.main_view(), main_view, "{destination:?}");
             assert_eq!(state.focus(), focus, "{destination:?}");
@@ -392,7 +531,11 @@ mod tests {
 
     #[test]
     fn active_tab_selection_resolves_only_open_tabs_and_focuses_the_panel() {
-        let mut state = ShellState::new(crate::picker::App::new(&[], ""), PanelSide::Right);
+        let mut state = ShellState::new(
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        );
 
         assert!(!state.select_brain_tab(BrainTab::Session(SESSION), &[SESSION], false));
         assert!(state.select_brain_tab(BrainTab::Session(SESSION), &[SESSION], true));
@@ -431,7 +574,11 @@ mod tests {
 
     #[test]
     fn search_input_stays_local_and_returns_only_external_effects() {
-        let mut state = ShellState::new(crate::picker::App::new(&[], ""), PanelSide::Right);
+        let mut state = ShellState::new(
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        );
 
         assert_eq!(
             state.handle_search_input(KeyCode::Char('x'), false, false),
@@ -445,6 +592,109 @@ mod tests {
         assert_eq!(
             state.handle_search_input(KeyCode::Esc, false, false),
             SearchEffect::Quit
+        );
+    }
+
+    fn entries_fixture() -> Vec<crate::entry::Entry> {
+        vec![crate::entry::Entry {
+            path: PathBuf::from("/brain/projects/plan.md"),
+            display: "~/brain/projects/plan.md".to_owned(),
+            bucket: crate::entry::Bucket::Projects,
+            is_dir: false,
+        }]
+    }
+
+    fn shell_state_with_entries() -> ShellState {
+        ShellState::new(
+            crate::picker::App::new(&entries_fixture(), ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        )
+    }
+
+    #[test]
+    fn the_brain_directory_starts_on_search_and_toggles_to_the_tree() {
+        let mut state = shell_state_with_entries();
+        assert_eq!(state.brain_dir_view(), BrainDirView::Search);
+
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        assert_eq!(state.brain_dir_view(), BrainDirView::Tree);
+
+        state.show_search();
+        assert_eq!(state.brain_dir_view(), BrainDirView::Search);
+    }
+
+    #[test]
+    fn exploring_carries_the_search_scope_into_the_tree() {
+        // The tree is built from the picker's own entries, so a search scoped
+        // to one bucket opens a tree rooted at that bucket -- which is what
+        // puts a `../` row at the top to widen back out. Rebuilding from a
+        // fresh all-buckets walk instead would root at the brain root, and the
+        // `../` row would never appear at all.
+        let mut state = shell_state_with_entries();
+
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+
+        assert_eq!(state.tree_root(), Path::new("/brain/projects"));
+    }
+
+    #[test]
+    fn the_parent_row_is_not_an_entry_target() {
+        // Highlighting `../` must leave the palette's entry commands without a
+        // target, so none of them can act on a row that is really navigation.
+        let mut state = shell_state_with_entries();
+
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        state.select_tree_path(Path::new("/brain"));
+
+        assert_eq!(state.selected_tree_path(), Some(PathBuf::from("/brain")));
+        assert!(state.selected_tree_entry_context().is_none());
+    }
+
+    #[test]
+    fn the_tree_sub_view_does_not_add_a_main_view() {
+        // The tree replaces the search panel in the same slot; Ctrl+L / Ctrl+H
+        // must keep cycling exactly three main views.
+        assert_eq!(crate::main_view::MainView::CYCLE.len(), 3);
+    }
+
+    #[test]
+    fn alt_enter_explores_the_highlighted_entry() {
+        let mut state = shell_state_with_entries();
+
+        assert_eq!(
+            state.handle_search_input(KeyCode::Enter, false, true),
+            SearchEffect::Explore(PathBuf::from("/brain/projects/plan.md"))
+        );
+    }
+
+    #[test]
+    fn alt_enter_with_nothing_highlighted_does_nothing() {
+        let mut state = ShellState::new(
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+        );
+
+        assert_eq!(
+            state.handle_search_input(KeyCode::Enter, false, true),
+            SearchEffect::None
+        );
+    }
+
+    #[test]
+    fn plain_and_ctrl_enter_keep_their_meanings() {
+        // Alt is the only new modifier: Enter still opens and Ctrl+Enter still
+        // reveals, so exploring cannot have stolen an existing binding.
+        let mut state = shell_state_with_entries();
+
+        assert_eq!(
+            state.handle_search_input(KeyCode::Enter, false, false),
+            SearchEffect::Open(PathBuf::from("/brain/projects/plan.md"))
+        );
+        assert_eq!(
+            state.handle_search_input(KeyCode::Enter, true, false),
+            SearchEffect::Reveal(PathBuf::from("/brain/projects/plan.md"))
         );
     }
 }

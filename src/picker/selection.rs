@@ -72,6 +72,14 @@ impl App {
         })
     }
 
+    /// Every entry currently loaded, which is exactly the current search
+    /// scope. The tree sub-view is built from these rather than a fresh walk,
+    /// so entering it costs no disk I/O and it shows the same scope the search
+    /// was showing.
+    pub(crate) fn entries(&self) -> &[crate::entry::Entry] {
+        &self.entries
+    }
+
     pub(crate) fn selected_path(&self) -> Option<PathBuf> {
         self.matches
             .get(self.selected)

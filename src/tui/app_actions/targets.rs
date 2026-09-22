@@ -14,6 +14,7 @@ use crate::tui::overlay::{Overlay, open_overlay};
 use crate::tui::palette::{
     EntryCommand, EntryTargetPicker, PaletteContext, TaskChoice, TaskCommand, TaskTargetPicker,
 };
+use crate::tui::state::BrainDirView;
 
 impl App {
     /// Everything the palette reads when it opens.
@@ -41,12 +42,16 @@ impl App {
     }
 
     /// The highlighted brain-directory entry, but only while that view is
-    /// showing.
+    /// showing, and read from whichever sub-view is in front: the palette's
+    /// contextual rows must name what the user is actually pointing at.
     fn entry_context(&self) -> Option<crate::tui::palette::EntryContext> {
         if self.shell.main_view() != MainView::BrainSearch {
             return None;
         }
-        self.shell.selected_entry_context()
+        match self.shell.brain_dir_view() {
+            BrainDirView::Search => self.shell.selected_entry_context(),
+            BrainDirView::Tree => self.shell.selected_tree_entry_context(),
+        }
     }
 
     pub(super) fn resolve_task_target(&self, command: TaskCommand) -> Option<TaskChoice> {
@@ -63,14 +68,19 @@ impl App {
     }
 
     pub(super) fn resolve_entry_target(&self, command: EntryCommand) -> Option<PathBuf> {
-        if self.shell.main_view() != MainView::BrainSearch {
-            return None;
-        }
-        let entry = self.shell.selected_entry_context()?;
+        let entry = self.entry_context()?;
         entry
             .satisfies(command.requirement())
-            .then(|| self.shell.selected_search_path())
+            .then(|| self.selected_entry_path())
             .flatten()
+    }
+
+    /// The highlighted path in whichever brain-directory sub-view is showing.
+    fn selected_entry_path(&self) -> Option<PathBuf> {
+        match self.shell.brain_dir_view() {
+            BrainDirView::Search => self.shell.selected_search_path(),
+            BrainDirView::Tree => self.shell.selected_tree_path(),
+        }
     }
 
     pub(super) fn open_task_target_picker(&mut self, command: TaskCommand) {

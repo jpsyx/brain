@@ -30,6 +30,7 @@ use crate::tui::draw_sync_log::draw_sync_log;
 use crate::tui::logs_view::draw_logs;
 use crate::tui::model::{Panel, SessionCloseKind};
 use crate::tui::overlay::Overlay;
+use crate::tui::state::BrainDirView;
 
 pub(crate) fn draw(f: &mut Frame, app: &mut App) {
     let area = if let Some(error) = app.status.error() {
@@ -67,9 +68,10 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             };
             draw_tasks(f, &mut app.tasks, &context, main_area);
         }
-        MainView::BrainSearch => {
-            app.shell.render_search(f, main_area);
-        }
+        MainView::BrainSearch => match app.shell.brain_dir_view() {
+            BrainDirView::Search => app.shell.render_search(f, main_area),
+            BrainDirView::Tree => app.shell.render_tree(f, main_area),
+        },
         MainView::Logs => draw_logs(f, app.shell.logs_view(), main_area),
     }
     if let Some(brain_rect) = brain_area {

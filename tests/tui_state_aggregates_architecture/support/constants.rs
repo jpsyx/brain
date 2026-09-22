@@ -92,6 +92,8 @@ pub(crate) const SHELL_FIELDS: &[&str] = &[
     "panel_side",
     "brain_rect",
     "search",
+    "brain_dir_view",
+    "tree",
     "logs_view",
     "active_brain_tab",
     "quit_requested",

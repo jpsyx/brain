@@ -55,8 +55,9 @@ mod runtime;
 mod search_view;
 mod shell;
 pub mod singleton;
-mod state;
+pub(crate) mod state;
 mod status_warning;
+mod tree_view;
 
 #[cfg(test)]
 mod tests;

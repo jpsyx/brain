@@ -30,14 +30,18 @@ impl App {
         }
     }
 
-    /// Re-walk the full bucket set into the search picker, keeping the query
-    /// (`Ctrl-R`, or after a PDF is created / an entry is trashed).
+    /// Re-walk the full bucket set into the brain-directory view, keeping the
+    /// query (`Ctrl-R`, or after a PDF is created / an entry is trashed).
+    ///
+    /// One walk feeds both sub-views: a refresh from the tree must not leave
+    /// the search sub-view holding a deleted entry behind it, and vice versa.
     pub(crate) fn search_refresh(&mut self) {
         if let Ok(entries) = entry::collect(
             self.context.workspace_root(),
             &all_bucket_roots(self.context.workspace_root()),
         ) {
             self.shell.reload_search_entries(&entries);
+            self.shell.rebuild_tree();
         }
     }
 }
@@ -91,6 +95,9 @@ pub(crate) fn apply_search_view_effect(app: &mut App, effect: SearchEffect) -> b
         SearchEffect::ConfirmPdf(path) => app.run_entry_command(EntryCommand::CreatePdf, &path),
         SearchEffect::Refresh => app.search_refresh(),
         SearchEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
+        SearchEffect::Explore(path) => app.explore_entry(&path),
+        SearchEffect::BackToSearch => app.shell.show_search(),
+        SearchEffect::Reroot(root) => app.reroot_tree(&root),
     }
     false
 }

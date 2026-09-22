@@ -129,7 +129,9 @@ impl App {
             initial_search,
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
         });
-        let shell = ShellState::new(search, panel_side);
+        // The workspace root is read here, before `command_context` moves into
+        // the context below: the shell's tree sub-view is rooted at it.
+        let shell = ShellState::new(search, panel_side, command_context.workspace.root());
         let context = AppContext::new(AppContextInit {
             command: command_context,
             config,

@@ -28,6 +28,8 @@ use crate::tui::model::{BrainTab, Panel};
 use crate::tui::overlay::{Overlay, open_overlay};
 use crate::tui::palette::{Command, CommandPaletteState, TaskCommand};
 use crate::tui::search_view::{apply_search_view_effect, handle_search_view_key};
+use crate::tui::state::BrainDirView;
+use crate::tui::tree_view::handle_tree_view_key;
 
 use super::modal_route::route_modal_key;
 
@@ -222,10 +224,14 @@ fn dispatch_key(app: &mut App, k: &KeyEvent) -> bool {
         },
         // The main panel routes to whichever main view is showing. The
         // tasks view has its own normal/search modes; the brain-directory
-        // view is an always-filtering picker.
+        // view routes on to whichever sub-view is in front, the
+        // always-filtering picker or the directory tree.
         Panel::Tasks => match app.shell.main_view() {
             MainView::BrainSearch => {
-                let effect = handle_search_view_key(&mut app.shell, k, ctrl, alt);
+                let effect = match app.shell.brain_dir_view() {
+                    BrainDirView::Search => handle_search_view_key(&mut app.shell, k, ctrl, alt),
+                    BrainDirView::Tree => handle_tree_view_key(&mut app.shell, k, ctrl, alt),
+                };
                 apply_search_view_effect(app, effect)
             }
             MainView::Logs => handle_logs_key(&mut app.shell, k.code, ctrl),
