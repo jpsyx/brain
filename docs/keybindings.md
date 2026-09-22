@@ -54,6 +54,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Ctrl+L` / `Ctrl+H` | Cycle the main view right / left | Cycles tasks, brain search, and logs. Main-panel focus only, so the brain panel keeps Claude's `Ctrl+H` (backspace) etc. when it has focus |
 | `Ctrl+T` | Jump to the **tasks** view | Main-panel focus only |
 | `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
+| `Ctrl+E` | Jump to the **file explorer**: the brain-directory tree rooted at the brain root, everything collapsed | Main-panel focus only. Depends on no cursor and no scope, so it works from the tasks view as directly as from brain search |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
 | `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
 | `Ctrl+M` | Select and focus the Main brain session | Launches Main if unavailable, using its saved conversation when the frontend can reopen it. Needs the kitty protocol to stay distinct from Enter |
@@ -149,9 +150,11 @@ palette row does. Opening today's habits page in the browser is the palette's
 
 One main view with **two sub-views**: the always-filtering fuzzy **search**
 picker (the startup sub-view) and the directory **tree**. `Alt+Enter` moves
-between them on the highlighted entry and `Ctrl+E` opens the tree at the brain
-root from either side; `Ctrl+H`/`Ctrl+L` and `Ctrl+T`/`Ctrl+B` still switch
-*main* views, so the tree adds no fourth entry to that cycle.
+between them on the highlighted entry; `Ctrl+H`/`Ctrl+L` and `Ctrl+T`/`Ctrl+B`
+still switch *main* views, so the tree adds no fourth entry to that cycle.
+`Ctrl+E` jumps straight to the tree from **any** view and is listed with the
+app-level bindings above, not here: it carries no cursor and no scope, so
+reaching it from the tasks view does not mean pressing `Ctrl+B` first.
 
 ### Search sub-view
 
@@ -168,7 +171,6 @@ the query.
 | `Enter` | Open the highlighted entry in place (text → editor tab, blob → system open, dir → Finder) — shell stays up |
 | `Ctrl+Enter` | Reveal the entry in Finder |
 | `Alt+Enter` | **Explore**: switch to the tree sub-view, rooted at the current search scope, expanded along the highlighted entry's ancestors, with it selected |
-| `Ctrl+E` | Open the **file explorer**: the tree at the brain root, everything collapsed. Depends on no highlight and carries no scope |
 | `Ctrl+G` | Create a PDF from the highlighted `.md` file (green confirm modal) |
 | `Ctrl+D` | Delete the highlighted entry (red confirm modal → Trash) |
 | `Ctrl+R` | Refresh the list (re-walk the current scope, keep the query) |
@@ -201,7 +203,7 @@ free to be a binding rather than text.
 | `→` / `←` (`l` / `h`) | Expand / collapse the selected node |
 | `Space` | Toggle the selected node |
 | `.` | Show / hide dotted names (persists to portable config) |
-| `Ctrl+E` | Re-root the tree at the brain root with everything collapsed |
+| `Ctrl+E` | Re-root the tree at the brain root with everything collapsed (an app-level jump, listed above) |
 | `Enter` | Open the selected entry (text → editor tab, blob → system open, dir → Finder) |
 | `Enter` on `../` | Re-root the tree one level up (never above the brain root) |
 | `Ctrl+Enter` | Reveal the entry's directory in Finder |
@@ -241,7 +243,9 @@ explorer finds it. Its gray hint is `[⌥↵]`.
 **`Ctrl+E`** is its cursor-free sibling, listed as *Open the file explorer at
 the brain root* `[^E]`. It takes no target at all: it re-roots at the brain
 root with everything collapsed, which is the way in when you are not pointing
-at anything yet.
+at anything yet. That is also why it is bound app-level beside `Ctrl+T` /
+`Ctrl+B` rather than inside the brain-directory view — a jump that depends on
+nothing should not require already being there.
 
 **`.`** is listed as *Show hidden files* / *Hide hidden files*, named for the
 flip that will happen next. It is a toggle with two halves, like the receiver

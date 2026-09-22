@@ -115,7 +115,6 @@ fn help_lists_the_brain_directory_bindings() {
             "↵",
             "^↵",
             "⌥↵",
-            "^E",
             "→ / ← / Space",
             "h j k l",
             "H / L",

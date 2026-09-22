@@ -45,9 +45,6 @@ pub(crate) enum BrainDirEffect {
     /// Switch to the tree sub-view, rooted at the current scope and opened on
     /// this path.
     Explore(PathBuf),
-    /// Switch to the tree sub-view at the brain root, collapsed, with no
-    /// dependence on what was highlighted.
-    OpenExplorer,
     /// Flip whether the tree shows dotted names, and re-walk for them.
     ToggleHiddenFiles,
     /// Leave the tree sub-view for the search sub-view.
@@ -215,7 +212,6 @@ impl ShellState {
             // Cursor-free, so it is the same key in both sub-views: the
             // explorer at the brain root, however the query happens to be
             // filtered.
-            KeyCode::Char('e') if ctrl => BrainDirEffect::OpenExplorer,
             KeyCode::Char('g') if ctrl => self
                 .search
                 .selected_markdown_path()
@@ -668,12 +664,15 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_e_opens_the_explorer_without_typing_into_the_query() {
+    fn ctrl_e_is_left_to_the_app_and_never_types_into_the_query() {
+        // Opening the explorer is an app-level view jump, claimed upstream by
+        // `main_view::ctrl_opens_explorer`. The search sub-view's job is only
+        // to not swallow it as a printable character.
         let mut state = shell_state_with_entries();
 
         assert_eq!(
             state.handle_search_input(KeyCode::Char('e'), true, false),
-            BrainDirEffect::OpenExplorer
+            BrainDirEffect::None
         );
         assert_eq!(state.search_query(), "");
     }

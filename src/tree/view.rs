@@ -41,6 +41,11 @@ pub(crate) fn draw_into(f: &mut Frame, view: &mut TreeView, area: Rect) {
         chunks[1],
     );
 
+    // Read before the field borrows below, because it needs the whole view.
+    // One `Style` per frame, computed from the selected row's kind: no item
+    // rebuild and nothing allocated to make the cursor's row its own colour.
+    let highlight = view.selected_row_style();
+
     // `Tree::new` only errors on duplicate identifiers, which distinct
     // absolute paths cannot produce. Borrowing `view.items`/`view.state` as
     // separate fields (rather than through the `items()`/`state_mut()`
@@ -48,7 +53,7 @@ pub(crate) fn draw_into(f: &mut Frame, view: &mut TreeView, area: Rect) {
     // mutable borrow of the widget state below.
     if let Ok(tree) = Tree::new(&view.items) {
         let tree = tree
-            .highlight_style(render::selected_row_background())
+            .highlight_style(highlight)
             .highlight_symbol(" ❯ ")
             .node_closed_symbol("▸ ")
             .node_open_symbol("▾ ")
@@ -75,6 +80,7 @@ fn header_text(root: &Path, brain_root: &Path) -> String {
 mod tests {
     use super::*;
     use crate::entry::{Bucket, Entry};
+    use crate::tree::kind::FileKind;
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -280,15 +286,62 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_selected_row_keeps_its_kind_colour_and_only_gains_the_background() {
-        // The widget paints the highlight over the row it already drew, so a
-        // foreground in `highlight_style` would erase the kind colour of
-        // whatever the cursor happened to be on.
-        let entries = vec![
+    /// The perceived lightness of a painted cell's foreground.
+    fn lightness_of(cell: &Cell) -> f64 {
+        render::oklab::to_oklab(cell.fg)
+            .expect("the tree palette is all RGB")
+            .lightness
+    }
+
+    /// Two directories and two notes, so each kind has an unselected row of
+    /// the same kind to be compared against.
+    fn pairs() -> Vec<Entry> {
+        vec![
             entry("/brain/projects/atlas", true),
+            entry("/brain/projects/beacon", true),
             entry("/brain/projects/plan.md", false),
-        ];
+            entry("/brain/projects/second.md", false),
+        ]
+    }
+
+    #[test]
+    fn the_selected_row_is_painted_a_brighter_version_of_its_kind_colour() {
+        let entries = pairs();
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.rebuild(&entries, Path::new("/brain/projects"));
+        view.state_mut()
+            .select(vec![PathBuf::from("/brain/projects/plan.md")]);
+
+        let buffer = rendered_buffer(&mut view, 48, 10);
+        let selected = cell_of(&buffer, 48, 10, "plan.md");
+        let unselected = cell_of(&buffer, 48, 10, "second.md");
+
+        assert_eq!(
+            unselected.fg,
+            render::TEXT_PRIMARY,
+            "an unselected note keeps the palette's own note colour"
+        );
+        assert!(
+            lightness_of(&selected) > lightness_of(&unselected),
+            "the cursor's row must be visibly lighter: {:?} vs {:?}",
+            selected.fg,
+            unselected.fg
+        );
+        assert_eq!(
+            selected.fg,
+            render::tree_row_selected_style(FileKind::Note, false)
+                .fg
+                .expect("the selected style names a foreground"),
+            "the lift is the one the palette defines, not a second opinion"
+        );
+    }
+
+    #[test]
+    fn a_selected_directory_is_brighter_cyan_than_an_unselected_one() {
+        // The case that motivated the change: a directory's base style is
+        // already bold, so bolding the cursor's row said nothing. Only the
+        // colour can.
+        let entries = pairs();
         let mut view = TreeView::empty(Path::new("/brain"));
         view.rebuild(&entries, Path::new("/brain/projects"));
         view.state_mut()
@@ -296,16 +349,38 @@ mod tests {
 
         let buffer = rendered_buffer(&mut view, 48, 10);
         let selected = cell_of(&buffer, 48, 10, "atlas/");
-        let unselected = cell_of(&buffer, 48, 10, "plan.md");
+        let unselected = cell_of(&buffer, 48, 10, "beacon/");
 
-        assert_eq!(selected.fg, render::ACCENT_CYAN);
-        assert_eq!(selected.bg, render::SELECTED_BG);
-        assert!(selected.modifier.contains(Modifier::BOLD));
-        assert_eq!(unselected.fg, render::TEXT_PRIMARY);
+        assert_eq!(unselected.fg, render::ACCENT_CYAN);
         assert_ne!(
-            unselected.bg,
-            render::SELECTED_BG,
-            "only the cursor's row is painted"
+            selected.fg,
+            render::ACCENT_CYAN,
+            "a highlighted directory that is still plain cyan is the bug"
         );
+        assert!(
+            lightness_of(&selected) > lightness_of(&unselected),
+            "the cursor's directory must be lighter: {:?} vs {:?}",
+            selected.fg,
+            unselected.fg
+        );
+        assert!(
+            selected.modifier.contains(Modifier::BOLD),
+            "the weight the row already had is not taken away"
+        );
+    }
+
+    #[test]
+    fn only_the_selected_row_takes_the_selection_background() {
+        let entries = pairs();
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.rebuild(&entries, Path::new("/brain/projects"));
+        view.state_mut()
+            .select(vec![PathBuf::from("/brain/projects/atlas")]);
+
+        let buffer = rendered_buffer(&mut view, 48, 10);
+
+        assert_eq!(cell_of(&buffer, 48, 10, "atlas/").bg, render::SELECTED_BG);
+        assert_ne!(cell_of(&buffer, 48, 10, "beacon/").bg, render::SELECTED_BG);
+        assert_ne!(cell_of(&buffer, 48, 10, "plan.md").bg, render::SELECTED_BG);
     }
 }

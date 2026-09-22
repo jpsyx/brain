@@ -250,8 +250,8 @@ fn dispatch_key(app: &mut App, k: &KeyEvent) -> bool {
 /// brain panel keeps the agent's own readline chords when it is focused.
 /// Returns whether the key was consumed.
 fn main_panel_accelerator(app: &mut App, k: &KeyEvent, ctrl: bool, shift: bool) -> bool {
-    // Ctrl+H / Ctrl+L cycle the main view left / right; Ctrl+T and Ctrl+B jump
-    // straight to one. The brain panel stays open across a switch.
+    // Ctrl+H / Ctrl+L cycle the main view left / right; Ctrl+T, Ctrl+B and
+    // Ctrl+E jump straight to one. The brain panel stays open across a switch.
     if let Some(dir) = main_view::ctrl_cycles_view(k.code, ctrl) {
         app.shell.cycle_main_view(dir);
         return true;
@@ -263,6 +263,10 @@ fn main_panel_accelerator(app: &mut App, k: &KeyEvent, ctrl: bool, shift: bool) 
                 app.execute_global_action(GlobalAction::ShowBrainSearch);
             }
         }
+        return true;
+    }
+    if main_view::ctrl_opens_explorer(k.code, ctrl) {
+        app.execute_global_action(GlobalAction::OpenFileExplorer);
         return true;
     }
 

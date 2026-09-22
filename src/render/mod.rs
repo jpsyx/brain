@@ -1,6 +1,8 @@
 //! Palette + styled line helpers for the picker UI. Tokyo-Night-inspired,
 //! tuned to match the `tasks` aesthetic.
 
+pub(crate) mod oklab;
+
 use std::collections::BTreeSet;
 
 use ratatui::{
@@ -30,6 +32,16 @@ pub const ACCENT_RED: Color = Color::Rgb(247, 118, 142);
 
 const MATCH_HIGHLIGHT: Color = Color::Rgb(255, 199, 119);
 pub const SELECTED_BG: Color = Color::Rgb(36, 40, 59);
+
+/// How much of its own lightness the cursor's tree row gains.
+///
+/// Enough to read as lit next to a base style that is already bold, little
+/// enough that the hue still says what the row is. Measured against the
+/// palette rather than picked: at 0.18 the two commonest rows leave the sRGB
+/// gamut and clip to near-white, which throws away exactly the colour the
+/// highlight is meant to be showing off. At 0.10 every kind stays itself and
+/// still gains a clearly visible step (+0.08 in Oklab L on a note).
+const SELECTION_LIFT: f32 = 0.10;
 
 // ---------------------------------------------------------------------------
 // Reusable styles
@@ -182,14 +194,16 @@ pub fn entry_line(
     Line::from(spans)
 }
 
-/// The selected row's style in the tree sub-view: background and weight only.
+/// The tree sub-view's fallback highlight, for when no row is selected.
 ///
 /// Unlike the other line builders this returns a bare `Style` rather than a
 /// `Line`, because `tui_tree_widget::Tree`'s builder API takes a `Style`
 /// directly and the palette still has to be handed across as one. It sets **no
 /// foreground** on purpose: the widget paints the highlight over the row it
-/// already drew, so naming a colour here would repaint every selected row one
-/// hue and throw away what `tree_row_style` just said the row is.
+/// already drew, so naming a colour here would repaint whatever row the
+/// widget picked one hue and throw away what `tree_row_style` just said that
+/// row is. With a row actually selected there *is* a kind to work from, and
+/// `tree_row_selected_style` names a foreground derived from it.
 #[must_use]
 pub const fn selected_row_background() -> Style {
     Style::new().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
@@ -216,6 +230,25 @@ pub(crate) fn tree_row_style(kind: FileKind, hidden: bool) -> Style {
     } else {
         base
     }
+}
+
+/// The style for the selected tree row of `kind`.
+///
+/// The cursor brightens the row's own colour rather than only bolding it: a
+/// directory's base style is already bold, so bold alone left the one row the
+/// reader is looking at visually unchanged. A hidden row stays dimmed under
+/// the cursor, because being hidden is a fact about the file rather than about
+/// where the cursor is; the lift is measured against the row's own unselected
+/// colour, so a dimmed row still brightens relative to itself.
+#[must_use]
+pub(crate) fn tree_row_selected_style(kind: FileKind, hidden: bool) -> Style {
+    let base = tree_row_style(kind, hidden);
+    let Some(foreground) = base.fg else {
+        return selected_row_background();
+    };
+    base.fg(oklab::lighten(foreground, SELECTION_LIFT))
+        .bg(SELECTED_BG)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// The tree sub-view's header: ` BRAIN · tree · projects · 42 items`.
@@ -430,15 +463,85 @@ mod tests {
     }
 
     #[test]
-    fn the_selected_row_highlight_names_no_foreground() {
+    fn the_no_selection_fallback_names_no_foreground() {
         let style = selected_row_background();
 
         assert_eq!(
             style.fg, None,
-            "a foreground here would repaint the selected row over its kind colour"
+            "with no kind to work from, a colour here would repaint whatever row \
+             the widget picked"
         );
         assert_eq!(style.bg, Some(SELECTED_BG));
         assert!(style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    /// The perceived lightness of a style's foreground.
+    fn lightness_of(style: Style) -> f64 {
+        oklab::to_oklab(style.fg.expect("every kind names a foreground"))
+            .expect("the palette is all RGB")
+            .lightness
+    }
+
+    #[test]
+    fn the_cursor_brightens_every_kind_of_row() {
+        for kind in EVERY_KIND {
+            let plain = tree_row_style(kind, false);
+            let selected = tree_row_selected_style(kind, false);
+
+            assert!(
+                lightness_of(selected) > lightness_of(plain),
+                "{kind:?} was not brightened: {} -> {}",
+                lightness_of(plain),
+                lightness_of(selected)
+            );
+        }
+    }
+
+    #[test]
+    fn a_selected_directory_differs_from_an_unselected_one_in_colour() {
+        // The whole point of the change: a directory is bold either way, so
+        // bold was doing nothing to say where the cursor was.
+        let plain = tree_row_style(FileKind::Directory, false);
+        let selected = tree_row_selected_style(FileKind::Directory, false);
+
+        assert_eq!(plain.fg, Some(ACCENT_CYAN));
+        assert_ne!(
+            selected.fg, plain.fg,
+            "a highlighted directory must not look like an unhighlighted one"
+        );
+        assert!(plain.add_modifier.contains(Modifier::BOLD));
+        assert!(selected.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn a_selected_row_carries_the_selection_background_and_bold() {
+        for kind in EVERY_KIND {
+            let selected = tree_row_selected_style(kind, false);
+
+            assert_eq!(selected.bg, Some(SELECTED_BG), "{kind:?}");
+            assert!(selected.add_modifier.contains(Modifier::BOLD), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_hidden_row_stays_dimmed_under_the_cursor() {
+        // Hiddenness describes the file, not the cursor. Dropping the dimming
+        // on highlight would make a dotted row you are about to act on look
+        // like an ordinary one — the one moment it matters most that it does
+        // not. The lift is measured from the row's own dimmed colour, so it
+        // still brightens relative to itself.
+        for kind in EVERY_KIND {
+            let hidden = tree_row_selected_style(kind, true);
+
+            assert!(
+                hidden.add_modifier.contains(Modifier::DIM),
+                "{kind:?} lost its dimming when highlighted"
+            );
+            assert!(
+                lightness_of(hidden) > lightness_of(tree_row_style(kind, true)),
+                "{kind:?} was not brightened while hidden"
+            );
+        }
     }
 
     #[test]

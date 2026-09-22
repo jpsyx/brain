@@ -170,14 +170,6 @@ pub(crate) const ALL: &[Shortcut] = &[
         commands: &[Entry(EntryCommand::Explore)],
     },
     Shortcut {
-        keys: "^E",
-        label: "explorer",
-        desc: "Open the file explorer: the tree rooted at the brain root with everything collapsed. Depends on no cursor, so it works from either sub-view and from any highlight",
-        group: Group::BrainDirectory,
-        in_footer: false,
-        commands: &[Global(GlobalAction::OpenFileExplorer)],
-    },
-    Shortcut {
         keys: "→ / ← / Space",
         label: "expand",
         desc: "Expand / collapse / toggle the selected tree node. Pure navigation, so it runs no command",
@@ -352,6 +344,14 @@ pub(crate) const ALL: &[Shortcut] = &[
             Global(GlobalAction::ShowTasks),
             Global(GlobalAction::ShowBrainSearch),
         ],
+    },
+    Shortcut {
+        keys: "^E",
+        label: "explorer",
+        desc: "Jump to the file explorer: the brain-directory tree rooted at the brain root with everything collapsed. A view jump like ^T / ^B, so it depends on no cursor and works from any view",
+        group: Group::Global,
+        in_footer: false,
+        commands: &[Global(GlobalAction::OpenFileExplorer)],
     },
     Shortcut {
         keys: "^P",

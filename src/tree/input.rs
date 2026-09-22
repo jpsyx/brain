@@ -48,7 +48,6 @@ pub(crate) fn handle_tree_input(
         KeyCode::Char('d') if ctrl => {
             entry_selection(view).map_or(BrainDirEffect::None, BrainDirEffect::ConfirmDelete)
         }
-        KeyCode::Char('e') if ctrl => BrainDirEffect::OpenExplorer,
         // The conventional dotfile key, free here because the tree has no
         // query line for a printable character to type into.
         KeyCode::Char('.') => BrainDirEffect::ToggleHiddenFiles,
@@ -565,18 +564,20 @@ mod tests {
     }
 
     #[test]
-    fn dot_toggles_hidden_files_and_ctrl_e_opens_the_explorer() {
-        // Both need a fresh walk, so the tree names an effect rather than
-        // doing it: the entries it holds have no dotted names in them at all.
+    fn dot_toggles_hidden_files_and_ctrl_e_is_left_to_the_app() {
+        // Toggling needs a fresh walk, so the tree names an effect rather
+        // than doing it: the entries it holds have no dotted names at all.
         let mut view = view();
 
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('.'), false, false),
             BrainDirEffect::ToggleHiddenFiles
         );
+        // Ctrl+E is not the tree's: it is an app-level view jump, so the tree
+        // must leave it alone for `main_view::ctrl_opens_explorer` upstream.
         assert_eq!(
             handle_tree_input(&mut view, KeyCode::Char('e'), true, false),
-            BrainDirEffect::OpenExplorer
+            BrainDirEffect::None
         );
     }
 }

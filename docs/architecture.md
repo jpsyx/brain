@@ -1208,12 +1208,23 @@ it with `draw_modal` as a centered overlay. `ConfirmKind` selects the flavor:
 `kind`; on `Accept` the host converts (Pdf) or trashes (Delete) in place. The
 key handling, the kind-keyed chrome, and the button styling are unit-tested.
 
-### `render.rs`
+### `render/`
 Pure functions that build styled ratatui `Line`s for the picker (header,
 input, separator, section header, entry with coalesced highlight spans,
 empty state, footer) plus the Tokyo-Night palette constants. No state,
 no IO — every function maps inputs to a `Line`, which is why they're
-cheap to unit test.
+cheap to unit test. The tree sub-view's two row styles live here as bare
+`Style`s rather than `Line`s, because `tui_tree_widget`'s builder API takes a
+`Style` directly: `tree_row_style(kind, hidden)` is the only place a hue
+appears, and `tree_row_selected_style(kind, hidden)` derives the cursor's row
+from it.
+
+`oklab.rs` is Björn Ottosson's sRGB ↔ Oklab conversion (one matrix pair, two
+transfer functions, no dependency) plus the single operation the cursor needs:
+`lighten(color, amount)` raises a colour's perceptual lightness, leaving the
+chroma axes alone so the hue survives. Non-`Color::Rgb` variants come back
+untouched, so it is total without guessing at a terminal's own palette. See
+`docs/decisions.md` for why the cursor brightens rather than only bolds.
 
 ### `open_target.rs`
 Pure decisions about acting on a picked path: `is_textlike` (extension

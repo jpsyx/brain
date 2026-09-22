@@ -99,6 +99,9 @@ fn direct_global_shortcuts_cross_the_application_mediator() {
             "MessageBrain".to_owned(),
             "NewConversation".to_owned(),
             "OpenAgenda".to_owned(),
+            // Ctrl+E: a view jump, so it is mediated here beside Ctrl+T/Ctrl+B
+            // rather than handled inside the brain-directory view.
+            "OpenFileExplorer".to_owned(),
             "ShowBrainSearch".to_owned(),
             "ShowShortcuts".to_owned(),
             "ShowTasks".to_owned(),

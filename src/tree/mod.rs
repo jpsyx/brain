@@ -12,11 +12,17 @@ pub(crate) mod root;
 pub(crate) mod siblings;
 pub(crate) mod view;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use ratatui::style::Style;
 use tui_tree_widget::{TreeItem, TreeState};
 
 use crate::entry::Entry;
+use crate::render;
+
+use build::{BuiltTree, Node};
+use kind::{FileKind, classify};
 
 /// The tree sub-view's state: where it is rooted, what it is showing, and
 /// where the cursor sits.
@@ -24,6 +30,12 @@ pub(crate) struct TreeView {
     root: PathBuf,
     brain_root: PathBuf,
     items: Vec<TreeItem<'static, PathBuf>>,
+    /// What each row the tree draws *is*.
+    ///
+    /// The cursor brightens the selected row's own colour, and this is what
+    /// tells it that colour without a rebuild or a re-walk. Written only where
+    /// `items` is, out of the same build, so the two cannot disagree.
+    nodes: HashMap<PathBuf, Node>,
     state: TreeState<PathBuf>,
     /// The directory the synthetic `../` row re-roots to, when there is one.
     /// Held so a selection can be told apart from a real entry by identity
@@ -42,6 +54,7 @@ impl TreeView {
             root: brain_root.to_path_buf(),
             brain_root: brain_root.to_path_buf(),
             items: Vec::new(),
+            nodes: HashMap::new(),
             state: TreeState::default(),
             parent_row: None,
             show_hidden: false,
@@ -104,7 +117,10 @@ impl TreeView {
     /// `Enter` and every palette entry row would act on it.
     pub(crate) fn rebuild(&mut self, entries: &[Entry], root: &Path) {
         self.root = root.to_path_buf();
-        self.items = build::build_items(entries, root, &self.brain_root, self.show_hidden);
+        let BuiltTree { items, nodes } =
+            build::build_tree(entries, root, &self.brain_root, self.show_hidden);
+        self.items = items;
+        self.nodes = nodes;
         self.parent_row = root::ascend(root, &self.brain_root);
         let stale = self
             .selected_path()
@@ -186,6 +202,26 @@ impl TreeView {
     /// directory.
     pub(crate) fn is_parent_row(&self, path: &Path) -> bool {
         self.parent_row.as_deref() == Some(path)
+    }
+
+    /// The style the widget should paint the cursor's row with.
+    ///
+    /// `Tree::highlight_style` is one style for whichever row is selected,
+    /// which is all the tree needs: only that row receives it, so a style
+    /// computed from *that* row's own kind brightens the colour the row
+    /// already had instead of replacing it. With nothing selected there is no
+    /// kind to brighten and the plain background is all there is to say.
+    pub(crate) fn selected_row_style(&self) -> Style {
+        let Some(path) = self.selected_path() else {
+            return render::selected_row_background();
+        };
+        if self.is_parent_row(&path) {
+            return render::tree_row_selected_style(FileKind::ParentRow, false);
+        }
+        self.nodes.get(&path).map_or_else(
+            render::selected_row_background,
+            |node| render::tree_row_selected_style(classify(&path, node.is_dir), node.hidden),
+        )
     }
 }
 
@@ -510,6 +546,82 @@ mod tests {
         view.rebuild(&entries, Path::new("/brain/projects"));
 
         assert_eq!(view.selected_path(), None);
+    }
+
+    #[test]
+    fn the_highlight_is_computed_from_the_selected_row_s_own_kind() {
+        // One `highlight_style` reaches only the selected row, so deriving it
+        // from that row's kind is what lets the cursor brighten the colour the
+        // row already had instead of repainting it.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+            false,
+        );
+
+        assert_eq!(
+            view.selected_row_style(),
+            render::tree_row_selected_style(FileKind::Note, false),
+            "a markdown file is a note"
+        );
+
+        view.state_mut()
+            .select(vec![PathBuf::from("/brain/projects/atlas")]);
+        assert_eq!(
+            view.selected_row_style(),
+            render::tree_row_selected_style(FileKind::Directory, false),
+            "the same tree, one row later, must hand over a different style"
+        );
+    }
+
+    #[test]
+    fn the_parent_row_is_highlighted_as_navigation_not_as_a_file() {
+        // `../` has no file behind it, so it is not in the node lookup; the
+        // highlight has to recognise it the way every other caller does.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+            false,
+        );
+        view.state_mut().select(vec![PathBuf::from("/brain")]);
+
+        assert_eq!(
+            view.selected_row_style(),
+            render::tree_row_selected_style(FileKind::ParentRow, false)
+        );
+    }
+
+    #[test]
+    fn a_selected_hidden_row_is_highlighted_and_still_reads_as_hidden() {
+        let mut entries = entries();
+        entries.push(Entry {
+            is_hidden: true,
+            ..entry("/brain/projects/.secret.md", false)
+        });
+        let view = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/.secret.md"),
+            true,
+        );
+
+        assert_eq!(
+            view.selected_row_style(),
+            render::tree_row_selected_style(FileKind::Note, true),
+            "the cursor brightens it; being hidden is still true of the file"
+        );
+    }
+
+    #[test]
+    fn with_nothing_selected_the_highlight_names_no_colour() {
+        // There is no row to take a colour from, and the widget still paints
+        // whichever row it considers current, so naming one would be a guess.
+        let view = TreeView::empty(Path::new("/brain"));
+
+        assert_eq!(view.selected_row_style().fg, None);
+        assert_eq!(view.selected_row_style(), render::selected_row_background());
     }
 
     #[test]

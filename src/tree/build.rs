@@ -3,7 +3,7 @@
 //! Everything here is pure: it reads `Entry::is_dir` rather than the
 //! filesystem, so the whole shape of the tree is testable without a temp dir.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ratatui::text::{Line, Span};
@@ -20,14 +20,30 @@ pub(crate) const PARENT_ROW_LABEL: &str = "../";
 
 /// What a row needs beyond its own path: enough to label it, colour it, and
 /// sort it.
-struct Node {
-    is_dir: bool,
-    hidden: bool,
+#[derive(Clone, Copy)]
+pub(crate) struct Node {
+    pub(crate) is_dir: bool,
+    pub(crate) hidden: bool,
 }
 
 /// The nodes directly under each directory, keyed by path so a node
 /// contributed twice collapses into one.
 type Children = BTreeMap<PathBuf, BTreeMap<PathBuf, Node>>;
+
+/// A build's rows, and the node behind each path those rows draw.
+///
+/// The two come out of one call on purpose: the lookup exists so the selected
+/// row's own colour can be found without re-walking, and a lookup that
+/// described a different build than `items` do would colour the cursor by the
+/// wrong row. Returning them together is what makes refreshing one without
+/// the other impossible to write.
+pub(crate) struct BuiltTree {
+    pub(crate) items: Vec<TreeItem<'static, PathBuf>>,
+    /// Every content row, keyed by path. The `../` row is deliberately absent:
+    /// it is navigation rather than a file, and `TreeView::is_parent_row`
+    /// already tells it apart.
+    pub(crate) nodes: HashMap<PathBuf, Node>,
+}
 
 /// The nested rows the tree renders under `root`.
 ///
@@ -36,12 +52,12 @@ type Children = BTreeMap<PathBuf, BTreeMap<PathBuf, Node>>;
 /// special state, only a look at the identifier. `show_hidden` decides whether
 /// dotted names are rows at all; the `../` row is navigation and is never one
 /// of them.
-pub(crate) fn build_items(
+pub(crate) fn build_tree(
     entries: &[Entry],
     root: &Path,
     brain_root: &Path,
     show_hidden: bool,
-) -> Vec<TreeItem<'static, PathBuf>> {
+) -> BuiltTree {
     let children = group_children(entries, root, show_hidden);
 
     let mut items = Vec::new();
@@ -50,7 +66,20 @@ pub(crate) fn build_items(
         items.push(TreeItem::new_leaf(parent, parent_row_line()));
     }
     items.extend(items_under(root, &children));
-    items
+    BuiltTree {
+        nodes: node_index(&children),
+        items,
+    }
+}
+
+/// Flatten the parent index into one path-to-node lookup.
+///
+/// Every path is filed under exactly one parent, so nothing collides.
+fn node_index(children: &Children) -> HashMap<PathBuf, Node> {
+    children
+        .values()
+        .flat_map(|nodes| nodes.iter().map(|(path, node)| (path.clone(), *node)))
+        .collect()
 }
 
 /// Index every entry under its parent, synthesizing the directories in
@@ -247,12 +276,13 @@ mod tests {
             file("/brain/projects/loose.md"),
         ];
 
-        let items = build_items(
+        let items = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
-        );
+        )
+        .items;
 
         assert_eq!(
             labels(&items),
@@ -279,12 +309,13 @@ mod tests {
             dir("/brain/projects/beta"),
         ];
 
-        let items = build_items(
+        let items = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
-        );
+        )
+        .items;
 
         assert_eq!(
             labels(&items),
@@ -308,12 +339,13 @@ mod tests {
         // leaf. `view::tests` covers the marker a populated one gets.
         let entries = vec![dir("/brain/projects/empty")];
 
-        let items = build_items(
+        let items = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
-        );
+        )
+        .items;
 
         assert_eq!(
             labels(&items),
@@ -326,12 +358,13 @@ mod tests {
     fn off_root_the_first_row_re_roots_to_the_parent() {
         let entries = vec![file("/brain/projects/plan.md")];
 
-        let items = build_items(
+        let items = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
-        );
+        )
+        .items;
 
         assert_eq!(
             items[0].identifier(),
@@ -347,7 +380,7 @@ mod tests {
         // directory itself, only for what is inside it.
         let entries = vec![file("/brain/projects/plan.md")];
 
-        let items = build_items(&entries, Path::new("/brain"), Path::new("/brain"), false);
+        let items = build_tree(&entries, Path::new("/brain"), Path::new("/brain"), false).items;
 
         assert_eq!(
             labels(&items),
@@ -368,7 +401,7 @@ mod tests {
             file("/brain/areas/health/log.md"),
         ];
 
-        let items = build_items(&entries, Path::new("/brain"), Path::new("/brain"), false);
+        let items = build_tree(&entries, Path::new("/brain"), Path::new("/brain"), false).items;
 
         assert_eq!(
             labels(&items),
@@ -393,12 +426,13 @@ mod tests {
             file("/brain/areas/health/log.md"),
         ];
 
-        let items = build_items(
+        let items = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
-        );
+        )
+        .items;
 
         assert_eq!(
             labels(&items),
@@ -563,31 +597,107 @@ mod tests {
         );
     }
 
+    /// Every path a built tree draws as a content row, at any depth.
+    fn drawn_paths(items: &[TreeItem<'static, PathBuf>]) -> Vec<PathBuf> {
+        items
+            .iter()
+            .flat_map(|item| {
+                std::iter::once(item.identifier().clone()).chain(drawn_paths(item.children()))
+            })
+            .collect()
+    }
+
     #[test]
-    fn build_items_hides_dotted_rows_unless_they_are_shown() {
+    fn the_node_lookup_describes_exactly_the_rows_the_items_draw() {
+        // The lookup is how the selected row's own colour is found, so it has
+        // to cover every row that can hold the cursor — including the
+        // directories synthesized above an entry — and nothing else. The
+        // `../` row is the one exception: it is navigation, and `is_parent_row`
+        // already identifies it.
         let entries = vec![
-            file("/brain/projects/plan.md"),
-            file("/brain/projects/.obsidian/notes.md"),
+            file("/brain/projects/atlas/deep/plan.md"),
+            dir("/brain/projects/empty"),
+            file("/brain/projects/.secret.md"),
         ];
 
-        let hidden = build_items(
+        let tree = build_tree(
+            &entries,
+            Path::new("/brain/projects"),
+            Path::new("/brain"),
+            true,
+        );
+
+        let mut drawn = drawn_paths(&tree.items);
+        drawn.retain(|path| path != Path::new("/brain"));
+        drawn.sort();
+        let mut indexed: Vec<PathBuf> = tree.nodes.keys().cloned().collect();
+        indexed.sort();
+
+        assert_eq!(drawn, indexed);
+        assert!(
+            tree.nodes[Path::new("/brain/projects/atlas/deep")].is_dir,
+            "a synthesized ancestor is a directory in the lookup too"
+        );
+        assert!(!tree.nodes[Path::new("/brain/projects/atlas/deep/plan.md")].is_dir);
+        assert!(tree.nodes[Path::new("/brain/projects/.secret.md")].hidden);
+        assert!(!tree.nodes[Path::new("/brain/projects/empty")].hidden);
+        assert!(
+            !tree.nodes.contains_key(Path::new("/brain")),
+            "the ../ row is not a file to colour"
+        );
+    }
+
+    #[test]
+    fn a_hidden_row_the_lookup_never_saw_is_not_in_it() {
+        // The lookup is built from the same `children` index the items are, so
+        // the hidden-files choice reaches both or neither.
+        let entries = vec![
+            file("/brain/projects/plan.md"),
+            file("/brain/projects/.secret.md"),
+        ];
+
+        let tree = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             false,
         );
+
+        assert!(tree.nodes.contains_key(Path::new("/brain/projects/plan.md")));
+        assert!(
+            !tree
+                .nodes
+                .contains_key(Path::new("/brain/projects/.secret.md"))
+        );
+    }
+
+    #[test]
+    fn build_tree_hides_dotted_rows_unless_they_are_shown() {
+        let entries = vec![
+            file("/brain/projects/plan.md"),
+            file("/brain/projects/.obsidian/notes.md"),
+        ];
+
+        let hidden = build_tree(
+            &entries,
+            Path::new("/brain/projects"),
+            Path::new("/brain"),
+            false,
+        )
+        .items;
         assert_eq!(
             labels(&hidden),
             vec!["/brain".to_owned(), "/brain/projects/plan.md".to_owned()],
             "the ../ row is navigation and stays either way"
         );
 
-        let shown = build_items(
+        let shown = build_tree(
             &entries,
             Path::new("/brain/projects"),
             Path::new("/brain"),
             true,
-        );
+        )
+        .items;
         assert_eq!(
             labels(&shown),
             vec![

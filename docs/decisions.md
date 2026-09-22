@@ -5922,7 +5922,7 @@ case-insensitive) is a one-line unit test. `render::tree_row_style(kind,
 hidden)` is the only place a hue appears, which is the house rule the rest of
 the palette already follows: a view module never constructs a `Style` from raw
 colours. Adding a kind is one enum variant, one arm, and one row in the table;
-retuning the palette touches `render.rs` and nothing else.
+retuning the palette touches `render/` and nothing else.
 
 Three choices inside it are worth recording:
 
@@ -5943,21 +5943,61 @@ Three choices inside it are worth recording:
   not the only one; the slash keeps folders-before-files legible with colour
   off, and costs one `format!`.
 
-## Why the tree's selected row is a background, not a full style
+## Why the tree's cursor brightens the row's own colour, in Oklab
 
 `Tree::highlight_style` is applied with `buf.set_style` **after** the row's own
 text is drawn, and ratatui's `Cell::set_style` only overwrites a colour the
-style actually names. The old `selected_row_style` named
+style actually names. The original `selected_row_style` named
 `fg(TEXT_PRIMARY)`, which was harmless while every row was one colour and
 destructive the moment rows had hues: the cursor would repaint whatever it
 landed on, so the one row you were looking at was the one row whose colour you
-could not read.
+could not read. That is why the highlight became `bg(SELECTED_BG)` + `BOLD`
+with **no** foreground at all.
 
-`selected_row_background()` therefore names only `bg(SELECTED_BG)` and `BOLD`
-and deliberately leaves `fg` unset. The selection is still unmistakable (the
-background plus the ` ❯ ` gutter), and the row keeps saying what it is. The
-absent foreground is the load-bearing part, so it has its own test rather than
-living as a comment.
+Bold-on-highlight reads well for files and does **nothing** for directories:
+`tree_row_style(Directory, _)` is already bold, so on the rows a reader moves
+through most the cursor changed only the background. The fix is not a constant
+foreground again — it is a foreground computed from the row the cursor is
+actually on.
+
+**One style can still be per-row.** `highlight_style` is a single `Style`, but
+only the selected row receives it (`if is_selected { buf.set_style(…) }`), so a
+style derived from *that* row's kind is exactly right. `TreeView` keeps a
+`HashMap<PathBuf, Node>` beside `items`, both returned from one
+`build::build_tree` call so they cannot describe different builds, and
+`selected_row_style()` answers with `render::tree_row_selected_style(kind,
+hidden)` each frame. No item rebuild, no per-frame allocation, and nothing
+re-walked.
+
+**Oklab, not an sRGB multiply.** `render::oklab` lifts the row's colour by 18%
+of its Oklab lightness (Björn Ottosson's conversion, implemented directly —
+this is one matrix pair and two transfer functions, not a dependency). Oklab is
+perceptually uniform, so `amount` means the same amount of brightening on a
+near-black row as on a near-white one; the same `×1.18` on sRGB bytes lands
+between 1.10 and 1.13 of the perceived lightness across this palette, and by a
+different factor for every colour. Only `L` is touched, so the hue survives.
+
+Three consequences worth recording:
+
+- **A hidden row stays dimmed under the cursor.** Hiddenness is a fact about
+  the file, not about where the cursor is. Dropping `Modifier::DIM` on
+  highlight would make a dotted row you are one keystroke from acting on look
+  exactly like an ordinary one, at the moment it matters most. The lift is
+  measured from the row's own unselected colour, so a hidden row still
+  brightens relative to itself.
+- **A lift past the sRGB gamut spends chroma, not correctness.** Four of the
+  palette's ten colours already sit close enough to a channel ceiling that an
+  18% lift clamps (`ACCENT_CYAN`'s blue is 255 before it starts). Clamping per
+  channel lands on the nearest colour sRGB can show, which moves the hue; the
+  alternative — scaling chroma back to stay on the hue line — would make the
+  cursor desaturate rather than brighten, which is the opposite of the ask.
+  The hue tests therefore assert exactness only where the gamut can deliver it,
+  and say so.
+- **`selected_row_background()` survives as the no-selection fallback.** With
+  no row selected there is no kind to take a colour from, and the widget is
+  free to paint whatever row it considers current, so naming a foreground would
+  be the original bug again. Its absent foreground is still the load-bearing
+  part and still has its own test.
 
 ## Why showing hidden files is a second walk, not a wider `collect`
 
@@ -5999,4 +6039,4 @@ Two details fall out of it:
   Recolouring hidden rows to one hue would have collapsed the first question
   into the second, and the reader loses the ability to tell a dotted config
   file from a dotted directory at a glance. Dimming composes with any kind,
-  which is also why nothing new was needed in `render.rs` to land this feature.
+  which is also why nothing new was needed in `render/` to land this feature.

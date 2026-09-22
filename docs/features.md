@@ -2478,9 +2478,14 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   way: this is the tree's state, not the picker's. Hiding them again drops a
   cursor that was sitting on a dotted row rather than leaving it on a node
   nothing draws.
-- **The cursor does not repaint the row.** The selected row takes the selection
-  background and bold weight and **keeps its own colour**, so moving the cursor
-  never costs you what the colour was telling you.
+- **The cursor brightens the row, it does not repaint it.** The selected row
+  takes the selection background, bold weight, and a **brighter version of its
+  own colour** — 18% more perceptual lightness, computed in Oklab so the hue
+  does not drift — so moving the cursor never costs you what the colour was
+  telling you. Brightening rather than bolding is what makes the cursor visible
+  on a **directory**, whose base style is already bold. A hidden row stays
+  dimmed while highlighted: it is still hidden, and the lift is measured from
+  its own dimmed colour, so it brightens relative to itself.
 - **Real directories, not sections.** The tree nests every entry under its
   actual parent directory, so what you read is the filesystem, not the search
   view's `Capture` / `Projects` section headers.

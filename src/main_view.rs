@@ -121,6 +121,17 @@ pub const fn ctrl_jumps_view(code: KeyCode, ctrl: bool) -> Option<MainView> {
     }
 }
 
+/// Whether a keystroke opens the file explorer.
+///
+/// `Ctrl+E` is a view jump like `Ctrl+T` / `Ctrl+B`, not a brain-directory
+/// binding: it carries no cursor and no scope, so reaching it from the tasks
+/// view should not mean pressing `Ctrl+B` first. Matches both cases since
+/// terminals differ on the reported glyph.
+#[must_use]
+pub const fn ctrl_opens_explorer(code: KeyCode, ctrl: bool) -> bool {
+    ctrl && matches!(code, KeyCode::Char('e' | 'E'))
+}
+
 /// Whether a keystroke opens the shortcuts help modal.
 ///
 /// Bound to `Alt+S` (not a bare key), so that in the always-filtering
@@ -192,6 +203,22 @@ mod tests {
         assert_eq!(ctrl_jumps_view(KeyCode::Char('t'), false), None);
         assert_eq!(ctrl_jumps_view(KeyCode::Char('b'), false), None);
         assert_eq!(ctrl_jumps_view(KeyCode::Char('x'), true), None);
+    }
+
+    #[test]
+    fn ctrl_e_opens_the_explorer_from_any_view() {
+        // A view jump, so it belongs beside Ctrl+T / Ctrl+B rather than inside
+        // the brain-directory view: from the tasks view it must not need a
+        // Ctrl+B first.
+        assert!(ctrl_opens_explorer(KeyCode::Char('e'), true));
+        assert!(ctrl_opens_explorer(KeyCode::Char('E'), true));
+    }
+
+    #[test]
+    fn opening_the_explorer_requires_ctrl_and_ignores_other_keys() {
+        assert!(!ctrl_opens_explorer(KeyCode::Char('e'), false));
+        assert!(!ctrl_opens_explorer(KeyCode::Char('x'), true));
+        assert!(!ctrl_opens_explorer(KeyCode::Enter, true));
     }
 
     #[test]

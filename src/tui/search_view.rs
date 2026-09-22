@@ -98,9 +98,6 @@ pub(crate) fn apply_brain_dir_effect(app: &mut App, effect: BrainDirEffect) -> b
         BrainDirEffect::Refresh => app.search_refresh(),
         BrainDirEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
         BrainDirEffect::Explore(path) => app.explore_entry(&path),
-        BrainDirEffect::OpenExplorer => {
-            app.execute_global_action(crate::tui::action::GlobalAction::OpenFileExplorer);
-        }
         BrainDirEffect::ToggleHiddenFiles => {
             app.execute_global_action(crate::tui::action::GlobalAction::ToggleHiddenFiles);
         }

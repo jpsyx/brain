@@ -73,7 +73,8 @@ src/
   state/         : UUID-scoped SQLite sessions, durable receiver state, and metadata
   sync/          : UUID-scoped runtime, remote identity, triggers, and CSV merge
   picker/        — ratatui fuzzy picker (matching, grouping, navigation)
-  render.rs      — pure functions → styled ratatui Lines (picker UI)
+  render/        — pure functions → styled ratatui Lines (picker UI)
+    oklab.rs     — sRGB ↔ Oklab; the tree cursor's lightness lift
   open_target.rs — "how to open this path" + new-iTerm2-tab opener
 scripts/
   agent_session_start_hook.py  : frontend-neutral attributed session rotation

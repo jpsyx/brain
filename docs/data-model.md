@@ -176,6 +176,7 @@ struct TreeView {
     root: PathBuf,                        // what the tree is currently showing
     brain_root: PathBuf,                  // the ceiling; never ascended past
     items: Vec<TreeItem<'static, PathBuf>>,
+    nodes: HashMap<PathBuf, Node>,        // what each drawn row *is*, for the cursor's colour
     state: TreeState<PathBuf>,            // the widget's own selection + opened set
     parent_row: Option<PathBuf>,          // where the synthetic `../` row re-roots to
     show_hidden: bool,                    // are dotted names rows at all?
@@ -190,6 +191,18 @@ struct TreeView {
   `Path::extension` returns `None`) reading as a note. `build::row_line` turns
   that kind plus the hidden flag into a styled `Line` through the one palette
   function `render::tree_row_style`; no view module names a colour itself.
+- **The selected row is coloured from its own kind.** `build::build_tree`
+  returns a `BuiltTree { items, nodes }`: the rows, plus a `HashMap<PathBuf,
+  Node>` of the `{ is_dir, hidden }` behind every path those rows draw (the
+  `../` row excepted — it is navigation, and `is_parent_row` identifies it).
+  Both come out of one call so they cannot describe different builds, and
+  `TreeView` refreshes them together in `rebuild`. From it,
+  `TreeView::selected_row_style()` answers with
+  `render::tree_row_selected_style(kind, hidden)` — the row's own colour
+  lifted 18% in Oklab by `render::oklab::lighten` — which `view::draw_into`
+  hands to `Tree::highlight_style` each frame. One style reaches only the
+  selected row, so a style derived from that row's kind needs no item rebuild
+  and no per-frame allocation.
 - **Identifiers are absolute paths.** Each `TreeItem`'s identifier is the
   entry's own `path`, so identifiers are unique by construction (the widget's
   `TreeItem::new` / `Tree::new` only error on duplicates, which distinct
