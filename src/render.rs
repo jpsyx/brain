@@ -180,6 +180,62 @@ pub fn entry_line(
     Line::from(spans)
 }
 
+/// The style for a selected row, shared by the tree sub-view's
+/// `Tree::highlight_style`.
+///
+/// Unlike the other line builders this returns a bare `Style` rather than a
+/// `Line`, because `tui_tree_widget::Tree`'s builder API takes a `Style`
+/// directly and the palette still has to be handed across as one. It matches
+/// `entry_line`'s selected-row base style (primary text, bold, on the
+/// selection background) so the two sub-views highlight identically.
+#[must_use]
+pub const fn selected_row_style() -> Style {
+    Style::new()
+        .fg(TEXT_PRIMARY)
+        .bg(SELECTED_BG)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// The tree sub-view's header: ` BRAIN · tree · projects · 42 items`.
+#[must_use]
+pub fn tree_header_line(scope: &str, count: usize) -> Line<'static> {
+    let title = Style::new().fg(ACCENT_PURPLE).add_modifier(Modifier::BOLD);
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled("BRAIN", title),
+        sep_span(),
+        Span::styled(scope.to_owned(), primary_bold()),
+        sep_span(),
+        Span::styled(
+            format!("{count} {}", if count == 1 { "item" } else { "items" }),
+            dim(),
+        ),
+    ])
+}
+
+/// The tree sub-view's footer. It names navigation rather than filtering,
+/// because the tree has no query line.
+#[must_use]
+pub fn tree_footer_line() -> Line<'static> {
+    let key = primary_bold();
+    let lbl = dim();
+    let dot = very_dim();
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled("→←", key),
+        Span::styled(" expand", lbl),
+        Span::styled("   ", dot),
+        Span::styled("↵", key),
+        Span::styled(" open", lbl),
+        Span::styled("   ", dot),
+        Span::styled("^↵", key),
+        Span::styled(" reveal", lbl),
+        Span::styled("   ", dot),
+        Span::styled("esc", key),
+        Span::styled(" search", lbl),
+    ])
+}
+
 #[must_use]
 pub fn footer_line() -> Line<'static> {
     let key = primary_bold();
@@ -285,6 +341,20 @@ mod tests {
         assert!(
             line.spans.iter().any(|s| s.style.bg == Some(SELECTED_BG)),
             "selected rows should paint the selection background"
+        );
+    }
+
+    #[test]
+    fn the_tree_header_pluralises_its_item_count() {
+        let one = tree_header_line("tree · projects", 1);
+        assert!(
+            one.spans.iter().any(|span| span.content == "1 item"),
+            "{one:?}"
+        );
+        let many = tree_header_line("tree · projects", 42);
+        assert!(
+            many.spans.iter().any(|span| span.content == "42 items"),
+            "{many:?}"
         );
     }
 }
