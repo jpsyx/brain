@@ -8,4 +8,5 @@
     allow(dead_code, reason = "wired up when the sub-view lands")
 )]
 
+pub(crate) mod build;
 pub(crate) mod root;
