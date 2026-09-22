@@ -74,6 +74,87 @@ fn header_text(root: &Path, brain_root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entry::{Bucket, Entry};
+    use ratatui::{Terminal, backend::TestBackend};
+    use std::path::PathBuf;
+
+    fn entry(path: &str, is_dir: bool) -> Entry {
+        Entry {
+            path: PathBuf::from(path),
+            display: path.to_owned(),
+            bucket: Bucket::Projects,
+            is_dir,
+        }
+    }
+
+    /// Render the panel and return its rows as plain strings, so the test
+    /// asserts on what a reader would actually see.
+    fn rendered_rows(view: &mut TreeView, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| draw_into(frame, view, frame.area()))
+            .expect("draw the tree panel");
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol().to_owned())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_panel_draws_a_header_the_tree_and_a_footer() {
+        let entries = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/atlas/plan.md", false),
+            entry("/brain/projects/loose.md", false),
+        ];
+        let mut view = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas/plan.md"),
+        );
+
+        let rows = rendered_rows(&mut view, 48, 10);
+        let screen = rows.join("\n");
+
+        assert!(
+            rows[0].contains("tree \u{b7} projects"),
+            "header: {:?}",
+            rows[0]
+        );
+        assert!(rows[0].contains("items"), "header count: {:?}", rows[0]);
+        // The ../ row, the expanded directory, its child, and the loose file.
+        assert!(screen.contains("../"), "{screen}");
+        assert!(screen.contains("atlas"), "{screen}");
+        assert!(screen.contains("plan.md"), "{screen}");
+        assert!(screen.contains("loose.md"), "{screen}");
+        assert!(rows[9].contains("open"), "footer: {:?}", rows[9]);
+    }
+
+    #[test]
+    fn a_collapsed_directory_renders_closed_and_hides_its_children() {
+        // Nothing is opened, so the child must not be on screen: that is what
+        // makes the tree a tree rather than the flat search list.
+        let entries = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/atlas/plan.md", false),
+        ];
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.rebuild(&entries, Path::new("/brain/projects"));
+
+        let screen = rendered_rows(&mut view, 48, 10).join("\n");
+
+        assert!(screen.contains("\u{25b8} atlas"), "closed marker: {screen}");
+        assert!(
+            !screen.contains("plan.md"),
+            "child must stay hidden: {screen}"
+        );
+    }
 
     #[test]
     fn the_header_names_the_sub_view_and_the_current_root() {
