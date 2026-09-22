@@ -14,6 +14,15 @@ const LABEL_MAX_FILENAME: usize = 24;
 /// prefix keeps the row from growing the modal despite the extra budget.
 const LABEL_MAX_DIR: usize = 26;
 
+/// The widest a contextual row may read once its name is elided.
+///
+/// The palette modal grows to fit its widest row, so this caps what a row's
+/// surrounding wording may add on top of an already-elided name. Sized to the
+/// longest row brain has (`Open the explorer on '…'`); a new row that needs
+/// more prose than this belongs shorter, not wider.
+#[cfg(test)]
+const LABEL_MAX_ROW: usize = 48;
+
 /// Shorten a filename to fit a palette row: a head, an ellipsis, and a tail
 /// that is always the **full extension** (e.g. `…mp4`, never `…p4`), so the
 /// file type stays legible. Names without a usable extension keep the last two
@@ -108,10 +117,14 @@ pub(crate) fn open_dir_label(rel_dir: &str) -> String {
 
 /// The "Explore" row label for a given entry name, elided with the same
 /// threshold as the other contextual filename rows.
+///
+/// Names the destination, not just the verb: a reader scanning the palette for
+/// the tree sub-view searches for "explorer", and a row that only said
+/// "Explore 'atlas'" left the feature unfindable.
 #[must_use]
 pub(crate) fn explore_label(name: &str) -> String {
     format!(
-        "Explore '{}'",
+        "Open the explorer on '{}'",
         truncate_label_filename(name, LABEL_MAX_FILENAME)
     )
 }
@@ -261,14 +274,41 @@ mod tests {
     }
 
     #[test]
-    fn explore_label_names_the_entry_and_elides_a_long_one() {
-        assert_eq!(explore_label("atlas"), "Explore 'atlas'");
+    fn explore_label_names_the_entry_and_the_destination() {
+        // "Explore 'atlas'" said nothing about where exploring goes, so a
+        // reader looking for the file explorer could not find the row.
+        assert_eq!(explore_label("atlas"), "Open the explorer on 'atlas'");
 
         let shown = explore_label("really-long-note-name-that-overflows.md")
-            .trim_start_matches("Explore '")
+            .trim_start_matches("Open the explorer on '")
             .trim_end_matches('\'')
             .to_owned();
         assert_eq!(shown.chars().count(), LABEL_MAX_FILENAME);
+    }
+
+    #[test]
+    fn every_contextual_row_fits_the_palette_row_budget() {
+        // The modal sizes itself to its widest row, so one overlong label
+        // widens the whole palette. Each builder elides its name; this pins
+        // what the surrounding wording may add on top.
+        let name = "a".repeat(LABEL_MAX_FILENAME * 2);
+        let dir = "b/".repeat(LABEL_MAX_DIR);
+        for label in [
+            create_pdf_label(&name),
+            open_file_label(&name),
+            open_dir_label(&dir),
+            explore_label(&name),
+            reveal_dir_label(&dir),
+            copy_file_path_label(&name),
+            copy_dir_path_label(&dir),
+            delete_label(&name),
+        ] {
+            assert!(
+                label.chars().count() <= LABEL_MAX_ROW,
+                "{label} is {} chars, over the {LABEL_MAX_ROW}-char row budget",
+                label.chars().count()
+            );
+        }
     }
 
     #[test]

@@ -1,9 +1,11 @@
 //! Walk one or more root directories and collect entries (files + dirs).
 //!
-//! Hidden files (`.git`, `.DS_Store`, anything starting with `.`) are skipped,
-//! matching the `fd .` default that the previous zsh helper relied on. Each
-//! entry is tagged with its `Bucket` so the picker can group results into
-//! Capture / Projects / Areas / Resources sections.
+//! Hidden files (`.git`, `.DS_Store`, anything starting with `.`) are skipped
+//! by default, matching the `fd .` default that the previous zsh helper relied
+//! on; [`collect_with`] takes [`Hidden::Include`] for the one caller that asks
+//! for them (the tree sub-view's hidden-files toggle). Each entry is tagged
+//! with its `Bucket` so the picker can group results into Capture / Projects /
+//! Areas / Resources sections.
 
 use std::path::{Path, PathBuf};
 
@@ -64,14 +66,51 @@ pub struct Entry {
     /// `walkdir` already knows, so consumers (the tree, the picker's palette
     /// context) never need a syscall to ask.
     pub is_dir: bool,
+    /// Whether the entry is out of sight: any path component below the walk
+    /// root is a dotted name. Recorded alongside `is_dir` so a consumer that
+    /// renders or filters a hidden entry never has to re-split the path.
+    pub is_hidden: bool,
 }
 
-/// Collect pickable entries under each root.
+/// Whether a walk descends into dotted names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hidden {
+    Skip,
+    Include,
+}
+
+impl Hidden {
+    /// The walk mode a "show hidden files" choice asks for.
+    ///
+    /// The one place the choice becomes a walk mode, so the startup config
+    /// value and the palette toggle cannot disagree about what it means.
+    #[must_use]
+    pub const fn for_show_hidden(show_hidden: bool) -> Self {
+        if show_hidden { Self::Include } else { Self::Skip }
+    }
+}
+
+/// Collect pickable entries under each root, skipping dotted names.
 ///
 /// `brain` is the absolute path to `~/brain`, used to rewrite paths into
 /// `~/brain/...` form. `roots` pairs each root directory with the bucket
 /// label to apply to entries found there. Missing roots are silently skipped.
 pub fn collect(brain: &Path, roots: &[(Bucket, PathBuf)]) -> Result<Vec<Entry>> {
+    collect_with(brain, roots, Hidden::Skip)
+}
+
+/// Collect pickable entries under each root, choosing whether the walk
+/// descends into dotted names.
+///
+/// [`Hidden::Include`] widens the walk rather than changing what [`collect`]
+/// means: the search picker must keep excluding dotted names exactly as
+/// before, and only the tree sub-view asks for them. Whichever mode is used,
+/// `is_hidden` says whether an entry is one of the dotted ones.
+pub fn collect_with(
+    brain: &Path,
+    roots: &[(Bucket, PathBuf)],
+    hidden: Hidden,
+) -> Result<Vec<Entry>> {
     let mut out: Vec<Entry> = Vec::new();
     for (bucket, root) in roots {
         if !root.exists() {
@@ -79,7 +118,7 @@ pub fn collect(brain: &Path, roots: &[(Bucket, PathBuf)]) -> Result<Vec<Entry>> 
         }
         for entry in WalkDir::new(root)
             .into_iter()
-            .filter_entry(|e| !is_hidden(e))
+            .filter_entry(|e| hidden == Hidden::Include || !is_dotted(e))
         {
             let entry = entry.with_context(|| format!("walking {}", root.display()))?;
             // Skip the root itself; it's not pickable.
@@ -88,19 +127,40 @@ pub fn collect(brain: &Path, roots: &[(Bucket, PathBuf)]) -> Result<Vec<Entry>> 
             }
             let display = display_path(brain, entry.path());
             let is_dir = entry.file_type().is_dir();
+            let is_hidden = hidden_below(root, entry.path());
             out.push(Entry {
                 path: entry.into_path(),
                 display,
                 bucket: *bucket,
                 is_dir,
+                is_hidden,
             });
         }
     }
     Ok(out)
 }
 
-fn is_hidden(e: &DirEntry) -> bool {
+fn is_dotted(e: &DirEntry) -> bool {
     e.depth() > 0 && e.file_name().to_str().is_some_and(|n| n.starts_with('.'))
+}
+
+/// Whether `path` is out of sight below `root`: **any** component under `root`
+/// starts with a `.`.
+///
+/// Not only the final segment. A `notes.md` inside `.obsidian/` is not visible
+/// content either, and hiding the dotted directory while keeping the file
+/// would put the contents straight back on screen, because the tree
+/// synthesizes the directories its entries nest under.
+#[must_use]
+pub(crate) fn hidden_below(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|relative| {
+        relative.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|name| name.starts_with('.'))
+        })
+    })
 }
 
 fn display_path(brain: &Path, path: &Path) -> String {
@@ -218,5 +278,115 @@ mod tests {
 
         assert!(dir.is_dir, "a directory entry must be marked as one");
         assert!(!file.is_dir, "a file entry must not be marked as a directory");
+    }
+
+    #[test]
+    fn collect_marks_nothing_hidden_because_the_walk_already_filtered_dotted_names() {
+        // `is_hidden` exists for consumers that style a hidden row; recording
+        // it during the walk keeps it in step with the filter above it. The
+        // pairing is the invariant worth pinning: if the filter ever loosened
+        // without the flag being set, a dotted name would render as ordinary
+        // content.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let brain = temp.path();
+        let projects = brain.join("projects");
+        std::fs::create_dir_all(&projects).expect("create the bucket dir");
+        std::fs::write(projects.join("plan.md"), "# plan").expect("write file");
+        std::fs::write(projects.join(".secret.md"), "shh").expect("write dotfile");
+
+        let entries = collect(brain, &[(Bucket::Projects, projects)]).expect("collect");
+
+        assert!(!entries.is_empty(), "the visible file must be collected");
+        for entry in &entries {
+            assert!(
+                !entry.is_hidden,
+                "{} was emitted as hidden",
+                entry.path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn including_hidden_names_collects_them_and_marks_them_hidden() {
+        // The tree's hidden-files toggle: the dotted names come back, and each
+        // one says it is hidden so the row can be dimmed and filtered.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let brain = temp.path();
+        let projects = brain.join("projects");
+        std::fs::create_dir_all(&projects).expect("create the bucket dir");
+        std::fs::write(projects.join("plan.md"), "# plan").expect("write file");
+        std::fs::write(projects.join(".secret.md"), "shh").expect("write dotfile");
+
+        let roots = [(Bucket::Projects, projects)];
+        let entries = collect_with(brain, &roots, Hidden::Include).expect("collect");
+
+        let secret = entries
+            .iter()
+            .find(|entry| entry.path.ends_with(".secret.md"))
+            .expect("the dotfile is collected");
+        assert!(secret.is_hidden);
+        let plan = entries
+            .iter()
+            .find(|entry| entry.path.ends_with("plan.md"))
+            .expect("the visible file is still collected");
+        assert!(!plan.is_hidden);
+
+        assert!(
+            collect(brain, &roots)
+                .expect("collect")
+                .iter()
+                .all(|entry| !entry.path.ends_with(".secret.md")),
+            "the default walk must keep excluding dotted names"
+        );
+    }
+
+    #[test]
+    fn an_entry_inside_a_dotted_directory_is_hidden_too() {
+        // A visible name in a dotted directory is not visible content: read
+        // off the final segment alone, `notes.md` would be an ordinary row and
+        // would drag `.obsidian/` back into the tree as its parent.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let brain = temp.path();
+        let projects = brain.join("projects");
+        std::fs::create_dir_all(projects.join(".obsidian")).expect("create the dotted dir");
+        std::fs::write(projects.join(".obsidian/notes.md"), "x").expect("write file");
+
+        let entries = collect_with(
+            brain,
+            &[(Bucket::Projects, projects)],
+            Hidden::Include,
+        )
+        .expect("collect");
+
+        let nested = entries
+            .iter()
+            .find(|entry| entry.path.ends_with("notes.md"))
+            .expect("the nested file is collected");
+        assert!(nested.is_hidden);
+    }
+
+    #[test]
+    fn hidden_below_reads_every_component_under_the_walk_root() {
+        let root = Path::new("/brain/projects");
+
+        assert!(!hidden_below(root, Path::new("/brain/projects/atlas/plan.md")));
+        assert!(hidden_below(root, Path::new("/brain/projects/.secret.md")));
+        assert!(hidden_below(
+            root,
+            Path::new("/brain/projects/.obsidian/notes.md")
+        ));
+        // A dotted *root* is the directory the caller asked to walk, so it does
+        // not make everything inside it hidden.
+        assert!(!hidden_below(
+            Path::new("/brain/projects/.obsidian"),
+            Path::new("/brain/projects/.obsidian/notes.md")
+        ));
+        assert!(!hidden_below(root, Path::new("/etc/passwd")));
+    }
+
+    #[test]
+    fn the_walk_mode_follows_the_show_hidden_choice() {
+        assert_eq!(Hidden::for_show_hidden(true), Hidden::Include);
+        assert_eq!(Hidden::for_show_hidden(false), Hidden::Skip);
     }
 }

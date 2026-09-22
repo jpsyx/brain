@@ -404,6 +404,7 @@ brain env set claude_cmd='claude --dangerously-skip-permissions'
 | `linear_workspace` | *(unset)* | Linear workspace slug; builds `https://linear.app/<slug>/issue/` for the task "open link" action. |
 | `daily_triage_name_pattern` | `Morning Triage` | Regex on habit names that gates the startup triage nudge. Empty disables it. |
 | `enable_daily_triage_check` | `true` | Whether any shell on this workspace may open the startup triage nudge. The command palette still toggles it for one session. |
+| `show_hidden_files` | `false` | Whether the brain-directory tree starts out showing dotted names (dimmed). The tree's `.` key and the palette's Show / Hide hidden files row flip it and write it back. |
 | `day_rollover_hour` | `6` | Hour (0–23) the "logical day" rolls over for the triage re-check. |
 | `agenda_dir` | `~/Downloads` | Where the generated daily-agenda PDF is written. |
 | `calendar_id` | *(empty)* | Calendar to pull busy blocks from when building the agenda. Empty = no calendar. |

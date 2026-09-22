@@ -18,9 +18,9 @@ views** and one app-level **brain panel** (see [glossary.md](glossary.md)):
 - **Brain-directory view** — the surface over `capture/` plus the four PARA
   buckets, with **two sub-views**: the fuzzy **search** picker (the startup
   sub-view, formerly what bare `brain` opened) and the directory **tree**,
-  reached with `Alt+Enter` on the highlighted entry. Both are described later
-  in this doc. The tree is a sub-view, not a fourth main view: the main-view
-  cycle is still three.
+  reached with `Alt+Enter` on the highlighted entry or `Ctrl+E` at the brain
+  root. Both are described later in this doc. The tree is a sub-view, not a
+  fourth main view: the main-view cycle is still three.
 - **Logs view:** a scrollable view of the current run log, opened from the
   palette or the main-view cycle.
 - **Brain panel** — a live, interactive agent session in an embedded PTY,
@@ -484,6 +484,7 @@ before opening the brain panel.
 | `brain habits kill` | Stop a background habits server. It is rejected while any brain TUI is open. |
 | `brain --with-receiver` | Persistently enable receiver ingress for the selected workspace before its TUI lease registers, then open the TUI. |
 | `brain config set enable_daily_triage_check=false` | Open the TUI without ever showing the daily-triage startup nudge. Portable config, so every machine on the workspace agrees; the palette still toggles it per session. |
+| `brain config set show_hidden_files=true` | Open the brain-directory tree with dotted names showing (dimmed). Portable config; the tree's `.` key and the palette's Show / Hide hidden files row flip it and write it back. |
 | `brain receiver {setup\|set\|start\|stop\|status\|url\|email\|phone\|logs}` | Configure receiver providers, persistently enable or disable the selected workspace, inspect intent and live availability, print the provider webhook URLs or configured addresses, or read shared-process logs. No receiver command starts or restarts a process. |
 | `brain receiver` | Report this machine's one webhook URL per channel (with the public base URL it is built from), then every registered workspace's receiver details: intent, live TUI/server/accepting state, and the configured email and phone — the addresses that route a message to that workspace. `-w` narrows the workspace blocks to one; the URL block is machine-wide either way. Informational and read-only: an unconfigured value reads `not set` and an unreadable workspace names its repair command rather than failing the whole listing. Provider secrets are never printed. |
 | `brain receiver {email\|phone}` | Print the bare address the selected workspace's receiver answers on (`resend_from_email` / `twilio_from_number`), on stdout with no styling, so a script or an agent can read it without parsing a status block. This address is also the **routing key**: it is what selects this workspace out of every workspace sharing the machine's one URL. `-w` picks another workspace. An unset address names the variable and both ways to set it, and exits non-zero. |
@@ -2423,15 +2424,23 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   you arrive looking at the thing you were already pointing at, in context.
   (`Alt+Enter` rather than `Shift+Enter`: see [keybindings.md](keybindings.md)
   and [decisions.md](decisions.md).)
+- **Entering it with no cursor.** `Ctrl+E`, or the palette's **Open the file
+  explorer at the brain root** row, from either sub-view. It depends on nothing
+  you are pointing at: the tree re-roots at the brain root with **every**
+  directory collapsed, which is the way in when you do not yet know what you
+  are looking for. Unlike `Alt+Enter` it carries no scope, so it re-walks every
+  bucket for the one open.
 - **Leaving it.** `Alt+Enter` again, or `Esc`. `Esc` here means "back to
   search", not "quit" — the one key whose meaning differs between the two
   sub-views. `Ctrl+C` still quits from either.
 - **What it shows.** Exactly the entries the search picker already collected:
-  the same scope, the same hidden-file exclusion, no second walk of the disk.
-  Entering the tree therefore costs no disk I/O. (Two paths deliberately widen
-  past the picker's entries, and only those two re-walk: the `../` row, and a
-  palette-picked Explore target from outside the current scope.) It also means
-  the tree is refreshed the way the list is: `Ctrl+R` re-walks the brain
+  the same scope, the same hidden-file exclusion (until you ask for them), no
+  second walk of the disk.
+  Entering the tree therefore costs no disk I/O. (Four paths deliberately widen
+  past the picker's entries, and only those re-walk: the `../` row, a
+  palette-picked Explore target from outside the current scope, `Ctrl+E`, and
+  a tree that is showing hidden files — the picker holds none of those.) It
+  also means the tree is refreshed the way the list is: `Ctrl+R` re-walks the brain
   directory and rebuilds **both** sub-views from that one walk, so a refresh
   from either side can never leave the other holding a deleted entry. A
   refresh keeps the cursor where it was, unless the walk came back without it
@@ -2444,13 +2453,41 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   chosen from the tree changes what the tree is showing.
 - **Ordering.** Directories before files, each case-insensitively, so folders
   read as a block at the top of every level.
+- **Colour says what a thing is.** Every row is tinted by its kind, so a level
+  reads at a glance without anyone parsing extensions: **directories** cyan and
+  bold, **scripts and source** green, **notes and markup** plain text, **data
+  and config** yellow, **documents and media** purple, **archives** red, and
+  anything unrecognised dim. A directory's label also carries a trailing `/`,
+  so folders-before-files still reads on a terminal with no colour. A name with
+  no extension counts as a note, which is what `README`, `LICENSE`, and most
+  bare brain files are (a bare dotfile like `.gitignore` included). The `../`
+  row is styled as navigation rather than content. A **hidden** (dotted) row
+  keeps its kind's hue and is dimmed on top of it, so the colour still says
+  what the thing is while the dimming says it is normally out of sight.
+- **Hidden files, when you want them.** `.` toggles them, the conventional
+  dotfile key, free here because the tree has no query line. A row is hidden
+  when **any** part of its path below the walk root is dotted, so `.obsidian/`
+  and the ordinary-looking `notes.md` inside it come and go together rather
+  than the directory reappearing to hold its own child. The choice is a
+  two-halved toggle: the palette row names the next flip (**Show hidden
+  files** / **Hide hidden files**) and writes `show_hidden_files` back to
+  portable config, so it survives a restart and reaches the workspace's other
+  machines, and `brain config set show_hidden_files=true` starts the shell that
+  way. Showing them **re-walks**, because the search picker's entry set holds
+  no dotted names at all — and the search sub-view is deliberately left that
+  way: this is the tree's state, not the picker's. Hiding them again drops a
+  cursor that was sitting on a dotted row rather than leaving it on a node
+  nothing draws.
+- **The cursor does not repaint the row.** The selected row takes the selection
+  background and bold weight and **keeps its own colour**, so moving the cursor
+  never costs you what the colour was telling you.
 - **Real directories, not sections.** The tree nests every entry under its
   actual parent directory, so what you read is the filesystem, not the search
   view's `Capture` / `Projects` section headers.
 - **The `../` row.** When the tree is rooted below the brain root (a scoped
   search), a synthetic `../` row sits at the top. `Enter` on it re-roots the
-  tree one level up — the one action that re-walks, because it deliberately
-  widens past what the picker is holding. It disappears at the brain root, and
+  tree one level up, re-walking because it deliberately widens past what the
+  picker is holding. It disappears at the brain root, and
   the model refuses to return a parent at or above it, so the tree can never
   walk out of the workspace. `Ctrl+G` / `Ctrl+D` skip the row rather than
   acting on it.
@@ -2461,22 +2498,32 @@ neighbours. Both are the same main view, so the three-view cycle is unchanged.
   sub-view is in front, so the palette's contextual rows name what you are
   pointing at in the tree.
 - **Navigating.** `↑`/`↓` (or `Ctrl+K`/`Ctrl+J`), `PgUp`/`PgDn`, `Home`/`End`,
-  `→`/`←` to expand and collapse, `Space` to toggle. There is no query line, so
-  a printable character does nothing. **A movement never clears the
-  highlight**: `←` on a top-level row has nothing to collapse, and leaves the
-  row selected rather than leaving the tree with no cursor at all.
+  `→`/`←` to expand and collapse, `Space` to toggle. With no query line to type
+  into, the vim keys are free and alias the arrows: `h` collapses, `j` moves
+  down, `k` moves up, `l` expands. Shifted, they are about the **level**
+  instead: `H` and `L` jump to the first and last row among the selected node's
+  own siblings — the children of its parent, at its own depth — where
+  `Home`/`End` take the first and last row of the whole visible tree. At the
+  top level the `../` row is genuinely the first of that list, so that is where
+  `H` lands. **A movement never clears the highlight**: `←` on a top-level row
+  has nothing to collapse, and leaves the row selected rather than leaving the
+  tree with no cursor at all.
 
 **Explore is a palette command**, listed in every view like every other
-command. With an entry in context it reads *Explore 'atlas'*; with none it
-reads *Explore a file or directory in the tree* and asks **"Explore which
-entry?"** through the entry target picker first, then opens the tree on the
+command. With an entry in context it reads *Open the explorer on 'atlas'*; with
+none it reads *Open the file explorer on a file or directory* and asks
+**"Explore which entry?"** through the entry target picker first, then opens the tree on the
 chosen path (bringing the brain-directory view forward with it). It accepts a
 file or a directory alike, and **the chosen path is always what the tree opens
 to and selects**: the root comes from the current search scope when that scope
 contains the path, and otherwise from the full bucket set, because the target
 picker offers every bucket while the search may be scoped to one. (Entering the
 tree with `Alt+Enter`, or on a target the scope already holds, still costs no
-disk I/O.) Its gray hint is `[⌥↵]`.
+disk I/O.) Its gray hint is `[⌥↵]`. Both wordings name the destination, so a
+reader who knows they want "the explorer" and not "explore" still finds the
+row. The two rows beside it are its cursor-free counterparts: **Open the file
+explorer at the brain root** `[^E]`, which needs no target at all, and **Show
+hidden files** / **Hide hidden files** `[.]`.
 
 ## Create a PDF from markdown
 

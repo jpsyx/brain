@@ -65,7 +65,7 @@ Worked examples:
 | `twilio_*`, `resend_*` | env (workspace record) | Q2: exactly one machine serves receiver ingress for a workspace at a time, so the provider credentials belong to that machine, not to every machine. Q2a: each workspace answers on its own number and address, which is also what routes an inbound message to it. |
 | `brain_receiver_public_url` | env (machine-global) | Q2: the public origin is a property of this machine's tunnel or host. Q2a: one machine serves **one** `/sms` and one `/email` URL for every workspace on it, and providers sign the literal URL, so two answers would be a bug rather than a preference. |
 | `skill_sessions` | env (workspace record) | Q2: a definition names a prompt whose skill must be installed on *this* machine, so a row that travelled to a machine without it would fail. Q2a: two workspaces on one machine may reasonably offer different sessions. |
-| `linear_workspace`, `access_mode`, `allowed_skills`, `enable_triage_habits`, `enable_daily_triage_check` | config | Q2: a workspace-wide policy or slug that would be a bug to have disagree between machines. |
+| `linear_workspace`, `access_mode`, `allowed_skills`, `enable_triage_habits`, `enable_daily_triage_check`, `show_hidden_files` | config | Q2: a workspace-wide policy or slug that would be a bug to have disagree between machines. |
 
 A genuinely one-invocation choice (`--with-receiver`, `--verbose`) is neither
 store: it stays a CLI flag. A value that belongs in a store must not *also* be a
@@ -775,6 +775,7 @@ the `name=value` form.
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
 | `enable_daily_triage_check` | `true` | Portable startup-nudge policy. `false` means no shell launched against this workspace ever opens the daily-triage modal; the post-sync refresh gate still runs. Accepts exactly `true` or `false`. The command palette's Disable/Enable daily triage alert row flips the same state for one running session without writing config. Read by `config.rs`. |
+| `show_hidden_files` | `false` | Whether the brain-directory **tree** starts out showing dotted names (dimmed, keeping their kind's colour). A row counts as hidden when any component of its path below the walk root is dotted, so a dotted directory and everything inside it appear and disappear together. Accepts exactly `true` or `false`. The tree's `.` key and the palette's **Show / Hide hidden files** row flip the same state **and write it back here**, so the choice survives a restart and reaches the workspace's other machines. The search picker is unaffected: it never lists dotted names. Read by `config.rs`. |
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `agenda_dir` | `~/Downloads` | Directory the generated daily-agenda **PDF** is written to (`agenda-<YYYY-MM-DD>.pdf`), tilde-expanded. Portable, unlike the markdown's `agenda_markdown_dir`: where you file a printable is a preference that should follow you between machines, while `/tmp` is a filesystem detail of one. |
 | `calendar_id` | *(unset)* | Calendar the agenda build pulls busy blocks from (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling; core agenda ordering is calendar-optional. |
@@ -794,8 +795,8 @@ default above. The brain directory is the selected `WorkspaceContext::root()`;
 only one-time legacy migration consults `paths::brain_root_path()` and the old
 pointer/default precedence. The runtime knobs
 (`access_mode`, `allowed_mcps`, `allowed_skills`, `enable_triage_habits`,
-`enable_daily_triage_check`, `daily_triage_name_pattern`, `linear_workspace`,
-`day_rollover_hour`) are read
+`enable_daily_triage_check`, `show_hidden_files`, `daily_triage_name_pattern`,
+`linear_workspace`, `day_rollover_hour`) are read
 by `config.rs::Config`; they all read the same `config.json` and ignore fields
 they don't use. Agent launch commands are resolved from the selected machine
 record by `agent::configured_command` instead.

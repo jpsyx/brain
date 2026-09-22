@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use brain::entry::{self, Bucket};
+use brain::entry::{self, Bucket, Hidden};
 
 /// Build a fake `$HOME/brain` under `tmp` and return (home, brain).
 fn make_brain(tmp: &Path) -> (PathBuf, PathBuf) {
@@ -99,6 +99,33 @@ fn hidden_files_and_dirs_are_skipped() {
     assert!(ds.iter().any(|d| d.ends_with("projects/visible.md")));
     assert!(!ds.iter().any(|d| d.contains(".hidden")));
     assert!(!ds.iter().any(|d| d.contains(".git")));
+}
+
+#[test]
+fn including_hidden_names_walks_into_dotted_directories() {
+    // The tree sub-view's hidden-files toggle. `.git/config` is the case the
+    // final-segment rule got wrong: `config` is not itself dotted, so it has
+    // to be hidden by the directory it sits in.
+    let tmp = tempfile::TempDir::new().unwrap();
+    let (_home, brain) = make_brain(tmp.path());
+    touch(&brain.join("projects/visible.md"));
+    touch(&brain.join("projects/.hidden.md"));
+    touch(&brain.join("projects/.git/config"));
+
+    let roots = vec![(Bucket::Projects, brain.join("projects"))];
+    let entries = entry::collect_with(&brain, &roots, Hidden::Include).unwrap();
+    let ds = displays(&entries);
+
+    assert!(ds.iter().any(|d| d.ends_with("projects/.hidden.md")));
+    assert!(ds.iter().any(|d| d.ends_with("projects/.git/config")));
+    for e in &entries {
+        let expected = e.display.contains("/.");
+        assert_eq!(e.is_hidden, expected, "{}", e.display);
+    }
+    assert!(
+        entries.iter().any(|e| !e.is_hidden),
+        "got: {ds:?}, the visible note must still be collected"
+    );
 }
 
 #[test]

@@ -40,6 +40,7 @@ struct Entry {
     display: String, // `~/<selected-root-name>/...` form when root is below HOME
     bucket: Bucket,  // which section it renders under
     is_dir: bool,    // recorded during the walk, so nothing re-stats to ask
+    is_hidden: bool, // is any component below the walk root a dotted name?
 }
 ```
 
@@ -48,6 +49,9 @@ pair with `walkdir`:
 
 - **Hidden files are skipped** — any path component starting with `.`
   (`.git`, `.DS_Store`, dotfiles). This mirrors the old `fd .` default.
+  `collect_with(brain, roots, Hidden::Include)` is the same walk with the
+  prune removed, for the tree sub-view's hidden-files toggle; `collect` is
+  `Hidden::Skip` and is what the search picker always uses.
 - **The root itself is skipped** (`depth() == 0`); only its contents are
   pickable.
 - **`display` rewrites a selected root below `$HOME` to
@@ -67,6 +71,15 @@ the entry list — buildable and testable with no filesystem at all — and it a
 removes the per-selection `is_file()` syscall the picker's palette context used
 to make. An empty directory is still a directory, rather than being mistaken for
 a file because nothing nests under it.
+
+`is_hidden` is recorded the same way, by `entry::hidden_below`: **any**
+component of the path below the walk root that starts with a `.`, not just the
+final segment. A plain `notes.md` inside `.obsidian/` is not visible content
+either, and calling it visible would put the whole dotted directory back on
+screen as the parent the tree synthesizes for it. It is always `false` on
+anything plain `collect` emits, because that walk prunes dotted names one step
+earlier; with `Hidden::Include` it is the flag the tree filters and dims on.
+Recording it during the walk means a consumer never re-splits the path.
 
 ## Picker match model (`picker/`)
 
@@ -165,9 +178,18 @@ struct TreeView {
     items: Vec<TreeItem<'static, PathBuf>>,
     state: TreeState<PathBuf>,            // the widget's own selection + opened set
     parent_row: Option<PathBuf>,          // where the synthetic `../` row re-roots to
+    show_hidden: bool,                    // are dotted names rows at all?
 }
 ```
 
+- **A row's colour is a pure function of its path.** `kind::classify(path,
+  is_dir)` maps a row to a `FileKind` (`Directory`, `Runnable`, `Note`,
+  `Data`, `Rendered`, `Archive`, `Other`, plus the synthetic `ParentRow`) from
+  the lowercased extension alone, with `is_dir` winning over it and an
+  extensionless name (`README`, and a bare dotfile like `.gitignore`, for which
+  `Path::extension` returns `None`) reading as a note. `build::row_line` turns
+  that kind plus the hidden flag into a styled `Line` through the one palette
+  function `render::tree_row_style`; no view module names a colour itself.
 - **Identifiers are absolute paths.** Each `TreeItem`'s identifier is the
   entry's own `path`, so identifiers are unique by construction (the widget's
   `TreeItem::new` / `Tree::new` only error on duplicates, which distinct
@@ -200,6 +222,23 @@ struct TreeView {
   inside it — and `shows_parent_row` is defined in terms of `ascend`, so the row
   can never offer a move the model would refuse.
 - **Ordering** is directories before files, then name, each case-insensitively.
+- **`show_hidden` decides what the items *are*.** It lives on `TreeView`
+  because every build reads it, and `build::group_children` applies it in the
+  one place that already filters by root: dropping a hidden entry there drops
+  the ancestor directories it would have synthesized, so `.obsidian/` cannot
+  reappear to hold a child that survived. It is seeded from the portable
+  `show_hidden_files` config at startup and flipped by the `.` key and its
+  palette row, which write the same field *and* the same config. Setting it
+  never rebuilds by itself: the picker's entries hold no dotted names, so the
+  rows only exist after a fresh `collect_with(Hidden::Include)` walk, which
+  `App` owns.
+- **Siblings are read off the items, not the widget.** `siblings::sibling_bounds`
+  walks the built `TreeItem`s down the selection's parent identifiers and
+  returns the first and last child of that level as full identifier paths
+  (`None` when the selection addresses nothing). `TreeState`'s own navigation
+  reads the identifier list it recorded on its last render, so it is inert
+  before the first draw; a pure search over the items is not. At the top level
+  the `../` row is genuinely the first of the list, so `H` lands on it.
 - **A re-root drops the selection** (`reroot` resets `TreeState`), because a
   different root is a different tree and an old selection could name a node
   that is no longer there. A refresh in place (`rebuild`) keeps the cursor,

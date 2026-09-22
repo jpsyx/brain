@@ -48,12 +48,22 @@ pub(crate) fn handle_tree_input(
         KeyCode::Char('d') if ctrl => {
             entry_selection(view).map_or(BrainDirEffect::None, BrainDirEffect::ConfirmDelete)
         }
-        KeyCode::Up => navigate(view, TreeMove::Up),
-        KeyCode::Down => navigate(view, TreeMove::Down),
-        KeyCode::Char('k') if ctrl => navigate(view, TreeMove::Up),
-        KeyCode::Char('j') if ctrl => navigate(view, TreeMove::Down),
-        KeyCode::Left => navigate(view, TreeMove::Collapse),
-        KeyCode::Right => navigate(view, TreeMove::Expand),
+        KeyCode::Char('e') if ctrl => BrainDirEffect::OpenExplorer,
+        // The conventional dotfile key, free here because the tree has no
+        // query line for a printable character to type into.
+        KeyCode::Char('.') => BrainDirEffect::ToggleHiddenFiles,
+        // `hjkl` are aliases for the arrows, merged into one arm per direction
+        // so `Ctrl+J` / `Ctrl+K` land here too. `Ctrl+H` / `Ctrl+L` never do:
+        // the main-view cycle consumes them upstream.
+        KeyCode::Up | KeyCode::Char('k') => navigate(view, TreeMove::Up),
+        KeyCode::Down | KeyCode::Char('j') => navigate(view, TreeMove::Down),
+        KeyCode::Left | KeyCode::Char('h') => navigate(view, TreeMove::Collapse),
+        KeyCode::Right | KeyCode::Char('l') => navigate(view, TreeMove::Expand),
+        // Shifted, and about the level rather than the tree: the ends of the
+        // selected node's own sibling list, where Home / End take the whole
+        // visible tree.
+        KeyCode::Char('H') => navigate(view, TreeMove::FirstSibling),
+        KeyCode::Char('L') => navigate(view, TreeMove::LastSibling),
         KeyCode::Char(' ') => navigate(view, TreeMove::Toggle),
         KeyCode::PageUp => navigate(view, TreeMove::PageUp),
         KeyCode::PageDown => navigate(view, TreeMove::PageDown),
@@ -74,6 +84,8 @@ enum TreeMove {
     PageDown,
     First,
     Last,
+    FirstSibling,
+    LastSibling,
 }
 
 /// Apply a movement and report that nothing else needs to happen.
@@ -86,45 +98,54 @@ enum TreeMove {
 /// happens to recover.
 fn navigate(view: &mut TreeView, movement: TreeMove) -> BrainDirEffect {
     let previous = view.state_mut().selected().to_vec();
+    apply_move(view, movement);
     let state = view.state_mut();
-    match movement {
-        TreeMove::Up => {
-            state.key_up();
-        }
-        TreeMove::Down => {
-            state.key_down();
-        }
-        TreeMove::Collapse => {
-            state.key_left();
-        }
-        TreeMove::Expand => {
-            state.key_right();
-        }
-        TreeMove::Toggle => {
-            state.toggle_selected();
-        }
-        TreeMove::PageUp => {
-            for _ in 0..PAGE {
-                state.key_up();
-            }
-        }
-        TreeMove::PageDown => {
-            for _ in 0..PAGE {
-                state.key_down();
-            }
-        }
-        TreeMove::First => {
-            state.select_first();
-        }
-        TreeMove::Last => {
-            state.select_last();
-        }
-    }
     if state.selected().is_empty() && !previous.is_empty() {
         state.select(previous);
     }
     state.scroll_selected_into_view();
     BrainDirEffect::None
+}
+
+/// Run one movement. The sibling jumps read the built items rather than the
+/// widget state, so they go through `TreeView` while the rest drive the widget
+/// directly.
+fn apply_move(view: &mut TreeView, movement: TreeMove) {
+    match movement {
+        TreeMove::Up => {
+            view.state_mut().key_up();
+        }
+        TreeMove::Down => {
+            view.state_mut().key_down();
+        }
+        TreeMove::Collapse => {
+            view.state_mut().key_left();
+        }
+        TreeMove::Expand => {
+            view.state_mut().key_right();
+        }
+        TreeMove::Toggle => {
+            view.state_mut().toggle_selected();
+        }
+        TreeMove::PageUp => {
+            for _ in 0..PAGE {
+                view.state_mut().key_up();
+            }
+        }
+        TreeMove::PageDown => {
+            for _ in 0..PAGE {
+                view.state_mut().key_down();
+            }
+        }
+        TreeMove::First => {
+            view.state_mut().select_first();
+        }
+        TreeMove::Last => {
+            view.state_mut().select_last();
+        }
+        TreeMove::FirstSibling => view.select_first_sibling(),
+        TreeMove::LastSibling => view.select_last_sibling(),
+    }
 }
 
 /// The selected path when it is a real entry, filtering out the `../` row so
@@ -148,12 +169,14 @@ mod tests {
                 display: "~/brain/projects/atlas".to_owned(),
                 bucket: Bucket::Projects,
                 is_dir: true,
+                is_hidden: false,
             },
             Entry {
                 path: PathBuf::from("/brain/projects/atlas/plan.md"),
                 display: "~/brain/projects/atlas/plan.md".to_owned(),
                 bucket: Bucket::Projects,
                 is_dir: false,
+                is_hidden: false,
             },
         ]
     }
@@ -163,6 +186,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/atlas/plan.md"),
+            false,
         )
     }
 
@@ -277,6 +301,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/atlas"),
+            false,
         );
         let atlas = vec![PathBuf::from("/brain/projects/atlas")];
         assert!(view.state.opened().is_empty(), "nothing starts open");
@@ -316,6 +341,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/atlas"),
+            false,
         );
         assert!(view.state.opened().is_empty(), "nothing to collapse");
 
@@ -368,6 +394,13 @@ mod tests {
             KeyCode::PageDown,
             KeyCode::Home,
             KeyCode::End,
+            // The vertical aliases are inert before a render for the same
+            // reason the arrows are; `h` / `l` are not (they collapse and
+            // expand), so they are exercised by the alias test instead.
+            KeyCode::Char('j'),
+            KeyCode::Char('k'),
+            KeyCode::Char('H'),
+            KeyCode::Char('L'),
         ] {
             assert_eq!(
                 handle_tree_input(&mut view, code, false, false),
@@ -415,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn typing_does_nothing_because_the_tree_has_no_query() {
+    fn typing_an_unbound_character_does_nothing_because_the_tree_has_no_query() {
         let mut view = view();
         for character in ['a', 'Z', '/', '?'] {
             assert_eq!(
@@ -423,5 +456,127 @@ mod tests {
                 BrainDirEffect::None
             );
         }
+    }
+
+    #[test]
+    fn hjkl_alias_the_arrow_keys() {
+        let mut view = view();
+        render_once(&mut view);
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('k'), false, false),
+            BrainDirEffect::None
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas")),
+            "k moves up one visible row, like the up arrow"
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('j'), false, false),
+            BrainDirEffect::None
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/plan.md")),
+            "j moves back down"
+        );
+
+        // `l` / `h` open and close, which the open set shows with no render.
+        let mut view = TreeView::explore(
+            &entries(),
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas"),
+            false,
+        );
+        let atlas = vec![PathBuf::from("/brain/projects/atlas")];
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('l'), false, false),
+            BrainDirEffect::None
+        );
+        assert!(
+            view.state.opened().contains(&atlas),
+            "l expands the selected directory, like the right arrow"
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('h'), false, false),
+            BrainDirEffect::None
+        );
+        assert!(
+            !view.state.opened().contains(&atlas),
+            "h collapses it again, like the left arrow"
+        );
+    }
+
+    #[test]
+    fn shifted_h_and_l_jump_to_the_first_and_last_sibling() {
+        // The level's own ends, not the tree's: Home / End still do that.
+        let entries = vec![
+            Entry {
+                path: PathBuf::from("/brain/projects/atlas"),
+                display: "~/brain/projects/atlas".to_owned(),
+                bucket: Bucket::Projects,
+                is_dir: true,
+                is_hidden: false,
+            },
+            Entry {
+                path: PathBuf::from("/brain/projects/atlas/a.md"),
+                display: "~/brain/projects/atlas/a.md".to_owned(),
+                bucket: Bucket::Projects,
+                is_dir: false,
+                is_hidden: false,
+            },
+            Entry {
+                path: PathBuf::from("/brain/projects/atlas/b.md"),
+                display: "~/brain/projects/atlas/b.md".to_owned(),
+                bucket: Bucket::Projects,
+                is_dir: false,
+                is_hidden: false,
+            },
+        ];
+        let mut view = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas/b.md"),
+            false,
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('H'), false, false),
+            BrainDirEffect::None
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/a.md"))
+        );
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('L'), false, false),
+            BrainDirEffect::None
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/b.md")),
+            "and never leaves the directory it started in"
+        );
+    }
+
+    #[test]
+    fn dot_toggles_hidden_files_and_ctrl_e_opens_the_explorer() {
+        // Both need a fresh walk, so the tree names an effect rather than
+        // doing it: the entries it holds have no dotted names in them at all.
+        let mut view = view();
+
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('.'), false, false),
+            BrainDirEffect::ToggleHiddenFiles
+        );
+        assert_eq!(
+            handle_tree_input(&mut view, KeyCode::Char('e'), true, false),
+            BrainDirEffect::OpenExplorer
+        );
     }
 }

@@ -7,7 +7,9 @@
 
 pub(crate) mod build;
 pub(crate) mod input;
+pub(crate) mod kind;
 pub(crate) mod root;
+pub(crate) mod siblings;
 pub(crate) mod view;
 
 use std::path::{Path, PathBuf};
@@ -27,6 +29,9 @@ pub(crate) struct TreeView {
     /// Held so a selection can be told apart from a real entry by identity
     /// rather than by label.
     parent_row: Option<PathBuf>,
+    /// Whether dotted names are rows. Lives here because it decides what the
+    /// items *are*, so every build reads it from one place.
+    show_hidden: bool,
 }
 
 impl TreeView {
@@ -39,14 +44,21 @@ impl TreeView {
             items: Vec::new(),
             state: TreeState::default(),
             parent_row: None,
+            show_hidden: false,
         }
     }
 
     /// Open the tree on `target`: rooted at the scope the entries describe,
     /// expanded along the target's ancestors, with the target selected.
-    pub(crate) fn explore(entries: &[Entry], brain_root: &Path, target: &Path) -> Self {
+    pub(crate) fn explore(
+        entries: &[Entry],
+        brain_root: &Path,
+        target: &Path,
+        show_hidden: bool,
+    ) -> Self {
         let root = root::scope_root(entries, brain_root);
         let mut view = Self::empty(brain_root);
+        view.show_hidden = show_hidden;
         view.rebuild(entries, &root);
         for opened in build::opened_for(target, &view.root) {
             view.state.open(opened);
@@ -54,6 +66,24 @@ impl TreeView {
         let identifier = build::identifier_path(target, &view.root);
         if !identifier.is_empty() {
             view.state.select(identifier);
+        }
+        view
+    }
+
+    /// Open the tree at the brain root with every directory collapsed.
+    ///
+    /// The explorer opened from nowhere in particular: unlike [`explore`] it
+    /// depends on no cursor, so it shows the workspace's own top level and
+    /// nothing below it, with the first row selected so the tree still has a
+    /// cursor to move.
+    ///
+    /// [`explore`]: Self::explore
+    pub(crate) fn collapsed(entries: &[Entry], brain_root: &Path, show_hidden: bool) -> Self {
+        let mut view = Self::empty(brain_root);
+        view.show_hidden = show_hidden;
+        view.rebuild(entries, brain_root);
+        if let Some(first) = view.items.first() {
+            view.state.select(vec![first.identifier().clone()]);
         }
         view
     }
@@ -74,7 +104,7 @@ impl TreeView {
     /// `Enter` and every palette entry row would act on it.
     pub(crate) fn rebuild(&mut self, entries: &[Entry], root: &Path) {
         self.root = root.to_path_buf();
-        self.items = build::build_items(entries, root, &self.brain_root);
+        self.items = build::build_items(entries, root, &self.brain_root, self.show_hidden);
         self.parent_row = root::ascend(root, &self.brain_root);
         let stale = self
             .selected_path()
@@ -86,10 +116,15 @@ impl TreeView {
 
     /// Whether `path` still names a row the tree draws: the `../` row, an
     /// entry, or one of the directories synthesized above an entry.
+    ///
+    /// An entry the hidden-files choice filters out is not a row, so hiding
+    /// dotted names drops a cursor sitting on one rather than leaving it on a
+    /// node nothing draws.
     fn renders(&self, entries: &[Entry], path: &Path) -> bool {
         self.is_parent_row(path)
             || entries
                 .iter()
+                .filter(|entry| self.show_hidden || !entry.is_hidden)
                 .any(|entry| entry.path == path || entry.path.starts_with(path))
     }
 
@@ -107,6 +142,38 @@ impl TreeView {
 
     pub(crate) const fn state_mut(&mut self) -> &mut TreeState<PathBuf> {
         &mut self.state
+    }
+
+    /// Whether dotted names are currently rows.
+    pub(crate) const fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    /// Record the hidden-files choice.
+    ///
+    /// It takes effect on the next [`rebuild`], because hidden entries are not
+    /// in the picker's entry set: showing them needs a fresh walk, which only
+    /// the caller can do.
+    ///
+    /// [`rebuild`]: Self::rebuild
+    pub(crate) const fn set_show_hidden(&mut self, show_hidden: bool) {
+        self.show_hidden = show_hidden;
+    }
+
+    /// Move the cursor to the first row among the selected node's siblings.
+    pub(crate) fn select_first_sibling(&mut self) {
+        let bounds = siblings::sibling_bounds(&self.items, self.state.selected());
+        if let Some((first, _)) = bounds {
+            self.state.select(first);
+        }
+    }
+
+    /// Move the cursor to the last row among the selected node's siblings.
+    pub(crate) fn select_last_sibling(&mut self) {
+        let bounds = siblings::sibling_bounds(&self.items, self.state.selected());
+        if let Some((_, last)) = bounds {
+            self.state.select(last);
+        }
     }
 
     /// The selected node's path, whether it is an entry or the `../` row.
@@ -133,6 +200,7 @@ mod tests {
             display: path.to_owned(),
             bucket: Bucket::Projects,
             is_dir,
+            is_hidden: false,
         }
     }
 
@@ -158,6 +226,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/atlas/plan.md"),
+            false,
         );
 
         assert_eq!(view.root(), Path::new("/brain/projects"));
@@ -173,6 +242,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/atlas/plan.md"),
+            false,
         );
 
         assert!(
@@ -189,6 +259,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
         assert_eq!(view.root(), Path::new("/brain/projects"));
         assert_eq!(
@@ -225,6 +296,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
         assert_eq!(
             view.selected_path(),
@@ -246,6 +318,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
 
         view.rebuild(&entries(), Path::new("/brain/projects"));
@@ -269,6 +342,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
         view.reroot(&entries(), Path::new("/brain"));
         view.state.select(vec![PathBuf::from("/brain/projects")]);
@@ -284,6 +358,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
 
         assert!(view.is_parent_row(Path::new("/brain")));
@@ -296,6 +371,7 @@ mod tests {
             &entries(),
             Path::new("/brain"),
             Path::new("/brain/projects/loose.md"),
+            false,
         );
         view.reroot(&entries(), Path::new("/brain"));
 
@@ -311,6 +387,129 @@ mod tests {
         assert!(view.items().is_empty());
         assert_eq!(view.selected_path(), None);
         assert!(!view.is_parent_row(Path::new("/brain")));
+    }
+
+    #[test]
+    fn the_explorer_opens_at_the_brain_root_collapsed_on_its_first_row() {
+        // `Ctrl+E` depends on no cursor: it is the way in when you are not
+        // pointing at anything, so it shows the workspace's top level only.
+        let view = TreeView::collapsed(&entries(), Path::new("/brain"), false);
+
+        assert_eq!(view.root(), Path::new("/brain"));
+        assert_eq!(identifiers(&view), vec![PathBuf::from("/brain/projects")]);
+        assert!(
+            view.state.opened().is_empty(),
+            "the explorer shows one level and expands nothing"
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects")),
+            "the first row is selected so a movement key has somewhere to go"
+        );
+        assert!(
+            !view.is_parent_row(Path::new("/brain")),
+            "there is nothing above the brain root to ascend to"
+        );
+    }
+
+    #[test]
+    fn sibling_jumps_stay_inside_the_selected_node_s_own_level() {
+        let entries = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/atlas/a.md", false),
+            entry("/brain/projects/atlas/b.md", false),
+            entry("/brain/projects/loose.md", false),
+        ];
+        let mut view = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/atlas/b.md"),
+            false,
+        );
+
+        view.select_first_sibling();
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/a.md")),
+            "the first child of atlas/, not the first row of the tree"
+        );
+
+        view.select_last_sibling();
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/atlas/b.md"))
+        );
+
+        // At the top level the `../` row is genuinely the first row of the
+        // list, so that is where the jump lands.
+        view.state.select(vec![PathBuf::from("/brain/projects/loose.md")]);
+        view.select_first_sibling();
+        assert_eq!(view.selected_path(), Some(PathBuf::from("/brain")));
+    }
+
+    #[test]
+    fn a_sibling_jump_with_nothing_selected_leaves_the_cursor_alone() {
+        let mut view = TreeView::empty(Path::new("/brain"));
+
+        view.select_first_sibling();
+        view.select_last_sibling();
+
+        assert_eq!(view.selected_path(), None);
+    }
+
+    #[test]
+    fn the_hidden_files_choice_decides_whether_dotted_rows_exist() {
+        let mut entries = entries();
+        entries.push(Entry {
+            is_hidden: true,
+            ..entry("/brain/projects/.secret.md", false)
+        });
+
+        let visible = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+            false,
+        );
+        assert!(
+            !identifiers(&visible).contains(&PathBuf::from("/brain/projects/.secret.md")),
+            "a dotted row is out of sight until it is asked for"
+        );
+
+        let shown = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/loose.md"),
+            true,
+        );
+        assert!(identifiers(&shown).contains(&PathBuf::from("/brain/projects/.secret.md")));
+        assert!(shown.show_hidden());
+    }
+
+    #[test]
+    fn hiding_dotted_names_again_drops_a_cursor_that_was_sitting_on_one() {
+        // Otherwise the cursor names a node the tree no longer draws: no
+        // highlight, and every entry command still pointing at it.
+        let mut entries = entries();
+        entries.push(Entry {
+            is_hidden: true,
+            ..entry("/brain/projects/.secret.md", false)
+        });
+        let mut view = TreeView::explore(
+            &entries,
+            Path::new("/brain"),
+            Path::new("/brain/projects/.secret.md"),
+            true,
+        );
+        assert_eq!(
+            view.selected_path(),
+            Some(PathBuf::from("/brain/projects/.secret.md"))
+        );
+
+        view.set_show_hidden(false);
+        view.rebuild(&entries, Path::new("/brain/projects"));
+
+        assert_eq!(view.selected_path(), None);
     }
 
     #[test]

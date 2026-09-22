@@ -5,6 +5,7 @@ fn a_highlighted_markdown_file_names_every_entry_row_it_can_satisfy() {
     let cases = [
         (EntryCommand::Open, "Open file 'plan.md'"),
         (EntryCommand::Reveal, "Reveal 'projects/atlas' in Finder"),
+        (EntryCommand::Explore, "Open the explorer on 'plan.md'"),
         (EntryCommand::CopyFilePath, "Copy path to 'plan.md'"),
         (EntryCommand::CopyDirPath, "Copy path to 'projects/atlas'"),
         (EntryCommand::CreatePdf, "Create PDF for 'plan.md'"),
@@ -58,6 +59,10 @@ fn nothing_highlighted_makes_every_entry_row_read_generically() {
     let cases = [
         (EntryCommand::Open, "Open a file or directory"),
         (EntryCommand::Reveal, "Reveal a directory in Finder"),
+        (
+            EntryCommand::Explore,
+            "Open the file explorer on a file or directory",
+        ),
         (EntryCommand::CopyFilePath, "Copy a file's path"),
         (EntryCommand::CopyDirPath, "Copy a directory's path"),
         (

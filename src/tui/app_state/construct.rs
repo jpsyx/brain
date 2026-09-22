@@ -131,7 +131,12 @@ impl App {
         });
         // The workspace root is read here, before `command_context` moves into
         // the context below: the shell's tree sub-view is rooted at it.
-        let shell = ShellState::new(search, panel_side, command_context.workspace.root());
+        let shell = ShellState::new(
+            search,
+            panel_side,
+            command_context.workspace.root(),
+            config.show_hidden_files,
+        );
         let context = AppContext::new(AppContextInit {
             command: command_context,
             config,

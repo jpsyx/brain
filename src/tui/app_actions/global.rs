@@ -38,6 +38,8 @@ impl App {
             }
             GlobalAction::ShowTasks => self.shell.show_main_view(MainView::Tasks),
             GlobalAction::ShowBrainSearch => self.shell.show_main_view(MainView::BrainSearch),
+            GlobalAction::OpenFileExplorer => self.open_file_explorer(),
+            GlobalAction::ToggleHiddenFiles => self.toggle_hidden_files(),
             GlobalAction::ShowReceiverServerStatus => self.show_receiver_status(),
             GlobalAction::ShowReceiverServerLogs => {
                 crate::logging::log("palette request receiver server logs");

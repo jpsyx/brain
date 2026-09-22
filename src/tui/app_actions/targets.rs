@@ -25,6 +25,7 @@ impl App {
             entry: self.entry_context(),
             receiver_enabled: self.receiver.is_enabled(),
             daily_triage_alert_disabled: self.status.daily_triage_check_disabled(),
+            show_hidden_files: self.shell.tree_show_hidden(),
             panel_side: self.shell.panel_side(),
             assignment_mode: self.tasks.assignment_snapshot().mode,
             runnable_skill_sessions: self.runnable_skill_session_rows(),

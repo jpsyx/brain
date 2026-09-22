@@ -66,6 +66,7 @@ mod tests {
             display: path.to_owned(),
             bucket,
             is_dir: false,
+            is_hidden: false,
         }
     }
 

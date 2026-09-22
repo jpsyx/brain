@@ -16,7 +16,7 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 14] = [
+pub(super) const VARS: [VarSpec; 15] = [
     VarSpec {
         name: "access_mode",
         description: "Portable workspace access policy: unrestricted or workspace_only (advisory, not a filesystem sandbox).",
@@ -66,6 +66,11 @@ pub(super) const VARS: [VarSpec; 14] = [
         name: "enable_daily_triage_check",
         description: "When true, the shell may open the daily-triage startup nudge. Set false to never open it; the command palette still toggles it for one running session.",
         default: Some("true"),
+    },
+    VarSpec {
+        name: "show_hidden_files",
+        description: "When true, the brain-directory tree shows dotted names (dimmed). Set false to keep them out of sight; the `.` key and the palette toggle flip it and write it back here.",
+        default: Some("false"),
     },
     VarSpec {
         name: "day_rollover_hour",

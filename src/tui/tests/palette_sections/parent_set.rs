@@ -10,6 +10,7 @@ fn the_palette_lists_the_same_commands_in_every_context() {
     let with_sessions = actions(&palette(&PaletteContext {
         receiver_enabled: true,
         daily_triage_alert_disabled: true,
+        show_hidden_files: true,
         ..shared_workspace()
     }));
 
@@ -73,6 +74,8 @@ fn the_newly_reachable_commands_are_all_listed() {
         GlobalAction::ReloadTasks,
         GlobalAction::RefreshBrainDirectory,
         GlobalAction::ToggleLayout,
+        GlobalAction::OpenFileExplorer,
+        GlobalAction::ToggleHiddenFiles,
     ] {
         assert!(listed.contains(&Command::Global(action)), "{action:?}");
     }
@@ -107,6 +110,9 @@ fn direct_shortcuts_are_advertised_next_to_their_rows() {
         (Command::Entry(EntryCommand::CreatePdf), Some("^G")),
         (Command::Entry(EntryCommand::Delete), Some("^D")),
         (Command::Global(GlobalAction::ShowShortcuts), Some("⌥S")),
+        (Command::Global(GlobalAction::OpenFileExplorer), Some("^E")),
+        (Command::Global(GlobalAction::ToggleHiddenFiles), Some(".")),
+        (Command::Entry(EntryCommand::Explore), Some("⌥↵")),
         (Command::Global(GlobalAction::Quit), Some("^Q")),
         (Command::Global(GlobalAction::SyncBrainNow), None),
         (Command::Task(TaskCommand::Start), None),

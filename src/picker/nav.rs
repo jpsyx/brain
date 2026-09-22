@@ -107,6 +107,7 @@ mod tests {
             display: display.to_owned(),
             bucket,
             is_dir: false,
+            is_hidden: false,
         }
     }
 

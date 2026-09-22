@@ -27,7 +27,9 @@ impl ShellState {
     /// entering it free of disk I/O.
     pub(crate) fn show_tree(&mut self, target: &Path) {
         let brain_root = self.tree.brain_root().to_path_buf();
-        self.tree = crate::tree::TreeView::explore(self.search.entries(), &brain_root, target);
+        let show_hidden = self.tree.show_hidden();
+        self.tree =
+            crate::tree::TreeView::explore(self.search.entries(), &brain_root, target, show_hidden);
         self.brain_dir_view = BrainDirView::Tree;
     }
 
@@ -43,7 +45,20 @@ impl ShellState {
     /// picker's own, for a target the current search scope does not contain.
     pub(crate) fn show_tree_from(&mut self, entries: &[Entry], target: &Path) {
         let brain_root = self.tree.brain_root().to_path_buf();
-        self.tree = crate::tree::TreeView::explore(entries, &brain_root, target);
+        let show_hidden = self.tree.show_hidden();
+        self.tree = crate::tree::TreeView::explore(entries, &brain_root, target, show_hidden);
+        self.brain_dir_view = BrainDirView::Tree;
+    }
+
+    /// Open the tree sub-view at the brain root with everything collapsed.
+    ///
+    /// The cursor-free way in (`Ctrl+E`): it carries nothing over from the
+    /// search scope or the old selection, so `entries` has to span every
+    /// bucket.
+    pub(crate) fn show_tree_collapsed(&mut self, entries: &[Entry]) {
+        let brain_root = self.tree.brain_root().to_path_buf();
+        let show_hidden = self.tree.show_hidden();
+        self.tree = crate::tree::TreeView::collapsed(entries, &brain_root, show_hidden);
         self.brain_dir_view = BrainDirView::Tree;
     }
 
@@ -53,6 +68,29 @@ impl ShellState {
 
     pub(crate) fn reroot_tree(&mut self, entries: &[Entry], root: &Path) {
         self.tree.reroot(entries, root);
+    }
+
+    /// Whether the tree is showing dotted names.
+    pub(crate) const fn tree_show_hidden(&self) -> bool {
+        self.tree.show_hidden()
+    }
+
+    /// Record the tree's hidden-files choice. The caller re-walks: the picker's
+    /// entries hold no dotted names, so only a fresh walk can supply them.
+    pub(crate) const fn set_tree_show_hidden(&mut self, show_hidden: bool) {
+        self.tree.set_show_hidden(show_hidden);
+    }
+
+    /// The walk mode the tree's current choice asks for.
+    pub(crate) const fn tree_hidden_mode(&self) -> crate::entry::Hidden {
+        crate::entry::Hidden::for_show_hidden(self.tree.show_hidden())
+    }
+
+    /// Rebuild the tree in place from `entries`, keeping its root and cursor,
+    /// after a walk the picker did not make.
+    pub(crate) fn rebuild_tree(&mut self, entries: &[Entry]) {
+        let root = self.tree.root().to_path_buf();
+        self.tree.rebuild(entries, &root);
     }
 
     /// Move the tree to the scope the picker's entries now describe, after a
@@ -75,6 +113,17 @@ impl ShellState {
     #[cfg(test)]
     pub(crate) fn tree_root(&self) -> &Path {
         self.tree.root()
+    }
+
+    /// The tree's top-level row identifiers, so a test can see what a walk
+    /// actually put on screen.
+    #[cfg(test)]
+    pub(crate) fn tree_identifiers(&self) -> Vec<PathBuf> {
+        self.tree
+            .items()
+            .iter()
+            .map(|item| item.identifier().clone())
+            .collect()
     }
 
     /// Select a tree node directly. Tests need this because the widget's own

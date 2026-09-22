@@ -55,6 +55,8 @@ const COMMANDS: &[Command] = &[
     Entry(EntryCommand::Open),
     Entry(EntryCommand::Reveal),
     Entry(EntryCommand::Explore),
+    Global(GlobalAction::OpenFileExplorer),
+    Global(GlobalAction::ToggleHiddenFiles),
     Entry(EntryCommand::CopyFilePath),
     Entry(EntryCommand::CopyDirPath),
     Entry(EntryCommand::CreatePdf),

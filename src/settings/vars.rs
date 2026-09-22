@@ -119,8 +119,10 @@ pub fn set(workspace: &WorkspaceContext, name: &str, value: &str) -> Result<()> 
     if super::portable::is_superseded(name) {
         bail!(super::portable::refusal(name, workspace.name().as_str()));
     }
-    if name == "enable_daily_triage_check" && !matches!(value.trim(), "true" | "false") {
-        bail!("enable_daily_triage_check must be true or false");
+    if matches!(name, "enable_daily_triage_check" | "show_hidden_files")
+        && !matches!(value.trim(), "true" | "false")
+    {
+        bail!("{name} must be true or false");
     }
     if name == "enable_triage_habits" {
         let enabled = match value.trim() {

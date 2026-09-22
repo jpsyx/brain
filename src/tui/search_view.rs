@@ -31,7 +31,7 @@ impl App {
     pub(crate) fn search_rescope(&mut self, roots: &[(Bucket, std::path::PathBuf)]) {
         if let Ok(entries) = entry::collect(self.context.workspace_root(), roots) {
             self.shell.replace_search_entries(&entries);
-            self.shell.resync_tree();
+            self.resync_brain_dir_tree();
         }
     }
 
@@ -47,7 +47,7 @@ impl App {
             &all_bucket_roots(self.context.workspace_root()),
         ) {
             self.shell.reload_search_entries(&entries);
-            self.shell.resync_tree();
+            self.resync_brain_dir_tree();
         }
     }
 }
@@ -98,6 +98,12 @@ pub(crate) fn apply_brain_dir_effect(app: &mut App, effect: BrainDirEffect) -> b
         BrainDirEffect::Refresh => app.search_refresh(),
         BrainDirEffect::ConfirmDelete(path) => app.run_entry_command(EntryCommand::Delete, &path),
         BrainDirEffect::Explore(path) => app.explore_entry(&path),
+        BrainDirEffect::OpenExplorer => {
+            app.execute_global_action(crate::tui::action::GlobalAction::OpenFileExplorer);
+        }
+        BrainDirEffect::ToggleHiddenFiles => {
+            app.execute_global_action(crate::tui::action::GlobalAction::ToggleHiddenFiles);
+        }
         BrainDirEffect::BackToSearch => app.shell.show_search(),
         BrainDirEffect::Reroot(root) => app.reroot_tree(&root),
     }

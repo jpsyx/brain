@@ -59,6 +59,9 @@ pub(crate) struct PaletteContext {
     pub(crate) entry: Option<EntryContext>,
     pub(crate) receiver_enabled: bool,
     pub(crate) daily_triage_alert_disabled: bool,
+    /// Whether the tree sub-view is currently showing dotted names, so the
+    /// toggle row can name the flip that will happen next.
+    pub(crate) show_hidden_files: bool,
     pub(crate) panel_side: PanelSide,
     pub(crate) assignment_mode: AssignmentUiMode,
     /// The skill sessions that can be started right now, each with the
@@ -76,6 +79,7 @@ impl Default for PaletteContext {
             entry: None,
             receiver_enabled: false,
             daily_triage_alert_disabled: false,
+            show_hidden_files: false,
             panel_side: PanelSide::DEFAULT,
             assignment_mode: AssignmentUiMode {
                 show_in_detail: false,

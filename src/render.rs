@@ -8,6 +8,8 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::tree::kind::FileKind;
+
 // ---------------------------------------------------------------------------
 // Palette
 // ---------------------------------------------------------------------------
@@ -180,20 +182,40 @@ pub fn entry_line(
     Line::from(spans)
 }
 
-/// The style for a selected row, shared by the tree sub-view's
-/// `Tree::highlight_style`.
+/// The selected row's style in the tree sub-view: background and weight only.
 ///
 /// Unlike the other line builders this returns a bare `Style` rather than a
 /// `Line`, because `tui_tree_widget::Tree`'s builder API takes a `Style`
-/// directly and the palette still has to be handed across as one. It matches
-/// `entry_line`'s selected-row base style (primary text, bold, on the
-/// selection background) so the two sub-views highlight identically.
+/// directly and the palette still has to be handed across as one. It sets **no
+/// foreground** on purpose: the widget paints the highlight over the row it
+/// already drew, so naming a colour here would repaint every selected row one
+/// hue and throw away what `tree_row_style` just said the row is.
 #[must_use]
-pub const fn selected_row_style() -> Style {
-    Style::new()
-        .fg(TEXT_PRIMARY)
-        .bg(SELECTED_BG)
-        .add_modifier(Modifier::BOLD)
+pub const fn selected_row_background() -> Style {
+    Style::new().bg(SELECTED_BG).add_modifier(Modifier::BOLD)
+}
+
+/// The style for a tree row of `kind`.
+///
+/// Hidden rows keep their kind's hue and are dimmed, so the colour still says
+/// what the thing is while the dimming says it is normally out of sight.
+#[must_use]
+pub(crate) fn tree_row_style(kind: FileKind, hidden: bool) -> Style {
+    let base = match kind {
+        FileKind::ParentRow => very_dim(),
+        FileKind::Directory => Style::new().fg(ACCENT_CYAN).add_modifier(Modifier::BOLD),
+        FileKind::Runnable => Style::new().fg(ACCENT_GREEN),
+        FileKind::Note => Style::new().fg(TEXT_PRIMARY),
+        FileKind::Data => Style::new().fg(ACCENT_YELLOW),
+        FileKind::Rendered => Style::new().fg(ACCENT_PURPLE),
+        FileKind::Archive => Style::new().fg(ACCENT_RED),
+        FileKind::Other => dim(),
+    };
+    if hidden {
+        base.add_modifier(Modifier::DIM)
+    } else {
+        base
+    }
 }
 
 /// The tree sub-view's header: ` BRAIN · tree · projects · 42 items`.
@@ -213,8 +235,12 @@ pub fn tree_header_line(scope: &str, count: usize) -> Line<'static> {
     ])
 }
 
-/// The tree sub-view's footer. It names navigation rather than filtering,
-/// because the tree has no query line.
+/// The tree sub-view's footer.
+///
+/// It names navigation rather than filtering, because the tree has no query
+/// line. Only the four keys a reader needs to get moving fit: `hjkl` stands in
+/// for the arrows it aliases, and reveal, expand and the explorer itself stay
+/// discoverable through `Alt+S` and the palette.
 #[must_use]
 pub fn tree_footer_line() -> Line<'static> {
     let key = primary_bold();
@@ -222,14 +248,14 @@ pub fn tree_footer_line() -> Line<'static> {
     let dot = very_dim();
     Line::from(vec![
         Span::raw(" "),
-        Span::styled("→←", key),
-        Span::styled(" expand", lbl),
+        Span::styled("hjkl", key),
+        Span::styled(" move", lbl),
         Span::styled("   ", dot),
         Span::styled("↵", key),
         Span::styled(" open", lbl),
         Span::styled("   ", dot),
-        Span::styled("^↵", key),
-        Span::styled(" reveal", lbl),
+        Span::styled(".", key),
+        Span::styled(" hidden", lbl),
         Span::styled("   ", dot),
         Span::styled("esc", key),
         Span::styled(" search", lbl),
@@ -342,6 +368,77 @@ mod tests {
             line.spans.iter().any(|s| s.style.bg == Some(SELECTED_BG)),
             "selected rows should paint the selection background"
         );
+    }
+
+    /// Every kind, so a new variant cannot be added without deciding its hue.
+    const EVERY_KIND: [FileKind; 8] = [
+        FileKind::ParentRow,
+        FileKind::Directory,
+        FileKind::Runnable,
+        FileKind::Note,
+        FileKind::Data,
+        FileKind::Rendered,
+        FileKind::Archive,
+        FileKind::Other,
+    ];
+
+    #[test]
+    fn every_tree_row_kind_gets_its_own_colour() {
+        let colours: std::collections::HashSet<Option<Color>> = EVERY_KIND
+            .into_iter()
+            .map(|kind| tree_row_style(kind, false).fg)
+            .collect();
+
+        assert_eq!(
+            colours.len(),
+            EVERY_KIND.len(),
+            "two kinds sharing a hue would make the colouring say less than it claims"
+        );
+    }
+
+    #[test]
+    fn a_hidden_row_keeps_its_kind_colour_and_only_gains_dimming() {
+        for kind in EVERY_KIND {
+            let plain = tree_row_style(kind, false);
+            let hidden = tree_row_style(kind, true);
+
+            assert_eq!(hidden.fg, plain.fg, "{kind:?} changed hue when hidden");
+            assert!(
+                hidden.add_modifier.contains(Modifier::DIM),
+                "{kind:?} was not dimmed when hidden"
+            );
+            assert!(
+                !plain.add_modifier.contains(Modifier::DIM),
+                "{kind:?} was dimmed while visible"
+            );
+        }
+    }
+
+    #[test]
+    fn a_directory_is_bold_whether_or_not_it_is_hidden() {
+        assert!(
+            tree_row_style(FileKind::Directory, false)
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert!(
+            tree_row_style(FileKind::Directory, true)
+                .add_modifier
+                .contains(Modifier::BOLD),
+            "dimming a hidden directory must not cost it its weight"
+        );
+    }
+
+    #[test]
+    fn the_selected_row_highlight_names_no_foreground() {
+        let style = selected_row_background();
+
+        assert_eq!(
+            style.fg, None,
+            "a foreground here would repaint the selected row over its kind colour"
+        );
+        assert_eq!(style.bg, Some(SELECTED_BG));
+        assert!(style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]

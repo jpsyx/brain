@@ -50,7 +50,7 @@ pub(crate) fn label_for(command: Command, context: &PaletteContext, style: Label
 
 fn global_label(action: GlobalAction, context: &PaletteContext) -> String {
     match action {
-        // The three toggles name the action that will happen next, mirroring
+        // The four toggles name the action that will happen next, mirroring
         // the Start/Stop-style rows elsewhere.
         GlobalAction::ToggleReceiver => if context.receiver_enabled {
             "Disable receiver"
@@ -62,6 +62,12 @@ fn global_label(action: GlobalAction, context: &PaletteContext) -> String {
             "Enable daily triage alert"
         } else {
             "Disable daily triage alert"
+        }
+        .to_owned(),
+        GlobalAction::ToggleHiddenFiles => if context.show_hidden_files {
+            "Hide hidden files"
+        } else {
+            "Show hidden files"
         }
         .to_owned(),
         GlobalAction::ToggleLayout => layout_choice_label(context.panel_side).to_owned(),
@@ -98,6 +104,7 @@ fn static_global_label(action: GlobalAction) -> &'static str {
         GlobalAction::FocusMainPanel => "Focus the main view",
         GlobalAction::ShowTasks => "Show the tasks view",
         GlobalAction::ShowBrainSearch => "Show the brain directory",
+        GlobalAction::OpenFileExplorer => "Open the file explorer at the brain root",
         GlobalAction::ShowReceiverServerStatus => "Show receiver server status",
         GlobalAction::ShowReceiverServerLogs => "Show receiver logs",
         GlobalAction::ShowBrainLogs => "Show brain logs",
@@ -120,6 +127,7 @@ fn static_global_label(action: GlobalAction) -> &'static str {
         // Resolved by `global_label` before reaching here.
         GlobalAction::ToggleReceiver
         | GlobalAction::ToggleDailyTriageAlert
+        | GlobalAction::ToggleHiddenFiles
         | GlobalAction::ToggleLayout => "",
     }
 }
@@ -220,7 +228,7 @@ const fn generic_entry_label(command: EntryCommand) -> &'static str {
     match command {
         EntryCommand::Open => "Open a file or directory",
         EntryCommand::Reveal => "Reveal a directory in Finder",
-        EntryCommand::Explore => "Explore a file or directory in the tree",
+        EntryCommand::Explore => "Open the file explorer on a file or directory",
         EntryCommand::CopyFilePath => "Copy a file's path",
         EntryCommand::CopyDirPath => "Copy a directory's path",
         EntryCommand::CreatePdf => "Create a PDF from a markdown file",

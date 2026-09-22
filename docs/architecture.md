@@ -1048,13 +1048,20 @@ service state.
 ### `entry.rs`
 `Bucket` (Projects / Areas / Resources / Archive; declaration order =
 display order, Archive last) and `Entry` (absolute selected-workspace `path`,
-home-abbreviated `display`, `bucket`, `is_dir`).
+home-abbreviated `display`, `bucket`, `is_dir`, `is_hidden`).
 `collect()` walks each root with `walkdir`, skips hidden files
-(`.`-prefixed) and the root itself, and tags every entry with its bucket and
-whether it is a directory. `is_dir` is recorded during the walk, where
+(`.`-prefixed) and the root itself, and tags every entry with its bucket,
+whether it is a directory, and whether it is hidden.
+`is_dir` is recorded during the walk, where
 `walkdir` already knows it, so neither the tree builder nor the picker's
-palette context needs a per-selection `is_file()` syscall.
-Missing roots are silently skipped.
+palette context needs a per-selection `is_file()` syscall. `is_hidden` rides
+along with it so a consumer that styles or filters a hidden row never
+re-splits the path; `hidden_below` is that one rule — **any** component below
+the walk root starting with a `.`, not just the final segment, so a plain name
+inside a dotted directory is hidden too. `collect_with(…, Hidden::Include)` is
+the same walk without the prune, for the tree's hidden-files toggle; plain
+`collect` (`Hidden::Skip`) is unchanged and is what the search picker always
+uses. Missing roots are silently skipped.
 
 ### `picker/`
 The ratatui fuzzy picker. The `App` type lives in `picker/mod.rs` (so every
@@ -1088,12 +1095,16 @@ so the shape of the tree, its root, and its keymap are all testable without a
 temp dir.
 
 - `mod.rs` — `TreeView`, the state: the root it is showing, the brain root that
-  ceilings it, the built `TreeItem`s, the widget's own `TreeState`, and the
-  directory the synthetic `../` row re-roots to. `explore` builds it from a
-  target (root, opened ancestors, selection); `reroot` moves the root and drops
-  the selection; `rebuild` refreshes in place, keeping the cursor unless the
-  new entry set no longer renders it (a refresh after a delete must not leave
-  the cursor naming the trashed path).
+  ceilings it, the built `TreeItem`s, the widget's own `TreeState`, the
+  directory the synthetic `../` row re-roots to, and whether dotted names are
+  rows (`show_hidden`). `explore` builds it from a target (root, opened
+  ancestors, selection); `collapsed` builds the cursor-free explorer (`Ctrl+E`)
+  at the brain root with nothing expanded and the first row selected; `reroot`
+  moves the root and drops the selection; `rebuild` refreshes in place, keeping
+  the cursor unless the new entry set no longer renders it (a refresh after a
+  delete must not leave the cursor naming the trashed path, and hiding dotted
+  names must not leave it on a row that is no longer drawn).
+  `select_first_sibling` / `select_last_sibling` are `H` / `L`.
 - `root.rs` — where the tree opens and how far up it may walk. `scope_root`
   derives the root from the entries' buckets (one bucket → that bucket's
   directory, several or none → the brain root), so there is no stored scope to
@@ -1105,9 +1116,26 @@ temp dir.
   lives; `shows_parent_row` is defined in terms of it, so the `../` row can
   never offer a move the model would refuse.
 - `build.rs` — the flat entry list to nested `TreeItem`s: children keyed by
-  parent, directories sorted before files (each case-insensitively), the `../`
-  leaf prepended off-root. Also `identifier_path` / `opened_for`, which address
-  a node by its full root-relative identifier path the way the widget does.
+  parent (each one a `Node` carrying `is_dir` plus the hidden flag),
+  directories sorted before files (each case-insensitively), the `../`
+  leaf prepended off-root. Every row's text is a styled `Line`, not a bare
+  `String`: `label_for` names it (directories gain a trailing `/`) and
+  `row_line` colours it through `render::tree_row_style`. `group_children` is
+  also where the hidden-files choice is applied — dropping a hidden entry
+  there drops the ancestors it would have synthesized — and synthesized
+  ancestors, which have no `Entry`, take their own flag from
+  `entry::hidden_below`, the same rule the walk uses. Also `identifier_path` /
+  `opened_for`, which address a node by its full root-relative identifier path
+  the way the widget does.
+- `siblings.rs` — `sibling_bounds`, the pure search for the first and last row
+  of the selected node's own level, over the built items rather than over
+  `TreeState` (whose navigation reads the identifier list from its last render
+  and is inert before the first draw). Backs `H` / `L`.
+- `kind.rs` — `FileKind` and `classify(path, is_dir)`, the pure colour class of
+  a row: directory, runnable, note, data, rendered, archive, other, plus the
+  synthetic `ParentRow`. Extension-driven and case-insensitive, with `is_dir`
+  winning over the extension and an extensionless name reading as a note. The
+  colours themselves live only in `render::tree_row_style`.
 - `input.rs` — `handle_tree_input`, one keystroke to one `BrainDirEffect`.
   Movement mutates the widget state and yields `BrainDirEffect::None`, because
   navigating is not a command. `navigate` also restores the previous selection
@@ -1115,7 +1143,10 @@ temp dir.
   cursor.
 - `view.rs` — `draw_into`: header / separator / `Tree` widget / footer, in the
   same bordered sub-rect the search panel uses, so the two sub-views are
-  visually interchangeable.
+  visually interchangeable. Its `highlight_style` is
+  `render::selected_row_background()`, which names no foreground: the widget
+  paints the highlight over the row it already drew, so a colour there would
+  erase the kind hue of whatever the cursor is on.
 
 Glue lives in `tui/tree_view.rs` (below), and the sub-view axis itself is
 `tui::state::BrainDirView` on `ShellState`. The methods that read the picker's
@@ -1734,12 +1765,18 @@ overlay); `tree_view.rs` is the same glue for the tree sub-view, with the pure
 decision in `tree::input`. Both sub-views return the **same** `BrainDirEffect`
 enum — `Open`, `Reveal`, PDF, delete, refresh, palette, and quit are shared
 rather than duplicated into a parallel `TreeEffect`, and the tree adds
-`Explore`, `BackToSearch`, and `Reroot` to it — so one applier
-(`apply_search_view_effect`) serves the whole main view. Two paths re-walk,
-both because they widen past the entries the picker holds: a re-root, and an
-`Explore` whose target the current scope does not contain, which
+`Explore`, `OpenExplorer`, `ToggleHiddenFiles`, `BackToSearch`, and `Reroot`
+to it — so one applier
+(`apply_search_view_effect`) serves the whole main view. Four paths re-walk,
+all because they widen past the entries the picker holds: a re-root, an
+`Explore` whose target the current scope does not contain (which
 `ShellState::scope_covers` decides and only the palette's every-bucket target
-picker can produce. A palette rescope feeds both sub-views the way a refresh
+picker can produce), `OpenExplorer` (rooted at the brain root, so it needs
+every bucket), and any rebuild while the tree is showing hidden files, which
+`App::restore_hidden_rows` does after the picker-fed resync because the
+picker's entry set holds no dotted names. `OpenExplorer` and
+`ToggleHiddenFiles` are applied by running the matching `GlobalAction`, so the
+key and the palette row are the same code. A palette rescope feeds both sub-views the way a refresh
 does (`search_rescope` → `replace_search_entries` + `rescope_tree`). The remaining
 submodules (`handlers`, `keymap`, `palette`, `modals`, `links`, `draw_*`,
 `app_*`, `shell`) are the tasks view's. The assignee picker has its own

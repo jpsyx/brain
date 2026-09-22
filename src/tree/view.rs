@@ -48,7 +48,7 @@ pub(crate) fn draw_into(f: &mut Frame, view: &mut TreeView, area: Rect) {
     // mutable borrow of the widget state below.
     if let Ok(tree) = Tree::new(&view.items) {
         let tree = tree
-            .highlight_style(render::selected_row_style())
+            .highlight_style(render::selected_row_background())
             .highlight_symbol(" ❯ ")
             .node_closed_symbol("▸ ")
             .node_open_symbol("▾ ")
@@ -75,26 +75,46 @@ fn header_text(root: &Path, brain_root: &Path) -> String {
 mod tests {
     use super::*;
     use crate::entry::{Bucket, Entry};
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::{Buffer, Cell},
+        style::Modifier,
+    };
     use std::path::PathBuf;
 
+    /// `is_hidden` is derived from the name, exactly as `entry::collect`
+    /// derives it, so a dotted fixture is hidden without a third argument.
     fn entry(path: &str, is_dir: bool) -> Entry {
+        let path = PathBuf::from(path);
+        let display = path.display().to_string();
+        let is_hidden = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with('.'));
         Entry {
-            path: PathBuf::from(path),
-            display: path.to_owned(),
+            path,
+            display,
             bucket: Bucket::Projects,
             is_dir,
+            is_hidden,
         }
+    }
+
+    /// Draw the panel and hand back the cells, so a test can read the style a
+    /// row was painted with and not only its text.
+    fn rendered_buffer(view: &mut TreeView, width: u16, height: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal
+            .draw(|frame| draw_into(frame, view, frame.area()))
+            .expect("draw the tree panel");
+        terminal.backend().buffer().clone()
     }
 
     /// Render the panel and return its rows as plain strings, so the test
     /// asserts on what a reader would actually see.
     fn rendered_rows(view: &mut TreeView, width: u16, height: u16) -> Vec<String> {
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
-        terminal
-            .draw(|frame| draw_into(frame, view, frame.area()))
-            .expect("draw the tree panel");
-        let buffer = terminal.backend().buffer().clone();
+        let buffer = rendered_buffer(view, width, height);
         (0..height)
             .map(|y| {
                 (0..width)
@@ -104,6 +124,25 @@ mod tests {
                     .to_owned()
             })
             .collect()
+    }
+
+    /// The first cell of `needle` on screen. Matching cell-by-cell rather than
+    /// through a joined string keeps the column honest whatever the glyphs are.
+    fn cell_of(buffer: &Buffer, width: u16, height: u16, needle: &str) -> Cell {
+        let wanted: Vec<String> = needle.chars().map(|c| c.to_string()).collect();
+        for y in 0..height {
+            let row: Vec<String> = (0..width)
+                .map(|x| buffer[(x, y)].symbol().to_owned())
+                .collect();
+            if let Some(start) = row
+                .windows(wanted.len())
+                .position(|window| window == wanted.as_slice())
+            {
+                let column = u16::try_from(start).expect("a column inside the test terminal");
+                return buffer[(column, y)].clone();
+            }
+        }
+        panic!("{needle:?} is not on screen");
     }
 
     #[test]
@@ -117,6 +156,7 @@ mod tests {
             &entries,
             Path::new("/brain"),
             Path::new("/brain/projects/atlas/plan.md"),
+            false,
         );
 
         let rows = rendered_rows(&mut view, 48, 10);
@@ -185,6 +225,87 @@ mod tests {
         assert_eq!(
             header_text(Path::new("/etc"), Path::new("/brain")),
             "tree · all"
+        );
+    }
+
+    #[test]
+    fn every_row_is_coloured_by_what_it_is() {
+        let entries = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/plan.md", false),
+            entry("/brain/projects/data.json", false),
+        ];
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.rebuild(&entries, Path::new("/brain/projects"));
+
+        let buffer = rendered_buffer(&mut view, 48, 10);
+
+        assert_eq!(
+            cell_of(&buffer, 48, 10, "atlas/").fg,
+            render::ACCENT_CYAN,
+            "a directory reads as one by its slash and its hue"
+        );
+        assert_eq!(cell_of(&buffer, 48, 10, "plan.md").fg, render::TEXT_PRIMARY);
+        assert_eq!(
+            cell_of(&buffer, 48, 10, "data.json").fg,
+            render::ACCENT_YELLOW
+        );
+        assert_eq!(
+            cell_of(&buffer, 48, 10, "../").fg,
+            render::TEXT_VERY_DIM,
+            "the ../ row is navigation, not content"
+        );
+    }
+
+    #[test]
+    fn a_hidden_row_is_dimmed_but_keeps_its_kind_colour() {
+        // A hidden row is only on screen once it has been asked for, so the
+        // colour test has to ask: the dimming is what it looks like *then*.
+        let entries = vec![entry("/brain/projects/.config.json", false)];
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.set_show_hidden(true);
+        view.rebuild(&entries, Path::new("/brain/projects"));
+
+        let buffer = rendered_buffer(&mut view, 48, 10);
+        let cell = cell_of(&buffer, 48, 10, ".config.json");
+
+        assert_eq!(
+            cell.fg,
+            render::ACCENT_YELLOW,
+            "the hue still says what the thing is"
+        );
+        assert!(
+            cell.modifier.contains(Modifier::DIM),
+            "the dimming says it is normally out of sight"
+        );
+    }
+
+    #[test]
+    fn the_selected_row_keeps_its_kind_colour_and_only_gains_the_background() {
+        // The widget paints the highlight over the row it already drew, so a
+        // foreground in `highlight_style` would erase the kind colour of
+        // whatever the cursor happened to be on.
+        let entries = vec![
+            entry("/brain/projects/atlas", true),
+            entry("/brain/projects/plan.md", false),
+        ];
+        let mut view = TreeView::empty(Path::new("/brain"));
+        view.rebuild(&entries, Path::new("/brain/projects"));
+        view.state_mut()
+            .select(vec![PathBuf::from("/brain/projects/atlas")]);
+
+        let buffer = rendered_buffer(&mut view, 48, 10);
+        let selected = cell_of(&buffer, 48, 10, "atlas/");
+        let unselected = cell_of(&buffer, 48, 10, "plan.md");
+
+        assert_eq!(selected.fg, render::ACCENT_CYAN);
+        assert_eq!(selected.bg, render::SELECTED_BG);
+        assert!(selected.modifier.contains(Modifier::BOLD));
+        assert_eq!(unselected.fg, render::TEXT_PRIMARY);
+        assert_ne!(
+            unselected.bg,
+            render::SELECTED_BG,
+            "only the cursor's row is painted"
         );
     }
 }

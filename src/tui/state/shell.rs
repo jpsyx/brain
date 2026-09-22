@@ -45,6 +45,11 @@ pub(crate) enum BrainDirEffect {
     /// Switch to the tree sub-view, rooted at the current scope and opened on
     /// this path.
     Explore(PathBuf),
+    /// Switch to the tree sub-view at the brain root, collapsed, with no
+    /// dependence on what was highlighted.
+    OpenExplorer,
+    /// Flip whether the tree shows dotted names, and re-walk for them.
+    ToggleHiddenFiles,
     /// Leave the tree sub-view for the search sub-view.
     BackToSearch,
     /// Move the tree's root to this directory and rebuild.
@@ -83,7 +88,12 @@ impl ShellState {
         search: crate::picker::App,
         panel_side: PanelSide,
         brain_root: &Path,
+        show_hidden_files: bool,
     ) -> Self {
+        let mut tree = crate::tree::TreeView::empty(brain_root);
+        // Seeded from portable config, so the tree opens in the state the
+        // workspace chose and the palette toggle flips the same field.
+        tree.set_show_hidden(show_hidden_files);
         Self {
             main_view: MainView::Tasks,
             focus: Panel::Tasks,
@@ -91,7 +101,7 @@ impl ShellState {
             brain_rect: None,
             search,
             brain_dir_view: BrainDirView::Search,
-            tree: crate::tree::TreeView::empty(brain_root),
+            tree,
             logs_view: None,
             active_brain_tab: BrainTab::Main,
             quit_requested: false,
@@ -202,6 +212,10 @@ impl ShellState {
                     }
                 }),
             KeyCode::Char('p') if ctrl => BrainDirEffect::OpenPalette,
+            // Cursor-free, so it is the same key in both sub-views: the
+            // explorer at the brain root, however the query happens to be
+            // filtered.
+            KeyCode::Char('e') if ctrl => BrainDirEffect::OpenExplorer,
             KeyCode::Char('g') if ctrl => self
                 .search
                 .selected_markdown_path()
@@ -379,6 +393,7 @@ mod tests {
             crate::picker::App::new(&[], ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         );
 
         assert_eq!(state.main_view(), MainView::Tasks);
@@ -429,6 +444,7 @@ mod tests {
                 crate::picker::App::new(&[], ""),
                 PanelSide::Right,
                 Path::new("/brain"),
+                false,
             );
             state.apply_startup_destination(destination);
             assert_eq!(state.main_view(), main_view, "{destination:?}");
@@ -442,6 +458,7 @@ mod tests {
             crate::picker::App::new(&[], ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         );
 
         assert!(!state.select_brain_tab(BrainTab::Session(SESSION), &[SESSION], false));
@@ -485,6 +502,7 @@ mod tests {
             crate::picker::App::new(&[], ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         );
 
         assert_eq!(
@@ -508,6 +526,7 @@ mod tests {
             display: "~/brain/projects/plan.md".to_owned(),
             bucket: crate::entry::Bucket::Projects,
             is_dir: false,
+            is_hidden: false,
         }]
     }
 
@@ -516,6 +535,7 @@ mod tests {
             crate::picker::App::new(&entries_fixture(), ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         )
     }
 
@@ -526,6 +546,7 @@ mod tests {
             display: "~/brain/capture/inbox.md".to_owned(),
             bucket: crate::entry::Bucket::Capture,
             is_dir: false,
+            is_hidden: false,
         }]
     }
 
@@ -566,6 +587,7 @@ mod tests {
             crate::picker::App::new(&capture_entries(), ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         );
 
         assert!(state.scope_covers(Path::new("/brain/capture/inbox.md")));
@@ -646,6 +668,80 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_e_opens_the_explorer_without_typing_into_the_query() {
+        let mut state = shell_state_with_entries();
+
+        assert_eq!(
+            state.handle_search_input(KeyCode::Char('e'), true, false),
+            BrainDirEffect::OpenExplorer
+        );
+        assert_eq!(state.search_query(), "");
+    }
+
+    #[test]
+    fn the_explorer_opens_at_the_brain_root_whatever_the_scope_was() {
+        // `Ctrl+E` depends on nothing: not the cursor, and not the scope the
+        // search happens to be narrowed to.
+        let mut state = shell_state_with_entries();
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        assert_eq!(state.tree_root(), Path::new("/brain/projects"));
+
+        state.show_tree_collapsed(&entries_fixture());
+
+        assert_eq!(state.brain_dir_view(), BrainDirView::Tree);
+        assert_eq!(state.tree_root(), Path::new("/brain"));
+    }
+
+    #[test]
+    fn the_hidden_files_choice_is_the_trees_and_outlives_reopening_it() {
+        let mut state = shell_state_with_entries();
+        assert!(!state.tree_show_hidden());
+        assert_eq!(state.tree_hidden_mode(), crate::entry::Hidden::Skip);
+
+        state.set_tree_show_hidden(true);
+        assert_eq!(
+            state.tree_hidden_mode(),
+            crate::entry::Hidden::Include,
+            "the walk mode follows the choice, so a re-walk brings the rows"
+        );
+
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        assert!(state.tree_show_hidden(), "exploring keeps the choice");
+        state.show_tree_collapsed(&entries_fixture());
+        assert!(state.tree_show_hidden(), "so does the explorer");
+    }
+
+    #[test]
+    fn the_startup_config_seeds_the_trees_hidden_files_choice() {
+        // The CLI half of the toggle: `brain config set show_hidden_files=true`
+        // has to reach the same field the palette row flips.
+        let state = ShellState::new(
+            crate::picker::App::new(&[], ""),
+            PanelSide::Right,
+            Path::new("/brain"),
+            true,
+        );
+
+        assert!(state.tree_show_hidden());
+    }
+
+    #[test]
+    fn rebuilding_the_tree_keeps_its_root_and_its_cursor() {
+        // What a hidden-files re-walk does: the entries are replaced, but the
+        // reader stays where they were.
+        let mut state = shell_state_with_entries();
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+
+        state.rebuild_tree(&entries_fixture());
+
+        assert_eq!(state.tree_root(), Path::new("/brain/projects"));
+        assert_eq!(
+            state.selected_tree_path(),
+            Some(PathBuf::from("/brain/projects/plan.md"))
+        );
+    }
+
+    #[test]
     fn the_tree_sub_view_does_not_add_a_main_view() {
         // The tree replaces the search panel in the same slot; Ctrl+L / Ctrl+H
         // must keep cycling exactly three main views.
@@ -668,6 +764,7 @@ mod tests {
             crate::picker::App::new(&[], ""),
             PanelSide::Right,
             Path::new("/brain"),
+            false,
         );
 
         assert_eq!(

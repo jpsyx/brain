@@ -56,6 +56,7 @@ fn receiver_job(
     }
 }
 
+mod brain_directory_tree;
 mod command_targets;
 mod fixtures;
 mod input;

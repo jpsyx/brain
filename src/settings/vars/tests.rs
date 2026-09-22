@@ -241,6 +241,26 @@ fn daily_triage_check_is_a_declared_config_variable_defaulting_on() {
 }
 
 #[test]
+fn show_hidden_files_is_a_declared_config_variable_defaulting_off() {
+    // The startup half of the tree's `.` toggle: portable config, so the
+    // palette flip survives a restart and reaches the other machines.
+    let rows = resolve_all_from(&Map::new());
+    let flag = rows
+        .iter()
+        .find(|r| r.name == "show_hidden_files")
+        .expect("declared config variable");
+    assert_eq!(flag.value.as_deref(), Some("false"));
+}
+
+#[test]
+fn show_hidden_files_only_accepts_a_boolean() {
+    let (_temporary, workspace) = temporary_workspace();
+
+    assert!(set(&workspace, "show_hidden_files", "yes").is_err());
+    assert!(set(&workspace, "show_hidden_files", "true").is_ok());
+}
+
+#[test]
 fn skills_auto_sync_defaults_on_after_the_b4_cutover() {
     // The rollout gate is flipped: with nothing set, auto-sync is on so a
     // config/personalize mutation re-renders the live registry (invariant #5).

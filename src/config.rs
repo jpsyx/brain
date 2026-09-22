@@ -31,6 +31,10 @@ pub struct Config {
     /// palette still flips it for one running session.
     #[serde(default = "enabled")]
     pub enable_daily_triage_check: bool,
+    /// Whether the brain-directory tree starts out showing dotted names.
+    /// Portable, so every machine on the workspace opens the same way; the
+    /// command palette's `.` toggle flips it and writes it back.
+    pub show_hidden_files: bool,
     /// Legacy migration input for a portable user's response address.
     pub response_email: String,
     /// Legacy migration input for portable inbound phone mappings.
@@ -86,6 +90,7 @@ impl Default for Config {
             allowed_skills: default_allowed_skills(),
             enable_triage_habits: true,
             enable_daily_triage_check: true,
+            show_hidden_files: false,
             response_email: String::new(),
             allowed_sms_senders: String::new(),
             allowed_email_senders: String::new(),
@@ -302,6 +307,17 @@ mod tests {
 
         assert!(!cfg.enable_daily_triage_check);
         assert!(cfg.skip_daily_triage_check());
+    }
+
+    #[test]
+    fn hidden_files_start_out_of_sight_and_the_store_round_trips_the_choice() {
+        // Which makes `brain config set show_hidden_files=true` the startup
+        // half of the palette toggle: the shell opens in the state the
+        // workspace last chose, on every machine.
+        assert!(!Config::default().show_hidden_files);
+
+        let cfg: Config = serde_json::from_str(r#"{"show_hidden_files": true}"#).unwrap();
+        assert!(cfg.show_hidden_files);
     }
 
     #[test]

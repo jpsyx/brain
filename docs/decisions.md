@@ -5908,3 +5908,95 @@ sub-view renders empty with no error anywhere. `dir_name` makes the mapping one
 `const fn` next to `label`, and a test pins that it still equals the lowercased
 label today, so the refactor changed no behavior and a future divergence is a
 deliberate edit in one place.
+
+## Why the tree's colours are a kind, not a rule per view
+
+The tree needed colour, and there were two shapes available: let `view.rs`
+decide a `Style` per row, or name the *kinds* of thing a row can be and keep the
+colours in one table. We took the second.
+
+`kind::classify(path, is_dir)` answers "what is this" with no colour in it at
+all, so it is a pure function over a path and a bool, and every rule in it
+(a directory beats its extension, an extensionless name is prose, matching is
+case-insensitive) is a one-line unit test. `render::tree_row_style(kind,
+hidden)` is the only place a hue appears, which is the house rule the rest of
+the palette already follows: a view module never constructs a `Style` from raw
+colours. Adding a kind is one enum variant, one arm, and one row in the table;
+retuning the palette touches `render.rs` and nothing else.
+
+Three choices inside it are worth recording:
+
+- **A bare dotfile is a note.** `Path::extension()` returns `None` for
+  `.gitignore` (a leading-dot name is all stem), so it falls into the
+  extensionless branch and lands with `README` and `LICENSE`. Re-splitting the
+  name to call it "config" would mean a second, disagreeing idea of what an
+  extension is, for a row the walk does not even show today. `.eslintrc.json`
+  *does* have an extension and classifies as data, which is the case that
+  actually matters.
+- **Hidden is a modifier, not a kind.** A hidden row keeps its kind's hue and
+  adds `DIM`. Making `Hidden` a kind would have thrown away what the thing is
+  to say only that it is out of sight, and the two facts are independent.
+  Synthesized ancestor directories have no `Entry` to read the flag off, so
+  they take it from the path with the same rule the walk uses
+  (`entry::hidden_below`).
+- **A directory's label carries a trailing `/`.** Colour is the fast signal but
+  not the only one; the slash keeps folders-before-files legible with colour
+  off, and costs one `format!`.
+
+## Why the tree's selected row is a background, not a full style
+
+`Tree::highlight_style` is applied with `buf.set_style` **after** the row's own
+text is drawn, and ratatui's `Cell::set_style` only overwrites a colour the
+style actually names. The old `selected_row_style` named
+`fg(TEXT_PRIMARY)`, which was harmless while every row was one colour and
+destructive the moment rows had hues: the cursor would repaint whatever it
+landed on, so the one row you were looking at was the one row whose colour you
+could not read.
+
+`selected_row_background()` therefore names only `bg(SELECTED_BG)` and `BOLD`
+and deliberately leaves `fg` unset. The selection is still unmistakable (the
+background plus the ` ❯ ` gutter), and the row keeps saying what it is. The
+absent foreground is the load-bearing part, so it has its own test rather than
+living as a comment.
+
+## Why showing hidden files is a second walk, not a wider `collect`
+
+`collect` prunes dotted names inside `walkdir`'s `filter_entry`, so the picker's
+entry set does not contain them — not filtered at render time, *absent*. That
+left three ways to let the tree show them, and only one of them is honest.
+
+Widening `collect` itself would have been the smallest diff and the worst
+outcome: the fuzzy picker is the one surface where a `.git/` subtree is pure
+noise, and every entry the walk emits is a row the picker can rank and open.
+Ranking a workspace's `.obsidian/workspace.json` above the note the user meant
+is the search view getting worse so the tree can get better. Loading both sets
+always and filtering per sub-view would pay the walk cost — in a brain with a
+`.git/` directory, by far the biggest part of it — on every launch and every
+`Ctrl+R`, to serve a mode that is off by default.
+
+So `collect_with(…, Hidden::Include)` is an **additive** second entry point,
+`collect` keeps its exact meaning, and the tree's toggle owns the extra walk:
+flipping `show_hidden` re-walks every bucket and rebuilds the tree where it
+stands. The cost lands on the keystroke that asked for it, the picker is never
+touched, and a fork with the toggle permanently off behaves exactly as before.
+The same reasoning is why `App::restore_hidden_rows` re-walks after a rescope
+or refresh instead of teaching `resync_tree` to carry hidden entries: the
+picker-fed path stays the cheap one, and the tree tops itself up only when it
+is actually showing them.
+
+Two details fall out of it:
+
+- **Hidden means any dotted component below the walk root**, not just the final
+  segment. The tree synthesizes the directories its entries nest under, so a
+  visible-looking `.obsidian/notes.md` would drag `.obsidian/` back on screen
+  as its parent — hiding the directory while showing its contents is not a
+  state a reader can make sense of. One rule (`entry::hidden_below`) serves
+  both `Entry::is_hidden` and the synthesized ancestors, so the two cannot
+  disagree. Re-rooting *into* a dotted directory still shows its contents,
+  because the rule is relative to the root you asked for.
+- **Hidden rows are dimmed, not recoloured.** The colour already answers "what
+  is this" (see above); hiding answers "should this normally be in your way".
+  Recolouring hidden rows to one hue would have collapsed the first question
+  into the second, and the reader loses the ability to tell a dotted config
+  file from a dotted directory at a glance. Dimming composes with any kind,
+  which is also why nothing new was needed in `render.rs` to land this feature.

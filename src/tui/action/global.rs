@@ -33,6 +33,12 @@ pub(crate) enum GlobalAction {
     ShowTasks,
     /// Show the brain-directory (fuzzy search) main view (`Ctrl+B`).
     ShowBrainSearch,
+    /// Open the brain-directory tree at the brain root, collapsed (`Ctrl+E`).
+    /// Unlike [`EntryCommand::Explore`](crate::tui::palette::EntryCommand) it
+    /// needs no target, which is why it is a global action.
+    OpenFileExplorer,
+    /// Flip whether the tree sub-view shows dotted names (`.`).
+    ToggleHiddenFiles,
     ShowReceiverServerStatus,
     ShowReceiverServerLogs,
     ShowBrainLogs,
@@ -82,6 +88,8 @@ impl GlobalAction {
             Self::FocusMainPanel => Some("⌥H"),
             Self::ShowTasks => Some("^T"),
             Self::ShowBrainSearch => Some("^B"),
+            Self::OpenFileExplorer => Some("^E"),
+            Self::ToggleHiddenFiles => Some("."),
             Self::OpenAgenda => Some("^A"),
             Self::ClearTaskFilters => Some("Esc"),
             Self::SearchTasks => Some("/"),
