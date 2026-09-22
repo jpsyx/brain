@@ -5969,7 +5969,7 @@ style derived from *that* row's kind is exactly right. `TreeView` keeps a
 hidden)` each frame. No item rebuild, no per-frame allocation, and nothing
 re-walked.
 
-**Oklab, not an sRGB multiply.** `render::oklab` lifts the row's colour by 15%
+**Oklab, not an sRGB multiply.** `render::oklab` lifts the row's colour by 12.5%
 of its Oklab lightness (Björn Ottosson's conversion, implemented directly —
 this is one matrix pair and two transfer functions, not a dependency). Oklab is
 perceptually uniform, so `amount` means the same amount of brightening on a
@@ -5980,7 +5980,7 @@ different factor for every colour. Only `L` is touched, so the hue survives.
 The size of the lift was measured against the palette rather than picked. By
 0.18 the two commonest rows — notes and directories — are far enough outside
 the gamut to clip to near-white, which discards exactly the colour the
-highlight exists to show off. At 0.15 every kind still reads as itself while
+highlight exists to show off. At 0.125 every kind still reads as itself while
 gaining a clear step.
 
 Three consequences worth recording:
@@ -5993,7 +5993,7 @@ Three consequences worth recording:
   brightens relative to itself.
 - **A lift past the sRGB gamut spends chroma, not correctness.** Four of the
   palette's ten colours already sit close enough to a channel ceiling that a
-  15% lift clamps (`ACCENT_CYAN`'s blue is 255 before it starts). Clamping per
+  12.5% lift clamps (`ACCENT_CYAN`'s blue is 255 before it starts). Clamping per
   channel lands on the nearest colour sRGB can show, which moves the hue; the
   alternative — scaling chroma back to stay on the hue line — would make the
   cursor desaturate rather than brighten, which is the opposite of the ask.

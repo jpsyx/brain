@@ -199,7 +199,7 @@ struct TreeView {
   `TreeView` refreshes them together in `rebuild`. From it,
   `TreeView::selected_row_style()` answers with
   `render::tree_row_selected_style(kind, hidden)` — the row's own colour
-  lifted 15% in Oklab by `render::oklab::lighten` — which `view::draw_into`
+  lifted 12.5% in Oklab by `render::oklab::lighten` — which `view::draw_into`
   hands to `Tree::highlight_style` each frame. One style reaches only the
   selected row, so a style derived from that row's kind needs no item rebuild
   and no per-frame allocation.
