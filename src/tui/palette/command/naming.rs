@@ -103,7 +103,7 @@ fn static_global_label(action: GlobalAction) -> &'static str {
         GlobalAction::FocusBrainPanel => "Focus the brain panel",
         GlobalAction::FocusMainPanel => "Focus the main view",
         GlobalAction::ShowTasks => "Show the tasks view",
-        GlobalAction::ShowBrainSearch => "Show the brain directory",
+        GlobalAction::ShowBrainSearch => "Show the brain directory search",
         GlobalAction::OpenFileExplorer => "Open the file explorer at the brain root",
         GlobalAction::ShowReceiverServerStatus => "Show receiver server status",
         GlobalAction::ShowReceiverServerLogs => "Show receiver logs",

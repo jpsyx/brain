@@ -13,6 +13,8 @@ use ratatui::{Frame, layout::Rect};
 
 use crate::entry::Entry;
 
+use crate::main_view::MainView;
+
 use super::{BrainDirEffect, BrainDirView, ShellState};
 
 impl ShellState {
@@ -63,6 +65,19 @@ impl ShellState {
     }
 
     pub(crate) const fn show_search(&mut self) {
+        self.brain_dir_view = BrainDirView::Search;
+    }
+
+    /// Show the brain directory on its search sub-view.
+    ///
+    /// `Ctrl+B` names search the way `Ctrl+E` names the tree, so each jump
+    /// lands on the surface it is named for. Setting only the main view would
+    /// be a no-op from the tree, which already *is* the brain directory.
+    /// Cycling with `Ctrl+L` / `Ctrl+H` deliberately does not do this: that
+    /// moves between main views and leaves the sub-view where the reader left
+    /// it.
+    pub(crate) const fn show_brain_search(&mut self) {
+        self.main_view = MainView::BrainSearch;
         self.brain_dir_view = BrainDirView::Search;
     }
 

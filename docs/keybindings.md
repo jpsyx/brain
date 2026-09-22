@@ -53,7 +53,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Esc` | Dismiss a pending error banner | Applies in Tasks, Brain Search, Logs, and the brain panel. An active modal keeps its own Esc behavior. Without a pending error, normal panel behavior applies. |
 | `Ctrl+L` / `Ctrl+H` | Cycle the main view right / left | Cycles tasks, brain search, and logs. Main-panel focus only, so the brain panel keeps Claude's `Ctrl+H` (backspace) etc. when it has focus |
 | `Ctrl+T` | Jump to the **tasks** view | Main-panel focus only |
-| `Ctrl+B` | Jump to the **brain-directory** view | Main-panel focus only |
+| `Ctrl+B` | Jump to the **brain-directory** view, on its **search** sub-view | Main-panel focus only. Lands on search even from the tree, so it is the way back out; `Ctrl+E` is the jump that names the tree |
 | `Ctrl+E` | Jump to the **file explorer**: the brain-directory tree rooted at the brain root, everything collapsed | Main-panel focus only. Depends on no cursor and no scope, so it works from the tasks view as directly as from brain search |
 | `Alt+H` / `Alt+L` | Focus the **left** / **right** panel | Spatial: follows the layout when the brain panel is swapped sides. `Alt+H` from the brain panel is the reliable way back to the main view |
 | `Alt+U` / `Alt+D` | Scroll the focused panel a half-page up / down | Brain panel scrolls its scrollback; the main view pages. Fires while the selected agent has focus or a filter is active. Also accepts macOS Option-produced equivalents when richer keyboard reporting surfaces those instead of Alt-modified ASCII |
@@ -154,7 +154,11 @@ between them on the highlighted entry; `Ctrl+H`/`Ctrl+L` and `Ctrl+T`/`Ctrl+B`
 still switch *main* views, so the tree adds no fourth entry to that cycle.
 `Ctrl+E` jumps straight to the tree from **any** view and is listed with the
 app-level bindings above, not here: it carries no cursor and no scope, so
-reaching it from the tasks view does not mean pressing `Ctrl+B` first.
+reaching it from the tasks view does not mean pressing `Ctrl+B` first. The two
+jumps are a pair, each naming the sub-view it lands on: `Ctrl+B` comes back to
+search even when the tree is what is showing. Cycling with `Ctrl+L`/`Ctrl+H` is
+deliberately different — it moves between *main* views and leaves the
+brain-directory sub-view where you left it.
 
 ### Search sub-view
 

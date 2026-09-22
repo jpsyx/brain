@@ -741,6 +741,38 @@ mod tests {
     }
 
     #[test]
+    fn jumping_to_the_brain_directory_lands_on_search_even_from_the_tree() {
+        // Ctrl+B names the search sub-view, so pressing it while the tree is
+        // showing has to leave the tree. Ctrl+E is the jump that names the
+        // tree; each of the two jumps says which surface it means.
+        let mut state = shell_state_with_entries();
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        assert_eq!(state.brain_dir_view(), BrainDirView::Tree);
+
+        state.show_brain_search();
+
+        assert_eq!(state.main_view(), MainView::BrainSearch);
+        assert_eq!(state.brain_dir_view(), BrainDirView::Search);
+    }
+
+    #[test]
+    fn cycling_the_main_views_leaves_the_brain_directory_sub_view_alone() {
+        // Cycling is about which main view is showing, not which sub-view, so
+        // the tree is still there when the cycle comes back around to it.
+        let mut state = shell_state_with_entries();
+        state.show_tree(Path::new("/brain/projects/plan.md"));
+        state.show_main_view(MainView::BrainSearch);
+
+        // All the way round: brain directory -> logs -> tasks -> back.
+        state.cycle_main_view(Dir::Right);
+        state.cycle_main_view(Dir::Right);
+        state.cycle_main_view(Dir::Right);
+
+        assert_eq!(state.main_view(), MainView::BrainSearch);
+        assert_eq!(state.brain_dir_view(), BrainDirView::Tree);
+    }
+
+    #[test]
     fn the_tree_sub_view_does_not_add_a_main_view() {
         // The tree replaces the search panel in the same slot; Ctrl+L / Ctrl+H
         // must keep cycling exactly three main views.
