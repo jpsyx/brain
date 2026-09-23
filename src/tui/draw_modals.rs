@@ -1,8 +1,10 @@
 //! Drawing the confirm + brain-input modals.
 
+mod capture_note;
 mod manual_session_rename;
 mod session_close;
 mod session_rename;
+pub(crate) use capture_note::draw_capture_note;
 pub(crate) use manual_session_rename::draw_manual_session_rename;
 pub(crate) use session_close::draw_session_close_picker;
 pub(crate) use session_rename::draw_session_rename_picker;

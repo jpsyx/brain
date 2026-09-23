@@ -122,6 +122,7 @@ fn static_global_label(action: GlobalAction) -> &'static str {
         GlobalAction::RefreshBrainDirectory => "Refresh the brain directory",
         GlobalAction::SearchBucket(bucket) => bucket_search_label(bucket),
         GlobalAction::SearchEverything => "Global search",
+        GlobalAction::CreateCaptureNote => "Create a new capture note",
         GlobalAction::ShowShortcuts => "Show keyboard shortcuts",
         GlobalAction::Quit => "Quit brain",
         // Resolved by `global_label` before reaching here.

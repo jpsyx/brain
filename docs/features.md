@@ -376,12 +376,12 @@ The "ask which one" step is a picker of its own:
   `[r]`, and a row per sub-view (*Show today's tasks* `[t]`, *MIT* `[m]`,
   *past-due* `[p]`, *this week's* `[w]`, *habits* `[h]`, *the backlog* `[b]`,
   *all tasks* `[a]`).
-- **Brain directory.** *Open a file or directory* `[↵]`, *Reveal a directory in
-  Finder* `[^↵]`, *Copy a file's path*, *Copy a directory's path*, *Create a PDF
-  from a markdown file* `[^G]`, *Delete a file or directory* `[^D]`, the rescope
-  rows (*Search capture* for the unfiled in-basket, *Search projects*, *areas*,
-  *resources*, *archive*), *Global search* across all five, and *Refresh the
-  brain directory* `[^R]`.
+- **Brain directory.** *Create a new capture note*, *Open a file or directory*
+  `[↵]`, *Reveal a directory in Finder* `[^↵]`, *Copy a file's path*, *Copy a
+  directory's path*, *Create a PDF from a markdown file* `[^G]`, *Delete a file
+  or directory* `[^D]`, the rescope rows (*Search capture* for the unfiled
+  in-basket, *Search projects*, *areas*, *resources*, *archive*), *Global
+  search* across all five, and *Refresh the brain directory* `[^R]`.
 - **Views and layout.** *Show the tasks view* `[^T]`, *Show the brain
   directory* `[^B]`, *Show brain logs*, *Move brain panel to the left / right*
   (the label names the direction it would move), *Focus the brain panel* `[⌥L]`,
@@ -2348,6 +2348,21 @@ is. Brain's guarantees about it are deliberately small:
   bucket, and the command palette carries a **Search capture** row that
   rescopes to it alone. Its contents are walked verbatim: spaces, capitals,
   and the user's own nesting are all preserved and matchable.
+- **Capturing into it is one command.** The palette's **Create a new capture
+  note** row opens a one-line input modal (*New capture note*). Whatever you
+  type is the note's `# ` heading verbatim; its filename is that heading
+  kebab-cased (*My Note Name* → `my-note-name.md`). The hint under the input
+  names the exact title an empty submission would get — the timestamp the
+  modal opened at, `YYYY-MM-DD:HH-mm` — so *If left empty the note's title
+  will default to the timestamp 2026-09-23:14-05* writes
+  `2026-09-23-14-05.md` headed `# 2026-09-23:14-05`. `Enter` writes the file
+  into `capture/` and opens it in a new editor tab, exactly as pressing
+  `Enter` on a text file in the brain-directory view does; `Ctrl+U` clears
+  the line and `Esc` abandons it. A name already in use gains a numeric
+  suffix (`notes-2.md`) rather than overwriting what is there, and the new
+  note is in the brain-directory entry set immediately, with no manual
+  refresh. This is the one thing Brain writes into `capture/`: it creates the
+  empty note and steps back out of the way.
 - **Nothing else touches it.** Brain neither organizes, renames, nor prunes
   it. Filing its contents is skill work, not CLI work: the bundled
   `second-brain` skill owns the processing pass (read every item, regroup by

@@ -4,10 +4,54 @@
 use crate::tasks::task::AssignmentUser;
 use crate::tui::links::Link;
 use crate::tui::modal_state::{
-    AssigneeFilterState, BrainInputState, ConfirmChoice, ConfirmIntent, ConfirmKind, ConfirmState,
-    LinkPickerState, ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState,
+    AssigneeFilterState, BrainInputState, CaptureNoteState, ConfirmChoice, ConfirmIntent,
+    ConfirmKind, ConfirmState, LinkPickerState, ManualSessionRenameState, SessionClosePickerState,
+    SessionRenamePickerState,
 };
 use crate::users::UserId;
+
+impl CaptureNoteState {
+    pub(crate) const fn new(timestamp: String) -> Self {
+        Self {
+            buffer: String::new(),
+            timestamp,
+            error: None,
+        }
+    }
+
+    pub(crate) fn buffer(&self) -> &str {
+        &self.buffer
+    }
+
+    pub(crate) fn timestamp(&self) -> &str {
+        &self.timestamp
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// The hint under the input line, naming the title an empty submission
+    /// would get.
+    pub(crate) fn helper_text(&self) -> String {
+        crate::capture_note::helper_text(&self.timestamp)
+    }
+
+    pub(crate) fn push(&mut self, character: char) {
+        self.buffer.push(character);
+        self.error = None;
+    }
+
+    pub(crate) fn pop(&mut self) {
+        self.buffer.pop();
+        self.error = None;
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.buffer.clear();
+        self.error = None;
+    }
+}
 
 impl ManualSessionRenameState {
     pub(crate) fn rename(target: crate::tui::model::SessionTabId, title: &str) -> Self {

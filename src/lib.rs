@@ -11,6 +11,7 @@
 pub mod access;
 pub mod actor;
 pub mod agent;
+pub mod capture_note;
 pub mod clean;
 pub mod cli;
 pub mod command;

@@ -99,6 +99,15 @@ pub(crate) struct BrainInputState {
     pub(super) task_label: Option<String>,
 }
 
+/// State for the capture-note input modal. `timestamp` is captured when the
+/// modal opens, so the title an empty submission gets is exactly the one the
+/// hint under the input line promised — however long the user deliberates.
+pub(crate) struct CaptureNoteState {
+    pub(super) buffer: String,
+    pub(super) timestamp: String,
+    pub(super) error: Option<String>,
+}
+
 pub(crate) struct ManualSessionRenameState {
     pub(super) buffer: String,
     pub(super) error: Option<String>,

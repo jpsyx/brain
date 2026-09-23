@@ -52,6 +52,7 @@ const COMMANDS: &[Command] = &[
     Global(GlobalAction::ShowTaskView(View::Backlog)),
     Global(GlobalAction::ShowTaskView(View::All)),
     // --- brain directory ---
+    Global(GlobalAction::CreateCaptureNote),
     Entry(EntryCommand::Open),
     Entry(EntryCommand::Reveal),
     Entry(EntryCommand::Explore),

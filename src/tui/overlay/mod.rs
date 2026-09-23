@@ -2,8 +2,9 @@
 
 use crate::confirm::Confirm;
 use crate::tui::modal_state::{
-    AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-    ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
+    AssigneeFilterState, BrainInputState, CaptureNoteState, ConfirmState, HelpState,
+    LinkPickerState, ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState,
+    SyncLogState,
 };
 use crate::tui::palette::{CommandPaletteState, EntryTargetPicker, TaskTargetPicker};
 
@@ -18,6 +19,8 @@ pub(crate) enum Overlay {
     /// An entry command asking which file or directory to run on.
     EntryTargetPicker(EntryTargetPicker),
     BrainInput(BrainInputState),
+    /// Naming a new note for the `capture/` in-basket.
+    CaptureNote(CaptureNoteState),
     ManualSessionRename(ManualSessionRenameState),
     SessionClosePicker(SessionClosePickerState),
     SessionRenamePicker(SessionRenamePickerState),
@@ -54,6 +57,7 @@ pub(crate) enum ModalInput {
     TaskTargetPicker,
     EntryTargetPicker,
     BrainInput,
+    CaptureNote,
     ManualSessionRename,
     SessionClosePicker,
     SessionRenamePicker,
@@ -72,6 +76,7 @@ pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
         Some(Overlay::TaskTargetPicker(_)) => ModalInput::TaskTargetPicker,
         Some(Overlay::EntryTargetPicker(_)) => ModalInput::EntryTargetPicker,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
+        Some(Overlay::CaptureNote(_)) => ModalInput::CaptureNote,
         Some(Overlay::ManualSessionRename(_)) => ModalInput::ManualSessionRename,
         Some(Overlay::SessionClosePicker(_)) => ModalInput::SessionClosePicker,
         Some(Overlay::SessionRenamePicker(_)) => ModalInput::SessionRenamePicker,
@@ -110,8 +115,9 @@ mod tests {
 
     use crate::confirm::Confirm;
     use crate::tui::modal_state::{
-        AssigneeFilterState, BrainInputState, ConfirmState, HelpState, LinkPickerState,
-        ManualSessionRenameState, SessionClosePickerState, SessionRenamePickerState, SyncLogState,
+        AssigneeFilterState, BrainInputState, CaptureNoteState, ConfirmState, HelpState,
+        LinkPickerState, ManualSessionRenameState, SessionClosePickerState,
+        SessionRenamePickerState, SyncLogState,
     };
     use crate::tui::model::SessionTabId;
     use crate::tui::overlay::{
@@ -211,6 +217,10 @@ mod tests {
                     "Atlas",
                 )),
                 ModalInput::ManualSessionRename,
+            ),
+            (
+                Overlay::CaptureNote(CaptureNoteState::new("2026-09-23:14-05".to_owned())),
+                ModalInput::CaptureNote,
             ),
             (
                 Overlay::SessionClosePicker(SessionClosePickerState::new(Vec::new())),

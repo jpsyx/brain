@@ -1,14 +1,17 @@
 //! Per-surface key handlers (palette / confirm / brain-input / normal /
 //! completion / brain / search), split by surface:
 //!   - `overlay`    — the captive modal handlers
+//!   - `capture_note` — the capture-note input modal
 //!   - `tasks_view` — the tasks main view's normal + search key handlers
 //!   - `input`      — mouse-wheel routing + brain-PTY keystroke forwarding
 
+mod capture_note;
 mod input;
 mod logs;
 mod overlay;
 pub(super) mod tasks_view;
 
+pub(crate) use capture_note::handle_capture_note_key;
 pub(crate) use input::{half_page_step, handle_brain_key, handle_mouse, handle_session_tab_key};
 pub(crate) use logs::handle_logs_key;
 pub(crate) use overlay::{

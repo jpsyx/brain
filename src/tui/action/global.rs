@@ -67,6 +67,9 @@ pub(crate) enum GlobalAction {
     SearchBucket(Bucket),
     /// Restore the brain-directory search to every bucket.
     SearchEverything,
+    /// Raise the input modal that names, writes, and opens a new markdown note
+    /// in the workspace's user-managed `capture/` in-basket.
+    CreateCaptureNote,
     /// Open the keyboard-shortcuts help modal (`Alt+S`).
     ShowShortcuts,
     /// Leave the shell (`Ctrl+Q`).
@@ -115,7 +118,8 @@ impl GlobalAction {
             | Self::AddTask
             | Self::ChooseAssigneeFilter
             | Self::SearchBucket(_)
-            | Self::SearchEverything => None,
+            | Self::SearchEverything
+            | Self::CreateCaptureNote => None,
         }
     }
 }

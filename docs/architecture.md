@@ -124,7 +124,9 @@ push before the task CSVs are loaded. The `capture/` in-basket is additionally
 ensured on every workspace-resolving command
 (`workspace::ensure_capture_directory`) and provisioned for every registered
 workspace by the `capture_directory` startup migration, so it is never absent
-on a workspace that predates it.
+on a workspace that predates it. It is also the one bucket Brain writes into
+on the user's behalf, through the palette's capture-note command
+(`capture_note.rs`).
 
 tui::run_tui(TuiLaunch) (thin persistent-shell facade)
  ├─→ command::tasks::browse converts the task clap DTO once into owned
@@ -1244,6 +1246,22 @@ mirrors this: pure `trash_applescript` (a Finder `delete POSIX file` line,
 path escaped) plus the impure `move_to_trash` that shells out to `osascript`,
 so the "Delete" command performs a recoverable, user-style trash rather than
 an `rm`.
+
+### `capture_note.rs`
+Creating a note in the user-managed `capture/` in-basket, behind the palette's
+**Create a new capture note** row. The decisions are pure: `timestamp` /
+`now_timestamp` render the empty-input default title (`%Y-%m-%d:%H-%M`),
+`helper_text` words the hint the modal shows under its input line,
+`kebab_case` turns a typed title into a filename stem, `CaptureNote::compose`
+pairs the verbatim `# ` heading with that stem (falling back to the timestamp
+for both when the submission is empty, and for the stem alone when a title
+kebab-cases to nothing), and `unique_stem` walks the `stem`, `stem-2`, … series
+so a new note never overwrites one already there. The thin impure `create`
+ensures `capture/`, resolves the free name against the directory, and writes
+the file. The TUI seam is `App::open_capture_note_input` /
+`App::submit_capture_note` (`tui/app_actions/capture_note.rs`), which writes
+the note, refreshes the brain directory, and hands the path back to the
+handler's one-line `open_selection` spawn.
 
 ### `main_view.rs`
 The app-level main-view axis: the `MainView` enum (`Tasks` / `BrainSearch` /

@@ -92,6 +92,7 @@ impl App {
             GlobalAction::RefreshBrainDirectory => self.search_refresh(),
             GlobalAction::SearchBucket(bucket) => self.rescope_search(Some(bucket)),
             GlobalAction::SearchEverything => self.rescope_search(None),
+            GlobalAction::CreateCaptureNote => self.open_capture_note_input(),
             GlobalAction::ShowShortcuts => {
                 open_overlay(&mut self.overlay, Overlay::Help(HelpState { scroll: 0 }));
             }

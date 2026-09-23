@@ -186,6 +186,12 @@ tab cycle). Each direct key above resolves the highlighted path and hands it to
 the same `EntryCommand` the palette row runs, so the two can't drift; the PDF /
 delete confirm overlays are captive while open.
 
+**Create a new capture note** is a palette-only row (no direct keystroke, so
+no gray `[…]` hint). It opens the *New capture note* modal — a captive
+one-line input whose hint names the timestamp title an empty submission would
+get; `Enter` writes the note into `capture/` and opens it in an editor tab,
+`Ctrl+U` clears the line, `Esc` abandons it.
+
 The palette's rescope rows cover every bucket: **Search capture** (the
 user-managed in-basket), **Search projects**, **Search areas**, **Search
 resources**, and **Search archive**, plus **Global search**, which restores all
@@ -274,6 +280,10 @@ Shared across the app; a captive modal consumes all input.
   there is none; an earlier run's log is not shown. `j`/`k` scroll, `g` jumps to
   the start, `G` returns to following the tail, `PgUp`/`PgDn` page, `q`/`Esc`
   close. Captive over every modal except help.
+- **New capture note** (palette: **Create a new capture note**) — one line to
+  name a note for the `capture/` in-basket, with a dim hint naming the
+  timestamp title an empty submission gets. `Enter` creates the file and opens
+  it in an editor tab, `Ctrl+U` clears, `Esc` cancels. Captive while open.
 - **Command palette** (`Ctrl+P`, any main view) — filterable; numbered rows;
   `Enter` runs, `Esc` closes. It takes at most three fifths of the terminal's
   height and scrolls inside that, keeping the selection visible and what's

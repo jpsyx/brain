@@ -3,8 +3,8 @@
 
 use crate::tui::App;
 use crate::tui::handlers::{
-    handle_assignee_filter_key, handle_brain_input_key, handle_confirm_key,
-    handle_entry_target_picker_key, handle_help_key, handle_link_picker_key,
+    handle_assignee_filter_key, handle_brain_input_key, handle_capture_note_key,
+    handle_confirm_key, handle_entry_target_picker_key, handle_help_key, handle_link_picker_key,
     handle_manual_session_rename_key, handle_palette_key, handle_session_close_picker_key,
     handle_session_rename_picker_key, handle_sync_log_key, handle_task_target_picker_key,
 };
@@ -21,6 +21,7 @@ pub(crate) fn route_modal_key(app: &mut App, k: &crossterm::event::KeyEvent, ctr
         ModalInput::TaskTargetPicker => handle_task_target_picker_key(app, k),
         ModalInput::EntryTargetPicker => handle_entry_target_picker_key(app, k),
         ModalInput::BrainInput => handle_brain_input_key(app, k, ctrl),
+        ModalInput::CaptureNote => handle_capture_note_key(app, k),
         ModalInput::ManualSessionRename => handle_manual_session_rename_key(app, k),
         ModalInput::SessionClosePicker => handle_session_close_picker_key(app, k),
         ModalInput::SessionRenamePicker => handle_session_rename_picker_key(app, k),

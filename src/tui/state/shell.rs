@@ -162,6 +162,11 @@ impl ShellState {
         &self.search.query
     }
 
+    #[cfg(test)]
+    pub(crate) fn search_entries(&self) -> &[Entry] {
+        self.search.entries()
+    }
+
     pub(crate) const fn logs_view(&self) -> Option<&LogsView> {
         self.logs_view.as_ref()
     }
