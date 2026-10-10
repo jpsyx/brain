@@ -61,6 +61,7 @@ const COMMANDS: &[Command] = &[
     Entry(EntryCommand::CopyFilePath),
     Entry(EntryCommand::CopyDirPath),
     Entry(EntryCommand::CreatePdf),
+    Entry(EntryCommand::Share),
     Entry(EntryCommand::Delete),
     Global(GlobalAction::SearchBucket(Bucket::Capture)),
     Global(GlobalAction::SearchBucket(Bucket::Projects)),
@@ -116,7 +117,11 @@ pub(crate) fn catalog_rows(context: &PaletteContext) -> Vec<PaletteRow<Command>>
         .copied()
         .filter(|command| workspace_offers(*command, context))
     {
-        push_row(&mut rows, label_for(command, context, LabelStyle::Palette), command);
+        push_row(
+            &mut rows,
+            label_for(command, context, LabelStyle::Palette),
+            command,
+        );
         if command == Global(GlobalAction::ShowMainBrainSession) {
             for (label, action) in
                 session_rows(&context.runnable_skill_sessions, &context.user_sessions)
@@ -165,8 +170,8 @@ fn push_row(rows: &mut Vec<PaletteRow<Command>>, label: String, command: Command
 mod tests {
     use super::*;
     use crate::tasks::task::AssignmentUiMode;
-    use crate::tui::palette::context::TaskContext;
     use crate::tui::links::LinkKind;
+    use crate::tui::palette::context::TaskContext;
 
     fn shared() -> PaletteContext {
         PaletteContext {
@@ -222,7 +227,10 @@ mod tests {
         };
 
         let commands = |context: &PaletteContext| -> Vec<Command> {
-            catalog_rows(context).into_iter().map(|row| row.action).collect()
+            catalog_rows(context)
+                .into_iter()
+                .map(|row| row.action)
+                .collect()
         };
         assert_eq!(commands(&without), commands(&with));
     }

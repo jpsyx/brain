@@ -21,6 +21,7 @@ pub(crate) enum Overlay {
     BrainInput(BrainInputState),
     /// Naming a new note for the `capture/` in-basket.
     CaptureNote(CaptureNoteState),
+    Share(crate::tui::share::ShareState),
     ManualSessionRename(ManualSessionRenameState),
     SessionClosePicker(SessionClosePickerState),
     SessionRenamePicker(SessionRenamePickerState),
@@ -58,6 +59,7 @@ pub(crate) enum ModalInput {
     EntryTargetPicker,
     BrainInput,
     CaptureNote,
+    Share,
     ManualSessionRename,
     SessionClosePicker,
     SessionRenamePicker,
@@ -77,6 +79,7 @@ pub(crate) const fn modal_input_target(active: Option<&Overlay>) -> ModalInput {
         Some(Overlay::EntryTargetPicker(_)) => ModalInput::EntryTargetPicker,
         Some(Overlay::BrainInput(_)) => ModalInput::BrainInput,
         Some(Overlay::CaptureNote(_)) => ModalInput::CaptureNote,
+        Some(Overlay::Share(_)) => ModalInput::Share,
         Some(Overlay::ManualSessionRename(_)) => ModalInput::ManualSessionRename,
         Some(Overlay::SessionClosePicker(_)) => ModalInput::SessionClosePicker,
         Some(Overlay::SessionRenamePicker(_)) => ModalInput::SessionRenamePicker,

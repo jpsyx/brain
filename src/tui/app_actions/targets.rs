@@ -97,6 +97,10 @@ impl App {
     }
 
     pub(super) fn open_entry_target_picker(&mut self, command: EntryCommand) {
+        if command == EntryCommand::Share {
+            self.open_share_input(None);
+            return;
+        }
         let root = self.context.workspace_root();
         let entries = crate::entry::collect(root, &crate::tui::search_view::all_bucket_roots(root))
             .unwrap_or_default();

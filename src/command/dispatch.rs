@@ -93,6 +93,9 @@ pub fn run(
         crate::logging::log("dispatch env");
         return super::configuration::run_env(args, context);
     }
+    if let Some(Cmd::Share(args)) = &cli.command {
+        return super::share::run(args, context);
+    }
     if let Some(Cmd::Sync(args)) = &cli.command {
         crate::logging::log("dispatch sync");
         return super::sync::run(args, context);
@@ -220,6 +223,7 @@ pub fn run(
             | Cmd::Backlog(_)
             | Cmd::Triage(_)
             | Cmd::Contacts(_)
+            | Cmd::Share(_)
             | Cmd::Clean(_)
             | Cmd::Project(_)
             | Cmd::Check

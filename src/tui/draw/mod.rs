@@ -113,6 +113,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         Some(Overlay::TaskTargetPicker(state)) => draw_task_target_picker(f, state, area),
         Some(Overlay::EntryTargetPicker(state)) => draw_entry_target_picker(f, state, area),
         Some(Overlay::BrainInput(state)) => draw_brain_input(f, state, area),
+        Some(Overlay::Share(state)) => crate::tui::share::draw(f, state, area),
         Some(Overlay::CaptureNote(state)) => draw_capture_note(f, state, area),
         Some(Overlay::ManualSessionRename(state)) => draw_manual_session_rename(f, state, area),
         Some(Overlay::SessionClosePicker(state)) => draw_session_close_picker(f, state, area),

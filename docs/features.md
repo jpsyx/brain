@@ -468,6 +468,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain workspace list` | List every attached workspace in canonical-name order, including default, root, aliases, local-user readiness, receiver state, and portable access mode when present, **followed by each workspace's required/optional feature health**. Add `-w <name>` to report health for that one workspace only. A workspace that still needs setup renders a one-line note naming its repair command instead of failing the listing. |
 | `brain workspace {create\|attach\|rename\|alias add\|alias remove\|default\|remove\|repair\|migrate}` | Manage the schema-v2 registry, portable manifest, and coordinated legacy rollout. Omitted human values prompt on `/dev/tty`; every value also has a noninteractive flag or positional form. |
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies, locally and on the remote. |
+| `brain share [<path>] [--expires <duration>] [--json]` | Create a temporary private-bucket download link. Relative paths use cwd; directories become filtered ZIPs. See [Temporary download links](#temporary-download-links). |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
@@ -2716,3 +2717,74 @@ uses the default workspace, which is the whole point of having one. The agent
 panel is covered by a stronger mechanism already: it receives `BRAIN_WORKSPACE_ID`,
 so an agent-issued command that resolves a different workspace fails on identity
 rather than on a missing flag.
+
+## Temporary download links
+
+`brain share path/to/paper.pdf` uploads the selected local file when needed and
+prints a signed download URL valid for **7 days**. Paths may be absolute or
+relative to the command's current working directory and must resolve inside
+the selected workspace (`--workspace/-w`). Omitting the path opens a terminal
+prompt. Invalid, missing, and out-of-workspace paths produce a clear error.
+
+```sh
+brain share ./paper.pdf
+brain share /path/to/workspace/resources/paper.pdf --expires "1 hour"
+brain share ./resources/book --expires 3d
+brain share ./paper.pdf --expires 30min --json
+```
+
+Expiration is a positive whole number plus a case-insensitive unit, with
+optional whitespace between them. Quote values with spaces at the shell.
+Blank and omitted expiration both mean 7 days. Singular and plural units work
+regardless of the number (`1 hours` is valid).
+
+| Unit | Accepted tokens |
+| --- | --- |
+| Seconds | `s`, `sec`, `secs`, `second`, `seconds` |
+| Minutes | `m`, `min`, `mins`, `minute`, `minutes` |
+| Hours | `h`, `hr`, `hrs`, `hour`, `hours` |
+| Days | `d`, `day`, `days` |
+| Weeks | `w`, `wk`, `wks`, `week`, `weeks` |
+| Months (30 days) | `mo`, `mos`, `month`, `months` |
+| Years (365 days) | `y`, `yr`, `yrs`, `year`, `years` |
+
+Backblaze limits direct links to 7 days. Longer durations, including positive
+whole months and years, are recognized but rejected with that limit explained.
+No duration is silently shortened. Expiry is enforced by Backblaze without a
+running Brain process or cleanup job. It cannot remove downloaded copies.
+
+For a directory, Brain writes `<directory>/<directory-name>.zip`. Members are
+relative to that directory, and empty subdirectories are retained. An existing
+same-named ZIP is replaced only after the new archive completes. The archive
+itself, symlinks, special files, and recognized metadata are omitted recursively:
+
+- Brain's `.METADATA.json`, `.config`, agent directories (`.agents`, `.claude`,
+  `.codex`, `.opencode`, `.pi`, `.windsurf`), `AGENTS.md`, `CLAUDE.md`,
+  `.brain-*` and triage transaction scratch, transaction locks, task/habit ID
+  counters, lookup CSVs, and sync check markers.
+- Finder/Windows metadata (`.DS_Store`, `._*`, `__MACOSX`, `Thumbs.db`,
+  `desktop.ini`, `.localized`, Spotlight, trash, and filesystem event folders).
+- Version-control directories, `.cache`, Python caches/bytecode, `node_modules`,
+  `.venv`, `.env`/`.env.*`, and editor swap/backup files.
+
+Ordinary JSON files and other hidden user files stay in the ZIP. This is a
+known-artifact filter, not a content-based secrets scan. The ZIP remains local
+and remote after link expiry; it participates in later ordinary syncs. Explicit
+sharing uploads the selected artifact even when an automatic-sync size or
+exclude rule would skip it.
+
+The palette always lists **Share a file or directory**. Search and file explorer
+selections become **Share '<name>'** and go straight to the expiration modal.
+Other views ask for a path first. Empty expiration means 7 days; invalid input
+stays editable with an inline error. Sharing shows progress without blocking the
+TUI. Success shows the exact expiry and copies the URL to the macOS clipboard;
+Enter copies again. Esc cancels or closes. Cancellation can leave a completed
+private upload or an excluded `.brain-share-*.tmp` after abrupt interruption,
+but does not publish a public bucket or print a successful link.
+
+Sharing requires configured B2 sync, a private bucket, rclone, curl, and a
+non-master B2 application key usable through the S3 API with the existing sync
+permissions plus download access. Client-side rclone crypt is rejected because
+a direct cloud URL cannot decrypt it. Server-side B2 encryption is compatible.
+Progress and expiry go to stderr; stdout contains only the URL, or the JSON
+result requested by `--json` (unless global `--verbose` is explicitly enabled).

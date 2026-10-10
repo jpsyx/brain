@@ -35,6 +35,7 @@ pub mod render;
 pub mod server;
 pub mod session;
 pub mod settings;
+pub mod share;
 pub mod skill_session;
 pub mod skills;
 pub mod startup_migration;

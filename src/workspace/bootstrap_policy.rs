@@ -35,6 +35,7 @@ pub enum Invocation {
     Triage,
     Contacts,
     Clean,
+    Share,
     Project,
     Reindex,
     Tasks,
@@ -93,6 +94,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Triage
         | Invocation::Contacts
         | Invocation::Clean
+        | Invocation::Share
         | Invocation::Project
         | Invocation::Reindex
         | Invocation::Tasks
@@ -137,6 +139,7 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::Triage
         | Invocation::Contacts
         | Invocation::Clean
+        | Invocation::Share
         | Invocation::Project
         | Invocation::Reindex
         | Invocation::Tasks
@@ -202,6 +205,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Triage(_)) => Invocation::Triage,
         Some(Cmd::Contacts(_)) => Invocation::Contacts,
         Some(Cmd::Clean(_)) => Invocation::Clean,
+        Some(Cmd::Share(_)) => Invocation::Share,
         Some(Cmd::Project(_)) => Invocation::Project,
         Some(Cmd::Reindex(_)) => Invocation::Reindex,
         Some(Cmd::Tasks(args)) => {

@@ -2555,3 +2555,22 @@ outside-world touchpoints:
 reason an agent's source edit "takes effect" without a manual
 `cargo build` — but you should still build/test explicitly while
 developing (see [testing.md](testing.md)).
+
+## Temporary Backblaze downloads
+
+`brain share` reuses the selected workspace's `sync` configuration. It verifies
+remote workspace identity under the shared sync lock, then uploads only the
+selected file (or generated ZIP) through B2. Existing public buckets and
+client-encrypted remotes are refused. B2 authorization and bucket lookup require
+curl and the application's `listBuckets` access; rclone performs upload and
+S3 signing using the same non-master B2 application key. No credentials are
+passed in argv, and generated bearer URLs are not written to diagnostic logs.
+A successful link is directly usable without Brain, a receiver, or a web server.
+
+The S3 endpoint is discovered through
+[B2 authorization](https://www.backblaze.com/apidocs/b2-authorize-account).
+[rclone link](https://rclone.org/commands/rclone_link/) signs one object with an
+explicit lifetime from 1 second through 7 days. Brain verifies the returned
+SigV4 expiry and reports its absolute UTC deadline. Key expiry/revocation or
+object removal can make the link stop working sooner. No lifecycle rules,
+bucket permissions, cron jobs, or public-bucket copies are created.

@@ -53,6 +53,7 @@ pub(crate) mod palette;
 pub mod receiver;
 mod runtime;
 mod search_view;
+mod share;
 mod shell;
 pub mod singleton;
 pub(crate) mod state;

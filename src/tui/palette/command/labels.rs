@@ -168,6 +168,13 @@ pub(crate) fn delete_label(filename: &str) -> String {
     )
 }
 
+pub(super) fn share_label(filename: &str) -> String {
+    format!(
+        "Share '{}'",
+        truncate_label_filename(filename, LABEL_MAX_FILENAME)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

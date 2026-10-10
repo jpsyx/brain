@@ -18,7 +18,7 @@ use crate::tui::links::LinkKind;
 
 use super::labels::{
     copy_dir_path_label, copy_file_path_label, create_pdf_label, delete_label, explore_label,
-    open_dir_label, open_file_label, reveal_dir_label,
+    open_dir_label, open_file_label, reveal_dir_label, share_label,
 };
 use super::{Command, EntryCommand, TaskCommand};
 use crate::tui::palette::context::{EntryContext, PaletteContext, TaskContext};
@@ -221,6 +221,7 @@ fn named_entry_label(command: EntryCommand, target: &EntryContext) -> String {
         EntryCommand::CopyFilePath => copy_file_path_label(&target.filename),
         EntryCommand::CopyDirPath => copy_dir_path_label(&target.dir_reldisplay),
         EntryCommand::CreatePdf => create_pdf_label(&target.filename),
+        EntryCommand::Share => share_label(&target.filename),
         EntryCommand::Delete => delete_label(&target.filename),
     }
 }
@@ -233,6 +234,7 @@ const fn generic_entry_label(command: EntryCommand) -> &'static str {
         EntryCommand::CopyFilePath => "Copy a file's path",
         EntryCommand::CopyDirPath => "Copy a directory's path",
         EntryCommand::CreatePdf => "Create a PDF from a markdown file",
+        EntryCommand::Share => "Share a file or directory",
         EntryCommand::Delete => "Delete a file or directory",
     }
 }

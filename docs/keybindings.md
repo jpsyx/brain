@@ -355,3 +355,15 @@ Enter the byte `0xd` for no-modifier, Ctrl, Shift, and Ctrl+Shift alike, so
 `REPORT_ALL_KEYS_AS_ESCAPE_CODES`, which stops the terminal sending text at all.
 `Alt+Enter` arrives as `ESC 0x0D` on every terminal — the same fact
 `keymap::enter_inserts_newline` already relies on for the brain-input modal.
+
+## Sharing from the command palette
+
+`Ctrl+P` always offers **Share a file or directory**, with a contextual
+**Share '<name>'** label for the highlighted search or file explorer entry.
+There is no separate sharing shortcut. Without a highlighted entry, the command
+asks for a cwd-relative or absolute path inside the selected workspace, then
+asks for an expiration. Blank expiration means **7 days**. Enter advances or
+shares; Ctrl+U clears input; Esc/Ctrl+C cancels. Invalid paths and durations stay
+in the input modal with an error. During sharing, the modal displays progress;
+Esc cancels the child process. The result shows the URL and exact expiry and
+copies the link to the clipboard; Enter retries copying and Esc closes it.

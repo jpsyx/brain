@@ -10,6 +10,7 @@ mod global;
 mod internal;
 mod project;
 mod server;
+mod share;
 mod sync;
 mod tasks;
 mod users;
@@ -21,6 +22,7 @@ pub use global::{AgentSelectionError, Cli};
 pub use internal::InternalMigrationArgs;
 pub use project::*;
 pub use server::*;
+pub use share::ShareArgs;
 pub use sync::*;
 pub use tasks::*;
 pub use users::*;
@@ -77,6 +79,9 @@ pub enum Cmd {
 
     /// Sync your brain across machines via Backblaze B2 (`brain sync setup` first).
     Sync(SyncArgs),
+
+    /// Share a file or a directory ZIP through an expiring download link.
+    Share(ShareArgs),
 
     /// Read or change a workspace member's persona (identity + tag styles),
     /// stored per portable user ID in

@@ -1721,3 +1721,19 @@ pure transition, exact selected-record mutation, stale identity rejection with
 byte preservation, authoritative control refresh, reduced clap grammar, and
 dynamic labels in both palette models. Lifecycle tests use injected instants or
 bounded polling; they never depend on fixed sleeps.
+
+## Temporary sharing coverage
+
+`tests/share.rs` exercises duration aliases, the seven-day cap, cwd/absolute
+resolution, invalid paths, workspace containment, and CLI parsing.
+`tests/share_cli.rs` runs the compiled CLI against a temporary workspace to
+verify path, expiration, and missing-configuration errors without cloud IO.
+`tests/share_archive.rs` opens real archives to verify recursive exclusions,
+ordinary JSON/hidden-file preservation, empty directories, regeneration without
+self-inclusion, symlink omission, and protected symlink destinations.
+`share::remote_tests` covers private-bucket checks, crypt/config refusals,
+endpoint restrictions, B2/S3 name-encoding parity, and signed-expiry validation.
+`share::workflow_tests` proves identity and lock gates precede writes and failed
+uploads cannot yield a link. TUI tests cover cross-view selection, input errors,
+default expiry, modal rendering, and child progress/result/cancellation.
+All fixtures are temporary; these tests do not use a real Backblaze account.

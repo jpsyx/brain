@@ -2639,3 +2639,40 @@ and an env-var-only remote config and lets the user's own `rclone` install do
 the transfer. It's a soft prerequisite (checked only when `brain sync` runs;
 see [integrations.md](integrations.md)), unlike the hard `markdown-to-pdf`
 gate.
+
+### `share/` and `tui/share/`
+
+`cli/share.rs` declares `brain share [path] [--expires duration] [--json]`;
+`command/share.rs` supplies the terminal path prompt and themed progress.
+Dispatch requires one ready selected workspace and runs before task/TUI gates.
+The ordinary stdout contract additionally includes a download URL or share JSON.
+
+`share/duration.rs` owns unit parsing and the seven-day maximum; `path.rs`
+resolves cwd-relative paths and canonical workspace containment. `archive.rs`
+streams filtered directory contents into a ZIP64-capable deflated archive and
+atomically renames the completed file. Its `.brain-share-*.tmp` file is excluded
+by existing sync/watch rules. `workflow.rs` holds the UUID sync lock across
+remote identity verification, private-bucket/credential validation, archive
+creation, exact-file upload, and URL signing. It refuses active workspace
+rollouts. The injected `Backend` boundary tests ordering and failure behavior
+without touching cloud accounts. Every upload consumes `VerifiedRemote`.
+
+`transport.rs` authorizes the configured application key with curl over stdin,
+checks bucket privacy, discovers the S3 endpoint, and uses rclone's B2 transport
+for checksum-aware `copyto`, then its S3 transport for an exact-object `link`.
+S3 uses B2's filename encoding to address the uploaded object consistently.
+Credentials remain in stdin or process environment. Returned URLs and provider
+responses are never diagnostic log data. Signing validates the explicit expiry
+instead of accepting a provider's silently clamped duration.
+
+`tui/share/` owns the path/expiration/progress/result modal, renderer, and child
+worker. The worker runs the CLI with the canonical workspace selector, expected
+UUID, explicit path/duration, and JSON output. Captured progress is polled by
+App's recurring tick; no cloud IO or compression runs on the event loop.
+The overlay owns the child process group and terminates/reaps it on cancellation
+or shutdown. The result remains visible after automatic clipboard copy.
+
+The new `zip` 6.x dependency (MSRV 1.83, compatible with Brain's 1.85 contract)
+enables only the deflate-flate2-zlib-rs feature. It provides portable streaming
+ZIP64 writing, UTF-8 filenames, and explicit member filtering without an
+external zip/Python prerequisite or a hand-written archive format.

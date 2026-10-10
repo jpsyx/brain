@@ -21,6 +21,7 @@ impl App {
         match command {
             EntryCommand::Open => open_selection(path),
             EntryCommand::Reveal => reveal_in_finder(path),
+            EntryCommand::Share => self.open_share_input(Some(path)),
             EntryCommand::Explore => self.explore_entry(path),
             EntryCommand::CopyFilePath => self.copy_path(path),
             EntryCommand::CopyDirPath => {

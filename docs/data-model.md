@@ -2720,3 +2720,10 @@ non-TUI commands. Clap errors and diagnostics go to stderr. The TUI renders to
 `/dev/tty`. There is no plan protocol; the TUI performs its
 file-open, Finder, PDF, trash, and `claude`-launch effects by spawning
 processes itself. See [integrations.md](integrations.md).
+
+## Share result
+
+`brain share --json` returns `{"path":"<absolute shared file>","url":"<signed HTTPS download URL>","expires_at":"<RFC3339 UTC timestamp>"}`.
+For directories, `path` identifies the generated ZIP inside that directory.
+The expiry is read from the signed URL. Results are runtime data, never stored
+in workspace metadata or logs. A share adds no persistent configuration schema.

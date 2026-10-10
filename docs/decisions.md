@@ -6046,3 +6046,22 @@ Two details fall out of it:
   into the second, and the reader loses the ability to tell a dotted config
   file from a dotted directory at a glance. Dimming composes with any kind,
   which is also why nothing new was needed in `render/` to land this feature.
+
+## Share exact objects through S3 with explicit expiry
+
+B2's native download authorization is prefix-scoped, even if that prefix is a
+complete filename. Sharing one PDF must not also authorize a same-prefix sibling.
+Brain therefore uploads through its identity-verified B2 remote and signs the
+same encoded object through B2's S3-compatible endpoint using rclone. The bucket
+stays private. Durations above seven days are rejected before cloud or archive
+work; accepting month/year syntax does not imply a longer-lived link service.
+Client-encrypted remotes fail explicitly instead of leaking a plaintext copy
+or giving recipients an unusable encrypted download.
+
+Directory shares are deliberate local artifacts, stored as `<dir>/<name>.zip`
+and atomically replaced after successful compression. A closed metadata/tool
+filter preserves ordinary JSON and hidden user content. Symlinks and special
+files are skipped to avoid unintentionally following links outside the selected
+tree. ZIP outputs exclude themselves. Existing sync locks serialize archive
+creation and upload against automatic sync; no migration or cleanup scheduler
+is needed because expiry changes authorization, not object storage.

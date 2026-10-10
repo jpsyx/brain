@@ -106,3 +106,8 @@ These are deliberately distinct and use different modifiers:
 | **unavailable response** | The one channel-specific response emitted when the shared process is alive but the selected target cannot accept. The message is discarded, not queued or replayed. | `server::receiver::unavailable` |
 | **lifecycle bridges** | The generic session-start bridge that attributes a root frontend session to its workspace, actor, and channel, plus the generic session-stop bridge that atomically publishes an authorized response. Claude and Codex invoke them as workspace hooks; the thin OpenCode workspace plugin translates `session.created` and `session.idle` events into the same payloads. | `scripts/agent_session_start_hook.py`; `scripts/agent_session_stop_hook.py`; `scripts/opencode_brain_plugin.js` |
 | **run.sh** | The entry-point script that rebuilds the binary when the sources change, then `exec`s it (no plan, no shell-side effects). | `run.sh` |
+
+| Sharing term | Meaning | Code |
+| --- | --- | --- |
+| **temporary download link** | A signed URL for one private B2 object, valid for at most seven days. A directory becomes a filtered ZIP first. | `share/`; `brain share` |
+| **share modal** | Path selection when needed, expiration input, background progress, and a copyable result. | `tui/share/`; `Overlay::Share`; `EntryCommand::Share` |

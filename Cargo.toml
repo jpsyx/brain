@@ -1,6 +1,6 @@
 [package]
 name = "brain"
-version = "0.100.0"
+version = "0.101.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Multi-workspace terminal dispatch for notes, tasks, sync, and agent sessions."
@@ -78,6 +78,8 @@ tui-tree-widget = "0.23.1"
 uuid = { version = "1", features = ["v4", "v5"] }
 vt100 = "0.15"
 walkdir = "2"
+# Streaming ZIP64 archives for sharing, without a platform-specific zip executable.
+zip = { version = "6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 # Full Rust AST traversal keeps the active TUI architecture guard structural

@@ -119,6 +119,8 @@ pub(crate) enum EntryCommand {
     CopyDirPath,
     /// Convert the highlighted markdown file to a colocated PDF.
     CreatePdf,
+    /// Create an expiring download link, archiving a directory first.
+    Share,
     /// Move the entry to the Trash (behind a red confirmation).
     Delete,
 }
@@ -137,9 +139,12 @@ pub(crate) enum EntryRequirement {
 impl EntryCommand {
     pub(crate) const fn requirement(self) -> EntryRequirement {
         match self {
-            Self::Open | Self::Reveal | Self::Explore | Self::CopyDirPath | Self::Delete => {
-                EntryRequirement::Any
-            }
+            Self::Open
+            | Self::Reveal
+            | Self::Explore
+            | Self::CopyDirPath
+            | Self::Delete
+            | Self::Share => EntryRequirement::Any,
             Self::CopyFilePath => EntryRequirement::File,
             Self::CreatePdf => EntryRequirement::Markdown,
         }
@@ -152,7 +157,7 @@ impl EntryCommand {
             Self::Explore => Some("⌥↵"),
             Self::CreatePdf => Some("^G"),
             Self::Delete => Some("^D"),
-            Self::CopyFilePath | Self::CopyDirPath => None,
+            Self::CopyFilePath | Self::CopyDirPath | Self::Share => None,
         }
     }
 
@@ -166,6 +171,7 @@ impl EntryCommand {
             Self::CopyFilePath => "Copy which file's path?",
             Self::CopyDirPath => "Copy which directory's path?",
             Self::CreatePdf => "Create a PDF from which markdown file?",
+            Self::Share => "Share which file or directory?",
             Self::Delete => "Delete which entry?",
         }
     }

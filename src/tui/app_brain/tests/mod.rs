@@ -120,6 +120,7 @@ mod receiver_recovery_shutdown_fence;
 mod receiver_recovery_spawn_authority;
 mod receiver_sync;
 mod receiver_tab;
+mod share;
 mod skill_session;
 mod triage_overlay;
 

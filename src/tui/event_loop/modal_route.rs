@@ -21,6 +21,7 @@ pub(crate) fn route_modal_key(app: &mut App, k: &crossterm::event::KeyEvent, ctr
         ModalInput::TaskTargetPicker => handle_task_target_picker_key(app, k),
         ModalInput::EntryTargetPicker => handle_entry_target_picker_key(app, k),
         ModalInput::BrainInput => handle_brain_input_key(app, k, ctrl),
+        ModalInput::Share => crate::tui::share::handle_key(app, k),
         ModalInput::CaptureNote => handle_capture_note_key(app, k),
         ModalInput::ManualSessionRename => handle_manual_session_rename_key(app, k),
         ModalInput::SessionClosePicker => handle_session_close_picker_key(app, k),
