@@ -176,10 +176,14 @@ pub fn run(
         return super::reindex::run(args, context);
     }
 
-    if cli.with_receiver && matches!(cli.command, None | Some(Cmd::Tasks(_))) {
+    if cli.with_receiver
+        && !crate::workspace::is_read_only_status(&cli)
+        && matches!(cli.command, None | Some(Cmd::Tasks(_)))
+    {
         super::server::apply_startup_receiver_flag(cli.with_receiver, context)?;
     }
-    if invocation_for(&cli) != Invocation::TasksDoctor {
+    if invocation_for(&cli) != Invocation::TasksDoctor && super::tasks::removal_mode(&cli).is_none()
+    {
         crate::settings::ensure_markdown_to_pdf(context);
     }
     // Portable config, not a flag: every machine on the workspace starts the

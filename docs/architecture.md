@@ -1671,8 +1671,23 @@ Resume uses the current local date for uncommitted consent; completed resume
 returns the original completed receipt without canonical writes. The existing
 single-task agenda adapter runs after releasing task ownership; explicit batch
 agenda effects and richer derived-output warnings are a subsequent integration.
-The old single-target remove shell now calls this service with CommandContext
-and never opens its older task-owned Session before operation ownership.
+`command/tasks/mutate/remove/{mod,interactive,report}` implements explicit-batch
+CLI validation, terminal consent, and redacted public reporting around these
+services. Lifecycle commands call the saved-operation services directly, without
+target resolution, the old single-target forwarding shim, or a task-owned Session.
+The old forwarding shim and formatter remain test-only regression helpers.
+The shell reloads the local date after consent and passes the displayed plan's
+fingerprint to apply. Public envelopes serialize explicit safe fields rather
+than the private plan or operation snapshots. A rendered exit carrier reaches
+main without a duplicate diagnostic and preserves domain exit 2 versus
+operational exit 1. Delegated task syntax is parsed before bootstrap/logging so
+clap owns syntax errors; JSON removal disables mirrored verbose stdout from the
+first log record and gates readiness/persona interaction without relaxing
+readiness requirements. Operation status uses the existing read-only workspace bootstrap, skips verbose
+log-file creation and receiver startup, and never recovers task journals.
+Mutation-ready bootstrap still precedes apply/resume/abandon and dry-run dispatch.
+All removal modes skip the startup PDF prerequisite gate; after a commit,
+derived-output handling owns renderer failures.
 
 `removal/external` coordinates persisted pending/unknown/succeeded actions under
 operation ownership. Apply releases task ownership for preflight and cancel;

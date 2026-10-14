@@ -5,12 +5,14 @@
 
 use std::fmt::Write as _;
 
+#[cfg(test)]
+use crate::tasks::mutate::remove::RemoveResult;
 use crate::tasks::mutate::{
-    assign::AssignResult, backlog::BacklogResult, defer::DeferResult, remove::RemoveResult,
-    touch::TouchResult,
+    assign::AssignResult, backlog::BacklogResult, defer::DeferResult, touch::TouchResult,
 };
 use crate::theme::Theme;
 
+#[cfg(test)]
 pub(super) fn removed(result: &RemoveResult, theme: Theme) -> String {
     format!(
         "{} {}  {}{}\n",

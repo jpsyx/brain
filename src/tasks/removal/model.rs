@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Dependents {
+pub enum Dependents {
     #[default]
     Reject,
     Unlink,
@@ -13,7 +13,7 @@ pub(crate) enum Dependents {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum LinkedIssue {
+pub enum LinkedIssue {
     #[default]
     Configured,
     Keep,

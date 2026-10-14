@@ -333,7 +333,7 @@ fn validate_path(root: &Path, path: &Path) -> Result<(), Problem> {
             }
             Err(error) => {
                 return Err(problem(
-                    "invalid_workspace_path",
+                    "snapshot_read_failed",
                     &error,
                     &current.display().to_string(),
                 ));
@@ -354,7 +354,7 @@ fn validate_file(root: &Path, path: &Path) -> Result<(), Problem> {
         Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(problem(
-            "invalid_workspace_path",
+            "snapshot_read_failed",
             &error,
             &path.display().to_string(),
         )),

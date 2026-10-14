@@ -136,7 +136,8 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow!("HOME is not set"))?;
-    let interaction = if std::io::stdin().is_terminal() {
+    let removal_json = crate::command::tasks::removal_mode(cli).unwrap_or(false);
+    let interaction = if std::io::stdin().is_terminal() && !removal_json {
         InteractionMode::Interactive
     } else {
         InteractionMode::NonInteractive
@@ -189,7 +190,9 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
         // time it sees them, on whatever command they happened to run. Only the
         // person at *this* machine is asked; other members' gaps are reported by
         // `brain workspace status`, never prompted for here.
-        if crate::personalization::onboarding::prompts_for_missing_persona(invocation_for(cli)) {
+        if !removal_json
+            && crate::personalization::onboarding::prompts_for_missing_persona(invocation_for(cli))
+        {
             crate::personalization::onboarding::prompt_for_missing_local_persona(
                 &command_context.workspace,
             );

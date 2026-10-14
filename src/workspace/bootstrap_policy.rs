@@ -40,6 +40,7 @@ pub enum Invocation {
     Reindex,
     Tasks,
     TasksDoctor,
+    TaskRemovalStatus,
     Tui,
 }
 
@@ -99,6 +100,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Reindex
         | Invocation::Tasks
         | Invocation::TasksDoctor
+        | Invocation::TaskRemovalStatus
         | Invocation::Tui => None,
     }
 }
@@ -122,7 +124,8 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         Invocation::WorkspaceList
         | Invocation::ReceiverStatus
         | Invocation::SyncStatus
-        | Invocation::TasksDoctor => BootstrapPolicy::ReadOnlyWorkspace,
+        | Invocation::TasksDoctor
+        | Invocation::TaskRemovalStatus => BootstrapPolicy::ReadOnlyWorkspace,
         Invocation::WorkspaceRename
         | Invocation::WorkspaceAlias
         | Invocation::WorkspaceDefault
@@ -211,6 +214,8 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Tasks(args)) => {
             if tasks_doctor(&args.rest) {
                 Invocation::TasksDoctor
+            } else if task_removal_status(&args.rest) {
+                Invocation::TaskRemovalStatus
             } else {
                 Invocation::Tasks
             }
@@ -228,6 +233,7 @@ pub fn is_read_only_status(cli: &crate::cli::Cli) -> bool {
             | Invocation::SyncStatus
             | Invocation::WorkspaceList
             | Invocation::TasksDoctor
+            | Invocation::TaskRemovalStatus
     )
 }
 
@@ -236,4 +242,12 @@ fn tasks_doctor(arguments: &[String]) -> bool {
         .iter()
         .find(|argument| !matches!(argument.as_str(), "--codex" | "-cx"))
         .is_some_and(|argument| argument == "doctor")
+}
+
+fn task_removal_status(arguments: &[String]) -> bool {
+    use clap::Parser as _;
+    let parsed = crate::tasks::cli::Cli::try_parse_from(
+        std::iter::once("tasks").chain(arguments.iter().map(String::as_str)),
+    );
+    matches!(parsed, Ok(crate::tasks::cli::Cli { command: Some(crate::tasks::cli::Command::Remove(args)), .. }) if args.operation_status.is_some())
 }

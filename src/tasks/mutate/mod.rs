@@ -10,6 +10,7 @@ pub(crate) mod assign;
 pub(crate) mod backlog;
 pub(crate) mod chunks;
 pub(crate) mod defer;
+#[cfg(test)]
 pub(crate) mod remove;
 pub(crate) mod touch;
 

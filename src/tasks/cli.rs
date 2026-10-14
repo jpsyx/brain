@@ -80,9 +80,8 @@ pub enum Command {
     /// `tasks search lamaze classes` ≡ `tasks lamaze classes`.
     Search(SearchArgs),
 
-    /// Delete one task. Deleting a **habit** destroys its whole recurring
-    /// chain, so that needs the explicit `--habit` opt-in — which is what keeps
-    /// a task-cleanup pass structurally unable to reach one.
+    /// Preview and remove explicit tasks as one consented batch.
+    /// Habits require --habit; managed triage rows remain protected.
     #[command(aliases = ["rm", "drop"])]
     Remove(RemoveArgs),
 
@@ -335,14 +334,33 @@ pub struct AgendaAppendixArgs {
     pub date: Option<String>,
 }
 
+pub use crate::tasks::removal::model::{Dependents, LinkedIssue};
+
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
-    /// Task or habit ID: t123, T123, 123, h43, H43, or a unique name fragment.
-    pub id: String,
-
-    /// Required to remove a habit, and refused for a task.
+    /// Explicit task or habit targets. No list filter expands this scope.
+    #[arg(num_args = 1.., required_unless_present_any = ["resume", "operation_status", "abandon"])]
+    pub ids: Vec<String>,
     #[arg(long)]
     pub habit: bool,
+    #[arg(long, value_enum)]
+    pub dependents: Option<Dependents>,
+    #[arg(long, value_enum)]
+    pub linked_issue: Option<LinkedIssue>,
+    #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub yes: bool,
+    #[arg(long, conflicts_with = "dry_run")]
+    pub expect_plan: Option<String>,
+    #[arg(long, conflicts_with_all = ["ids", "operation_status", "abandon"])]
+    pub resume: Option<String>,
+    #[arg(long, conflicts_with_all = ["ids", "resume", "abandon"])]
+    pub operation_status: Option<String>,
+    #[arg(long, conflicts_with_all = ["ids", "resume", "operation_status"])]
+    pub abandon: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -560,5 +578,32 @@ mod tests {
             panic!("expected add");
         };
         assert!(args.json);
+    }
+}
+
+#[cfg(test)]
+mod removal_grammar_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+    #[test]
+    fn removal_accepts_explicit_batch_policy_and_consent() {
+        let cli = Cli::try_parse_from([
+            "tasks",
+            "remove",
+            "T1",
+            "T2",
+            "--dependents",
+            "rewire",
+            "--linked-issue",
+            "keep",
+            "--yes",
+            "--json",
+        ])
+        .expect("parse deterministic removal");
+        let Some(Command::Remove(args)) = cli.command else {
+            panic!("remove command")
+        };
+        assert_eq!(args.ids, ["T1", "T2"]);
+        assert!(args.yes && args.json);
     }
 }

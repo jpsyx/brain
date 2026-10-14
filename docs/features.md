@@ -436,7 +436,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks add --name <name> --type <type> --priority <p0..p4> [OPTIONS]` | Create a task or habit through native Brain logic, preserving assignment, project/Linear metadata, chunking, validation, and CSV behavior. `--habit` (with `--interval`/`--unit`) creates a recurring habit and accepts `--ideal-time "6:45 AM"` to place it in the habits views' Morning/Afternoon/Evening grouping; `--ideal-time` is rejected for a plain task. Use `--json` for automation; plain output prints each created ID. |
 | `brain tasks set <id> [--name\|--due\|--priority\|--status\|--notes\|--project\|--linear-issue\|--duration\|--ideal-time]` | Edit fields on one existing task or habit by absolute value (aliases: `edit`, `update`). Accepts `t123`/`H43`/a unique fuzzy name; `--due` takes `YYYY-MM-DD`, `today`, `tomorrow`, or empty to clear. Deliberately never touches `defer_count` — this is the surface an external tracker mirrors onto, and someone else's reschedule is not the user's slip. A habit row requires `--habit`. Reports each `before → after`; `--json` for automation, and a no-op edit writes nothing. Omitting every field drops a human into an interactive field picker. |
 | `brain tasks all --no-tui --linear-issue <ID>` | Find the local task mirroring an issue-tracker identifier (case-insensitive exact match on `linear_issue`). `--linear-issue` is a global filter, so it composes with any view and with `--include-done` / `--include-deferred` to reach closed or parked mirrors. |
-| `brain tasks remove <id> [--habit]` | Delete one task (aliases: `rm`, `drop`). Removing a **habit** destroys its whole recurring chain, so it needs the explicit `--habit` opt-in — which is what keeps a task-cleanup pass structurally unable to reach one. Managed triage rows are refused outright. |
+| `brain tasks remove <target>... [--habit] [--dependents reject\|unlink\|rewire] [--linked-issue configured\|keep\|cancel] [--dry-run] [--yes] [--expect-plan HASH] [--json]` | Preview or remove an explicit batch (aliases: `rm`, `drop`). Defaults reject surviving dependents and use configured linked-issue policy. Habits require `--habit`; managed triage remains protected. |
 | `brain tasks defer <id> <+Nd\|YYYY-MM-DD> [--no-count]` | Push a task out, with the defer penalty: `defer_count` climbs, the `mit` tag is shed, and a `p0` drops to `p1`. A task that is `waiting` or `blocked_by` another defers for free, as does `--no-count`. Later chunks of a chunked task cascade forward only when they would otherwise land before it, and never inherit the penalty. |
 | `brain tasks touch <id>` | Bump `last_touched` to today and change nothing else — the chronic-ignore "yes, I still care" acknowledgement. |
 | `brain tasks assign <id> <user>` | Hand a task or habit to another portable workspace member. The user ID must name a real member. |
@@ -2816,3 +2816,38 @@ commit requires the complete original snapshot to match again. After status
 resolves uncertain history, an uncommitted operation can be abandoned while
 preserving local rows and the external history. Active executors and unknown
 outcomes block abandonment. Status remains a read-only view of saved progress.
+
+### Deterministic removal consent and output
+
+`brain tasks remove T17 T18 --dry-run --json` returns a versioned preview with
+its fingerprint, resolved targets, effects, and typed blockers. Targets are
+resolved together, deduplicated, and sorted; inherited listing filters and
+alternate CSV selectors are rejected. Dry-run needs no consent and does not
+change task/habit/project data or invoke an external adapter. Normal bootstrap
+maintenance remains outside that task-data guarantee.
+
+A terminal caller receives the concrete preview, fixed choices for omitted
+policies when they block execution, and an explicit `yes` confirmation.
+`--yes` records consent without choosing policies or bypassing protection.
+JSON and nonterminal callers never prompt; apply requires `--yes`.
+`--expect-plan HASH` must match the fresh preview, and apply validates the
+exact displayed plan against a freshly read date. It cannot be used with dry-run.
+
+`brain tasks remove --resume OPERATION_ID [--json]` resumes the original scope;
+`--operation-status OPERATION_ID [--json]` reads saved operation evidence;
+`--abandon OPERATION_ID --yes [--json]` closes an eligible uncommitted operation.
+These modes reject targets, habit/policy/preview/fingerprint flags; resume and
+status also reject `--yes`. Their service paths bypass target selection and the
+ordinary mutator session. Status uses read-only workspace bootstrap and suppresses receiver startup;
+apply/resume/abandon retain mutation-ready workspace bootstrap.
+
+JSON writes exactly one `schema_version: 1` object to stdout, including with
+`--verbose`; human output and diagnostics go to stderr. Kinds are `preview`,
+`result`, `error`, and `operation`. Ready previews and committed results exit 0,
+validation/consent/stale-plan failures exit 2, and operational failures exit 1.
+A committed result with derived-output warnings remains successful and reports
+`committed_with_warnings`. Broken syntax retains clap diagnostics and exit 2.
+JSON also disables bootstrap readiness/persona prompts; required readiness
+failures return promptly without bypassing workspace validation. Removal skips
+the startup PDF prerequisite gate: missing PDF tooling cannot prevent a
+canonical commit. Derived-output handling reports rendering failures afterward.

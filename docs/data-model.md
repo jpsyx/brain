@@ -1073,7 +1073,9 @@ The removal domain represents dependency policy as `reject`, `unlink`, or
 `rewire`, and linked-issue policy as `configured`, `keep`, or `cancel`.
 Its options default to no habit opt-in, rejected dependents, and configured
 linked-issue handling. Domain failures retain a stable `code`, human-readable
-`message`, and structured JSON `details`.
+`message`, and structured JSON `details`. Metadata inspection IO failures use
+`snapshot_read_failed` (operational exit 1); intentional path/traversal/symlink
+validation retains `invalid_workspace_path` (validation exit 2).
 
 Portable `task_removal_integration` is absent/null by default (keep). It contains
 only adapter name, the v1 `linear_issue` field, and keep/cancel policy. Machine
@@ -1092,8 +1094,20 @@ the original input plus candidate ID/name pairs. Nonblank stored UUIDs must be
 valid; resolving legacy rows does not edit the schema. The removal validation
 boundary rejects mixed task/habit batches, requires habit opt-in for habits,
 rejects that opt-in for tasks, and reuses managed-triage protection when enabled.
-The single-target remove command now routes through this domain service; the
-expanded CLI grammar and TUI consent surface are separate integrations.
+The explicit-batch removal CLI uses this service directly; TUI consent is a
+separate integration. The public clap DTO exposes only the two policy enums;
+the service and private snapshot types remain crate-private.
+
+CLI JSON envelopes use `schema_version: 1` and `kind`. Preview contains
+`fingerprint`, `ready`, `targets`, `effects` (workspace-relative updated paths,
+external actions, successor identities), `blockers`, `warnings`, selected
+`options`, and fixed `available_options`. Result contains `operation_id`,
+`status` (`committed` or `committed_with_warnings`), `committed`, `removed`,
+`updated`, typed `external` progress, and `warnings`. Error contains stable
+`code`, `message`, and structured `details`. Operation contains `operation_id`,
+`phase`, `fingerprint`, selected `targets`, typed `external` progress, and an
+optional result envelope in `receipt`. No public DTO includes file before/after
+bytes, adapter environment values, or canonical input snapshots.
 
 The pure `dependencies::rewrite` transforms an ID-to-prerequisite-set graph for
 one complete removal batch. Removed rows disappear; `reject` refuses any surviving

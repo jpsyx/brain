@@ -18,8 +18,6 @@ mod execute;
 mod external;
 pub(crate) use execute::{apply, preview};
 
-#[allow(dead_code)] // Task12 wires the operation lifecycle command grammar.
 mod lifecycle;
 pub(crate) mod operations;
-#[allow(unused_imports)] // Command grammar in Task12 consumes the lifecycle surface.
 pub(crate) use lifecycle::{abandon, operation_status, resume};

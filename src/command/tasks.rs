@@ -13,7 +13,10 @@ pub fn launch(
     agent_kind: crate::session::AgentKind,
     skip_daily_triage_check: bool,
 ) -> Result<()> {
-    if !matches!(cli.command, Some(TasksCommand::Doctor)) {
+    if !matches!(
+        cli.command,
+        Some(TasksCommand::Doctor | TasksCommand::Remove(_))
+    ) {
         prepare_empty_workspace(context)?;
     }
     let root = context.workspace.root();
@@ -69,7 +72,9 @@ pub fn launch(
         Some(TasksCommand::AgendaAppendix(args)) => {
             return sync_agenda::run_appendix(context, &args);
         }
-        Some(TasksCommand::Remove(args)) => return mutate::run_remove(context, &args),
+        Some(TasksCommand::Remove(args)) => {
+            return mutate::run_remove(context, &args, &cli.filters, cli.csv.is_some(), &cli.query);
+        }
         Some(TasksCommand::Defer(args)) => return mutate::run_defer(context, &args),
         Some(TasksCommand::Touch(args)) => return mutate::run_touch(context, &args),
         Some(TasksCommand::Assign(args)) => return mutate::run_assign(context, &args),
@@ -289,5 +294,34 @@ mod tests {
             format_add_result(&result, true).unwrap(),
             r#"{"created":[{"id":"T1","name":"Reply","kind":"task"}]}"#
         );
+    }
+}
+
+/// A command has already rendered its sole result; main must preserve its exit.
+#[derive(Debug)]
+pub struct RenderedExit(pub i32);
+impl std::fmt::Display for RenderedExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "command reported exit {}", self.0)
+    }
+}
+impl std::error::Error for RenderedExit {}
+
+/// Parse delegated task syntax before logging/bootstrap can write stdout or prompt.
+/// Clap owns syntax errors and their exit status.
+#[must_use]
+pub fn removal_mode(cli: &crate::cli::Cli) -> Option<bool> {
+    use clap::Parser as _;
+    let Some(crate::cli::Cmd::Tasks(args)) = &cli.command else {
+        return None;
+    };
+    let parsed = TasksCli::parse_from(rewrite_mark_grammar(
+        std::iter::once("brain tasks".to_owned())
+            .chain(args.rest.iter().cloned())
+            .collect(),
+    ));
+    match parsed.command {
+        Some(TasksCommand::Remove(args)) => Some(args.json),
+        _ => None,
     }
 }

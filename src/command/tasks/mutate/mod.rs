@@ -4,13 +4,14 @@
 //! runs the mutation, and prints a themed report. The mutation itself lives in
 //! [`crate::tasks::mutate`]; this is the CLI shell.
 
+mod remove;
 mod report;
 
 use anyhow::Result;
 use chrono::Local;
 
-use crate::tasks::cli::{AssignArgs, DeferArgs, RemoveArgs, TouchArgs};
-use crate::tasks::mutate::{assign, backlog, defer, remove, touch};
+use crate::tasks::cli::{AssignArgs, DeferArgs, Filters, RemoveArgs, TouchArgs};
+use crate::tasks::mutate::{assign, backlog, defer, touch};
 use crate::theme::Theme;
 use crate::workspace::CommandContext;
 
@@ -34,10 +35,14 @@ fn open(context: &CommandContext) -> Result<Session> {
     })
 }
 
-pub(super) fn run_remove(context: &CommandContext, args: &RemoveArgs) -> Result<()> {
-    let result = remove::remove(context, &args.id, args.habit, Local::now().date_naive())?;
-    eprint!("{}", report::removed(&result, Theme::active()));
-    Ok(())
+pub(super) fn run_remove(
+    context: &CommandContext,
+    args: &RemoveArgs,
+    filters: &Filters,
+    alternate_csv: bool,
+    query: &[String],
+) -> Result<()> {
+    remove::run(context, args, filters, alternate_csv, query)
 }
 
 pub(super) fn run_defer(context: &CommandContext, args: &DeferArgs) -> Result<()> {

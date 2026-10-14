@@ -10,7 +10,7 @@ pub(crate) struct RemoveResult {
     pub(crate) was_habit: bool,
 }
 
-/// The legacy single-target command uses the same plan and transaction engine.
+/// Test-only forwarding shim retains the legacy single-target regression checks.
 pub(crate) fn remove(
     context: &CommandContext,
     raw_id: &str,

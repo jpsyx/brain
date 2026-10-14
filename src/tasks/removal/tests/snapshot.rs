@@ -407,3 +407,17 @@ fn snapshot_rejects_csv_symlinks_and_does_not_follow_project_symlinks() {
         "invalid_workspace_path"
     );
 }
+
+#[test]
+fn snapshot_metadata_io_failure_remains_an_operational_problem() {
+    let fixture = WorkspaceFixture::new();
+    let root = fixture.workspace.root();
+    std::fs::rename(root.join("tasks"), root.join("saved-tasks")).unwrap();
+    std::fs::write(root.join("tasks"), b"a file blocks metadata inspection").unwrap();
+    let error = Snapshot::read(&fixture.context(), today()).unwrap_err();
+    assert_eq!(error.code, "snapshot_read_failed");
+    assert_eq!(
+        std::fs::read(root.join("tasks")).unwrap(),
+        b"a file blocks metadata inspection"
+    );
+}
