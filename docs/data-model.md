@@ -1085,6 +1085,21 @@ boundary rejects mixed task/habit batches, requires habit opt-in for habits,
 rejects that opt-in for tasks, and reuses managed-triage protection when enabled.
 This domain slice does not yet change the command or TUI entry points.
 
+The pure `dependencies::rewrite` transforms an ID-to-prerequisite-set graph for
+one complete removal batch. Removed rows disappear; `reject` refuses any surviving
+incoming edge, `unlink` filters only removed IDs, and `rewire` expands deleted
+chains into deduplicated surviving prerequisites, preserving other blockers.
+Expansion checks traversed rows; DFS validation starts only at changed surviving
+rows. Disconnected pre-existing cycles and missing edges are preserved. Traversed
+missing rows and cycles (including exposed self-edges) return typed `Problem`
+values with `missing_prerequisite` or `dependency_cycle` codes and a `task_id` in
+`details`; `dependents_exist` includes `task_id` and `prerequisite`.
+`ordered_prerequisites` supplies numeric ordering based on normalized display IDs
+for eventual CSV serialization, while preserving each original token. Malformed
+IDs have a deterministic lexical fallback after valid IDs. The graph boundary
+expects IDs already resolved to the same namespace; it does not canonicalize keys
+or write CSVs.
+
 `Snapshot::read` acquires the workspace task-store owner; `read_owned` verifies
 an existing owner so an apply transaction can retain ownership. Each CSV keeps
 its exact optional before-image, parsed rows, and immutable identities together.

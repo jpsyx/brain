@@ -196,3 +196,17 @@ fn disabled_managed_habit_and_ordinary_habit_allow_opt_in() {
         );
     }
 }
+
+#[test]
+fn rewiring_a_removed_middle_task_preserves_its_prerequisite() {
+    use crate::tasks::removal::{dependencies::rewrite, model::Dependents};
+    use std::collections::{BTreeMap, BTreeSet};
+    let graph = BTreeMap::from([
+        ("T1".into(), BTreeSet::new()),
+        ("T2".into(), BTreeSet::from(["T1".into()])),
+        ("T3".into(), BTreeSet::from(["T2".into()])),
+    ]);
+    let result = rewrite(&graph, &BTreeSet::from(["T2".into()]), Dependents::Rewire).unwrap();
+    assert_eq!(result["T3"], BTreeSet::from(["T1".into()]));
+    assert!(!result.contains_key("T2"));
+}
