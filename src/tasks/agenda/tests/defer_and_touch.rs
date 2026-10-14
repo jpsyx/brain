@@ -33,7 +33,8 @@ fn defer_drops_the_task_without_promoting_the_next_chunk() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
 
     assert!(!out.contains("**T10**"), "{out}");
     assert!(!out.contains("**T11**"), "{out}");
@@ -56,7 +57,8 @@ fn touch_leaves_the_plan_alone() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
 
     // Nothing was completed and no habit qualifies, so a touch is a no-op.
     assert_eq!(out, FULL_AGENDA);

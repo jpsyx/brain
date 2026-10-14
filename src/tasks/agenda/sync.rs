@@ -9,7 +9,7 @@ use chrono::NaiveDate;
 
 use super::doc::Document;
 use super::{CUT_HEADING, MIT_HEADING, SUGGESTED_HEADING, derive, lines};
-use crate::tasks::complete::{Row, field, parse_chunk_name};
+use crate::tasks::complete::{Row, field};
 
 /// Which mutation the agenda is being synced for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,11 +45,11 @@ pub(crate) fn sync_markdown(
     action: Action,
     snapshot: &Snapshot<'_>,
     today: NaiveDate,
-) -> String {
+) -> Result<String, String> {
     let mut doc = Document::parse(text);
     if action.edits_plan() {
         let next_chunk = if action == Action::Done {
-            next_chunk_row(snapshot.tasks, task_id)
+            next_chunk_row(snapshot.tasks, task_id)?
         } else {
             None
         };
@@ -81,31 +81,123 @@ pub(crate) fn sync_markdown(
         super::COMPLETED_HEADING,
         derive::completed_today_section(snapshot.tasks, snapshot.habits, today),
     );
-    doc.render()
+    Ok(doc.render())
 }
 
-/// The next unfinished chunk in `task_id`'s family, or `None` when the id isn't
-/// a chunked task, is the last chunk, or the next chunk is already done.
-///
-/// Read from the post-mutation snapshot, so the just-completed row is already
-/// `status=done` here.
-fn next_chunk_row<'a>(tasks: &'a [Row], task_id: &str) -> Option<&'a Row> {
+/// Resolve from the post-mutation snapshot, where the anchor is already done.
+fn next_chunk_row<'a>(tasks: &'a [Row], task_id: &str) -> Result<Option<&'a Row>, String> {
     if !task_id.starts_with('T') {
-        return None;
+        return Ok(None);
     }
-    let completed = tasks
+    let Some(completed) = tasks
         .iter()
-        .find(|row| field(row, "task_id").trim() == task_id)?;
-    let (base, index, total) = parse_chunk_name(&field(completed, "task_name"))?;
-    if index >= total {
-        return None;
+        .find(|row| field(row, "task_id").trim() == task_id)
+    else {
+        return Ok(None);
+    };
+    crate::tasks::chunk_family::successor(completed, tasks)
+}
+
+#[cfg(test)]
+mod chunk_handoff_tests {
+    use super::*;
+
+    #[test]
+    fn gap_handoff_keeps_time_slot_and_does_not_duplicate_existing_entries() {
+        let tasks = [
+            [
+                ("task_id", "T1"),
+                ("task_name", "Read spec (1/4)"),
+                ("status", "done"),
+            ],
+            [
+                ("task_id", "T3"),
+                ("task_name", "Read spec (3/4)"),
+                ("status", "waiting"),
+            ],
+        ]
+        .map(|fields| {
+            fields
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect()
+        });
+        let snapshot = Snapshot {
+            tasks: &tasks,
+            habits: &[],
+        };
+        let today = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap();
+        for present in [false, true] {
+            let mut text = "## ❗ MIT
+
+- [ ] ❗ **T1** Read spec (1/4)
+
+## Suggested order
+
+1. [ ] 09:00 | **T1** Read spec (1/4)
+"
+            .to_owned();
+            if present {
+                text = text.replace(
+                    "## Suggested",
+                    "- [ ] ❗ **T3** Read spec (3/4)
+
+## Suggested",
+                );
+                text.push_str(
+                    "2. [ ] 10:00 | **T3** Read spec (3/4)
+",
+                );
+            }
+            let out = sync_markdown(&text, "T1", Action::Done, &snapshot, today).unwrap();
+            assert_eq!(out.matches("**T3**").count(), 2, "{out}");
+            assert!(
+                out.contains(if present {
+                    "1. [ ] 10:00 | **T3**"
+                } else {
+                    "1. [ ] 09:00 | **T3**"
+                }),
+                "{out}"
+            );
+        }
     }
-    let target = format!("{base} ({}/{total})", index + 1);
-    let next = tasks
-        .iter()
-        .find(|row| field(row, "task_name").trim() == target)?;
-    if field(next, "status").trim() == "done" {
-        return None;
+
+    #[test]
+    fn ambiguity_is_reported_and_leaves_agenda_bytes_unchanged() {
+        use crate::tasks::agenda::{Outcome, Targets, sync_targets};
+        let root = tempfile::tempdir().unwrap();
+        let tasks_dir = root.path().join("tasks");
+        std::fs::create_dir(&tasks_dir).unwrap();
+        std::fs::write(tasks_dir.join("tasks.csv"), "task_id,task_name,status,project\nT1,Read spec (1/4),done,alpha\nT3,Read spec (3/4),not_started,alpha\nT9,Read spec (3/4),done,alpha\n").unwrap();
+        let markdown = root.path().join("agenda.md");
+        let text = "## ❗ MIT\n\n- [ ] ❗ **T1** Read spec (1/4)\n";
+        std::fs::write(&markdown, text).unwrap();
+        let targets = Targets {
+            markdown: markdown.clone(),
+            pdf: root.path().join("agenda.pdf"),
+            renderer: None,
+            tasks_dir: tasks_dir.clone(),
+        };
+        let tasks = crate::tasks::complete::read_csv(&tasks_dir.join("tasks.csv")).unwrap();
+        let date = NaiveDate::from_ymd_opt(2026, 10, 14).unwrap();
+        assert_eq!(
+            sync_markdown(
+                text,
+                "T1",
+                Action::Done,
+                &Snapshot {
+                    tasks: &tasks.rows,
+                    habits: &[]
+                },
+                date
+            )
+            .unwrap_err(),
+            "ambiguous_chunk_family"
+        );
+        assert_eq!(
+            sync_targets(&targets, "T1", Action::Done, date),
+            Outcome::NoAgenda
+        );
+        assert_eq!(std::fs::read_to_string(markdown).unwrap(), text);
     }
-    Some(next)
 }

@@ -29,7 +29,8 @@ fn done_drops_the_completed_task_and_preserves_every_other_section() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
 
     assert_eq!(
         out,
@@ -101,7 +102,8 @@ fn done_hands_the_vacated_slots_to_the_next_chunk() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
 
     // The next chunk inherits the callout and the time slot, so exactly one
     // actionable chunk stays visible.
@@ -149,7 +151,8 @@ fn an_already_listed_next_chunk_is_not_duplicated() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
 
     assert_eq!(out.matches("**T11**").count(), 1, "{out}");
     assert!(out.contains("1. [ ] 10:00 | **T11**"), "{out}");
@@ -193,7 +196,8 @@ fn a_completed_habit_leaves_the_plan_and_joins_both_snapshots() {
             habits: &habits,
         },
         today(),
-    );
+    )
+    .unwrap();
 
     assert!(!out.contains("- [ ] ❗ **H304**"), "{out}");
     assert!(

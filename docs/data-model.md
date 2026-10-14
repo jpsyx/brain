@@ -1147,7 +1147,7 @@ author keeps their wording:
 
 | Prefix | Section | How the sync treats it |
 | --- | --- | --- |
-| `## ❗` | The MIT callout | Drop lines naming the mutated id; on a completed chunk, swap in the next chunk's line. |
+| `## ❗` | The MIT callout | Drop lines naming the mutated id; on a completed chunk, swap in the next surviving unfinished family session's line. |
 | `## Suggested order` | The ordered plan | Same, plus renumber `1..N`; a chunk swap keeps the number and time slot. |
 | `## Cut order` | What to drop first | Drop lines naming the id, then renumber. |
 | `## 🔁` | Today's habits | Re-derived from `habits.csv` every run. |

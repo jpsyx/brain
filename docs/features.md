@@ -2290,10 +2290,15 @@ One sync does three things, and nothing else:
    order`, and `Cut order` drop every line naming it, and the numbered lists are
    resequenced from 1. Sections are matched by heading prefix (`## ❗`,
    `## Suggested order`, `## Cut order`), so the author's exact wording is free.
-   On a completed **chunked** task whose next chunk is unfinished and not yet on
-   the agenda, that chunk inherits the vacated callout line and suggested-order
-   slot (keeping its number and time), so exactly one actionable chunk stays
-   visible.
+   On a completed **chunked** task, the next surviving unfinished session in
+   the same base title, original total, and project inherits the vacated
+   callout line and suggested-order slot (keeping its number and time), so exactly one actionable chunk stays
+   visible. Gaps and completed intervening sessions are skipped without renaming
+   surviving sessions. An already listed successor is not duplicated. Completion
+   also migrates the `mit` tag unless the successor already has it. Duplicate
+   family positions or conflicting same-title dependencies fail with
+   `ambiguous_chunk_family`; completion writes no CSV change, and agenda sync
+   logs the error and leaves the markdown unchanged.
 2. **The snapshot sections are re-derived from the CSVs.** `🔁 Today's habits`
    (pending habits with no due date or one on/before today, then today's
    completions, ordered by ideal time, duration, then name) and

@@ -16,6 +16,7 @@ fn synced(
         &Snapshot { tasks, habits },
         today(),
     )
+    .unwrap()
 }
 
 #[test]

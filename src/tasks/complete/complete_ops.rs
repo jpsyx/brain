@@ -15,7 +15,7 @@ pub(super) fn complete_task(
     let task_name = name(row);
     let project = nonempty(row, "project");
     let linear_issue = nonempty(row, "linear_issue");
-    let mit_migrated_to = migrate_mit_to_next_chunk(&mut csv.rows, idx, &today);
+    let mit_migrated_to = migrate_mit_to_next_chunk(&mut csv.rows, idx, &today)?;
     ensure_column(csv, "last_touched");
     Ok(CompletionResult {
         kind: CompletionKind::Task,
@@ -337,39 +337,39 @@ pub(super) fn migrate_mit_to_next_chunk(
     rows: &mut [Row],
     completed_idx: usize,
     today: &str,
-) -> Option<String> {
-    let row = rows.get(completed_idx)?;
+) -> Result<Option<String>> {
+    let Some(row) = rows.get(completed_idx) else {
+        return Ok(None);
+    };
     let types = field(row, "task_type");
     if !types.split('|').any(|part| part == "mit") {
-        return None;
+        return Ok(None);
     }
-    let (base, idx, total) = parse_chunk_name(&field(row, "task_name"))?;
-    if idx >= total {
-        return None;
-    }
-    let target = format!("{base} ({}/{total})", idx + 1);
-    let next = rows
-        .iter_mut()
-        .find(|candidate| field(candidate, "task_name").trim() == target)?;
-    if field(next, "status").trim() == "done" {
-        return None;
-    }
+    let Some(next_row) =
+        crate::tasks::chunk_family::successor(row, rows).map_err(anyhow::Error::msg)?
+    else {
+        return Ok(None);
+    };
+    let next_id = field(next_row, "task_id");
+    let Some(next) = rows.iter_mut().find(|row| field(row, "task_id") == next_id) else {
+        return Ok(None);
+    };
     let next_types = field(next, "task_type");
     let mut parts: Vec<&str> = next_types
         .split('|')
         .filter(|part| !part.is_empty())
         .collect();
     if parts.contains(&"mit") {
-        return None;
+        return Ok(None);
     }
     parts.push("mit");
     next.insert("task_type".to_owned(), parts.join("|"));
     touch_row(next, today);
-    Some(format!(
+    Ok(Some(format!(
         "{}  {}",
         field(next, "task_id"),
         field(next, "task_name")
-    ))
+    )))
 }
 
 pub(crate) fn parse_chunk_name(name: &str) -> Option<(String, u32, u32)> {
@@ -392,3 +392,92 @@ use super::{
     CompletionKind, CompletionResult, CsvFile, Datelike, NaiveDate, Path, Result, Row, TaskUuid,
     anyhow, bail, field, name, nonempty, normalize_id,
 };
+
+#[cfg(test)]
+mod chunk_handoff_tests {
+    use super::*;
+
+    fn row(id: &str, name: &str, project: &str, types: &str, blocked: &str) -> Row {
+        [
+            ("task_id", id),
+            ("task_name", name),
+            ("project", project),
+            ("task_type", types),
+            ("status", "not_started"),
+            ("blocked_by", blocked),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect()
+    }
+
+    #[test]
+    fn completion_promotes_across_a_gap_without_changing_other_eligibility() {
+        let mut csv = CsvFile {
+            header: vec![],
+            rows: vec![
+                row("T1", "Read spec (1/4)", "alpha", "mit", ""),
+                row("T2", "Read spec (2/4)", "beta", "", ""),
+                row("T3", "Read spec (3/4)", "alpha", "", "T99"),
+            ],
+        };
+        csv.rows[2].insert("assigned_to".into(), "another-member".into());
+        let result =
+            complete_task(&mut csv, 0, NaiveDate::from_ymd_opt(2026, 10, 14).unwrap()).unwrap();
+        assert_eq!(
+            result.mit_migrated_to.as_deref(),
+            Some("T3  Read spec (3/4)")
+        );
+        assert_eq!(field(&csv.rows[1], "task_type"), "");
+        assert_eq!(field(&csv.rows[2], "task_name"), "Read spec (3/4)");
+    }
+
+    #[test]
+    fn same_title_cross_family_dependency_fails_completion() {
+        let mut csv = CsvFile {
+            header: vec![],
+            rows: vec![
+                row("T1", "Read spec (1/4)", "alpha", "mit", ""),
+                row("T2", "Read spec (2/4)", "alpha", "", "T9"),
+                row("T9", "Read spec (1/4)", "beta", "", ""),
+            ],
+        };
+        assert!(
+            complete_task(&mut csv, 0, NaiveDate::from_ymd_opt(2026, 10, 14).unwrap()).is_err()
+        );
+        assert_eq!(field(&csv.rows[1], "task_type"), "");
+    }
+
+    #[test]
+    fn an_existing_mit_successor_is_not_touched_or_duplicated() {
+        let mut rows = [
+            row("T1", "Read spec (1/4)", "alpha", "mit", ""),
+            row("T4", "Read spec (4/4)", "alpha", "one-off|mit", ""),
+        ];
+        rows[1].insert("last_touched".into(), "2026-10-01".into());
+        let before = rows[1].clone();
+        assert_eq!(
+            migrate_mit_to_next_chunk(&mut rows, 0, "2026-10-14").unwrap(),
+            None
+        );
+        assert_eq!(rows[1], before);
+    }
+
+    #[test]
+    fn ambiguity_leaves_canonical_csv_bytes_unchanged() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("tasks");
+        std::fs::create_dir(&dir).unwrap();
+        let bytes = b"task_id,task_name,task_type,status,project\nT1,Read spec (1/4),mit,not_started,alpha\nT3,Read spec (3/4),,not_started,alpha\nT9,Read spec (3/4),,done,alpha\n";
+        let path = dir.join("tasks.csv");
+        std::fs::write(&path, bytes).unwrap();
+        let error = crate::tasks::complete::complete_in_root_with_today(
+            root.path(),
+            "T1",
+            NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "ambiguous_chunk_family");
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}

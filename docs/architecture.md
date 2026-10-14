@@ -1618,7 +1618,8 @@ transaction/recovery modules), `task` (CSV model, legacy-compatible load, and pu
 assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
-task/habit completion), `agenda` (the section-preserving agenda-markdown sync
+task/habit completion), `chunk_family` (shared parsed session families, scoped
+ambiguity validation, and gap-aware unfinished-successor selection), `agenda` (the section-preserving agenda-markdown sync
 that every completion runs), `removal` (typed removal policies, pure dependency
 graph repair with scoped validation and numeric CSV-token ordering, pure batch
 target resolution reusing completion's locator, owned read-only snapshots of
@@ -1675,7 +1676,13 @@ that operation succeeds. Ordinary sync never activates the migration helper.
 filesystem-free: `doc` splits an agenda into a preamble plus `## ` sections and
 reassembles it byte-for-byte, `lines` edits one section body (drop-by-id,
 renumber, chunk swap), `derive` rebuilds the CSV-derived snapshot sections, and
-`sync` composes them into one `sync_markdown(text, id, action, snapshot, today)`.
+`sync` composes them into one fallible `sync_markdown(text, id, action, snapshot, today)`.
+Completion and agenda share `chunk_family` resolution by base title, original
+session total, and project. Duplicate positions across the full family and
+same-title dependency edges crossing family keys return `ambiguous_chunk_family`.
+Completion propagates that error before writing CSVs; the agenda shell logs it
+and leaves the markdown unchanged. The resolver chooses the lowest surviving
+unfinished index above the anchor, including when sessions have been removed.
 `io` is the thin shell: it resolves the day's targets from `agenda_markdown_dir`,
 `agenda_dir`, and `markdown_to_pdf_path`, reads and writes the file, and
 regenerates the printable only when one already exists. Resolution is keyed on

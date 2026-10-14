@@ -15,6 +15,7 @@ fn untouched(text: &str) -> String {
         },
         today(),
     )
+    .unwrap()
 }
 
 #[test]
@@ -51,7 +52,8 @@ fn sub_headings_stay_inside_their_parent_section() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
     // The `###` line is body content, so it survives and does not get
     // renumbered; only the numbered list is resequenced.
     assert_eq!(
@@ -73,7 +75,8 @@ fn an_unbolded_id_mention_is_not_a_match() {
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
     assert_eq!(out, text);
 }
 
@@ -103,7 +106,8 @@ Whatever the agenda's author appended.
             habits: &[],
         },
         today(),
-    );
+    )
+    .unwrap();
     let headings: Vec<&str> = out.lines().filter(|line| line.starts_with("## ")).collect();
     assert_eq!(
         headings,

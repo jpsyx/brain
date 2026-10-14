@@ -11,6 +11,7 @@
 pub mod add;
 pub(crate) mod agenda;
 pub(crate) mod backlog;
+pub(crate) mod chunk_family;
 pub mod cli;
 pub mod complete;
 pub mod doctor;

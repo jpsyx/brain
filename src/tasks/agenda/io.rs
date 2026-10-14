@@ -160,7 +160,13 @@ pub(crate) fn sync_targets(
         tasks: &tasks.rows,
         habits: &habits.rows,
     };
-    let synced = sync_markdown(&text, task_id, action, &snapshot, today);
+    let synced = match sync_markdown(&text, task_id, action, &snapshot, today) {
+        Ok(synced) => synced,
+        Err(error) => {
+            crate::logging::log(format!("agenda sync: {error}"));
+            return Outcome::NoAgenda;
+        }
+    };
     if synced == text {
         return Outcome::Unchanged;
     }
