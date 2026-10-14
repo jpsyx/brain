@@ -2612,8 +2612,13 @@ stderr, including partial secret prefixes.
 One deadline covers stdin delivery, execution, and output EOF, even if the
 leader exits while a descendant retains a pipe. Nonblocking stdin progresses
 alongside process polling. A separate worker drains both nonblocking output
-streams and checks the deadline/stop flag between finite reads. Failure kills
-and reaps the owned process group; joining the worker cannot wait on an escaped
+streams and checks the deadline/stop flag between finite reads. Failure signals
+the owned process group and attempts nonblocking reaping only within the original
+deadline. A cleanup worker is started before the adapter;
+if a child remains unreaped (including failed signaling or delayed kernel exit),
+ownership transfers to that worker for repeated signal/reap attempts. Invocation
+never joins eventual cleanup. Success or spawn failure closes the unused cleanup
+channel promptly. Joining the output worker cannot wait on an escaped
 descendant's pipe. Descendants that deliberately leave the group are not chased.
 Timeout or transport failure does not prove an external mutation did not occur;
 the operation coordinator must retain an unknown outcome and reconcile it.

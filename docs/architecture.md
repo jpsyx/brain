@@ -1679,6 +1679,9 @@ UUID-pinned selected registry adapter map, then supplies a secret-free snapshot.
 `integration/protocol` owns strict DTO matching and typed adapter errors.
 `integration/process` coordinates nonblocking stdin and process polling;
 `integration/process/capture` drains bounded stdout/stderr in a stoppable worker.
+`integration/process/cleanup` bounds caller-side reaping by the same deadline
+and transfers an unreaped child to a worker allocated before adapter spawn.
+That worker owns eventual signal/reap retries and is never joined by invocation.
 The only credential read occurs at invocation through the explicit OS environment
 allowlist. Preview uses file metadata only. The execution guard for nonempty
 external plans remains until external operation progress is connected.

@@ -15,6 +15,7 @@ use super::protocol::{AdapterError, ErrorKind, Request, Response, decode, encode
 use crate::tasks::removal::model::AdapterSnapshot;
 
 mod capture;
+mod cleanup;
 use capture::{Capture, nonblocking};
 
 /// Credentials are read only at invocation, never stored in consent snapshots.
@@ -47,6 +48,7 @@ pub(super) fn invoke_with_environment(
         .filter_map(|name| environment(name).map(|value| (name, value)))
         .collect();
     let deadline = Instant::now() + Duration::from_millis(adapter.timeout_ms);
+    let reaper = cleanup::Reaper::start().map_err(|_| AdapterError::new(ErrorKind::Spawn))?;
     let mut child = Command::new(executable)
         .args(&adapter.argv[1..])
         .env_clear()
@@ -80,7 +82,7 @@ pub(super) fn invoke_with_environment(
             .as_ref()
             .is_ok_and(|response| response.status == "error")
     {
-        terminate(&mut child);
+        reaper.terminate(child, deadline);
     }
     result
 }
@@ -164,17 +166,6 @@ fn communicate(
         let _ = worker.join();
     }
     result
-}
-
-fn terminate(child: &mut Child) {
-    if let Ok(pid) = i32::try_from(child.id()) {
-        let _ = nix::sys::signal::killpg(
-            nix::unistd::Pid::from_raw(pid),
-            nix::sys::signal::Signal::SIGKILL,
-        );
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 fn redact(bytes: &[u8], forwarded: &[(&String, OsString)]) -> String {
