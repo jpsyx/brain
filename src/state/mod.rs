@@ -120,6 +120,7 @@ pub struct Db {
 }
 
 mod database;
+mod skills;
 mod frontend_contract;
 mod manual_session;
 mod receiver;

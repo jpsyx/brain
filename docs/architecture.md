@@ -993,7 +993,9 @@ workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
 computation), `install` (checked source loading and rendering),
 `install_transaction` (lock-scoped ownership planning, staged publication,
 recovery and fallible success stamping), `prune` (pure stale-name selection),
-and `command` (`brain skills sync [--root <sandbox>]` and capability status).
+`reconcile` (registry enumeration and receipt-aware refresh), `receipt` (the UUID state DB binding),
+`repair` (one invocation-owned refresh result and aggregate rendering), and
+`command` (selected/sandbox sync and capability status).
 The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
 `journal`, `disposal`, `validation`, and `legacy` modules share one bounded installation boundary.
 
@@ -1048,31 +1050,40 @@ links. A machine skill is read only from its exact configured absolute
 directory; the source directory, `SKILL.md`, and every descendant must be real
 files or directories rather than symlinks. `resync_skills()` (the A seam) runs the pipeline, gated by
 `skills_auto_sync` (**default `true`** since the B4 cutover) so a mutation
-re-renders workspace skills; set the flag `false` to manage skills only via
-explicit `brain skills sync`. The pipeline never writes the user's global agent
+re-renders workspace skills; setting it `false` suppresses optional mutation refreshes.
+Mandatory bundled compatibility repair remains enabled. The pipeline never writes the user's global agent
 registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
 
-On the first ordinary invocation of a new Brain version, bootstrap also checks
-legacy global core-skill locations and renders the embedded core set into every
-registered workspace. The pass is version-marked in the machine cache,
-continues past individual workspace failures, and does not delete old global
-files. TUI startup excludes the selected root because its normal startup sync
-handles that root immediately before the brain panel launches.
+**Receipt-aware compatibility reconciliation.** Ready-workspace bootstrap and
+TUI startup use the same revision-aware coordinator. Registered roots are read
+without selected readiness, in canonical-name order. Missing roots remain
+pending without being created; identity or install failures do not prevent the
+other roots from being attempted. No machine-wide skill done marker is used.
+Selected startup checks and the all-root pass share the same currentness rules,
+so the TUI does not rewrite an already-current installation.
 
-**Version-stamped auto-resync.** So a version bump ships its *skill* changes the
-way it ships *code* changes (immediately, no manual step), `bootstrap` calls
-`skills::resync_on_version_change()` for every ready-workspace invocation. It
-compares `env!("CARGO_PKG_VERSION")` to a per-workspace render stamp
-(`state` DB `meta('skills_synced_version')`) and, when they differ, runs the
-same pipeline once, then re-stamps (`needs_resync` is the pure decision). It is
-LLM-free, gated by the same `skills_auto_sync` flag, never fails the invocation,
-and is a no-op once stamped, so `--help`/`--version` (no workspace), the
-internal hook/server, and registry-only maintenance never trigger it, and a
-fork with no extensions renders identically. Every authoritative render path
-(the version-resync, the mutation `resync_skills`, and a real `brain skills
-sync`) writes the stamp so none re-fires redundantly; a `--root` sandbox sync
-leaves no stamp.
+The authoritative `meta('skills_install_receipt')` JSON stores binary version,
+compatibility revision (currently 1), and the SHA-256 of the committed managed
+manifest. It is written atomically with the legacy `skills_synced_version` key,
+under the install lock, only after successful publication. Recovery precedes
+currentness; a committed install with a failed DB stamp retains its journal for
+retry. An equal receipt is current only when the managed files and frontend
+links are intact. Missing artifacts are repaired; modified owned files conflict.
+Mandatory compatibility refresh ignores `skills_auto_sync` without changing it.
+Explicit repair also compares current extension/plugin sources through the same
+ownership planner, even when the stored receipt already matches.
+
+`skills sync --all-workspaces [--json]` is a registry-only repair invocation.
+`main` gives it one entry point before selected bootstrap. It attempts mandatory
+startup once in normal order, retains any failure, then completes its independent
+skill repair report. Ordinary commands and `__migrate` remain fail-fast. One
+invocation-owned NotRun/Finished slot retains fatal enumeration errors and root
+outcomes; the dedicated migration callback can reuse it. Generic dispatch refuses
+this route rather than accidentally rerunning startup or refresh. JSON stdout
+contains one versioned aggregate, even with `--verbose` or a logger failure.
+Startup, logger and enumeration failures remain top-level diagnostics; a hook
+failure does not turn successful skill repairs into failed skill outcomes.
 
 The bundled `todo` workflow declares `todo:agenda-after-build` as a generic
 no-op hook. If an installed extension adds a post-build step, that runtime step
@@ -2247,8 +2258,8 @@ The SQLite state layer (`rusqlite`, WAL) at `<workspace-cache>/state.db`.
 session-ID, workspace-UUID, actor-ID, and channel key with a `locked_pid` lock
 and `active`/`completed` completion status;
 `meta` stores the `panel_side` layout preference and the
-`skills_synced_version` render stamp (the brain version that last rendered this
-workspace's skills, read by `skills::resync_on_version_change`). The resume
+`skills_install_receipt` (binary version, compatibility revision and managed
+manifest digest), with `skills_synced_version` retained for older readers. The resume
 model is scoped lock + recency behind `agent::session::SessionStore`
 (`reap_dead_locks`, `sessions_by_recency`, `claim`, `register`, `release`,
 `mark_active`, `mark_completed`, `completion_status`). The `PanelSide` enum lives here since

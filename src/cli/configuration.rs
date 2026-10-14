@@ -97,8 +97,14 @@ pub enum SkillsAction {
     Sync {
         /// Install under this sandbox dir instead of the real per-user layout
         /// (for testing; installs below this workspace instead of the selected one).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "all_workspaces")]
         root: Option<std::path::PathBuf>,
+        /// Repair managed skills in every registered workspace.
+        #[arg(long, conflicts_with = "workspace_selector")]
+        all_workspaces: bool,
+        /// Print one structured refresh report.
+        #[arg(long, requires = "all_workspaces")]
+        json: bool,
     },
     /// Show requested workspace capabilities, availability, and enforcement.
     Status,

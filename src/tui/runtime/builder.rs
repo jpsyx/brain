@@ -149,7 +149,7 @@ impl RuntimeBuilder {
         let workspace = &self.launch()?.command_context.workspace;
         let singleton =
             acquire_singleton_then_refresh(workspace, crate::command::server::refresh_agent_hooks)?;
-        crate::skills::migrate_global_skills_for_all_workspaces(Some(workspace.root()));
+        crate::skills::reconcile_registered_skills();
         crate::skills::sync_for_startup(workspace);
         self.lifecycle
             .record_acquired(AcquisitionStage::WorkspaceSingleton)?;

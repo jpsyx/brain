@@ -4,6 +4,8 @@
 //! With `--root`, everything installs under that workspace dir and reads
 //! extensions/plugins from `<root>/{extensions,plugins}`. Without it, the
 //! selected brain workspace owns the `.agents` and frontend skill directories.
+//! All-workspace repair uses [`super::repair`] before selected bootstrap, so it
+//! can retain startup failures and render one aggregate result.
 
 use std::fmt::Write;
 use std::path::Path;

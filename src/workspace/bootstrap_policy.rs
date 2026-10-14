@@ -25,6 +25,7 @@ pub enum Invocation {
     Check,
     Persona,
     Skills,
+    SkillsAllWorkspaces,
     Server,
     ServerStatus,
     Killall,
@@ -85,6 +86,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::Check
         | Invocation::Persona
         | Invocation::Skills
+        | Invocation::SkillsAllWorkspaces
         | Invocation::Server
         | Invocation::ServerStatus
         | Invocation::Killall
@@ -120,7 +122,8 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::WorkspaceAttach
         | Invocation::WorkspaceRemove
         | Invocation::WorkspaceRepair
-        | Invocation::User => BootstrapPolicy::RegistryOnly,
+        | Invocation::User
+        | Invocation::SkillsAllWorkspaces => BootstrapPolicy::RegistryOnly,
         Invocation::WorkspaceList
         | Invocation::ReceiverStatus
         | Invocation::SyncStatus
@@ -183,6 +186,9 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
         Some(Cmd::Check) => Invocation::Check,
         Some(Cmd::Killall) => Invocation::Killall,
         Some(Cmd::Persona(_)) => Invocation::Persona,
+        Some(Cmd::Skills(_)) if crate::skills::repair::is_requested(cli) => {
+            Invocation::SkillsAllWorkspaces
+        }
         Some(Cmd::Skills(_)) => Invocation::Skills,
         Some(Cmd::Server(args)) => match args.action {
             ServerAction::Run { .. } => Invocation::InternalServer,

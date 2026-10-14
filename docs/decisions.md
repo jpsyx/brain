@@ -1868,43 +1868,34 @@ live registry still had another owner and the render/install pipeline was not
 ready. The B4 cutover completed that ownership transition and activated the
 same seam.
 
-`skills_auto_sync` now defaults to `true`: config/personalize mutations and the
-first ready-workspace invocation after a version change render the selected
-workspace's `.agents/skills` directory. Setting it `false` leaves only explicit
-`brain skills sync`.
+`skills_auto_sync` defaults to `true` for config/persona mutation refreshes.
+Mandatory bundled compatibility repair remains enabled when it is `false`.
 
-## Why a version-stamped auto-resync (a brain update must ship skill changes)
+## Why managed-skill compatibility uses per-workspace receipts
 
-A bundled-skill change is worthless until it is *rendered* into the registry the
-LLM reads. Before this, the only triggers were an explicit `brain skills sync`
-or an incidental config/personalize mutation, so after a plain `git pull` +
-rebuild the installed flattened skills silently lagged the binary: the code half
-of a change went live, the skill half did not (this is exactly what stranded the
-daily-triage completion-signal fix on an old render). We close the gap by making
-a **version change** a render trigger, entirely in code (no LLM): `bootstrap`
-stamps `env!("CARGO_PKG_VERSION")` per workspace (`state` DB
-`meta('skills_synced_version')`) and, on the first ready-workspace invocation
-after the stamp differs, runs the same pipeline once and re-stamps
-(`needs_resync` is the pure decision). Key choices:
+A version string alone cannot detect deleted generated files, altered links, or
+a failed final success stamp. Each UUID-scoped state DB therefore stores the
+binary version, mandatory compatibility revision and committed manifest digest
+as one receipt. The installer owns publication, recovery and fallible stamping
+under one lock; the coordinator reuses that boundary and its ownership planner.
+Explicit sync also checks source changes at equal versions. Routine mutations
+remain optional, and the configured preference is never silently rewritten.
 
-- **On any workspace-opening command, not just the TUI or an explicit sync.**
-  The trigger the user wants is "a new brain version ran," which is every real
-  command; `--help`/`--version` (no workspace), the internal hook/server, and
-  registry-only maintenance structurally have no ready workspace, so they are
-  the natural exclusions — no special-casing needed.
-- **Per-workspace stamp in the state DB.** The flattened render depends on the
-  *selected* workspace's extensions/plugins, and the state DB is already
-  UUID-scoped, so the stamp belongs there (a generic `meta` key, no migration).
-- **Reuse `skills_auto_sync` as the opt-out.** Both auto-render triggers are
-  "auto-sync skills"; one knob keeps the mental model simple. `false` ⇒ manage
-  the registry only via explicit `brain skills sync`.
-- **Extension-agnostic, per [AGENTS.md](../AGENTS.md).** The mechanism knows
-  nothing about what any extension renders; an empty extension set renders
-  identically, so the bundled core and any fork behave the same. Every
-  authoritative render path (version-resync, mutation `resync_skills`, real
-  `brain skills sync`) writes the stamp so none re-fires; a `--root` sandbox
-  sync writes none. A failed resync leaves the stamp untouched (next invocation
-  retries) and never fails the command that triggered it.
+All-workspace repair reads canonical registry entries once, validates portable
+identity, and attempts every available root. Missing roots remain pending without
+creation. There is no machine-wide done marker that could hide a remounted root.
+Supported legacy registry schemas are normalized only in memory. Global skill
+registries and customization sources remain outside the write boundary.
+
+Explicit all-workspace repair has a narrow startup exception: it retains an
+earlier mandatory migration error and completes the independent requested skill
+report. It still runs mandatory startup once, keeps the failed machine stamp
+unchanged, and exits nonzero. Ordinary commands and installer migrations retain
+fail-fast behavior. One invocation-owned attempt slot stores successful and
+failed results before they can propagate, so a dedicated migration callback can
+share the exact explicit-source request without a duplicate repair. A startup
+hook error is reported separately from successful skill installation; JSON is
+one aggregate even with verbose logging or logger initialization failure.
 
 ## Why extensions inject at named hooks (not append-only, not runtime lookup)
 

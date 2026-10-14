@@ -68,6 +68,13 @@ pub enum BootstrapContext {
 
 /// Bootstrap one real process invocation.
 pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
+    if crate::skills::repair::is_requested(cli) {
+        anyhow::ensure!(
+            cli.workspace_selector.is_none(),
+            "--workspace conflicts with --all-workspaces"
+        );
+        return Ok(BootstrapContext::RegistryOnly(RegistryStore::real()));
+    }
     let policy = bootstrap_policy(invocation_for(cli));
     if matches!(
         policy,
@@ -181,7 +188,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             command_context.workspace.id(),
         )?;
         if should_migrate_global_skills(invocation_for(cli)) {
-            crate::skills::migrate_global_skills_for_all_workspaces(None);
+            crate::skills::reconcile_registered_skills();
         }
         if should_resync_skills(invocation_for(cli)) {
             crate::skills::resync_on_version_change(&command_context.workspace);
@@ -206,11 +213,17 @@ mod selection;
 use selection::{enforce_strict_selector, resolve_workspace_selector};
 
 const fn should_resync_skills(invocation: Invocation) -> bool {
-    !matches!(invocation, Invocation::WorkspaceMigrate | Invocation::Tui)
+    !matches!(
+        invocation,
+        Invocation::WorkspaceMigrate | Invocation::Tui | Invocation::Skills
+    )
 }
 
 pub(crate) const fn should_migrate_global_skills(invocation: Invocation) -> bool {
-    !matches!(invocation, Invocation::WorkspaceMigrate | Invocation::Tui)
+    !matches!(
+        invocation,
+        Invocation::WorkspaceMigrate | Invocation::Tui | Invocation::Skills
+    )
 }
 
 pub(super) fn validate_expected_workspace_id(
@@ -243,6 +256,13 @@ pub fn bootstrap_with_io(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
 ) -> Result<BootstrapContext> {
+    if crate::skills::repair::is_requested(cli) {
+        anyhow::ensure!(
+            cli.workspace_selector.is_none(),
+            "--workspace conflicts with --all-workspaces"
+        );
+        return Ok(BootstrapContext::RegistryOnly(store));
+    }
     if bootstrap_policy(invocation_for(cli)) == BootstrapPolicy::ReadOnlyWorkspace {
         return super::read_only::bootstrap(cli, &store, home, current_dir);
     }

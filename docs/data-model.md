@@ -2037,12 +2037,14 @@ local tab and exact instance files while preserving durable lifecycle and
 registration correlation, then drops the owning staging-directory guard.
 Repeated shutdown is a no-op.
 
-The `meta` table is a generic key/value store, so a new key like
-`skills_synced_version` needs no schema migration. It records the
-`CARGO_PKG_VERSION` that last rendered this workspace's skills into the
-registry; `skills::resync_on_version_change` re-renders (and re-stamps) when the
-running binary differs, so a version bump ships its bundled-skill changes
-without a manual `brain skills sync`.
+The generic `meta` table stores `skills_install_receipt` as JSON:
+`{"version":{"binary_version":"<version>","compatibility_revision":1},"manifest_sha256":"<sha256>"}`.
+The installer writes this receipt and `skills_synced_version` in one SQLite
+transaction after verifying publication, while holding the workspace install
+lock. The SHA-256 covers actual committed `managed.json` bytes. Currentness
+requires equality of the full receipt and intact managed artifacts, not merely
+a matching legacy version string. Failed stamping retains the committed install
+journal for recovery. There is no second success-stamp file or global done marker.
 
 **The lock + recency model.** A session is "free" when `locked_pid IS NULL`.
 

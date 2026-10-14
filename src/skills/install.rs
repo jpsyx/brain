@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use super::install_transaction::{
-    Currentness, InstallIdentity, InstallReceipt, InstallVersion, LockedInstall, NoStamp,
-    RenderedInstall, StampStore,
+    Currentness, InstallIdentity, InstallVersion, LockedInstall, NoStamp, RenderedInstall,
+    StampStore,
 };
 use super::layout::{Layout, WorkspaceCapabilityLayout};
 use super::model::Skill;
@@ -58,17 +58,10 @@ pub(crate) fn sync_workspace(
     workspace: &crate::workspace::WorkspaceContext,
     sources: &Sources,
 ) -> Result<Report> {
-    struct WorkspaceStamp<'a>(&'a crate::workspace::WorkspaceContext);
-    impl StampStore for WorkspaceStamp<'_> {
-        fn write(&mut self, receipt: &InstallReceipt) -> Result<()> {
-            crate::state::Db::open(self.0)?
-                .set_skills_synced_version(&receipt.version.binary_version)
-        }
-    }
     sync_identity(
         &InstallIdentity::workspace(workspace)?,
         sources,
-        &mut WorkspaceStamp(workspace),
+        &mut super::receipt::WorkspaceStamp::selected(workspace),
     )
 }
 

@@ -473,6 +473,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`, and prune skills brain rendered before but no longer produces. `--root` selects a sandbox workspace (see below). |
+| `brain skills sync --all-workspaces [--json]` | Repair every registered root independently, including when the default root is unavailable. JSON is one aggregate document; unavailable roots remain pending. |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode/pi enforcement level without printing connection material or credentials. |
 
 After a Brain version update, the first ordinary invocation migrates the core
@@ -1533,25 +1534,37 @@ lock and ownership history, while still using sandbox source directories and
 leaving the selected workspace's success stamp untouched.
 
 The skills are embedded in the binary, so a fresh clone needs no extra files.
-Installing is also triggered automatically in two cases when `skills_auto_sync`
-is `true` (the default since the B4 cutover; set it `false` to sync only on
-demand):
+Optional refresh after a `config`/`persona` change respects `skills_auto_sync`
+(default `true`). Mandatory bundled compatibility refresh does not depend on
+that preference: startup checks binary version, compatibility revision and the
+committed manifest receipt, then verifies managed artifacts. Missing files are
+repaired even at the same version; edited owned files are protected conflicts.
+Current TUI startup avoids duplicate writes. Actor capability renders continue
+to use current embedded sources at the next launch.
 
-- after a `config`/`persona` change, and
-- **the first time a new brain version runs.** Any command that opens a
-  workspace (i.e. anything but `--help`/`--version`) checks the brain version
-  that last rendered your skills; if the binary has since been updated, it
-  re-renders them once (printing a short `Brain updated: refreshing installed
-  skills` line) and records the new version. So a brain update ships its
-  bundled-skill changes automatically, the same way it ships code changes, with
-  no manual `brain skills sync`. It is deterministic (no LLM), a no-op once
-  recorded, and skips cleanly when the workspace still needs setup.
+`brain skills sync --all-workspaces [--json]` reads the registry without selecting
+a default workspace, checks root/manifest identity, and attempts every available
+root in canonical-name order. It preserves extension/plugin sources and global
+skill registries. Explicit sync considers changed sources even with a current
+receipt. Missing registries produce an empty successful report; malformed or
+unreadable registries fail. Legacy supported registry schemas normalize in memory.
+Missing roots remain absent and pending, and are retried after remounting.
+
+`--all-workspaces` conflicts with an explicit `-w` or `--root`; inherited workspace
+selection is ignored. `--json` requires `--all-workspaces` and emits one schema-1
+document with `workspaces`, `startup_error`, `logger_error`, and `refresh_error`.
+Each named workspace has status `current`, `updated`, `pending_unavailable`, or
+`failed`. An unavailable root alone is success. Available-root failures and any
+top-level diagnostic make the exit nonzero. Mandatory startup still runs once;
+if an earlier hook migration fails, independent skill repair completes and its
+truthful outcomes are reported while the machine migration stamp stays unchanged.
+Ordinary commands and installer migrations continue to stop at startup failure.
 
 Bundled today: `article-summarizer`, `triage`, `brain-knowledge-capture`,
 `second-brain`, `contacts`, and `todo`. See [config.md](config.md) and the
 sub-project B spec.
 
-Before writing anything, `brain skills sync` prints the built-skill directory,
+Before writing anything, selected or sandbox `brain skills sync` prints the built-skill directory,
 the shared registry directory, the number of frontend skill directories it will
 fan out to, the extension/plugin source directories it will read, and the prune
 step. That

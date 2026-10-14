@@ -49,6 +49,10 @@ pub fn run(
     agent_kind: crate::session::AgentKind,
     bootstrap: &BootstrapContext,
 ) -> Result<()> {
+    anyhow::ensure!(
+        !crate::skills::repair::is_requested(&cli),
+        "all-workspace skills repair must use its invocation entry point"
+    );
     validate_agent_kind(agent_kind)?;
     let capability = capability_for(invocation_for(&cli), bootstrap)?;
     if let Some(Cmd::Workspace(args)) = &cli.command {

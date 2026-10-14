@@ -779,7 +779,7 @@ the `name=value` form.
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `agenda_dir` | `~/Downloads` | Directory the generated daily-agenda **PDF** is written to (`agenda-<YYYY-MM-DD>.pdf`), tilde-expanded. Portable, unlike the markdown's `agenda_markdown_dir`: where you file a printable is a preference that should follow you between machines, while `/tmp` is a filesystem detail of one. |
 | `calendar_id` | *(unset)* | Calendar the agenda build pulls busy blocks from (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling; core agenda ordering is calendar-optional. |
-| `skills_auto_sync` | `true` | When `true`, the bundled skills are auto-rendered into the selected workspace's `.agents/skills` directory on two triggers: a `config`/`personalize` mutation (`skills::resync_skills`), and the first ready-workspace invocation after the brain binary's version changes (`skills::resync_on_version_change`). Default `true`; set `false` to manage workspace skills only via explicit `brain skills sync`. Read by `src/skills/`. |
+| `skills_auto_sync` | `true` | Enables optional installed-skill refresh after config/persona mutations. Mandatory bundled compatibility refresh ignores this preference without changing it; explicit sync also remains available. Currentness uses the per-workspace receipt and managed artifacts. Read by `src/skills/`. |
 
 `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`, and
 `agenda_markdown_dir` are **not** in this table
@@ -927,8 +927,9 @@ shell** also keeps machine-managed state in a SQLite DB at
   named Additional sessions, with exact native IDs and saved order. Closing an
   Additional session removes its mapping; shell shutdown preserves mappings.
 - `meta`: small key/value store. `panel_side` (`"left"` or `"right"`) records
-  the panel layout; `skills_synced_version` records the last Brain version that
-  successfully rendered this workspace's installed skills.
+  the panel layout; `skills_install_receipt` records the successfully committed
+  binary version, compatibility revision and managed-manifest SHA-256.
+  `skills_synced_version` is updated atomically for legacy readers.
 
 The state DB is machine-managed. Deleting it discards saved Manual names and
 order, receiver state, and layout preferences; Brain recreates the schema, but

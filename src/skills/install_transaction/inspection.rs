@@ -10,6 +10,20 @@ pub(crate) enum Currentness {
 }
 
 impl LockedInstall {
+    /// Compare explicit source refresh against the same ownership plan used to publish.
+    pub(crate) fn sources_current(
+        &self,
+        rendered: &super::RenderedInstall,
+        version: &InstallVersion,
+    ) -> Result<bool> {
+        let previous = self.manifest()?;
+        let plan = ownership::plan(&self.identity, previous.as_ref(), rendered.clone(), version)?;
+        Ok(
+            previous.is_some_and(|manifest| manifest.files == plan.manifest.files)
+                && plan.entries.iter().all(|entry| entry.before == entry.after),
+        )
+    }
+
     pub(crate) fn inspect(&self, expected: &InstallVersion) -> Result<Currentness> {
         ensure!(
             snapshot::read_optional_file(&self.identity.cache.join("pending.json"))?.is_none(),

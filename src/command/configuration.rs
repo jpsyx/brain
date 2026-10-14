@@ -139,7 +139,7 @@ pub fn run_skills(
             crate::logging::log("skills status");
             crate::skills::command::run_status(context)
         }
-        Some(crate::cli::SkillsAction::Sync { root }) => {
+        Some(crate::cli::SkillsAction::Sync { root, .. }) => {
             crate::logging::log(format!(
                 "skills sync root={}",
                 root.as_deref()

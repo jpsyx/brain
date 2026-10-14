@@ -25,6 +25,14 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if brain::skills::repair::is_requested(&cli) {
+        let code = brain::skills::repair::run(&cli)?;
+        if code != 0 {
+            std::process::exit(code);
+        }
+        return Ok(());
+    }
+
     let removal_json = brain::command::tasks::removal_mode(&cli).unwrap_or(false);
 
     if let Err(error) = brain::startup_migration::run_current() {

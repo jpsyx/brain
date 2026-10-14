@@ -1762,3 +1762,18 @@ canonical files. Planner/executor cases cover scoped notes, archive ambiguity,
 invalid history, frozen scope and survivor UUIDs, reference collision handling,
 legacy canonical bytes, and missing-notes crash recovery. All workspaces and
 agent transports in these tests are synthetic.
+
+
+### Managed-skill compatibility repair
+
+`tests/task_deletion_skill_migration.rs` runs the actual binary with isolated
+HOME/config directories, synthetic portable roots and global-registry sentinels.
+It covers all-root ordering, unavailable/remounted roots, read-only legacy
+registry normalization, alias validation, identity failures, full receipt
+currentness, missing-file repair, modified-file protection, source changes and
+failed-stamp recovery. Hook faults use a regular file at `.brain`, avoiding
+permission fixtures whose behavior depends on the test process's privileges.
+The explicit repair still emits one JSON document and attempts independent roots
+after startup failure; ordinary startup remains fail-fast. Skills unit tests
+cover the optional preference boundary, TUI currentness, retained failed attempts
+and logger-failure reporting. No live workspace or provider is used.
