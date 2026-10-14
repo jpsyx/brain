@@ -1128,8 +1128,10 @@ assignment, IDs, completion dates, and defer counts. Only changed surviving rows
 receive today's `last_touched`; a missing original touch column blocks such an
 edit with `missing_last_touched_column`, while deletion-only legacy files remain
 supported. Removal snapshot parsing deliberately does not normalize legacy
-assignment headers. Changed dependency fields use canonical matching and numeric
-ordering, retain the first original token for existing prerequisites, and use
+assignment headers. Duplicate headers and records wider than their header fail
+with `invalid_task_csv` before any cells can be discarded. Short legacy records
+retain empty defaults for missing trailing cells. Changed dependency fields use
+canonical matching and numeric ordering, retain the first original token for existing prerequisites, and use
 stored surviving display IDs for new rewire edges. Unchanged fields retain their
 original values.
 

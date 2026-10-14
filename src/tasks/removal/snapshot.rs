@@ -1,6 +1,6 @@
 //! One owned, read-only observation of the canonical removal inputs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path};
 
@@ -216,10 +216,20 @@ fn read_csv(root: &Path, relative: &str) -> Result<CsvSnapshot, Problem> {
 fn parse_raw_csv(bytes: &[u8]) -> anyhow::Result<CsvFile> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let header: Vec<_> = reader.headers()?.iter().map(str::to_owned).collect();
+    anyhow::ensure!(
+        header.iter().collect::<BTreeSet<_>>().len() == header.len(),
+        "CSV header contains duplicate column names"
+    );
     let rows = reader
         .records()
-        .map(|record| {
+        .enumerate()
+        .map(|(index, record)| {
             let record = record?;
+            anyhow::ensure!(
+                record.len() <= header.len(),
+                "CSV record {} has more cells than the header",
+                index + 2
+            );
             Ok(header
                 .iter()
                 .enumerate()
@@ -231,7 +241,7 @@ fn parse_raw_csv(bytes: &[u8]) -> anyhow::Result<CsvFile> {
                 })
                 .collect())
         })
-        .collect::<Result<Vec<_>, csv::Error>>()?;
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(CsvFile { header, rows })
 }
 
