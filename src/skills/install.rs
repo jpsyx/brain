@@ -1,18 +1,17 @@
-//! Applying a render to disk.
-//!
-//! Collects the bundled skills plus the user's plugins, injects each skill's
-//! extension, writes the workspace-local copies, and creates frontend
-//! symlinks. Link *targets* come from the pure `layout::link_ops`; this module
-//! is the thin FS shell.
+//! Render sources and publish managed skills through the recoverable installer.
+//! Selected capability rendering remains isolated in each actor cache.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::layout::{Layout, Link, WorkspaceCapabilityLayout, link_ops};
+use super::install_transaction::{
+    Currentness, InstallIdentity, InstallReceipt, InstallVersion, LockedInstall, NoStamp,
+    RenderedInstall, StampStore,
+};
+use super::layout::{Layout, WorkspaceCapabilityLayout};
 use super::model::Skill;
-use super::prune::{self, remove_existing};
 use super::{embed, extension, plugin, render};
 
 /// Where the user's extensions and plugins are read from. Both optional; a
@@ -24,11 +23,13 @@ pub struct Sources {
 }
 
 /// What a sync did.
+#[derive(Debug)]
 pub struct Report {
     pub installed: Vec<String>,
-    /// Rendered skills the sync no longer produces, removed from the workspace
-    /// and every frontend.
+    /// Skills whose generated files and eligible frontend links were removed.
+    /// Unowned residual content is listed separately in `retained`.
     pub pruned: Vec<String>,
+    pub retained: Vec<String>,
 }
 
 /// What one cache-local selected skill render produced.
@@ -40,76 +41,94 @@ pub struct WorkspaceCapabilityReport {
 /// Render + install every bundled skill and plugin into `layout`, injecting
 /// extensions from `sources`. Idempotent.
 pub fn sync(layout: &Layout, sources: &Sources) -> Result<Report> {
-    let mut skills = embed::bundled_skills();
-    crate::logging::log(format!("skills bundled count={}", skills.len()));
-    if let Some(dir) = &sources.plugins_dir {
-        let plugins = plugin::discover(dir);
-        crate::logging::log(format!(
-            "skills plugin dir={} count={}",
-            dir.display(),
-            plugins.len()
-        ));
-        skills.extend(plugins);
-    }
+    let root = layout
+        .agents_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| anyhow::anyhow!("invalid skills layout"))?;
+    let expected = Layout::under_root(root);
+    anyhow::ensure!(
+        layout.agents_dir == layout.built_dir && layout.frontends == expected.frontends,
+        "unsupported skills destinations"
+    );
+    sync_identity(&InstallIdentity::sandbox(root)?, sources, &mut NoStamp)
+}
 
-    let mut installed = Vec::new();
-    for skill in &skills {
-        crate::logging::log(format!("skills install {}", skill.name));
+pub(crate) fn sync_workspace(
+    workspace: &crate::workspace::WorkspaceContext,
+    sources: &Sources,
+) -> Result<Report> {
+    struct WorkspaceStamp<'a>(&'a crate::workspace::WorkspaceContext);
+    impl StampStore for WorkspaceStamp<'_> {
+        fn write(&mut self, receipt: &InstallReceipt) -> Result<()> {
+            crate::state::Db::open(self.0)?
+                .set_skills_synced_version(&receipt.version.binary_version)
+        }
+    }
+    sync_identity(
+        &InstallIdentity::workspace(workspace)?,
+        sources,
+        &mut WorkspaceStamp(workspace),
+    )
+}
+
+pub(crate) fn sync_identity(
+    identity: &InstallIdentity,
+    sources: &Sources,
+    stamp: &mut dyn StampStore,
+) -> Result<Report> {
+    let mut locked = LockedInstall::acquire(identity)?;
+    if let Some(recovered) = locked.recover(stamp)? {
+        if recovered.receipt.version == InstallVersion::current() {
+            return Ok(recovered.report);
+        }
+    }
+    let version = InstallVersion::current();
+    if let Currentness::Repairable(missing) = locked.inspect(&version)? {
+        crate::logging::log(format!(
+            "skills repairing {} missing or noncanonical artifacts",
+            missing.len()
+        ));
+    }
+    let rendered = render_sources(sources)?;
+    let report = locked.preflight(&rendered, &version)?;
+    locked.install(rendered, &version, stamp)?;
+    Ok(report)
+}
+
+pub(crate) fn render_sources(sources: &Sources) -> Result<RenderedInstall> {
+    let mut skills = embed::bundled_skills();
+    if let Some(dir) = &sources.plugins_dir {
+        skills.extend(plugin::discover_checked(dir)?);
+    }
+    let mut output = RenderedInstall::new();
+    for skill in skills {
+        anyhow::ensure!(
+            !output.contains_key(&skill.name),
+            "core/plugin skill name collision: {}",
+            skill.name
+        );
         let ext = sources
             .extensions_dir
             .as_deref()
-            .and_then(|d| extension::load(&skill.name, d));
-        crate::logging::log(format!(
-            "skills extension {} loaded={}",
-            skill.name,
-            ext.is_some()
-        ));
-        write_built(skill, ext.as_ref(), layout)?;
-        for link in link_ops(&skill.name, layout) {
-            create_symlink(&link)?;
+            .map(|dir| extension::load_checked(&skill.name, dir))
+            .transpose()?
+            .flatten();
+        let mut files = std::collections::BTreeMap::new();
+        for file in render::render(&skill, ext.as_ref()) {
+            let name = file
+                .rel_path
+                .into_os_string()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("non-UTF-8 rendered path"))?;
+            anyhow::ensure!(
+                files.insert(name, file.contents).is_none(),
+                "duplicate rendered skill path"
+            );
         }
-        installed.push(skill.name.clone());
+        output.insert(skill.name, files);
     }
-    // Before the leftovers can be mistaken for user-authored skills.
-    let pruned = prune::run(layout, &installed)?;
-    let mut workspace_skills = plugin::discover_names(&layout.agents_dir);
-    workspace_skills.retain(|name| !installed.iter().any(|installed| installed == name));
-    for name in workspace_skills {
-        crate::logging::log(format!("skills link workspace skill {name}"));
-        for link in link_ops(&name, layout) {
-            create_symlink(&link)?;
-        }
-        installed.push(name);
-    }
-    Ok(Report { installed, pruned })
-}
-
-fn write_built(skill: &Skill, ext: Option<&extension::Extension>, layout: &Layout) -> Result<()> {
-    write_built_to(skill, ext, &layout.built_dir)
-}
-
-fn write_built_to(
-    skill: &Skill,
-    ext: Option<&extension::Extension>,
-    built_dir: &Path,
-) -> Result<()> {
-    let dest = built_dir.join(&skill.name);
-    if dest.exists() {
-        fs::remove_dir_all(&dest)
-            .with_context(|| format!("clearing built skill {}", dest.display()))?;
-    }
-    for rf in render::render(skill, ext) {
-        let path = dest.join(&rf.rel_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, &rf.contents).with_context(|| format!("writing {}", path.display()))?;
-    }
-    fs::create_dir_all(&dest)?;
-    let marker = dest.join(prune::RENDERED_MARKER);
-    fs::write(&marker, format!("{}\n", super::current_version()))
-        .with_context(|| format!("writing {}", marker.display()))?;
-    Ok(())
+    Ok(output)
 }
 
 /// Render only selected skills below one workspace/actor cache directory.
@@ -173,20 +192,6 @@ fn write_fresh_built_to(
     Ok(())
 }
 
-fn create_symlink(link: &Link) -> Result<()> {
-    if let Some(parent) = link.link_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    remove_existing(&link.link_path)?;
-    std::os::unix::fs::symlink(&link.target, &link.link_path).with_context(|| {
-        format!(
-            "linking {} → {}",
-            link.link_path.display(),
-            link.target.display()
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +204,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("brain-skills-test-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
         dir
     }
 
@@ -221,7 +227,7 @@ mod tests {
             let fe = f.join("article-summarizer");
             assert_eq!(
                 fs::read_link(&fe).unwrap(),
-                layout.agents_dir.join("article-summarizer")
+                PathBuf::from("../../.agents/skills/article-summarizer")
             );
             assert!(fe.join("SKILL.md").is_file());
         }
@@ -266,7 +272,7 @@ mod tests {
         assert!(report.installed.iter().any(|name| name == "my-skill"));
         assert_eq!(
             fs::read_link(root.join(".claude/skills/my-skill")).unwrap(),
-            user_skill
+            PathBuf::from("../../.agents/skills/my-skill")
         );
         assert_eq!(
             fs::read_to_string(user_skill.join("SKILL.md")).unwrap(),
@@ -361,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_sweeps_a_frontend_link_left_dangling_by_a_deleted_user_skill() {
+    fn sync_preserves_unproven_dangling_user_skill_links() {
         let root = sandbox();
         let mine = root.join(".agents/skills/short-lived");
         fs::create_dir_all(&mine).unwrap();
@@ -374,8 +380,8 @@ mod tests {
 
         for frontend in &layout.frontends {
             assert!(
-                fs::symlink_metadata(frontend.join("short-lived")).is_err(),
-                "dangling frontend link must be swept"
+                fs::symlink_metadata(frontend.join("short-lived")).is_ok(),
+                "unproven user link must be preserved"
             );
         }
         let _ = fs::remove_dir_all(&root);

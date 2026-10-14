@@ -220,23 +220,28 @@ pub fn run_sync(workspace: &crate::workspace::WorkspaceContext, root: Option<&Pa
         layout.agents_dir.display(),
         layout.frontends.len()
     ));
-    let report = install::sync(&layout, &sources)?;
+    let report = if root.is_none() {
+        install::sync_workspace(workspace, &sources)?
+    } else {
+        install::sync(&layout, &sources)?
+    };
     crate::logging::log(format!(
         "skills sync installed={} pruned={}",
         report.installed.len(),
         report.pruned.len()
     ));
-    // A real (non-sandbox) sync is an authoritative render, so record the brain
-    // version that produced it — this is what the startup auto-resync checks.
-    // A `--root` sandbox run is not the selected workspace, so it leaves no stamp.
-    if root.is_none() {
-        super::record_synced_version(workspace, super::current_version());
-    }
     println!(
         "{} {}",
         theme.success(&format!("synced {} skill(s):", report.installed.len())),
         theme.muted(&report.installed.join(", "))
     );
+    if !report.retained.is_empty() {
+        eprintln!(
+            "{} {}",
+            theme.warning("retained unowned skill content:"),
+            report.retained.join(", ")
+        );
+    }
     if !report.pruned.is_empty() {
         println!(
             "{} {}",

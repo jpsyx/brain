@@ -16,6 +16,7 @@ pub mod command;
 pub mod embed;
 pub mod extension;
 pub mod install;
+pub(crate) mod install_transaction;
 pub mod layout;
 pub mod model;
 pub mod plugin;
@@ -67,13 +68,9 @@ pub fn resync_skills(workspace: &crate::workspace::WorkspaceContext) {
     let theme = crate::theme::Theme::active();
     eprintln!("{}", format_resync_plan(theme));
     crate::logging::log("skills auto-sync start");
-    if let Err(err) = install::sync(
-        &layout::Layout::real(workspace.root()),
-        &real_sources(workspace),
-    ) {
+    if let Err(err) = install::sync_workspace(workspace, &real_sources(workspace)) {
         crate::logging::log(format!("skills auto-sync failed: {err:#}"));
     } else {
-        record_synced_version(workspace, current_version());
         crate::logging::log("skills auto-sync complete");
     }
 }
@@ -89,9 +86,8 @@ pub fn sync_for_startup(workspace: &crate::workspace::WorkspaceContext) {
         command::format_sync_plan(&layout, &sources, crate::theme::Theme::active())
     );
     crate::logging::log("skills startup sync start");
-    match install::sync(&layout, &sources) {
+    match install::sync_workspace(workspace, &sources) {
         Ok(report) => {
-            record_synced_version(workspace, current_version());
             crate::logging::log(format!(
                 "skills startup sync complete: {} skill(s), {} pruned",
                 report.installed.len(),
@@ -143,12 +139,18 @@ pub fn migrate_global_skills_for_all_workspaces(skip_root: Option<&std::path::Pa
         if skip_root.is_some_and(|root| same_path(root, &record.root)) {
             continue;
         }
-        let layout = layout::Layout::real(&record.root);
         let sources = install::Sources {
             extensions_dir: Some(record.root.join(".config/extensions")),
             plugins_dir: Some(record.root.join(".config/plugins")),
         };
-        if let Err(error) = install::sync(&layout, &sources) {
+        if let Err(error) = install_transaction::InstallIdentity::registered(
+            &record.root,
+            record.workspace_id,
+            crate::workspace::WorkspacePaths::new(&home, record.workspace_id).cache_dir(),
+        )
+        .and_then(|identity| {
+            install::sync_identity(&identity, &sources, &mut install_transaction::NoStamp)
+        }) {
             failed = true;
             crate::logging::log(format!(
                 "skills global migration failed for {}: {error:#}",
@@ -223,12 +225,8 @@ pub fn resync_on_version_change(workspace: &crate::workspace::WorkspaceContext) 
         "skills version-resync start: {} -> {current}",
         stamped.as_deref().unwrap_or("(none)")
     ));
-    match install::sync(
-        &layout::Layout::real(workspace.root()),
-        &real_sources(workspace),
-    ) {
+    match install::sync_workspace(workspace, &real_sources(workspace)) {
         Ok(report) => {
-            record_synced_version(workspace, current);
             crate::logging::log(format!(
                 "skills version-resync complete: {} skill(s), {} pruned",
                 report.installed.len(),
@@ -247,19 +245,6 @@ fn synced_version(workspace: &crate::workspace::WorkspaceContext) -> Option<Stri
     crate::state::Db::open(workspace)
         .ok()?
         .skills_synced_version()
-}
-
-/// Persist the render stamp for `workspace`. Best-effort: a write failure is
-/// logged, never fatal (worst case the next invocation re-renders).
-pub(crate) fn record_synced_version(workspace: &crate::workspace::WorkspaceContext, version: &str) {
-    match crate::state::Db::open(workspace) {
-        Ok(db) => {
-            if let Err(err) = db.set_skills_synced_version(version) {
-                crate::logging::log(format!("skills render stamp write failed: {err:#}"));
-            }
-        }
-        Err(err) => crate::logging::log(format!("skills render stamp skipped: {err:#}")),
-    }
 }
 
 /// Narrate a version-triggered resync (to stderr, before any TUI takes the
@@ -361,3 +346,21 @@ mod tests {
         assert!(!super::needs_global_migration(Some("0.58.0"), "0.58.0"));
     }
 }
+
+#[cfg(test)]
+mod transaction_tests;
+
+#[cfg(test)]
+mod transaction_recovery_tests;
+
+#[cfg(test)]
+mod transaction_legacy_tests;
+
+#[cfg(test)]
+mod install_safety_tests;
+
+#[cfg(test)]
+mod transaction_boundary_tests;
+
+#[cfg(test)]
+mod transaction_inspection_tests;

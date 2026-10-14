@@ -1507,16 +1507,28 @@ scoped to the selected brain root.
   **sandbox** root. Used for testing so a run never disturbs another workspace
   or any global frontend registry.
 
-**Removed skills are pruned automatically.** A sync is a full reconciliation,
-not just an install: when a plugin is deleted or renamed, or a bundled skill
-leaves the binary, the copy brain previously rendered into `.agents/skills` and
-its Claude/Codex/OpenCode/pi links are removed in the same run, and the output says
-what it pruned. Frontend links left dangling by a skill that is gone are swept
-too. Brain only ever removes what it rendered — it recognizes its own output by
-a `.brain-rendered` marker file — so a skill you wrote by hand directly in
-`.agents/skills` is always kept and linked. (A skill rendered by a brain older
-than this reconciliation carries no marker, so it reads as hand-written until a
-sync re-renders it; delete such a leftover once by hand.)
+**Sync preserves ownership and recovers interrupted installs.** Brain stages
+complete trees before replacing live files and holds a per-workspace install
+lock through recovery, publication and success stamping. An interrupted install
+restores its previous complete trees and links before publication, or finishes
+verification and stamping after publication. Recovery conflicts retain their
+backups and journal for investigation.
+
+Generated files are tracked by SHA-256 in the workspace cache. Missing files
+are repairable; edited generated files, changed file types, unmarked same-name
+skills and foreign frontend entries are reported as conflicts. Non-owned extras
+inside managed trees survive upgrades. A removed plugin loses only its recorded
+generated files and exact local frontend links; any extras remain. Unmarked user
+skills and unproven dangling user links are preserved. The three frontend link
+targets are relative to the workspace.
+
+On first adoption of old version-marked generated trees, Brain retains complete
+verified backups and conservatively preserves unknown references and obsolete
+legacy trees. Plugin/core name collisions and unreadable plugin or extension
+sources fail without replacing live skills. `--root` requires an existing root;
+when that root is a real portable workspace it shares that workspace's install
+lock and ownership history, while still using sandbox source directories and
+leaving the selected workspace's success stamp untouched.
 
 The skills are embedded in the binary, so a fresh clone needs no extra files.
 Installing is also triggered automatically in two cases when `skills_auto_sync`

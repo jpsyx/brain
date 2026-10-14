@@ -990,25 +990,52 @@ producing a *new workspace copy* only — never the repo/plugin source; unmatche
 content lands in a trailing "Personal extensions" section), `render` (base skill
 → installable files, injecting the extension into `SKILL.md`), `layout` (the
 workspace `.agents/skills` dir + frontend dirs, and the pure `link_ops` target
-computation), `install` (collect bundled + plugins, write workspace skills +
-create frontend symlinks; thin FS shell over `link_ops`), `prune` (remove what a
-sync no longer produces, plus the `remove_existing` helper), and `command`
-(`brain skills sync [--root <sandbox>]`; `format_sync_plan` prints the workspace
-skills dir, frontend count, extension/plugin sources, and the prune step before
-the FS shell runs; `brain skills status` reports capability selection and
-enforcement).
+computation), `install` (checked source loading and rendering),
+`install_transaction` (lock-scoped ownership planning, staged publication,
+recovery and fallible success stamping), `prune` (pure stale-name selection),
+and `command` (`brain skills sync [--root <sandbox>]` and capability status).
+The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
+`journal`, `validation`, and `legacy` modules share one bounded installation boundary.
 
-**Pruning is part of every sync.** `install` writes a `.brain-rendered` marker
-into each skill directory it renders, so a later run can tell brain's own output
-apart from a skill the user wrote by hand in `.agents/skills`. After rendering
-the current set, `prune::run` deletes every *marked* directory the sync did not
-produce (a deleted or renamed plugin, a bundled skill dropped from the binary)
-together with its frontend links, then sweeps frontend symlinks left dangling by
-a skill that is gone. It runs **before** user-skill discovery so a leftover can
-never be re-adopted as user-authored. Both decisions — `stale_rendered` and
-`is_orphan_frontend_link` — are pure; `run` is the FS shell. An unmarked
-directory is the user's and is never removed, so skills rendered by a pre-prune
-brain are kept until a sync re-renders (and marks) them.
+Every install holds an exclusive OS advisory lock on the persistent
+`<workspace-cache>/skills-install/install.lock` inode. Registered identities
+must match the portable workspace UUID before any install state is created.
+A sandbox addressing a portable workspace shares its UUID cache and lock;
+a genuinely nonmanifested sandbox uses its own canonical root's `.cache/brain`.
+Sandbox sources remain `extensions/` and `plugins/`; selected workspace sources
+remain `.config/extensions` and `.config/plugins`.
+
+All generated files and preserved extras are built in nonce-bearing sibling
+staging slots on each destination's filesystem. Before live renames,
+`pending.json` durably records versioned intent, identity, previous/next
+manifests and complete typed before/after fingerprints. Recovery validates
+allowlisted relative paths and every artifact before making changes. Before
+manifest publication it restores original trees and frontend objects; afterward
+it verifies the complete installation, retries the success stamp, and cleans up.
+If old and next manifests are byte-identical, complete after-fingerprint
+verification permits finishing the equivalent committed state; this does not
+identify which physical manifest rename occurred. Partial states roll back only
+after all rollback artifacts authenticate. Unexpected edits retain evidence and
+report a conflict.
+
+`managed.json` records the exact schema version, workspace UUID, binary version,
+compatibility revision, and SHA-256 map of generated regular-file paths. Missing
+owned files can be repaired; present changed bytes or changed types conflict.
+Unknown extras retain bytes, permissions and literal symlink targets. Removed
+skills lose only recorded generated files and exact owned frontend links;
+remaining extras stay in an unmarked residual directory. Unmarked user skills
+are preserved and receive absent frontend links, but their unproven dangling
+links are never swept. Frontend targets use `../../.agents/skills/<name>`.
+Existing foreign links, files and directories are protected.
+
+First adoption requires a regular `.brain-rendered` marker containing a valid
+Brain version and retains a verified complete backup in
+`skills-install/legacy-backups/<transaction-uuid>/`. Historical edits cannot be
+inferred from that marker. New rendered paths may replace old paths only after
+backup; unknown legacy references and disappeared legacy trees remain preserved.
+Plugin/core name collisions, invalid render inventories, or partial/unreadable
+plugin and extension sources fail before publication. Sources are never written.
+
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
 links. A machine skill is read only from its exact configured absolute

@@ -6142,3 +6142,26 @@ composed once from original bytes, and malformed history blocks the entire batch
 Duplicate substitution preserves unrelated tokens and original duplicate counts;
 only collisions introduced by substitution are coalesced. Cross-project reverse
 memberships are replaced literally while the survivor's forward fields remain.
+
+## Why managed skill installation has a recoverable ownership transaction
+
+Clearing a rendered directory before rebuilding it could leave an incomplete
+skill after a failed write, discard local extras, and replace unrelated frontend
+objects. The installer now stages every tree and link before publishing a
+versioned journal, then uses same-filesystem rename backups. The committed
+SHA-256 manifest is the ownership record; a generation marker alone cannot prove
+which historical bytes are still untouched. First adoption therefore retains a
+verified complete backup and preserves unknown legacy content.
+
+Recovery uses derived, allowlisted sibling slots and authenticates all recorded
+objects before rollback. It refuses post-crash edits instead of overwriting them.
+The manifest publication boundary separates restoring old content from finishing
+the new installation and its fallible success stamp. For byte-identical old/new
+manifests, a fully verified after-state is an equivalent committed installation;
+partial states remain rollback candidates only after complete authentication.
+
+The files-only manifest deliberately does not claim ownership of frontend links
+for unmarked user skills. Safe fan-out can create missing links, but later orphan
+cleanup requires prior managed-root ownership. Global registries and source
+extensions/plugins are outside the transaction's mutation allowlist. Actor
+capability renders retain their separate disposable-cache lifecycle.

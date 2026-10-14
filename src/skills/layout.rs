@@ -74,7 +74,7 @@ pub fn link_ops(name: &str, layout: &Layout) -> Vec<Link> {
         .iter()
         .map(|frontend| Link {
             link_path: frontend.join(name),
-            target: layout.agents_dir.join(name),
+            target: PathBuf::from("../../.agents/skills").join(name),
         })
         .collect()
 }
@@ -87,7 +87,7 @@ mod tests {
     fn link_ops_frontends_point_at_workspace_agents_skill() {
         let layout = Layout::under_root(Path::new("/tmp/sbx"));
         let ops = link_ops("article-summarizer", &layout);
-        let skill = PathBuf::from("/tmp/sbx/.agents/skills/article-summarizer");
+        let skill = PathBuf::from("../../.agents/skills/article-summarizer");
         for op in &ops {
             assert_eq!(op.target, skill);
             assert!(op.link_path.ends_with("skills/article-summarizer"));

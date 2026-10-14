@@ -35,6 +35,33 @@ pub fn discover(dir: &Path) -> Vec<Skill> {
     plugins
 }
 
+/// Strict discovery for managed installation: only absence means no plugins.
+pub(crate) fn discover_checked(dir: &Path) -> Result<Vec<Skill>> {
+    match fs::symlink_metadata(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "plugins source is not a real directory"
+        ),
+    }
+    let mut plugins = Vec::new();
+    for entry in fs::read_dir(fs::canonicalize(dir)?)? {
+        let entry = entry?;
+        let metadata = entry.file_type()?;
+        anyhow::ensure!(!metadata.is_symlink(), "plugin source cannot be a symlink");
+        if !metadata.is_dir() {
+            continue;
+        }
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("non-UTF-8 plugin name"))?;
+        plugins.push(load_exact_from(&name, &entry.path())?);
+    }
+    Ok(plugins)
+}
+
 /// Discover user-authored skills already living in a workspace skill directory.
 ///
 /// Only real directories with a regular `SKILL.md` are eligible; malformed

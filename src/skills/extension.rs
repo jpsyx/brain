@@ -138,6 +138,30 @@ pub fn load(skill_name: &str, dir: &Path) -> Option<Extension> {
     std::fs::read_to_string(path).ok().map(|t| parse(&t))
 }
 
+/// Checked managed-install read; a failed read must never erase customization.
+pub(crate) fn load_checked(name: &str, dir: &Path) -> anyhow::Result<Option<Extension>> {
+    match std::fs::symlink_metadata(dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "extensions source is not a real directory"
+        ),
+    }
+    let path = dir.join(format!("{name}.md"));
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "extension must be a regular file"
+            );
+            Ok(Some(parse(&std::fs::read_to_string(path)?)))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
