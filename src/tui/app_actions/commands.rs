@@ -20,6 +20,11 @@ impl App {
     /// not a reason to do nothing.
     pub(crate) fn execute_command(&mut self, command: Command) {
         close_overlay(&mut self.overlay);
+        if command == Command::Task(crate::tui::palette::TaskCommand::Remove)
+            && self.reopen_removal()
+        {
+            return;
+        }
         match command {
             Command::Global(action) => self.execute_global_action(action),
             Command::Task(task) => match self.resolve_task_target(task) {
@@ -47,24 +52,6 @@ impl App {
             Err(e) => FlashKind::Error(format!("⚠ {e}")),
         };
         self.status.set_flash(flash);
-    }
-
-    /// Hand the remove off to the brain agent. The prompt asks the agent
-    /// to auto-delete when nothing links to the task, and only stop for
-    /// a decision when there are preservable links — keeps the no-impact
-    /// case from costing the user a back-and-forth.
-    pub(crate) fn run_remove(&mut self, raw_id: &str) {
-        if let Err(error) = self.tasks.validate_removal(raw_id, self.context.config()) {
-            self.status
-                .set_flash(FlashKind::Error(format!("⚠ {error}")));
-            return;
-        }
-        let message = format!(
-            "Remove {raw_id} via the /todo remove path.\n\n\
-             If {raw_id} has no links worth preserving (chunked siblings, blockers, project references), delete the row outright and report it in one line.\n\n\
-             Otherwise, list the affected links and propose 2-3 options (e.g. hard delete, status=dropped, unlink-then-delete), then stop and wait for me to choose."
-        );
-        self.send_brain_prompt(&message);
     }
 
     /// Ctrl+A entry point. Calls the injected `agenda_runner`; on a

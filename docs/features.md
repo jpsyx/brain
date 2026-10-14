@@ -2798,14 +2798,14 @@ Progress and expiry go to stderr; stdout contains only the URL, or the JSON
 result requested by `--json` (unless global `--verbose` is explicitly enabled).
 
 
-Native single-task removal now uses a consented plan and the shared grouped
+Native task removal uses a consented plan and the shared grouped
 transaction, including dependency and project-reference policy. The service
 rechecks immutable identities and before-images immediately before commit;
 changed inputs return `stale_plan` without deleting a row. Machine-local durable
 operation records support recovery without repeating committed deletion. A
 completed resume returns its original receipt, and status is read-only. Preview
 refuses pending recovery rather than inspecting partly installed task data.
-The expanded operation CLI is a subsequent command-surface integration.
+CLI lifecycle modes expose the same durable operations.
 
 Configured linked-issue cancellation now has durable per-issue progress. All
 preflights run before the first cancellation; a partial failure preserves the
@@ -2868,3 +2868,36 @@ created when none existed. An interrupted LocalCommitted refresh retries its
 existing printable even if Markdown is already accurate; a saved Complete
 receipt returns unchanged without rerendering. Rendering failure cannot undo
 canonical removal or add agenda paths to the receipt's canonical `updated` list.
+
+### Native removal from the tasks view and backlog maintenance
+
+Ctrl+Backspace and the Remove palette command open a native preview with the
+same task-only picker. No agent frontend is required. The modal shows resolved
+targets, changed paths and relationships, linked-issue actions, blockers, warnings, and the saved
+fingerprint. Dependency and linked-issue choices rebuild the preview. Confirmation
+uses that fingerprint and the current date; stale inputs rebuild the preview for
+fresh consent. Preview, apply, status, resume, and abandon run in background
+workers. Closing the modal does not cancel an executing operation. Reopening
+Remove returns to its running or recoverable operation, with saved status,
+resume, and explicitly confirmed abandonment. Abandon preserves local rows and
+does not undo external cancellations; unknown outcomes must first be reconciled.
+A completed removal refreshes tasks without moving main view or panel focus and
+retains a surviving selection, otherwise the nearest row.
+
+Backlog purge and dedupe use the same grouped removal transaction and recovery
+records, with no habit opt-in and linked issues kept. Purge rewires dependent
+tasks and records all selected tasks' project history and notes together.
+Projects resolve from the exact active directory, otherwise one matching
+basename under `archive/projects/`; ambiguous archive matches block the batch.
+Missing projects produce a warning without creating history or directories.
+Invalid history or unreadable, non-UTF-8, or symlink notes block the batch.
+
+Dedupe selects only a unique active twin created after the parked task's parking
+date. It substitutes the survivor in structured dependencies, see-also items,
+and every exact project task membership, retaining the survivor's forward project
+and issue fields. Substitution-created cycles and missing prerequisites block
+the batch. Ambiguous twins are skipped; dry-run and report JSON include `skipped`
+entries with `task_id`, sorted `survivor_ids`, and `ambiguous_survivor` code.
+Existing dry-run and report keys remain available; routine success stays silent.
+Empty candidate sets create no operation. Apply and resume never expand the
+saved candidate set or choose a different survivor.

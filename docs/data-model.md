@@ -2907,3 +2907,13 @@ otherwise progress becomes `needs_reconfirmation`. No new effects are substitute
 Only the original actor may resume or abandon. Abandon rejects an active owner
 with `operation_active`, rejects unknown outcomes with `external_pending`, and
 otherwise preserves local rows and recorded external history as `abandoned`.
+
+Removal plans optionally carry a serde-default, omitted `maintenance` intent:
+`backlog_purge { cutoff }` or `backlog_dedupe { replacements }`. A replacement
+stores duplicate and survivor identities; the canonical fingerprint projects
+them to CSV kind, immutable UUID, and display ID, excluding presentation labels.
+Purge notes before-images are scoped to resolved selected projects and preserve
+missing versus empty files. Both maintenance policies are task-only Rewire/Keep;
+dedupe intent selects substitution semantics. `successors` remains exclusively
+chunk agenda handoff output. Absent maintenance and notes fields preserve schema-1
+ordinary plan JSON and canonical bytes, including reading old operation records.

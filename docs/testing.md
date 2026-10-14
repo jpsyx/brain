@@ -1737,3 +1737,18 @@ endpoint restrictions, B2/S3 name-encoding parity, and signed-expiry validation.
 uploads cannot yield a link. TUI tests cover cross-view selection, input errors,
 default expiry, modal rendering, and child progress/result/cancellation.
 All fixtures are temporary; these tests do not use a real Backblaze account.
+
+Native removal UI tests inject the service runtime while recording frontend
+transport activity. They exercise confirmation, cancellation, policy rebuilding,
+late-generation rejection, stale-preview consent, recovery after closing, recovery
+with no selectable task, and selection/focus preservation. A real native worker
+test holds task ownership while preview and apply are submitted, proving lock
+waits occur off the event loop, then checks status/resume/abandon results. Queue
+coverage proves one executing worker, latest-preview coalescing, and preservation
+of apply/status/resume/abandon requests. UI coverage rejects repeated execution
+keys while Running, including close/reopen, and checks relationship previews.
+Maintenance command tests verify dependency and survivor cleanup through actual
+canonical files. Planner/executor cases cover scoped notes, archive ambiguity,
+invalid history, frozen scope and survivor UUIDs, reference collision handling,
+legacy canonical bytes, and missing-notes crash recovery. All workspaces and
+agent transports in these tests are synthetic.

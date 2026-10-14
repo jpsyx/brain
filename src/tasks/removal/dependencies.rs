@@ -131,3 +131,29 @@ pub(crate) fn ordered_prerequisites(ids: &BTreeSet<String>) -> Vec<&str> {
 #[cfg(test)]
 #[path = "tests/dependencies.rs"]
 mod tests;
+
+pub(super) fn substitute(
+    graph: &Graph,
+    replacements: &BTreeMap<String, String>,
+) -> Result<Graph, Problem> {
+    let mut result = Graph::new();
+    let mut changed = BTreeSet::new();
+    for (id, prerequisites) in graph {
+        if replacements.contains_key(id) {
+            continue;
+        }
+        let next: BTreeSet<_> = prerequisites
+            .iter()
+            .map(|item| replacements.get(item).unwrap_or(item).clone())
+            .collect();
+        if next != *prerequisites {
+            changed.insert(id.clone());
+        }
+        result.insert(id.clone(), next);
+    }
+    let mut validated = BTreeSet::new();
+    for id in changed {
+        validate(&id, &result, &mut BTreeSet::new(), &mut validated)?;
+    }
+    Ok(result)
+}

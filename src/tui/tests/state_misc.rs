@@ -101,7 +101,6 @@ fn triage_confirm_offers_yes_no_skip() {
 fn non_triage_confirms_are_yes_no_only() {
     for s in [
         ConfirmState::mark_complete("T1".to_owned(), "x".to_owned()),
-        ConfirmState::remove("T1".to_owned(), "x".to_owned()),
         ConfirmState::generate_agenda(),
     ] {
         assert_eq!(s.choices(), &[ConfirmChoice::Yes, ConfirmChoice::No]);
@@ -165,8 +164,10 @@ fn mark_complete_is_a_success_intent() {
 
 #[test]
 fn remove_is_a_danger_intent() {
-    let s = ConfirmState::remove("T1".to_owned(), "x".to_owned());
-    assert_eq!(s.intent, ConfirmIntent::Danger);
+    assert_eq!(
+        ConfirmIntent::Danger.accent(),
+        ratatui::style::Color::Rgb(247, 118, 142)
+    );
 }
 
 #[test]

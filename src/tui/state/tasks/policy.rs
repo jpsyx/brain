@@ -1,6 +1,7 @@
 use super::TasksState;
 
 impl TasksState {
+    #[cfg(test)]
     pub(crate) fn validate_removal(
         &self,
         raw_id: &str,

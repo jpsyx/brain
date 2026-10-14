@@ -14,6 +14,7 @@ use crate::workspace::{CommandContext, ReceiverAction};
 mod manual_sessions;
 mod receiver_delivery;
 mod receiver_recovery;
+mod removal;
 
 pub(crate) struct AppServicesInit {
     pub(crate) agenda_runner: Box<dyn ShellRunner>,
@@ -24,6 +25,7 @@ pub(crate) struct AppServicesInit {
 }
 
 pub(crate) struct AppServices {
+    removal: crate::tui::task_removal::Coordinator,
     agenda_runner: Box<dyn ShellRunner>,
     open_runner: Box<dyn ShellRunner>,
     db: Db,
@@ -53,6 +55,7 @@ impl AppServices {
             dyn crate::server::delivery::ReceiverDeliveryExecution,
         > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default());
         Self {
+            removal: crate::tui::task_removal::Coordinator::default(),
             agenda_runner: init.agenda_runner,
             open_runner: init.open_runner,
             db: init.db,

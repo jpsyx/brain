@@ -4,7 +4,6 @@ use crate::tui::App;
 use crate::tui::handlers::half_page_step;
 use crate::tui::model::{BrainTab, Panel};
 
-
 pub(crate) mod arrival;
 
 use crate::agent::{AgentController, SessionStore};
@@ -128,7 +127,7 @@ impl App {
     }
     /// Send a prefilled prompt to the brain panel. Convenience wrapper that
     /// opens / focuses the panel (resuming the session) and seeds it with the
-    /// prompt. Used by palette actions like Defer, Start, Remove, and the
+    /// prompt. Used by palette actions like Defer, Start, and the
     /// agenda / triage flows.
     pub(crate) fn send_brain_prompt(&mut self, prompt: &str) {
         let trimmed = prompt.trim();

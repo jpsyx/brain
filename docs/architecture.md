@@ -2788,3 +2788,24 @@ The new `zip` 6.x dependency (MSRV 1.83, compatible with Brain's 1.85 contract)
 enables only the deflate-flate2-zlib-rs feature. It provides portable streaming
 ZIP64 writing, UTF-8 filenames, and explicit member filtering without an
 external zip/Python prerequisite or a hand-written archive format.
+
+### Native removal UI and maintenance composition
+
+`tui/task_removal/{state,worker,input,render,effects}` separates modal display from native
+IO. `AppServices` owns the injected removal coordinator and worker runtime;
+`Overlay::TaskRemoval` is a generation-tagged display snapshot. Tick polling
+updates only the matching request generation. Closing an overlay leaves execution
+and its recovery identity in the service owner. Workers own a cloned, immutable
+`CommandContext`, never a frontend or the application. Selection restoration is
+specific to the removal refresh. One native worker executes at a time; adjacent
+queued previews coalesce to the latest generation. Accepted non-preview requests
+retain FIFO order. The Running UI and recoverable coordinator admit no second
+execution or recovery request while one is pending, including after close/reopen.
+Relationship effects are rendered from captured plan bytes without filesystem IO.
+
+`tasks/removal/maintenance/{preview,validate,history}` freezes pure backlog
+candidates into typed intent. The planner composes dependency substitution,
+project cleanup, deletion history, and notes from original snapshot inputs.
+Scoped notes are read under task ownership. The ordinary executor enriches its
+fresh snapshot from saved intent and retains complete plan equality before apply
+or resume. Backlog commands perform no independent canonical or agenda writes.

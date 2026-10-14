@@ -138,18 +138,6 @@ impl ConfirmState {
         }
     }
 
-    pub(crate) fn remove(task_id: String, task_label: String) -> Self {
-        Self {
-            kind: ConfirmKind::Remove,
-            intent: ConfirmIntent::Danger,
-            title: format!("Remove {task_id}"),
-            prompt: format!("Are you sure you want to remove {task_id}?"),
-            task_id,
-            task_label,
-            focus: ConfirmChoice::Yes,
-        }
-    }
-
     /// Ctrl+A landed on an empty `/tmp/<today>.md`. Prompts the user to
     /// generate today's agenda before opening it.
     pub(crate) fn generate_agenda() -> Self {

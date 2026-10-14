@@ -37,7 +37,6 @@ impl ConfirmIntent {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ConfirmKind {
     MarkComplete,
-    Remove,
     /// Triggered when Ctrl+A finds no agenda for today (the `agenda`
     /// helper exited non-zero). Yes path spawns the brain panel with a
     /// "generate today's agenda" prompt.

@@ -57,6 +57,7 @@ impl AppContext {
         &self.command.workspace
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn config(&self) -> &Config {
         &self.config

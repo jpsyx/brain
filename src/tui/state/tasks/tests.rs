@@ -206,3 +206,30 @@ fn panel_model_streams_render_content_without_exposing_the_owned_collection() {
     assert!(content.iter().any(|line| line.contains("Alpha plan")));
     assert_eq!(panel.visible_count(), 2);
 }
+
+#[test]
+fn native_task_removal_selection_keeps_surviving_identity_or_nearest_row() {
+    let mut state = state();
+    state.replace_rows(
+        vec![
+            test_task("T1", "not_started"),
+            test_task("T2", "not_started"),
+            test_task("T3", "not_started"),
+        ],
+        vec![],
+    );
+    state.select_next(1);
+    let selected = state.selected_identity().map(|(id, _)| id);
+    state.replace_rows(
+        vec![
+            test_task("T2", "not_started"),
+            test_task("T3", "not_started"),
+        ],
+        vec![],
+    );
+    state.restore_removal_selection(selected.as_deref());
+    assert_eq!(state.selected_task().unwrap().id, "T2");
+    state.replace_rows(vec![test_task("T3", "not_started")], vec![]);
+    state.restore_removal_selection(Some("T2"));
+    assert_eq!(state.selected_task().unwrap().id, "T3");
+}

@@ -16,6 +16,7 @@ mod tests;
 
 mod execute;
 mod external;
+pub(crate) mod maintenance;
 pub(crate) use execute::{apply, preview};
 
 mod lifecycle;

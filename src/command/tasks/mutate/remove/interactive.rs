@@ -138,6 +138,7 @@ mod tests {
         };
         let mut options = Options::default();
         let mut plan = RemovalPlan {
+            maintenance: None,
             fingerprint: "hash".into(),
             targets: vec![],
             options: options.clone(),

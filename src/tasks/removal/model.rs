@@ -84,6 +84,8 @@ pub(crate) struct ExternalAction {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RemovalPlan {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<super::maintenance::MaintenanceIntent>,
     pub fingerprint: String,
     pub targets: Vec<Identity>,
     pub options: Options,

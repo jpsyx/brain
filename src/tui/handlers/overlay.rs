@@ -223,7 +223,6 @@ pub(crate) fn run_confirm_yes(app: &mut App) {
     };
     match c.kind {
         ConfirmKind::MarkComplete => app.run_mark_complete(&c.task_id),
-        ConfirmKind::Remove => app.run_remove(&c.task_id),
         ConfirmKind::GenerateAgenda => app.run_generate_agenda(),
         ConfirmKind::RunTriage => app.run_triage(),
     }

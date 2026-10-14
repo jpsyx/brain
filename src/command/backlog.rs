@@ -8,8 +8,9 @@ use anyhow::Result;
 use chrono::Local;
 
 use crate::cli::{BacklogAction, BacklogArgs, BacklogMaintenanceArgs};
-use crate::tasks::backlog::{dedupe, list, minus_six_months, purge};
-use crate::tasks::complete::{field, read_csv, write_csv};
+use crate::tasks::backlog::list;
+use crate::tasks::complete::read_csv;
+use crate::tasks::removal::maintenance::{MaintenanceKind, preview_maintenance};
 use crate::theme::Theme;
 use crate::workspace::CommandContext;
 
@@ -81,84 +82,46 @@ fn render_review(entries: &[list::BacklogEntry], theme: Theme) -> String {
 }
 
 fn run_purge(context: &CommandContext, args: &BacklogMaintenanceArgs) -> Result<()> {
-    let today = Local::now().date_naive();
-    let cutoff = minus_six_months(today)
-        .ok_or_else(|| anyhow::anyhow!("could not compute the six-month cutoff for {today}"))?;
-    let path = tasks_path(context);
-    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
-    let mut csv = read_csv(&path)?;
-    let expired = purge::expired(&csv.rows, cutoff);
-
-    if args.dry_run {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "cutoff": cutoff.to_string(),
-                "would_delete": expired,
-            }))?
-        );
-        return Ok(());
-    }
-    if !expired.is_empty() {
-        let root = context.workspace.root();
-        for task in &expired {
-            if let Some(project) = purge::find_project_dir(root, &task.project) {
-                purge::record_in_metadata(&project, task, today);
-                purge::append_breadcrumb(&project, task, today);
-            }
-        }
-        let doomed: Vec<&str> = expired.iter().map(|task| task.task_id.as_str()).collect();
-        csv.rows
-            .retain(|row| !doomed.contains(&field(row, "task_id").as_str()));
-        write_csv(&path, &csv)?;
-        crate::tasks::agenda::sync_after_command_mutation(
-            context,
-            "",
-            crate::tasks::agenda::Action::Touch,
-            today,
-        );
-    }
-    if args.report {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
-                "deleted_count": expired.len(),
-                "deleted_ids": expired.iter().map(|task| &task.task_id).collect::<Vec<_>>(),
-            }))?
-        );
-    }
-    Ok(())
+    run_maintenance(context, args, MaintenanceKind::Purge)
 }
-
 fn run_dedupe(context: &CommandContext, args: &BacklogMaintenanceArgs) -> Result<()> {
-    let path = tasks_path(context);
-    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
-    let mut csv = read_csv(&path)?;
-    let superseded = dedupe::superseded(&csv.rows);
-
+    run_maintenance(context, args, MaintenanceKind::Dedupe)
+}
+fn run_maintenance(
+    context: &CommandContext,
+    args: &BacklogMaintenanceArgs,
+    kind: MaintenanceKind,
+) -> Result<()> {
+    let preview = preview_maintenance(context, kind, Local::now().date_naive())?;
     if args.dry_run {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({ "would_delete": superseded }))?
-        );
+        let mut report = serde_json::json!({"would_delete": match kind { MaintenanceKind::Purge => serde_json::to_value(&preview.purged)?, MaintenanceKind::Dedupe => serde_json::to_value(&preview.superseded)? }, "skipped": preview.skipped});
+        if let Some(cutoff) = preview.cutoff {
+            report["cutoff"] = cutoff.into();
+        }
+        if let Some(plan) = &preview.plan {
+            report["blockers"] = serde_json::to_value(&plan.blockers)?;
+        }
+        println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
-    if !superseded.is_empty() {
-        let doomed: Vec<&str> = superseded
-            .iter()
-            .map(|task| task.task_id.as_str())
-            .collect();
-        csv.rows
-            .retain(|row| !doomed.contains(&field(row, "task_id").as_str()));
-        write_csv(&path, &csv)?;
+    for skipped in &preview.skipped {
+        crate::logging::log(format!(
+            "Backlog dedupe {}: {}",
+            skipped.task_id, skipped.code
+        ));
     }
+    let removed = if let Some(plan) = preview.plan {
+        crate::tasks::removal::apply(context, &plan, &plan.fingerprint, Local::now().date_naive())?
+            .removed
+    } else {
+        Vec::new()
+    };
     if args.report {
         println!(
             "{}",
-            serde_json::to_string(&serde_json::json!({
-                "deleted_count": superseded.len(),
-                "deleted_ids": superseded.iter().map(|task| &task.task_id).collect::<Vec<_>>(),
-            }))?
+            serde_json::to_string(
+                &serde_json::json!({"deleted_count": removed.len(), "deleted_ids": removed.iter().map(|task| &task.task_id).collect::<Vec<_>>(), "skipped": preview.skipped})
+            )?
         );
     }
     Ok(())
@@ -206,3 +169,7 @@ mod tests {
         assert!(out.contains('?'), "{out}");
     }
 }
+
+#[cfg(test)]
+#[path = "backlog_cleanup_tests.rs"]
+mod cleanup_tests;

@@ -68,3 +68,13 @@ impl TasksState {
             .find(|task| task.id == id)
     }
 }
+impl TasksState {
+    pub(crate) fn restore_removal_selection(&mut self, id: Option<&str>) {
+        if let Some(index) =
+            id.and_then(|id| self.visible_tasks.iter().position(|task| task.id == id))
+        {
+            self.selected_task = Some(index);
+            self.ensure_selected_visible();
+        }
+    }
+}

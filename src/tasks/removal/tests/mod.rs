@@ -27,3 +27,7 @@ mod external_network;
 mod external_errors;
 
 mod agenda;
+
+mod maintenance;
+
+mod maintenance_contracts;

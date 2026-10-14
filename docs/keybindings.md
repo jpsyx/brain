@@ -119,7 +119,7 @@ startup default.
 | `r` | Reload `tasks.csv` + `habits.csv` |
 | `Enter` | Open the task actions modal for the selected entry |
 | `Ctrl+D` | Mark the selected task complete (confirm modal). `0x04`, no kitty protocol needed |
-| `Ctrl+Backspace` | Remove the selected task (confirm modal) — tasks only. Bare Backspace is a no-op |
+| `Ctrl+Backspace` | Preview native removal of the selected task (tasks only). Bare Backspace is a no-op |
 | `Ctrl+O` | Open the selected entry's links (Linear issue + notes URLs) |
 | `Ctrl+Enter` | Open the task actions modal (mainly for search mode) |
 | `Ctrl+P` | Open the global command palette (every command brain has) |
@@ -367,3 +367,19 @@ shares; Ctrl+U clears input; Esc/Ctrl+C cancels. Invalid paths and durations sta
 in the input modal with an error. During sharing, the modal displays progress;
 Esc cancels the child process. The result shows the URL and exact expiry and
 copies the link to the clipboard; Enter retries copying and Esc closes it.
+
+### Native removal modal
+
+These captive controls are available after Ctrl+Backspace or the Remove palette
+command; they do not add global shortcuts.
+
+| Key | Action |
+| --- | --- |
+| `d` | Cycle Reject, Unlink, Rewire dependency policy and rebuild preview |
+| `i` | Cycle Configured, Keep, Cancel linked-issue policy and rebuild preview |
+| `Enter` or `y` | Confirm the displayed, unblocked plan |
+| `s` / `r` / `a` | Inspect saved status, resume, or request abandonment for the failed operation |
+| `y` after abandonment warning | Confirm abandon; other input dismisses this confirmation |
+| `p` | Rebuild a failed preview when no saved operation remains |
+| `Esc` / `Ctrl+C` | Close the modal; running native execution continues |
+| `Up` / `Down` / `PageUp` / `PageDown` | Scroll the preview and diagnostics |

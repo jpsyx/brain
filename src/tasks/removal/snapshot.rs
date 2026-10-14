@@ -44,6 +44,7 @@ pub(crate) struct Snapshot {
     pub integration: IntegrationSnapshot,
     pub managed_habits_enabled: bool,
     pub warnings: Vec<Problem>,
+    pub purge_notes: BTreeMap<String, Option<Vec<u8>>>,
 }
 
 impl Snapshot {
@@ -166,6 +167,7 @@ impl Snapshot {
             integration: context.integration.clone(),
             managed_habits_enabled: config.enable_triage_habits,
             warnings,
+            purge_notes: BTreeMap::new(),
         })
     }
 
@@ -196,6 +198,25 @@ impl Snapshot {
         targets: &[Identity],
     ) -> CanonicalDocument<'a> {
         CanonicalDocument::new(self, options, targets)
+    }
+    pub(crate) fn canonical_for<'a>(
+        &'a self,
+        options: &'a Options,
+        targets: &[Identity],
+        intent: Option<&super::maintenance::MaintenanceIntent>,
+    ) -> CanonicalDocument<'a> {
+        let mut document = self.canonical(options, targets).maintenance(intent);
+        if matches!(
+            intent,
+            Some(super::maintenance::MaintenanceIntent::BacklogPurge { .. })
+        ) {
+            document.purge_notes = self
+                .purge_notes
+                .iter()
+                .map(|(path, bytes)| (path.as_str(), bytes))
+                .collect();
+        }
+        document
     }
 }
 
@@ -343,7 +364,7 @@ fn validate_path(root: &Path, path: &Path) -> Result<(), Problem> {
     Ok(())
 }
 
-fn validate_file(root: &Path, path: &Path) -> Result<(), Problem> {
+pub(super) fn validate_file(root: &Path, path: &Path) -> Result<(), Problem> {
     validate_path(root, path)?;
     match fs::symlink_metadata(path) {
         Ok(metadata) if !metadata.is_file() => Err(problem(

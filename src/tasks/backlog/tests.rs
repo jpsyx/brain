@@ -168,79 +168,18 @@ fn a_reworded_title_is_deliberately_not_a_match() {
 }
 
 #[test]
-fn a_purged_task_leaves_a_breadcrumb_in_its_project() {
-    let temporary = tempfile::tempdir().expect("tempdir");
-    let root = temporary.path();
-    let project = root.join("projects/website");
-    std::fs::create_dir_all(&project).expect("project dir");
-    std::fs::write(
-        project.join(".METADATA.json"),
-        r#"{"title":"Website","tasks":["T1","T9"]}"#,
-    )
-    .expect("metadata");
-
+fn a_purged_task_leaves_a_breadcrumb_and_history_record() {
     let task = purge::PurgedTask {
-        task_id: "T1".to_owned(),
-        task_name: "Call the vet".to_owned(),
-        backlogged_date: "2025-01-01".to_owned(),
-        project: "website".to_owned(),
+        task_id: "T1".into(),
+        task_name: "Call the vet".into(),
+        backlogged_date: "2025-01-01".into(),
+        project: "website".into(),
     };
-    let found = purge::find_project_dir(root, "website").expect("project located");
-    purge::record_in_metadata(&found, &task, today());
-    purge::append_breadcrumb(&found, &task, today());
-
-    let metadata = std::fs::read_to_string(project.join(".METADATA.json")).expect("read metadata");
-    assert!(metadata.contains("deleted_backlog_tasks"), "{metadata}");
-    assert!(
-        metadata.contains("\"T9\""),
-        "unrelated ids survive:\n{metadata}"
-    );
-    assert!(
-        !metadata.contains("\"tasks\": [\n    \"T1\""),
-        "the purged id leaves the live list:\n{metadata}"
-    );
-    let notes = std::fs::read_to_string(project.join("notes.md")).expect("read notes");
-    assert!(notes.contains("## Deleted backlog tasks"), "{notes}");
-    assert!(notes.contains("**T1** Call the vet"), "{notes}");
-}
-
-#[test]
-fn an_archived_project_still_gets_its_breadcrumb() {
-    let temporary = tempfile::tempdir().expect("tempdir");
-    let root = temporary.path();
-    let archived = root.join("archive/2025/website");
-    std::fs::create_dir_all(&archived).expect("archived project");
-    std::fs::write(archived.join(".METADATA.json"), r#"{"title":"Website"}"#).expect("metadata");
-
-    assert_eq!(purge::find_project_dir(root, "website"), Some(archived));
-}
-
-#[test]
-fn a_breadcrumb_heading_is_written_once() {
-    let temporary = tempfile::tempdir().expect("tempdir");
-    let project = temporary.path();
-    let task = purge::PurgedTask {
-        task_id: "T1".to_owned(),
-        task_name: "One".to_owned(),
-        backlogged_date: "2025-01-01".to_owned(),
-        project: "website".to_owned(),
-    };
-    purge::append_breadcrumb(project, &task, today());
-    purge::append_breadcrumb(
-        project,
-        &purge::PurgedTask {
-            task_id: "T2".to_owned(),
-            task_name: "Two".to_owned(),
-            ..task
-        },
-        today(),
-    );
-
-    let notes = std::fs::read_to_string(project.join("notes.md")).expect("read notes");
-    assert_eq!(
-        notes.matches("## Deleted backlog tasks").count(),
-        1,
-        "{notes}"
-    );
-    assert!(notes.contains("**T2** Two"), "{notes}");
+    let first = purge::append_breadcrumbs("Original", std::slice::from_ref(&task), today());
+    let notes = purge::append_breadcrumbs(&first, std::slice::from_ref(&task), today());
+    assert_eq!(notes.matches("## Deleted backlog tasks").count(), 1);
+    assert!(notes.contains("**T1** Call the vet"));
+    let history = purge::history_entry(&task, today());
+    assert_eq!(history["task_id"], "T1");
+    assert_eq!(history["deleted_date"], today().to_string());
 }

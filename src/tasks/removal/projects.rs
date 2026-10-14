@@ -8,9 +8,19 @@ use super::model::Problem;
 use super::snapshot::ProjectSnapshot;
 
 /// Return only after-images; the snapshot remains the source of before-images.
+#[cfg(test)]
 pub(crate) fn clean(
     projects: &BTreeMap<String, ProjectSnapshot>,
     removed: &BTreeSet<String>,
+) -> Result<BTreeMap<String, Vec<u8>>, Problem> {
+    compose(projects, removed, &BTreeMap::new(), &BTreeMap::new())
+}
+
+pub(super) fn compose(
+    projects: &BTreeMap<String, ProjectSnapshot>,
+    removed: &BTreeSet<String>,
+    replacements: &BTreeMap<String, String>,
+    history: &BTreeMap<String, Vec<Value>>,
 ) -> Result<BTreeMap<String, Vec<u8>>, Problem> {
     let mut after = BTreeMap::new();
     for (path, project) in projects {
@@ -19,18 +29,38 @@ pub(crate) fn clean(
         let object = value
             .as_object_mut()
             .ok_or_else(|| invalid(path, "metadata must be an object"))?;
-        let Some(tasks) = object.get_mut("tasks") else {
-            continue;
-        };
-        let tasks = tasks
-            .as_array_mut()
-            .ok_or_else(|| invalid(path, "tasks must be an array of strings"))?;
-        if tasks.iter().any(|item| !item.is_string()) {
-            return Err(invalid(path, "tasks must be an array of strings"));
+        let original = object.clone();
+        if let Some(tasks) = object.get_mut("tasks") {
+            let tasks = tasks
+                .as_array_mut()
+                .ok_or_else(|| invalid(path, "tasks must be an array of strings"))?;
+            let strings = tasks
+                .iter()
+                .map(|item| {
+                    item.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid(path, "tasks must be an array of strings"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let cleaned = if replacements.is_empty() {
+                strings
+                    .into_iter()
+                    .filter(|id| !removed.contains(id))
+                    .collect()
+            } else {
+                super::references::replace_tokens(&strings, replacements, false)
+            };
+            *tasks = cleaned.into_iter().map(Value::String).collect();
         }
-        let before_len = tasks.len();
-        tasks.retain(|item| item.as_str().is_some_and(|id| !removed.contains(id)));
-        if tasks.len() == before_len {
+        if let Some(entries) = history.get(path) {
+            let existing = object
+                .entry("deleted_backlog_tasks")
+                .or_insert_with(|| Value::Array(Vec::new()))
+                .as_array_mut()
+                .ok_or_else(|| invalid(path, "deleted_backlog_tasks must be an array"))?;
+            existing.extend(entries.iter().cloned());
+        }
+        if *object == original {
             continue;
         }
         let mut bytes = serde_json::to_vec_pretty(&value).map_err(|error| invalid(path, error))?;

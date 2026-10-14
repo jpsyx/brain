@@ -11,7 +11,7 @@
 //! lowercasing, stripping punctuation, and collapsing whitespace — because a
 //! false delete is far worse than a near-duplicate the caller can catch.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 use serde::Serialize;
@@ -23,6 +23,7 @@ pub(crate) struct Superseded {
     pub(crate) task_id: String,
     pub(crate) task_name: String,
     pub(crate) backlogged_date: String,
+    pub(crate) survivor_id: String,
 }
 
 /// Lowercase, drop punctuation, collapse whitespace.
@@ -37,41 +38,70 @@ pub(crate) fn normalize(name: &str) -> String {
         .join(" ")
 }
 
-/// Pure: parked rows whose active twin was created after they were parked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Skipped {
+    pub task_id: String,
+    pub survivor_ids: Vec<String>,
+    pub code: String,
+}
+
+#[cfg(test)]
 pub(crate) fn superseded(rows: &[Row]) -> Vec<Superseded> {
-    let mut active_created: HashMap<String, NaiveDate> = HashMap::new();
+    candidates(rows).0
+}
+
+/// Pure: exactly one newer active twin is evidence of recreation.
+pub(crate) fn candidates(rows: &[Row]) -> (Vec<Superseded>, Vec<Skipped>) {
+    let mut active: BTreeMap<String, Vec<(NaiveDate, String)>> = BTreeMap::new();
     for row in rows {
-        let status = field(row, "status");
-        if matches!(status.trim(), "done" | "backlog") {
+        if matches!(field(row, "status").trim(), "done" | "backlog") {
             continue;
         }
-        let key = normalize(&field(row, "task_name"));
-        let Some(created) = parse_date(&field(row, "created_date")) else {
+        let name = normalize(&field(row, "task_name"));
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(date) = parse_date(&field(row, "created_date")) {
+            active
+                .entry(name)
+                .or_default()
+                .push((date, field(row, "task_id")));
+        }
+    }
+    let mut selected = Vec::new();
+    let mut skipped = Vec::new();
+    for row in rows
+        .iter()
+        .filter(|row| field(row, "status").trim() == "backlog")
+    {
+        let Some(parked) = parse_date(&field(row, "backlogged_date")) else {
             continue;
         };
-        if key.is_empty() {
+        let Some(twins) = active.get(&normalize(&field(row, "task_name"))) else {
             continue;
-        }
-        active_created
-            .entry(key)
-            .and_modify(|latest| {
-                if created > *latest {
-                    *latest = created;
-                }
-            })
-            .or_insert(created);
-    }
-
-    rows.iter()
-        .filter(|row| field(row, "status").trim() == "backlog")
-        .filter_map(|row| {
-            let parked = parse_date(&field(row, "backlogged_date"))?;
-            let twin = active_created.get(&normalize(&field(row, "task_name")))?;
-            (*twin > parked).then(|| Superseded {
+        };
+        let mut eligible: Vec<_> = twins
+            .iter()
+            .filter(|(created, _)| *created > parked)
+            .map(|(_, id)| id.clone())
+            .collect();
+        eligible.sort();
+        match eligible.as_slice() {
+            [survivor] => selected.push(Superseded {
                 task_id: field(row, "task_id"),
                 task_name: field(row, "task_name"),
                 backlogged_date: field(row, "backlogged_date"),
-            })
-        })
-        .collect()
+                survivor_id: survivor.clone(),
+            }),
+            [] => {}
+            _ => skipped.push(Skipped {
+                task_id: field(row, "task_id"),
+                survivor_ids: eligible,
+                code: "ambiguous_survivor".into(),
+            }),
+        }
+    }
+    selected.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+    skipped.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+    (selected, skipped)
 }

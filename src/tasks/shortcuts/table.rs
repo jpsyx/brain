@@ -123,7 +123,7 @@ pub(crate) const ALL: &[Shortcut] = &[
     Shortcut {
         keys: "^⌫",
         label: "remove",
-        desc: "Remove the selected task (confirm modal) — tasks only",
+        desc: "Preview native task removal (tasks only)",
         group: Group::TaskActions,
         in_footer: false,
         commands: &[Task(TaskCommand::Remove)],

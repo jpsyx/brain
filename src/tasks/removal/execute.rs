@@ -48,10 +48,14 @@ pub(super) fn apply_with_hook(
         .map_err(|error| operational("operation_unavailable", &error))?;
     let owner = TaskStoreOwner::acquire(&context.workspace)
         .map_err(|error| operational("ownership_failed", &error))?;
-    let snapshot = snapshot(context, today, &owner)?;
+    let snapshot = snapshot_for_plan(context, today, &owner, plan)?;
     validate(&snapshot, plan, expected)?;
-    let canonical_inputs = serde_json::to_value(snapshot.canonical(&plan.options, &plan.targets))
-        .map_err(|error| operational("snapshot_failed", &error.into()))?;
+    let canonical_inputs = serde_json::to_value(snapshot.canonical_for(
+        &plan.options,
+        &plan.targets,
+        plan.maintenance.as_ref(),
+    ))
+    .map_err(|error| operational("snapshot_failed", &error.into()))?;
     let mut operation = Operation {
         schema_version: 1,
         operation_id,
@@ -100,8 +104,13 @@ pub(super) fn revalidate(
     operation: &mut Operation,
     owner: &TaskStoreOwner,
 ) -> Result<(), Problem> {
-    let result = snapshot(context, chrono::Local::now().date_naive(), owner)
-        .and_then(|current| validate(&current, &operation.plan, &operation.fingerprint));
+    let result = snapshot_for_plan(
+        context,
+        chrono::Local::now().date_naive(),
+        owner,
+        &operation.plan,
+    )
+    .and_then(|current| validate(&current, &operation.plan, &operation.fingerprint));
     if let Err(error) = result {
         operation.phase = Phase::NeedsReconfirmation;
         super::external::save(context, ownership, operation)?;
@@ -242,7 +251,12 @@ pub(super) fn validate(
         .iter()
         .map(|identity| identity.task_id.clone())
         .collect::<Vec<_>>();
-    let current = super::plan::plan(snapshot, &needles, &plan.options);
+    let current = super::plan::plan_with_maintenance(
+        snapshot,
+        &needles,
+        &plan.options,
+        plan.maintenance.clone(),
+    );
     if plan.fingerprint != expected || &current != plan {
         return Err(problem(
             "stale_plan",
@@ -285,4 +299,20 @@ pub(super) fn diagnostic(error: &anyhow::Error) -> String {
         "validation failure ({} error layers)",
         error.chain().count()
     )
+}
+
+fn snapshot_for_plan(
+    context: &CommandContext,
+    today: NaiveDate,
+    owner: &TaskStoreOwner,
+    plan: &RemovalPlan,
+) -> Result<Snapshot, Problem> {
+    let mut snapshot = snapshot(context, today, owner)?;
+    super::maintenance::enrich(
+        &mut snapshot,
+        &context.workspace,
+        &plan.targets,
+        plan.maintenance.as_ref(),
+    )?;
+    Ok(snapshot)
 }

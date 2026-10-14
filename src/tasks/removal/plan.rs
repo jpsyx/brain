@@ -8,7 +8,17 @@ use crate::tasks::complete::{CsvFile, Row, field, normalize_id, parse_date, seri
 
 /// Return a reviewable preview, retaining blockers but withholding all effects.
 pub(crate) fn plan(snapshot: &Snapshot, targets: &[String], options: &Options) -> RemovalPlan {
+    plan_with_maintenance(snapshot, targets, options, None)
+}
+
+pub(crate) fn plan_with_maintenance(
+    snapshot: &Snapshot,
+    targets: &[String],
+    options: &Options,
+    maintenance: Option<super::maintenance::MaintenanceIntent>,
+) -> RemovalPlan {
     let mut preview = RemovalPlan {
+        maintenance,
         fingerprint: String::new(),
         targets: Vec::new(),
         options: options.clone(),
@@ -23,11 +33,18 @@ pub(crate) fn plan(snapshot: &Snapshot, targets: &[String], options: &Options) -
         Err(problem) => preview.blockers.push(problem),
     }
     if preview.blockers.is_empty() {
-        if let Err(problem) = compose(snapshot, &mut preview) {
+        let validation = preview.maintenance.as_ref().map_or(Ok(()), |intent| {
+            super::maintenance::validate(snapshot, &preview.targets, options, intent)
+        });
+        if let Err(problem) = validation.and_then(|()| compose(snapshot, &mut preview)) {
             preview.blockers.push(problem);
         }
     }
-    match super::fingerprint::digest(&snapshot.canonical(options, &preview.targets)) {
+    match super::fingerprint::digest(&snapshot.canonical_for(
+        options,
+        &preview.targets,
+        preview.maintenance.as_ref(),
+    )) {
         Ok(fingerprint) => preview.fingerprint = fingerprint,
         Err(error) => preview.blockers.push(Problem::new(
             "fingerprint_failed",
@@ -73,7 +90,15 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
         .iter()
         .map(|row| (key(&field(row, "task_id")), prerequisites(row)))
         .collect();
-    let rewritten = super::dependencies::rewrite(&graph, &removed, preview.options.dependents)?;
+    let replacements = super::maintenance::replacements(preview.maintenance.as_ref());
+    let rewritten = if replacements.is_empty() {
+        super::dependencies::rewrite(&graph, &removed, preview.options.dependents)?
+    } else {
+        super::dependencies::substitute(
+            &graph,
+            &replacements.iter().map(|(a, b)| (key(a), key(b))).collect(),
+        )?
+    };
     let display_ids = originals
         .iter()
         .map(|row| (key(&field(row, "task_id")), field(row, "task_id")))
@@ -97,6 +122,7 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
         &graph,
         &rewritten,
         &display_ids,
+        &replacements,
     );
     let mut habits = transform(
         &snapshot.habits,
@@ -105,6 +131,7 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
         &graph,
         &rewritten,
         &display_ids,
+        &replacements,
     );
     preview.successors = handoffs(
         &snapshot.tasks.parsed.rows,
@@ -113,7 +140,12 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
         &unfinished,
         &snapshot.execution_date,
     )?;
-    let projects = super::projects::clean(&snapshot.projects, &exact_removed)?;
+    let projects = super::maintenance::project_edits(
+        snapshot,
+        &preview.targets,
+        &exact_removed,
+        preview.maintenance.as_ref(),
+    )?;
     preview.external =
         super::external_policy::plan(snapshot, &removed, preview.options.linked_issue)?;
     for (relative, source, csv) in [
@@ -138,13 +170,7 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
             }
         }
     }
-    for (relative, after) in projects {
-        preview.edits.push(FileEdit {
-            before: Some(snapshot.projects[&relative].before.clone()),
-            relative: relative.into(),
-            after,
-        });
-    }
+    preview.edits.extend(projects);
     preview.edits.sort_by(|a, b| a.relative.cmp(&b.relative));
     Ok(())
 }
@@ -156,6 +182,7 @@ fn transform(
     graph: &super::dependencies::Graph,
     rewritten: &super::dependencies::Graph,
     display_ids: &BTreeMap<String, String>,
+    replacements: &BTreeMap<String, String>,
 ) -> CsvFile {
     let rows = source
         .parsed
@@ -172,7 +199,16 @@ fn transform(
                 );
             }
             let references = field(&row, "see_also");
-            let stripped = super::references::strip_items(&references, exact_removed);
+            let stripped = if replacements.is_empty() {
+                super::references::strip_items(&references, exact_removed)
+            } else {
+                super::references::replace_tokens(
+                    &references.split('|').map(str::to_owned).collect::<Vec<_>>(),
+                    replacements,
+                    true,
+                )
+                .join("|")
+            };
             if stripped != references {
                 row.insert("see_also".into(), stripped);
             }

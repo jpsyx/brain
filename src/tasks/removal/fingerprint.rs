@@ -27,6 +27,10 @@ pub(crate) struct CanonicalDocument<'a> {
     pub projects: BTreeMap<&'a str, &'a [u8]>,
     pub integration: &'a IntegrationSnapshot,
     pub managed_habits_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub purge_notes: BTreeMap<&'a str, &'a Option<Vec<u8>>>,
 }
 
 impl<'a> CanonicalDocument<'a> {
@@ -54,6 +58,8 @@ impl<'a> CanonicalDocument<'a> {
                 .collect(),
             integration: &snapshot.integration,
             managed_habits_enabled: snapshot.managed_habits_enabled,
+            maintenance: None,
+            purge_notes: BTreeMap::new(),
         }
     }
 }
@@ -66,4 +72,26 @@ pub(crate) fn digest<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
         write!(hex, "{byte:02x}")?;
     }
     Ok(hex)
+}
+
+impl CanonicalDocument<'_> {
+    pub(super) fn maintenance(
+        mut self,
+        intent: Option<&super::maintenance::MaintenanceIntent>,
+    ) -> Self {
+        use super::maintenance::MaintenanceIntent;
+        let key = |identity: &Identity| TargetKey {
+            csv: identity.csv.as_str().into(),
+            task_uuid: identity.task_uuid.to_string(),
+            task_id: identity.task_id.clone(),
+        };
+        self.maintenance = intent.map(|intent| match intent {
+            MaintenanceIntent::BacklogPurge { cutoff } => serde_json::json!({"kind": "backlog_purge", "cutoff": cutoff}),
+            MaintenanceIntent::BacklogDedupe { replacements } => {
+                let pairs: BTreeSet<_> = replacements.iter().map(|pair| (key(&pair.duplicate), key(&pair.survivor))).collect();
+                serde_json::json!({"kind": "backlog_dedupe", "replacements": pairs.into_iter().map(|(duplicate, survivor)| serde_json::json!({"duplicate": duplicate, "survivor": survivor})).collect::<Vec<_>>()})
+            }
+        });
+        self
+    }
 }

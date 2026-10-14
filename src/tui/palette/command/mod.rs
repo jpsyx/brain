@@ -52,7 +52,7 @@ pub(crate) enum TaskCommand {
     /// Open the entry's link(s): its Linear issue and/or any URLs in its
     /// notes. A single link opens directly; several raise the picker.
     OpenLinks,
-    /// Spawn the brain panel with a "remove this task" prompt.
+    /// Preview and execute native task removal.
     Remove,
     /// Ask the brain agent to reassign the task or habit.
     Reassign,

@@ -48,17 +48,7 @@ impl App {
                     .links_plan_for(id, &self.context.linear_base_url());
                 self.apply_links_plan(plan, Some(id));
             }
-            TaskCommand::Remove => {
-                // Destructive enough to warrant the extra keystroke; the Yes
-                // path calls `run_remove`.
-                open_overlay(
-                    &mut self.overlay,
-                    Overlay::TaskConfirmation(ConfirmState::remove(
-                        target.id.clone(),
-                        target.label.clone(),
-                    )),
-                );
-            }
+            TaskCommand::Remove => self.run_remove(id),
             TaskCommand::Reassign => {
                 let message = reassign_task_prompt(id);
                 self.send_brain_prompt(&message);

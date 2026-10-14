@@ -6130,3 +6130,15 @@ existence, not PDF syntax. Failure retains the previous printable, with a warnin
 that it was not refreshed. Renderer streams are suppressed so they cannot leak
 private diagnostics or corrupt the CLI's single JSON object. Ordinary completion
 and explicit printing retain their existing API and behavior.
+
+### Maintenance cleanup shares removal consent and recovery
+
+Purge breadcrumbs and dedupe survivor substitutions are typed planning inputs,
+not appended file patches. This keeps every before-image, policy, identity, and
+execution date inside the existing fingerprint and full-plan regeneration check.
+Saved batches cannot silently acquire later candidates or replacement survivors.
+Notes are inspected only for selected purge projects. All project edits are
+composed once from original bytes, and malformed history blocks the entire batch.
+Duplicate substitution preserves unrelated tokens and original duplicate counts;
+only collisions introduced by substitution are coalesced. Cross-project reverse
+memberships are replaced literally while the survivor's forward fields remain.

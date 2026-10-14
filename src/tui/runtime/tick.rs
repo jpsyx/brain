@@ -25,6 +25,7 @@ pub(super) const fn recurring_stages() -> [RecurringStage; 6] {
 
 pub(super) fn tick(app: &mut App, server_lease: &HeartbeatWorker) {
     app.tick_share();
+    app.tick_removal();
     for stage in recurring_stages() {
         match stage {
             RecurringStage::TickManualSessionsAndRefreshTasks => {

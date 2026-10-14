@@ -29,6 +29,7 @@ pub(crate) const TASKS_STATE_API: &[&str] = &[
     "query_is_empty",
     "query_text",
     "replace_rows",
+    "restore_removal_selection",
     "scroll_offset",
     "select_first",
     "select_last",
@@ -143,6 +144,7 @@ pub(crate) const BRAIN_FIELDS: &[&str] = &[
 ];
 
 pub(crate) const SERVICE_FIELDS: &[&str] = &[
+    "removal",
     "agenda_runner",
     "open_runner",
     "db",

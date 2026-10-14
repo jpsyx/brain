@@ -58,6 +58,7 @@ mod shell;
 pub mod singleton;
 pub(crate) mod state;
 mod status_warning;
+mod task_removal;
 mod tree_view;
 
 #[cfg(test)]
