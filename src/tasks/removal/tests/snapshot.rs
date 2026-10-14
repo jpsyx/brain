@@ -356,7 +356,11 @@ fn removal_fingerprint_never_captures_config_secrets() {
     assert!(serialized.contains("API_TOKEN"));
     assert_eq!(digest(&a).unwrap(), digest(&b).unwrap());
     assert!(!first.managed_habits_enabled);
-    fixture.integration.linked_issue = crate::tasks::removal::model::LinkedIssue::Cancel;
+    fixture.integration.policy = Some(crate::tasks::removal::model::IntegrationPolicy {
+        adapter: "tracker".into(),
+        link_field: "linear_issue".into(),
+        on_remove: crate::tasks::removal::model::OnRemove::Cancel,
+    });
     let changed = Snapshot::read(&fixture.context(), today()).unwrap();
     assert_ne!(
         digest(&a).unwrap(),

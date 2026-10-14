@@ -1115,8 +1115,43 @@ date, options, both complete CSV before-images, sorted project metadata
 before-images, managed-habit enablement, and integration semantics. Selected
 identity keys (CSV kind, UUID, display ID) are sorted and deduplicated internally;
 presentation labels and random operation IDs are excluded. The integration seam
-contains only linked-issue policy and optional adapter argv, sorted environment
-variable names, and timeout. It cannot carry environment variable values.
+contains the optional full portable policy (adapter name, `linear_issue` link
+field, and `keep`/`cancel` action) and selected machine adapter argv, sorted
+environment variable names, and timeout. It cannot carry environment values.
+
+`plan::plan(snapshot, targets, options)` composes a pure, serializable preview:
+resolved identities, canonical fingerprint, ordered file before/after images,
+grouped external actions, agenda successor IDs, blockers, and warnings. Any
+blocker withholds every executable effect. It never writes a file or launches
+an adapter. CSV transformation retains the original header, unknown fields,
+assignment, IDs, completion dates, and defer counts. Only changed surviving rows
+receive today's `last_touched`; a missing original touch column blocks such an
+edit with `missing_last_touched_column`, while deletion-only legacy files remain
+supported. Removal snapshot parsing deliberately does not normalize legacy
+assignment headers. Changed dependency fields use canonical matching and numeric
+ordering, retain the first original token for existing prerequisites, and use
+stored surviving display IDs for new rewire edges. Unchanged fields retain their
+original values.
+
+Chunk evidence is validated against the full original snapshot before deleted
+sessions are filtered. Each removed session maps to the next surviving unfinished
+family session only when that selected session is `not_started`/`in_progress`,
+visible today, and free of unfinished surviving task or habit blockers after
+relationship edits. There is no fallback past an ineligible next session. A
+future start date prevents the handoff; a future due date alone does not.
+Handoffs include non-MIT anchors and already-MIT successors, and multiple anchors
+may share a successor. Only an MIT anchor with a successor lacking MIT changes
+the successor's tag; an existing tag is never duplicated or touched solely for a
+handoff.
+
+`external_policy::plan` is also pure. Explicit `keep` wins; `configured` uses the
+portable policy or defaults to keep. Cancellation of a nonempty trimmed link
+requires a named portable policy and available selected adapter, otherwise
+`adapter_unavailable` blocks the preview. A surviving unfinished row in either
+CSV sharing that link blocks with `shared_external_link`. Identical trimmed
+links produce one action, in stable issue order, with a deterministic action ID.
+No links means no external action. Config parsing, executable validation,
+provider state, and all process execution belong to the later adapter boundary.
 
 `references::strip_items` removes only pipe-delimited items whose trimmed text
 exactly matches a removed display ID; surviving items retain their text and

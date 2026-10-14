@@ -203,13 +203,36 @@ fn read_csv(root: &Path, relative: &str) -> Result<CsvSnapshot, Problem> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(problem("snapshot_read_failed", &error, relative)),
     };
-    let parsed = crate::tasks::complete::parse_csv_bytes(before.as_deref().unwrap_or_default())
+    let parsed = parse_raw_csv(before.as_deref().unwrap_or_default())
         .map_err(|error| problem("invalid_task_csv", &error, relative))?;
     Ok(CsvSnapshot {
         before,
         parsed,
         identities: Vec::new(),
     })
+}
+
+/// Removal preserves every original column, including legacy assignment fields.
+fn parse_raw_csv(bytes: &[u8]) -> anyhow::Result<CsvFile> {
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
+    let header: Vec<_> = reader.headers()?.iter().map(str::to_owned).collect();
+    let rows = reader
+        .records()
+        .map(|record| {
+            let record = record?;
+            Ok(header
+                .iter()
+                .enumerate()
+                .map(|(index, column)| {
+                    (
+                        column.clone(),
+                        record.get(index).unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect())
+        })
+        .collect::<Result<Vec<_>, csv::Error>>()?;
+    Ok(CsvFile { header, rows })
 }
 
 fn read_projects(root: &Path) -> Result<BTreeMap<String, ProjectSnapshot>, Problem> {
