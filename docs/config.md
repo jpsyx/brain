@@ -936,3 +936,45 @@ cannot restore those records from the schema alone.
 The `brain config`, `brain env`, and `brain tasks {complete,doctor,--no-tui}`
 utilities do not manage Manual mappings, but automatic startup migrations can
 reconcile an existing state DB before those commands dispatch.
+
+## Task removal integrations
+
+Linked issue removal is opt-in. `task_removal_integration` is a portable optional
+object in the selected root's `.config/config.json`; an absent value or JSON
+`null` means keep linked issues. Its exact fields are `adapter` (nonempty logical
+name), `link_field` (`linear_issue` in v1), and `on_remove` (`keep` or `cancel`).
+Unknown fields and literal credential fields are rejected.
+
+```sh
+brain config set 'task_removal_integration={"adapter":"tracker","link_field":"linear_issue","on_remove":"cancel"}'
+brain config set 'task_removal_integration=null'
+```
+
+`task_removal_adapters` is a machine-local object in the selected workspace
+record's `env`, defaulting to `{}`. It never falls back to the machine-global
+map, the default workspace, or another workspace. Each adapter has exactly
+`argv`, `env_names`, and `timeout_seconds`:
+
+```sh
+brain env set 'task_removal_adapters={"tracker":{"argv":["/opt/tools/tracker-removal"],"env_names":["TRACKER_API_TOKEN"],"timeout_seconds":30}}'
+brain env set 'task_removal_adapters.tracker.timeout_seconds=60'
+```
+
+`argv` must be nonempty with an absolute executable path and no NUL bytes.
+Arguments are passed directly, without shell expansion. `env_names` must contain
+unique names matching `[A-Za-z_][A-Za-z0-9_]*`. Timeout is an integer from 1 to 120
+seconds. Full-object and dotted edits validate the entire candidate adapter map
+before saving, so an invalid edit leaves the stored value intact.
+
+Adapter **configuration** is pinned to the selected workspace UUID. Credential
+**values** come from the OS process environment only when an adapter is invoked:
+Brain clears the child environment, forwards only listed names that are present,
+and omits absent names. The adapter can instead use its own credential store.
+Values and their presence never enter consent fingerprints or operation records.
+
+Preview checks executable file metadata and execute permission, following
+symlinks, and launches no process. Missing executables block linked cancellation;
+explicit keep and targets without linked issues need no available executable.
+Invalid configuration or changed registry identity fails closed. An unfinished
+surviving row sharing an issue blocks cancellation. See
+[integrations.md](integrations.md#task-removal-adapter-protocol) for the protocol.

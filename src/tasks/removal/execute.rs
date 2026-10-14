@@ -1,5 +1,5 @@
 //! Consented execution against a fresh owned snapshot.
-use super::model::{IntegrationSnapshot, Options, Problem, RemovalPlan};
+use super::model::{Options, Problem, RemovalPlan};
 use super::operations::{CommitRecord, Operation, OperationOwner, Phase, Receipt};
 use super::snapshot::{Snapshot, SnapshotContext};
 use crate::tasks::store_lock::TaskStoreOwner;
@@ -171,26 +171,12 @@ pub(super) fn snapshot(
     today: NaiveDate,
     owner: &TaskStoreOwner,
 ) -> Result<Snapshot, Problem> {
-    // Task10 replaces this fail-closed seam with validated integration population.
-    let config_path = context.workspace.root().join(".config/config.json");
-    if let Ok(bytes) = std::fs::read(&config_path) {
-        let config: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|error| operational("invalid_removal_config", &error.into()))?;
-        if config
-            .get("task_removal_integration")
-            .is_some_and(|value| !value.is_null())
-        {
-            return Err(problem(
-                "integration_unavailable",
-                "Configured removal integration is not available",
-            ));
-        }
-    }
+    let integration = super::integration::config::load(context)?;
     Snapshot::read_owned(
         &SnapshotContext {
             workspace: &context.workspace,
             actor: &context.actor,
-            integration: &IntegrationSnapshot::default(),
+            integration: &integration,
         },
         today,
         owner,

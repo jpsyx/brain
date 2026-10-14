@@ -134,7 +134,8 @@ mod task_uuid {
 
 /// Validated portable policy. Machine adapter availability is supplied separately.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct IntegrationPolicy {
+#[serde(deny_unknown_fields)]
+pub struct IntegrationPolicy {
     pub adapter: String,
     pub link_field: String,
     pub on_remove: OnRemove,
@@ -142,7 +143,7 @@ pub(crate) struct IntegrationPolicy {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum OnRemove {
+pub enum OnRemove {
     Keep,
     Cancel,
 }

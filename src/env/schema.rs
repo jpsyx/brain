@@ -38,7 +38,13 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 19] = [
+pub(super) const VARS: [VarSpec; 20] = [
+    VarSpec {
+        name: "task_removal_adapters",
+        description: "Selected workspace removal adapters: argv, env_names, timeout_seconds.",
+        default: Some("{}"),
+        legacy_config_fallback: false,
+    },
     VarSpec {
         name: "root",
         description: "Selected workspace root on THIS machine (read-only structural registry field; change it through workspace management).",

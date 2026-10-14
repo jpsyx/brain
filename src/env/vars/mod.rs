@@ -162,6 +162,9 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
         }
     }
     set_path(&mut map, name, declared_value(name, value)?)?;
+    if segments[0] == crate::tasks::removal::integration::config::ADAPTERS {
+        crate::tasks::removal::integration::config::parse_adapters(map[segments[0]].clone())?;
+    }
     save_map(command, &map)
 }
 

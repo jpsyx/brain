@@ -1674,6 +1674,15 @@ agenda effects and richer derived-output warnings are a subsequent integration.
 The old single-target remove shell now calls this service with CommandContext
 and never opens its older task-owned Session before operation ownership.
 
+Removal's `integration/config` validates the portable optional policy and the
+UUID-pinned selected registry adapter map, then supplies a secret-free snapshot.
+`integration/protocol` owns strict DTO matching and typed adapter errors.
+`integration/process` coordinates nonblocking stdin and process polling;
+`integration/process/capture` drains bounded stdout/stderr in a stoppable worker.
+The only credential read occurs at invocation through the explicit OS environment
+allowlist. Preview uses file metadata only. The execution guard for nonempty
+external plans remains until external operation progress is connected.
+
 `TaskStoreOwner::acquire` recovers both grouped journals before returning to a
 native writer. Existing-owner entry points verify and recover without acquiring
 again. Project create/set/archive retain ownership through derived reindex;

@@ -15,3 +15,5 @@ mod execute;
 mod recovery;
 
 mod receipts;
+
+mod integration_config;

@@ -16,7 +16,12 @@ pub(super) struct VarSpec {
 /// inside the brain root (circular), so it is resolved from `~/.config/brain-root`
 /// or the `~/brain` default and edited by hand, never via `brain config`
 /// (see [`crate::paths`]).
-pub(super) const VARS: [VarSpec; 15] = [
+pub(super) const VARS: [VarSpec; 16] = [
+    VarSpec {
+        name: "task_removal_integration",
+        description: "Optional linked issue removal policy (adapter, link_field, on_remove).",
+        default: None,
+    },
     VarSpec {
         name: "access_mode",
         description: "Portable workspace access policy: unrestricted or workspace_only (advisory, not a filesystem sandbox).",

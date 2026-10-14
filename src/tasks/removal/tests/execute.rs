@@ -82,7 +82,7 @@ fn removal_preview_refuses_pending_journal_without_recovery_writes() {
 }
 
 #[test]
-fn local_executor_never_skips_external_actions_or_unwired_policy() {
+fn local_executor_never_skips_external_actions_or_invalid_provenance() {
     let fixture = WorkspaceFixture::new();
     let context = fixture.command();
     let mut plan = preview(&context, &needles(&["T17"]), Options::default(), today()).unwrap();
@@ -98,7 +98,7 @@ fn local_executor_never_skips_external_actions_or_unwired_policy() {
         preview(&context, &needles(&["T17"]), Options::default(), today())
             .unwrap_err()
             .code,
-        "integration_unavailable"
+        "invalid_removal_integration"
     );
     assert!(
         std::fs::read_to_string(context.workspace.root().join("tasks/tasks.csv"))

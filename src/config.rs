@@ -14,9 +14,15 @@
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
+/// Portable linked issue removal policy types.
+pub use crate::tasks::removal::model::{IntegrationPolicy, OnRemove};
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Optional portable policy for linked issues when removing tasks.
+    #[serde(deserialize_with = "crate::tasks::removal::integration::config::deserialize_policy")]
+    pub task_removal_integration: Option<IntegrationPolicy>,
     /// Portable advisory access policy for this workspace.
     pub access_mode: crate::access::AccessMode,
     /// Logical MCP server names available to workspace-only agent launches.
@@ -85,6 +91,7 @@ where
 impl Default for Config {
     fn default() -> Self {
         Self {
+            task_removal_integration: None,
             access_mode: crate::access::AccessMode::Unrestricted,
             allowed_mcps: Vec::new(),
             allowed_skills: default_allowed_skills(),

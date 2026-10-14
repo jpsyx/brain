@@ -2578,3 +2578,46 @@ explicit lifetime from 1 second through 7 days. Brain verifies the returned
 SigV4 expiry and reports its absolute UTC deadline. Key expiry/revocation or
 object removal can make the link stop working sooner. No lifecycle rules,
 bucket permissions, cron jobs, or public-bucket copies are created.
+
+## Task removal adapter protocol
+
+Removal adapters receive one JSON request on stdin and produce exactly one JSON
+response on stdout. Both objects reject unknown fields. Requests contain
+`schema_version: 1`, `operation_id`, `action_id`, `workspace_id`, `actor_id`,
+`action`, and `issue`. Responses contain `schema_version: 1`, the matching
+`operation_id` and `action_id`, `status`, and optional nullable `message`.
+The operation and action identities must match exactly.
+
+| Request action | Allowed response statuses |
+| --- | --- |
+| `preflight` | `ready`, `error` |
+| `cancel` | `canceled`, `already_canceled`, `error` |
+| `status` | `canceled`, `already_canceled`, `pending`, `error` |
+
+Invalid JSON, another JSON document or diagnostic text on stdout, an unexpected
+version/identity/status, and a nonzero process exit are typed adapter failures.
+Whitespace around the single JSON document is accepted. Error responses remain
+valid protocol responses, so the operation coordinator can interpret their
+status. Stderr is diagnostic only. Forwarded secret values are redacted from
+both stderr and response messages before either is returned; JSON parse errors
+never echo untrusted output. Diagnostics are omitted if redaction or UTF-8
+replacement would expand them beyond the byte limit.
+
+The transport uses `Command::new(argv[0]).args(&argv[1..])` with no shell and a
+cleared, explicitly allowlisted environment. Request, response, and captured
+stderr each have a hard 64 KiB byte limit. Overflow is an explicit error, never
+successful parsing of a truncated prefix. Overflow failures omit captured
+stderr, including partial secret prefixes.
+
+One deadline covers stdin delivery, execution, and output EOF, even if the
+leader exits while a descendant retains a pipe. Nonblocking stdin progresses
+alongside process polling. A separate worker drains both nonblocking output
+streams and checks the deadline/stop flag between finite reads. Failure kills
+and reaps the owned process group; joining the worker cannot wait on an escaped
+descendant's pipe. Descendants that deliberately leave the group are not chased.
+Timeout or transport failure does not prove an external mutation did not occur;
+the operation coordinator must retain an unknown outcome and reconcile it.
+
+Preview never invokes this transport. The removal executor currently retains its
+nonempty-external-plan guard until the persisted external-action coordinator is
+connected.

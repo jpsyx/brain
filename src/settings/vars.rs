@@ -88,6 +88,12 @@ fn parse_value(raw: &str) -> Value {
 }
 
 fn parse_setting_value(name: &str, raw: &str) -> Result<Value> {
+    if name == crate::tasks::removal::integration::config::POLICY {
+        let value: Value = serde_json::from_str(raw)
+            .map_err(|_| anyhow::anyhow!("task removal policy must be JSON"))?;
+        crate::tasks::removal::integration::config::parse_policy(value.clone())?;
+        return Ok(value);
+    }
     if matches!(name, "allowed_mcps" | "allowed_skills") {
         let names = if raw.trim_start().starts_with('[') {
             serde_json::from_str::<Vec<String>>(raw).map_err(|error| {

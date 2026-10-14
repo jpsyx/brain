@@ -3,6 +3,7 @@
 pub(crate) mod dependencies;
 pub(crate) mod external_policy;
 pub(crate) mod fingerprint;
+pub(crate) mod integration;
 pub(crate) mod model;
 pub(crate) mod plan;
 pub(crate) mod projects;

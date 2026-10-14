@@ -1075,6 +1075,15 @@ Its options default to no habit opt-in, rejected dependents, and configured
 linked-issue handling. Domain failures retain a stable `code`, human-readable
 `message`, and structured JSON `details`.
 
+Portable `task_removal_integration` is absent/null by default (keep). It contains
+only adapter name, the v1 `linear_issue` field, and keep/cancel policy. Machine
+`task_removal_adapters` belongs only to the UUID-pinned selected workspace record
+and defaults to an empty map. Validated snapshots retain adapter argv, a sorted
+set of allowed environment names, and timeout in milliseconds. OS environment
+values and presence are never serialized or fingerprinted. Full and dotted env
+updates validate the merged adapter map before persistence. See
+[config.md](config.md#task-removal-integrations) for the exact configuration.
+
 Snapshot resolution reuses the completion locator for explicit display IDs,
 unambiguous bare numbers, and unique name fragments. It resolves every input
 before returning, deduplicates row selections, and orders them by CSV kind and
