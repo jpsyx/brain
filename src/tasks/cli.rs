@@ -24,8 +24,8 @@ use clap::{Args, Parser, Subcommand};
                   You can also pass a date (YYYY-MM-DD), 'tomorrow', 'yesterday', or a weekday\n\
                   name like 'friday' / 'next monday' to filter by a specific due date.\n\
                   \n\
-                  Subcommands: `tasks complete t123` (alias: `finish`) hands the ID to claude\n\
-                  with a `/todo done T123` prompt prefilled — claude does the actual mutation.\n\
+                  Subcommands: `tasks complete t123` (alias: `finish`) completes the row natively\n\
+                  and refreshes the agenda. No agent frontend is needed.\n\
                   Natural-language equivalents: `tasks mark t123`, `tasks mark t123 done`,\n\
                   `tasks mark t123 as done` all map to the same complete command.\n\
                   \n\

@@ -1,7 +1,7 @@
 # Deterministic task deletion
 
 **Date:** 2026-10-14
-**Status:** Design accepted in conversation; specification prepared for implementation.
+**Status:** Core implementation complete; final acceptance and private deployment pending.
 **Source baseline:** `fe477ec` (`0.101.0`).
 **Implementation plan:** [Deterministic task deletion](../plans/2026-10-14-deterministic-task-deletion.md).
 
@@ -11,24 +11,24 @@ changes from the CLI, TUI, and skill workflows. Confirmation remains a user
 decision; deciding which references are worth preserving is no longer an
 agent decision.
 
-## Current behavior and problem
+## Original baseline behavior and problem
 
-`src/tui/app_actions/commands.rs::run_remove` validates the selected row and
-sends a prompt to the agent frontend after the TUI confirmation. The prompt
-asks the agent to inspect chunked siblings, blockers, and project references,
+At the source baseline, `src/tui/app_actions/commands.rs::run_remove` validated
+the selected row and sent a prompt to the agent frontend after TUI confirmation.
+The prompt asked the agent to inspect chunked siblings, blockers, and project references,
 then decide whether to delete or offer alternatives. One suggested alternative,
 `status=dropped`, is not a supported task status.
 
-`src/tasks/mutate/remove.rs::remove_in_root` already removes one row natively,
-protects managed triage habits, requires `--habit` for habit rows, and refreshes
-the agenda. It does not repair other tasks' references or project metadata.
-It currently uses the agenda's defer action. Separate backlog removal paths
-perform their own writes. Completion and agenda chunk handoff both search for
-exactly index + 1, so deleting a middle chunk leaves a gap they cannot cross.
+The baseline `src/tasks/mutate/remove.rs::remove_in_root` removed one row
+natively, protected managed triage habits, required `--habit` for habit rows,
+and refreshed the agenda. It did not repair other tasks' references or project
+metadata, and used the agenda's defer action. Separate backlog removal paths
+performed their own writes. Completion and agenda chunk handoff searched for
+exactly index + 1, so deleting a middle chunk left a gap they could not cross.
 
-Skill installation already has version stamps, startup sync, and a
-machine-wide legacy migration. They overlap, have different auto-sync gates,
-and are not a reliable installer-time, per-workspace compatibility migration.
+Baseline skill installation had version stamps, startup sync, and a
+machine-wide legacy migration. They overlapped, had different auto-sync gates,
+and lacked a reliable installer-time, per-workspace compatibility migration.
 
 ## Scope and alternatives
 

@@ -101,6 +101,10 @@ impl Fixture {
         serde_json::from_slice(&output.stdout).expect("one JSON stdout document")
     }
 
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
+    }
+
     pub fn canonical_bytes(&self) -> BTreeMap<PathBuf, Vec<u8>> {
         walkdir::WalkDir::new(&self.root)
             .into_iter()

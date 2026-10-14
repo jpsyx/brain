@@ -1488,9 +1488,9 @@ universal default set (`mit`, `personal`, `work`); any other tag renders as its
 raw name until a style is added under that persona's `tag_styles`. So the public
 binary carries no personal taxonomy.
 
-**Every mutation re-renders skills.** `persona set`/`edit`, onboarding, and
-`config set` all run the active deterministic render/install pipeline so the
-installed skills stay aligned with the selected workspace.
+**Routine mutation refresh respects `skills_auto_sync`.** `persona set`/`edit`,
+onboarding, and `config set` run the deterministic render/install pipeline when
+that preference is enabled, keeping installed skills aligned with the workspace.
 
 Like `config`, `persona` runs before the `markdown-to-pdf` prerequisite
 gate, so it always works. See [config.md](config.md) and
@@ -1541,6 +1541,12 @@ committed manifest receipt, then verifies managed artifacts. Missing files are
 repaired even at the same version; edited owned files are protected conflicts.
 Current TUI startup avoids duplicate writes. Actor capability renders continue
 to use current embedded sources at the next launch.
+
+For a structured repair report:
+
+```sh
+brain skills sync --all-workspaces --json
+```
 
 `brain skills sync --all-workspaces [--json]` reads the registry without selecting
 a default workspace, checks root/manifest identity, and attempts every available
@@ -2824,6 +2830,7 @@ a direct cloud URL cannot decrypt it. Server-side B2 encryption is compatible.
 Progress and expiry go to stderr; stdout contains only the URL, or the JSON
 result requested by `--json` (unless global `--verbose` is explicitly enabled).
 
+## Native task removal
 
 Native task removal uses a consented plan and the shared grouped
 transaction, including dependency and project-reference policy. The service
@@ -2839,8 +2846,8 @@ preflights run before the first cancellation; a partial failure preserves the
 local task group and supplies an operation ID. Resume queries uncertain outcomes
 and never repeats a confirmed cancellation. Remote success cannot override local
 edits, policy changes, actor identity, or changed adapter configuration: local
-commit requires the complete original snapshot to match again. After status
-resolves uncertain history, an uncommitted operation can be abandoned while
+commit requires the complete original snapshot to match again. After resume
+queries provider status and resolves uncertain history, an uncommitted operation can be abandoned while
 preserving local rows and the external history. Active executors and unknown
 outcomes block abandonment. Status remains a read-only view of saved progress.
 
@@ -2855,7 +2862,23 @@ agent-tool cancellation, and conversion reports incomplete source removal.
 Backlog purge/dedupe retain their specialized commands. Notes and projects
 retain their archive workflow.
 
-`brain tasks remove T17 T18 --dry-run --json` returns a versioned preview with
+The following commands show preview, dependency rewiring, keeping linked issues
+for a batch, and explicit habit removal:
+
+```sh
+brain tasks remove T17 --dry-run --json
+brain tasks remove T17 --dependents rewire --yes
+brain tasks remove T17 T18 --linked-issue keep --yes --json
+brain tasks remove H42 --habit --yes
+```
+
+Only the selected rows are removed. `reject` blocks surviving dependents;
+`unlink` removes their references to selected rows; `rewire` replaces those
+references with surviving prerequisites. There is no recursive cascade deletion.
+Habit intent does not expand to completed history, and managed triage habits
+remain protected.
+
+`brain tasks remove T17 --dry-run --json` returns a versioned preview with
 its fingerprint, resolved targets, effects, and typed blockers. Targets are
 resolved together, deduplicated, and sorted; inherited listing filters and
 alternate CSV selectors are rejected. Dry-run needs no consent and does not
@@ -2866,6 +2889,8 @@ A terminal caller receives the concrete preview, fixed choices for omitted
 policies when they block execution, and an explicit `yes` confirmation.
 `--yes` records consent without choosing policies or bypassing protection.
 JSON and nonterminal callers never prompt; apply requires `--yes`.
+Confirmation is independent of agent use: a human can preview and confirm
+directly, and CLI and TUI execution use the native service.
 `--expect-plan HASH` must match the fresh preview, and apply validates the
 exact displayed plan against a freshly read date. It cannot be used with dry-run.
 
@@ -2874,8 +2899,40 @@ exact displayed plan against a freshly read date. It cannot be used with dry-run
 `--abandon OPERATION_ID --yes [--json]` closes an eligible uncommitted operation.
 These modes reject targets, habit/policy/preview/fingerprint flags; resume and
 status also reject `--yes`. Their service paths bypass target selection and the
-ordinary mutator session. Status uses read-only workspace bootstrap and suppresses receiver startup;
-apply/resume/abandon retain mutation-ready workspace bootstrap.
+ordinary mutator session. Status skips selected-workspace readiness/actor repair,
+removal transaction recovery, adapters, receiver startup, and operation/task
+writes. Mandatory machine migrations and managed-skill compatibility reconciliation
+still run first on every non-help/version invocation. Apply/resume/abandon retain
+mutation-ready workspace bootstrap.
+
+For example, a saved operation's public status envelope has this shape (the
+fingerprint and UUIDs here are synthetic):
+
+```json
+{
+  "schema_version": 1,
+  "kind": "operation",
+  "operation_id": "532d1706-e73a-41cd-b3b1-e5e68be88974",
+  "phase": "prepared",
+  "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "targets": [{
+    "csv": "tasks",
+    "task_id": "T17",
+    "task_uuid": "8eac10ae-dd71-434f-a67d-e041222fb7af",
+    "task_name": "Example task"
+  }],
+  "external": [],
+  "receipt": null
+}
+```
+
+Use the returned `operation_id` for status/resume/abandon. Status reads saved
+local evidence; only resume queries uncertain provider outcomes. Partial remote
+success cannot be rolled back by a local transaction: an external failure keeps
+all local rows and reports `external_pending` plus the operation ID. Resume
+preserves acknowledged successes. Abandon closes only an eligible uncommitted
+operation and preserves both local rows and recorded external effects; it cannot
+undo a committed removal or an already completed remote cancellation.
 
 JSON writes exactly one `schema_version: 1` object to stdout, including with
 `--verbose`; human output and diagnostics go to stderr. Kinds are `preview`,
@@ -2904,6 +2961,11 @@ created when none existed. An interrupted LocalCommitted refresh retries its
 existing printable even if Markdown is already accurate; a saved Complete
 receipt returns unchanged without rerendering. Rendering failure cannot undo
 canonical removal or add agenda paths to the receipt's canonical `updated` list.
+
+Removal adds no sync tombstones, cascade policy, or CSV merge-policy changes.
+The existing three-way task sync keeps its delete-versus-edit reconciliation
+rules: deletion against an unchanged row deletes it, while delete versus edit
+keeps the edit and records a soft conflict.
 
 ### Native removal from the tasks view and backlog maintenance
 

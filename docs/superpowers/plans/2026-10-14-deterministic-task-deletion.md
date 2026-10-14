@@ -12,7 +12,7 @@
 
 **Baseline:** `fe477ec`, version `0.101.0`. Reconcile paths with the execution checkout before starting; do not overwrite intervening work.
 
-**Status:** Planning artifact. No implementation step below has been executed.
+**Status:** Core implementation complete. Behavior documentation and installed-output coverage are implemented; final acceptance and private deployment remain pending. The checklist below records the approved plan, not a claim that final gates or deployment have completed.
 
 ---
 

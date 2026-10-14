@@ -1055,13 +1055,14 @@ Mandatory bundled compatibility repair remains enabled. The pipeline never write
 registry or global frontend skill directories. See
 the B spec under `docs/superpowers/specs/`.
 
-**Receipt-aware compatibility reconciliation.** Ready-workspace bootstrap and
-TUI startup use the same revision-aware coordinator. Registered roots are read
+**Receipt-aware compatibility reconciliation.** The mandatory machine migration
+callback runs the revision-aware coordinator before ordinary dispatch; selected
+bootstrap and TUI startup reuse that result. Registered roots are read
 without selected readiness, in canonical-name order. Missing roots remain
 pending without being created; identity or install failures do not prevent the
 other roots from being attempted. No machine-wide skill done marker is used.
-Selected startup checks and the all-root pass share the same currentness rules,
-so the TUI does not rewrite an already-current installation.
+The TUI does not repeat the all-root pass or rewrite an already-current
+installation.
 
 The authoritative `meta('skills_install_receipt')` JSON stores binary version,
 compatibility revision (currently 1), and the SHA-256 of the committed managed
@@ -1705,8 +1706,10 @@ The removal service takes operation ownership before task ownership, recomputes
 consent against the selected actor and workspace, and retains Prepared progress
 before invoking the shared grouped engine. Its journal embeds a scoped commit
 record so recovery can publish `task-removals/<operation-uuid>.commit.json`
-without acquiring an operation lock. That immutable receipt must be durable
-before the committed journal can disappear. Progress uses a separate atomic
+without acquiring an operation lock. The grouped engine's immutable local commit
+acknowledgement distinguishes a committed deletion from interrupted mutable
+progress. That immutable receipt must be durable before the committed journal
+can disappear. Progress uses a separate atomic
 0600 JSON record under an operation-specific lock. Status only reads records;
 preview acquires inspection ownership and refuses a pending known journal with
 `recovery_required`, without reading a partially installed generation or writing
@@ -1736,7 +1739,10 @@ operational exit 1. Delegated task syntax is parsed before bootstrap/logging so
 clap owns syntax errors; JSON removal disables mirrored verbose stdout from the
 first log record and gates readiness/persona interaction without relaxing
 readiness requirements. Operation status uses the existing read-only workspace bootstrap, skips verbose
-log-file creation and receiver startup, and never recovers task journals.
+log-file creation, selected readiness/actor repair and receiver startup, and never
+recovers task journals, invokes adapters or writes operation/task data. Mandatory
+machine and managed-skill compatibility migrations still precede that dispatch;
+read-only operation observation does not make the whole process side-effect free.
 Mutation-ready bootstrap still precedes apply/resume/abandon and dry-run dispatch.
 All removal modes skip the startup PDF prerequisite gate; after a commit,
 derived-output handling owns renderer failures.

@@ -38,26 +38,11 @@ fn referenced_commands(markdown: &str) -> BTreeSet<Vec<String>> {
             collect_from(line, &mut found);
             continue;
         }
-        for span in code_spans(line) {
+        for span in parsing::code_spans(line) {
             collect_from(span, &mut found);
         }
     }
     found
-}
-
-/// The contents of every `` `…` `` span on one line.
-fn code_spans(line: &str) -> Vec<&str> {
-    let mut spans = Vec::new();
-    let mut rest = line;
-    while let Some(open) = rest.find('`') {
-        rest = &rest[open + 1..];
-        let Some(close) = rest.find('`') else {
-            break;
-        };
-        spans.push(&rest[..close]);
-        rest = &rest[close + 1..];
-    }
-    spans
 }
 
 /// Every `brain <a> [b]` in one chunk of code text.
@@ -159,55 +144,11 @@ fn complete_removal_examples_parse_instead_of_only_the_command_name() {
     let mut templates = 0;
     for file in files {
         let markdown = std::fs::read_to_string(&file).unwrap();
-        let mut fenced = false;
-        for line in markdown.lines() {
-            if line.trim_start().starts_with("```") {
-                fenced = !fenced;
-                continue;
-            }
-            let chunks = if fenced || line.starts_with("    ") {
-                vec![line.trim()]
-            } else {
-                code_spans(line)
-            };
-            for chunk in chunks {
-                let words: Vec<_> = chunk.split_whitespace().collect();
-                if words.first() != Some(&"brain")
-                    || !words.windows(2).any(|pair| pair == ["tasks", "remove"])
-                    || words.len() < 4
-                    || words
-                        .iter()
-                        .any(|word| word.contains('<') || word.contains('…'))
-                {
-                    continue;
-                }
-                let is_template = words.iter().any(|word| word.contains('$'));
-                let concrete: Vec<_> = words
-                    .iter()
-                    .map(|word| match *word {
-                        "\"$fingerprint\"" => parsing::HASH,
-                        "\"$operation_id\"" => "operation-1",
-                        other => {
-                            assert!(
-                                !other.contains('$'),
-                                "undocumented template in {}: {chunk}",
-                                file.display()
-                            );
-                            other
-                        }
-                    })
-                    .collect();
-                parsing::parse(&concrete)
-                    .unwrap_or_else(|error| panic!("{}: {chunk}: {error}", file.display()));
-                assert!(
-                    parsing::EXAMPLES.contains(&concrete.as_slice()),
-                    "example needs a matching concrete argv table row: {chunk}"
-                );
-                templates += usize::from(is_template);
-                examples.insert(concrete.join(" "));
-            }
-        }
+        let (found, count) = parsing::removal_examples(&markdown);
+        examples.extend(found);
+        templates += count;
     }
+
     assert!(
         examples.len() >= 9,
         "expected full preview, apply, policy, habit, fingerprint and lifecycle examples; found {examples:?}"

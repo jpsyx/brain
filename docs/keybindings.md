@@ -119,7 +119,7 @@ startup default.
 | `r` | Reload `tasks.csv` + `habits.csv` |
 | `Enter` | Open the task actions modal for the selected entry |
 | `Ctrl+D` | Mark the selected task complete (confirm modal). `0x04`, no kitty protocol needed |
-| `Ctrl+Backspace` | Preview native removal of the selected task (tasks only). Bare Backspace is a no-op |
+| `Ctrl+Backspace` | Preview native removal of the selected task, then confirm in the modal (tasks only). Bare Backspace is a no-op |
 | `Ctrl+O` | Open the selected entry's links (Linear issue + notes URLs) |
 | `Ctrl+Enter` | Open the task actions modal (mainly for search mode) |
 | `Ctrl+P` | Open the global command palette (every command brain has) |
@@ -371,7 +371,8 @@ copies the link to the clipboard; Enter retries copying and Esc closes it.
 ### Native removal modal
 
 These captive controls are available after Ctrl+Backspace or the Remove palette
-command; they do not add global shortcuts.
+command; they do not add global shortcuts. Confirmation executes the native
+service without handing the task to an agent.
 
 | Key | Action |
 | --- | --- |

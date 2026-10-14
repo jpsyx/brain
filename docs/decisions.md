@@ -1880,6 +1880,12 @@ as one receipt. The installer owns publication, recovery and fallible stamping
 under one lock; the coordinator reuses that boundary and its ownership planner.
 Explicit sync also checks source changes at equal versions. Routine mutations
 remain optional, and the configured preference is never silently rewritten.
+Compatibility refresh is mandatory before every non-help/version dispatch,
+including saved-operation status. User-owned extension/plugin sources feed the
+renderer; generated managed trees are outputs. Repair changes those outputs
+through the ownership transaction, never the customization sources. A supported
+installer downgrade must render with the actual target binary because newer
+instructions can name commands that the older executable cannot parse.
 
 All-workspace repair reads canonical registry entries once, validates portable
 identity, and attempts every available root. Missing roots remain pending without
@@ -6089,8 +6095,8 @@ Neither a transport failure nor an adapter error proves that the provider did
 nothing. Resume must query unknown actions before retrying, and only a provider
 pending result authorizes retry of a previously invoked cancellation.
 
-Status reconciliation may record old external history after local edits, but
-only through the unchanged saved integration. This lets an actor safely abandon
+Resume's provider-status reconciliation may record old external history after
+local edits, but only through the unchanged saved integration. This lets an actor safely abandon
 a partial operation without restoring local rows merely to learn its outcome.
 Reconciliation never authorizes new cancellation or local effects: both require
 complete original snapshot equality. A running executor owns its operation, so

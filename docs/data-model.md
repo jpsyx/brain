@@ -1145,6 +1145,12 @@ contains the optional full portable policy (adapter name, `linear_issue` link
 field, and `keep`/`cancel` action) and selected machine adapter argv, sorted
 environment variable names, and timeout. It cannot carry environment values.
 
+`RemovalPlan` is the private consent-bound before/after plan;
+`operations::Receipt` is the durable record of what committed, rather than a
+second public plan API. Public CLI envelopes expose only their safe projections.
+The [operation and receipt storage](#removal-operation-and-receipt-storage)
+contract below defines phases and the separate immutable acknowledgement.
+
 `plan::plan(snapshot, targets, options)` composes a pure, serializable preview:
 resolved identities, canonical fingerprint, ordered file before/after images,
 grouped external actions, agenda successor IDs, blockers, and warnings. Any
@@ -1161,6 +1167,9 @@ canonical matching and numeric ordering, retain the first original token for exi
 stored surviving display IDs for new rewire edges. Unchanged fields retain their
 original values.
 
+Chunk families use base title, original session total and project. Duplicate
+positions or same-title dependency edges crossing those family keys return
+`ambiguous_chunk_family` before mutation; deletion does not guess a family.
 Chunk evidence is validated against the full original snapshot before deleted
 sessions are filtered. Each removed session maps to the next surviving unfinished
 family session only when that selected session is `not_started`/`in_progress`,

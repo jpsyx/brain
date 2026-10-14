@@ -1,5 +1,7 @@
 //! Concrete skill examples traverse the same two parsers as the binary.
 
+#[path = "skill_command_examples/installed.rs"]
+mod installed;
 #[path = "skill_command_examples/parsing.rs"]
 mod parsing;
 #[path = "skill_command_examples/workspace.rs"]
@@ -233,4 +235,49 @@ fn removal_mode_examples_use_the_binarys_private_typed_validation() {
     parsing::parse(&example).unwrap();
     assert_eq!(fixture.json(&example, 0)["kind"], "preview");
     assert_eq!(fixture.canonical_bytes(), before);
+}
+
+#[test]
+fn native_completion_long_help_describes_native_mutation() {
+    use clap::CommandFactory as _;
+    let help = brain::tasks::cli::Cli::command()
+        .render_long_help()
+        .to_string();
+    assert!(help.contains("completes the row natively"), "{help}");
+    assert!(help.contains("refreshes the agenda"), "{help}");
+    assert!(!help.contains("hands the ID to claude"), "{help}");
+}
+
+#[test]
+fn feature_examples_keep_all_removal_arguments() {
+    let features = include_str!("../docs/features.md");
+    for example in [
+        &["brain", "tasks", "remove", "T17", "--dry-run", "--json"][..],
+        &[
+            "brain",
+            "tasks",
+            "remove",
+            "T17",
+            "--dependents",
+            "rewire",
+            "--yes",
+        ],
+        &[
+            "brain",
+            "tasks",
+            "remove",
+            "T17",
+            "T18",
+            "--linked-issue",
+            "keep",
+            "--yes",
+            "--json",
+        ],
+        &["brain", "tasks", "remove", "H42", "--habit", "--yes"],
+    ] {
+        assert!(features.contains(&example.join(" ")));
+        assert!(parsing::EXAMPLES.contains(&example));
+        parsing::parse(example).unwrap();
+    }
+    assert!(features.contains("brain skills sync --all-workspaces --json"));
 }

@@ -2581,6 +2581,11 @@ bucket permissions, cron jobs, or public-bucket copies are created.
 
 ## Task removal adapter protocol
 
+Removal adapters are optional. With no portable integration policy, configured
+removal keeps linked issues and launches no adapter. An explicit keep policy also
+skips cancellation. Confirmation uses the native removal service, regardless of
+whether a human or an agent collected consent.
+
 Removal adapters receive one JSON request on stdin and produce exactly one JSON
 response on stdout. Both objects reject unknown fields. Requests contain
 `schema_version: 1`, `operation_id`, `action_id`, `workspace_id`, `actor_id`,
@@ -2638,8 +2643,8 @@ with `details.operation_id`, `details.action_id`, `details.stage` (`preflight`,
 `timeout`, `exit`, `protocol`, or `provider_error`. These codes preserve typed
 failure information without copying diagnostic text or changing unknown intent.
 
-Status reconciliation uses the original operation/action/workspace/actor IDs
-and only an exactly matching selected integration snapshot. It may establish
+Resume's provider-status reconciliation uses the original operation, action,
+workspace and actor IDs and only an exactly matching selected integration snapshot. It may establish
 old external history after local edits, but a complete snapshot check then
 blocks further cancellation and local commit until original consent matches.
 Abandon can preserve a reconciled partial history without deleting local rows.

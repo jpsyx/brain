@@ -1272,6 +1272,16 @@ first move is a failing test that reproduces it, *then* the fix.
   directory; refused commands and previews preserve canonical bytes. The skill
   contract guard prevents fallback to direct row/project-array edits and requires
   preview-bound consent, native recovery, and incomplete conversion reporting.
+  `installed_deletion_skill_contract` runs the compiled binary's real
+  `skills sync --all-workspaces --json` in that isolated registered workspace,
+  then reads regular Markdown from `.agents/skills` without following frontend
+  links. It checks native removal/routing in installed todo, triage and
+  second-brain files, retained rendered extension content, unchanged extension
+  source bytes and canonical task/project bytes. Installed and source removal
+  commands share the same full-argv extraction, concrete vectors and parsers;
+  the skills-sync example separately asserts the real outer parser's flags.
+  A long-help guard covers native completion and agenda refresh, preventing
+  stale instructions that delegate the native mutation to an agent.
 - **The ported task commands** (`tasks/mutate/tests/`, `tasks/backlog/tests.rs`,
   `tasks/scan/tests.rs`, `tasks/rules/tests.rs`, `tasks/habits/tests.rs`,
   `contacts/tests.rs`). Each is a pure decision over CSV rows and a fixed date,

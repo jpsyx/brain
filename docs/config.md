@@ -908,10 +908,12 @@ fine with none, and skills fall back to generic behavior. A member with no
 persona is prompted for one on their own machine's next `brain` command, and
 reported (never prompted for) as the `other members' personas` optional feature in
 `brain workspace status`. Any
-`persona`/`config` mutation triggers the active deterministic skill
-render-and-install pipeline (`skills::resync_skills`) so the installed skills
-stay in sync. The first ready-workspace invocation after a Brain version change
-also runs that pipeline when `skills_auto_sync` is enabled.
+`persona`/`config` mutation triggers the deterministic skill render-and-install
+pipeline (`skills::resync_skills`) when `skills_auto_sync` is enabled. Mandatory
+machine and managed-skill compatibility migrations run before every non-help/version
+invocation, including read-only operation status, regardless of that preference.
+They verify the committed receipt and managed artifacts, repairing missing output
+without rewriting the preference or user extension/plugin sources.
 
 ## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 
