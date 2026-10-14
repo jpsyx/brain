@@ -1,7 +1,10 @@
 //! Durable external intent and acknowledgement under operation ownership only.
 use super::{
     execute::{operational, problem},
-    integration::{config, process, protocol::Request},
+    integration::{
+        config, process,
+        protocol::{ErrorKind, Request},
+    },
     model::{AdapterSnapshot, IntegrationSnapshot, Problem},
     operations::{ExternalState, Operation, OperationOwner, Phase},
 };
@@ -26,12 +29,11 @@ pub(super) fn reconcile(
         if operation.external[index].state != ExternalState::Unknown {
             continue;
         }
-        let request = request(operation, index, "status");
-        let response = process::invoke(&adapter, &request);
-        let state = match response.as_ref().map(|reply| reply.status.as_str()) {
-            Ok("canceled" | "already_canceled") => ExternalState::Succeeded,
-            Ok("pending") => ExternalState::Pending,
-            _ => return Err(pending(operation, index)),
+        let response = invoke(&adapter, operation, index, "status")?;
+        let state = match response.as_str() {
+            "canceled" | "already_canceled" => ExternalState::Succeeded,
+            "pending" => ExternalState::Pending,
+            _ => return Err(failed(operation, index, "status", "protocol")),
         };
         operation.external[index].state = state;
         save(context, ownership, operation)?;
@@ -66,12 +68,8 @@ pub(super) fn cancel(
             ExternalState::Unknown => return Err(pending(operation, index)),
             ExternalState::Pending => {}
         }
-        let response = process::invoke(&adapter, &request(operation, index, "preflight"));
-        if !matches!(
-            response.as_ref().map(|reply| reply.status.as_str()),
-            Ok("ready")
-        ) {
-            return Err(pending(operation, index));
+        if invoke(&adapter, operation, index, "preflight")? != "ready" {
+            return Err(failed(operation, index, "preflight", "protocol"));
         }
     }
     operation.phase = Phase::ExternalPending;
@@ -84,12 +82,9 @@ pub(super) fn cancel(
         // acknowledgement must resume through status rather than blind retry.
         operation.external[index].state = ExternalState::Unknown;
         save(context, ownership, operation)?;
-        let response = process::invoke(&adapter, &request(operation, index, "cancel"));
-        if !matches!(
-            response.as_ref().map(|reply| reply.status.as_str()),
-            Ok("canceled" | "already_canceled")
-        ) {
-            return Err(pending(operation, index));
+        let response = invoke(&adapter, operation, index, "cancel")?;
+        if !matches!(response.as_str(), "canceled" | "already_canceled") {
+            return Err(failed(operation, index, "cancel", "protocol"));
         }
         operation.external[index].state = ExternalState::Succeeded;
         save(context, ownership, operation)?;
@@ -134,6 +129,42 @@ fn adapter(
         save(context, ownership, operation)?;
     }
     result.map_err(|error| identified(operation, error))
+}
+
+/// Preserve transport classification without returning or persisting diagnostics.
+fn invoke(
+    adapter: &AdapterSnapshot,
+    operation: &Operation,
+    index: usize,
+    stage: &str,
+) -> Result<String, Problem> {
+    let response = process::invoke(adapter, &request(operation, index, stage))
+        .map_err(|error| failed(operation, index, stage, cause(error.kind)))?;
+    if response.status == "error" {
+        return Err(failed(operation, index, stage, "provider_error"));
+    }
+    Ok(response.status)
+}
+
+const fn cause(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::Configuration => "configuration",
+        ErrorKind::RequestTooLarge => "request_too_large",
+        ErrorKind::ResponseTooLarge => "response_too_large",
+        ErrorKind::StderrTooLarge => "stderr_too_large",
+        ErrorKind::Spawn => "spawn",
+        ErrorKind::Io => "io",
+        ErrorKind::Timeout => "timeout",
+        ErrorKind::Exit => "exit",
+        ErrorKind::Protocol => "protocol",
+    }
+}
+
+fn failed(operation: &Operation, index: usize, stage: &str, cause: &str) -> Problem {
+    let mut error = pending(operation, index);
+    error.details["stage"] = serde_json::json!(stage);
+    error.details["cause"] = serde_json::json!(cause);
+    error
 }
 
 fn request(operation: &Operation, index: usize, action: &str) -> Request {
