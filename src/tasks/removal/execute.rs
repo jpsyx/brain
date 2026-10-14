@@ -62,15 +62,52 @@ pub(super) fn apply_with_hook(
         canonical_inputs,
         plan: plan.clone(),
         phase: Phase::Prepared,
-        external: Vec::new(),
+        external: plan.external.iter().map(Into::into).collect(),
         receipt: None,
     };
     ownership
         .save(&context.workspace, &operation)
         .map_err(|error| operational("operation_unavailable", &error))?;
-    commit(context, &mut operation, &owner, hook)?;
-    drop(owner);
+    if operation.external.is_empty() {
+        commit(context, &mut operation, &owner, hook)?;
+        drop(owner);
+    } else {
+        drop(owner);
+        external_commit(context, &ownership, &mut operation, hook)?;
+    }
     finish(context, &ownership, &mut operation)
+}
+
+/// Network invocations hold operation ownership only. Reacquire task ownership
+/// and compare the complete original consent after the last external action.
+pub(super) fn external_commit(
+    context: &CommandContext,
+    ownership: &OperationOwner,
+    operation: &mut Operation,
+    hook: impl FnMut(crate::tasks::store_transaction::TransactionStep) -> std::io::Result<()>,
+) -> Result<(), Problem> {
+    super::external::cancel(context, ownership, operation)?;
+    let owner = TaskStoreOwner::acquire(&context.workspace).map_err(|error| {
+        super::external::identified(operation, operational("ownership_failed", &error))
+    })?;
+    revalidate(context, ownership, operation, &owner)?;
+    commit(context, operation, &owner, hook)
+}
+
+pub(super) fn revalidate(
+    context: &CommandContext,
+    ownership: &OperationOwner,
+    operation: &mut Operation,
+    owner: &TaskStoreOwner,
+) -> Result<(), Problem> {
+    let result = snapshot(context, chrono::Local::now().date_naive(), owner)
+        .and_then(|current| validate(&current, &operation.plan, &operation.fingerprint));
+    if let Err(error) = result {
+        operation.phase = Phase::NeedsReconfirmation;
+        super::external::save(context, ownership, operation)?;
+        return Err(super::external::identified(operation, error));
+    }
+    Ok(())
 }
 
 pub(super) fn commit(
@@ -202,12 +239,6 @@ pub(super) fn validate(
     }
     if let Some(blocker) = current.blockers.first() {
         return Err(blocker.clone());
-    }
-    if !current.external.is_empty() {
-        return Err(problem(
-            "external_actions_pending",
-            "External actions must complete before local removal",
-        ));
     }
     Ok(())
 }

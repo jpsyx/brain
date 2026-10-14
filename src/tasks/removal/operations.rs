@@ -1,5 +1,5 @@
 //! Durable operation progress, separate from immutable local commit evidence.
-use super::model::{Identity, Problem, RemovalPlan};
+use super::model::{ExternalAction, Identity, Problem, RemovalPlan};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,7 +21,7 @@ pub(crate) struct Receipt {
     pub removed: Vec<Identity>,
     /// Sorted, deduplicated workspace-relative canonical files changed by the commit.
     pub updated: Vec<String>,
-    pub external: Vec<serde_json::Value>,
+    pub external: Vec<ExternalProgress>,
     pub warnings: Vec<Problem>,
 }
 
@@ -38,7 +38,7 @@ pub(crate) struct Operation {
     pub canonical_inputs: serde_json::Value,
     pub plan: RemovalPlan,
     pub phase: Phase,
-    pub external: Vec<serde_json::Value>,
+    pub external: Vec<ExternalProgress>,
     pub receipt: Option<Receipt>,
 }
 
@@ -54,3 +54,35 @@ pub(crate) struct CommitRecord {
 mod storage;
 pub(super) use storage::{OperationOwner, load, load_commit};
 pub(crate) use storage::{persist_commit, validate_commit};
+
+/// Unknown is persisted before invocation and survives every ambiguous failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExternalState {
+    Pending,
+    Unknown,
+    Succeeded,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExternalProgress {
+    pub action_id: String,
+    pub adapter: String,
+    pub issue: String,
+    pub state: ExternalState,
+}
+
+impl From<&ExternalAction> for ExternalProgress {
+    fn from(action: &ExternalAction) -> Self {
+        Self {
+            action_id: action.action_id.clone(),
+            adapter: action.adapter.clone(),
+            issue: action.issue.clone(),
+            state: ExternalState::Pending,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

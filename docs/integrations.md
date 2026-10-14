@@ -2623,6 +2623,18 @@ descendant's pipe. Descendants that deliberately leave the group are not chased.
 Timeout or transport failure does not prove an external mutation did not occur;
 the operation coordinator must retain an unknown outcome and reconcile it.
 
-Preview never invokes this transport. The removal executor currently retains its
-nonempty-external-plan guard until the persisted external-action coordinator is
-connected.
+Preview and operation status never invoke this transport. The removal coordinator
+preflights every remaining issue before canceling any, persists unknown intent
+before each cancel, and records each acknowledged `canceled` or `already_canceled`
+outcome before continuing. A decoded `error` response is not success evidence;
+transport failures and error responses retain unknown cancel intent. Resume
+queries status for unknown actions, retries only confirmed unfinished actions,
+and skips acknowledged successes. No task-store owner is retained during any
+preflight, status, or cancel invocation. Provider diagnostics are not copied to
+operation progress or receipts.
+
+Status reconciliation uses the original operation/action/workspace/actor IDs
+and only an exactly matching selected integration snapshot. It may establish
+old external history after local edits, but a complete snapshot check then
+blocks further cancellation and local commit until original consent matches.
+Abandon can preserve a reconciled partial history without deleting local rows.

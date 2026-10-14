@@ -1674,6 +1674,16 @@ agenda effects and richer derived-output warnings are a subsequent integration.
 The old single-target remove shell now calls this service with CommandContext
 and never opens its older task-owned Session before operation ownership.
 
+`removal/external` coordinates persisted pending/unknown/succeeded actions under
+operation ownership. Apply releases task ownership for preflight and cancel;
+resume also releases it for status reconciliation. After all external actions
+succeed, execute reacquires task ownership and revalidates the entire original
+plan before using the same grouped local engine. Resume may reconcile unknown
+history after local edits using unchanged integration semantics, then reacquires
+task ownership to reject stale consent before any additional cancellation.
+Abandon uses nonblocking operation ownership, refuses unknown external outcomes,
+and preserves completed external history alongside the unchanged local rows.
+
 Removal's `integration/config` validates the portable optional policy and the
 UUID-pinned selected registry adapter map, then supplies a secret-free snapshot.
 `integration/protocol` owns strict DTO matching and typed adapter errors.

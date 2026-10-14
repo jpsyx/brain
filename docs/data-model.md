@@ -2866,6 +2866,21 @@ derived-output warnings, but cannot override immutable local commit facts.
 
 Uncommitted resume rechecks the original plan against the current local date
 and selected actor. A changed fingerprint requires reconfirmation. Committed
-operations cannot be abandoned. Status does not recover journals. The local-only
-executor refuses configured integrations and pending external actions until
-the integration executor is connected; it cannot silently skip cancellation.
+operations cannot be abandoned. Status does not recover journals or query the
+provider. External progress contains the consented `action_id`, adapter name,
+issue, and typed `state`: `pending`, `unknown`, or `succeeded`. These identities
+must match the plan in stable order. Pending means never invoked or confirmed
+unfinished by status. Unknown intent is durable before cancel invocation;
+acknowledgement makes success durable before proceeding to the next action.
+Provider messages and credential values or presence are never persisted.
+
+All remaining preflights must be ready before cancellation begins. Partial
+failure retains every local row and returns `external_pending` with the operation
+ID. Resume queries unknown actions first and never repeats a confirmed success.
+It can reconcile old unknown history despite changed local rows, provided the
+current integration exactly matches the saved semantics. Before another cancel
+or local commit, the complete original consent must match the current snapshot;
+otherwise progress becomes `needs_reconfirmation`. No new effects are substituted.
+Only the original actor may resume or abandon. Abandon rejects an active owner
+with `operation_active`, rejects unknown outcomes with `external_pending`, and
+otherwise preserves local rows and recorded external history as `abandoned`.

@@ -6089,3 +6089,19 @@ receipt is durable. Status and resume honor that evidence over stale progress;
 completed progress can add derived-output warnings without changing local commit
 facts. Read-only preview checks for pending journals under inspection ownership
 and fails closed instead of performing recovery writes.
+
+## External removal uncertainty is durable before invocation
+
+A remote mutation cannot share the local file transaction. The coordinator
+therefore saves unknown intent before launching each cancel, records success
+before advancing, and keeps all local rows until every external action succeeds.
+Neither a transport failure nor an adapter error proves that the provider did
+nothing. Resume must query unknown actions before retrying, and only a provider
+pending result authorizes retry of a previously invoked cancellation.
+
+Status reconciliation may record old external history after local edits, but
+only through the unchanged saved integration. This lets an actor safely abandon
+a partial operation without restoring local rows merely to learn its outcome.
+Reconciliation never authorizes new cancellation or local effects: both require
+complete original snapshot equality. A running executor owns its operation, so
+abandon rejects immediately instead of waiting and acting on a later state.

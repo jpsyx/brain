@@ -15,6 +15,7 @@ pub(crate) mod snapshot;
 mod tests;
 
 mod execute;
+mod external;
 pub(crate) use execute::{apply, preview};
 
 #[allow(dead_code)] // Task12 wires the operation lifecycle command grammar.

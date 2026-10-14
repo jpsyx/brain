@@ -17,3 +17,9 @@ mod recovery;
 mod receipts;
 
 mod integration_config;
+
+mod external;
+
+mod external_recovery;
+
+mod external_network;

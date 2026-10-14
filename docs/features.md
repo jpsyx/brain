@@ -2806,3 +2806,13 @@ operation records support recovery without repeating committed deletion. A
 completed resume returns its original receipt, and status is read-only. Preview
 refuses pending recovery rather than inspecting partly installed task data.
 The expanded operation CLI is a subsequent command-surface integration.
+
+Configured linked-issue cancellation now has durable per-issue progress. All
+preflights run before the first cancellation; a partial failure preserves the
+local task group and supplies an operation ID. Resume queries uncertain outcomes
+and never repeats a confirmed cancellation. Remote success cannot override local
+edits, policy changes, actor identity, or changed adapter configuration: local
+commit requires the complete original snapshot to match again. After status
+resolves uncertain history, an uncommitted operation can be abandoned while
+preserving local rows and the external history. Active executors and unknown
+outcomes block abandonment. Status remains a read-only view of saved progress.

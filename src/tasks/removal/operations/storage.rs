@@ -41,11 +41,37 @@ pub(crate) struct OperationOwner {
 }
 impl OperationOwner {
     pub(crate) fn acquire(workspace: &WorkspaceContext, id: &str) -> Result<Self> {
+        Self::with_timeout(workspace, id, Duration::from_secs(30))
+    }
+
+    /// Explicit abandonment rejects a running executor rather than waiting to
+    /// act on whatever state that executor eventually leaves behind.
+    pub(crate) fn try_acquire(workspace: &WorkspaceContext, id: &str) -> Result<Option<Self>> {
+        match Self::with_timeout(workspace, id, Duration::ZERO) {
+            Ok(owner) => Ok(Some(owner)),
+            Err(error)
+                if error
+                    .downcast_ref::<rusqlite::Error>()
+                    .and_then(rusqlite::Error::sqlite_error_code)
+                    .is_some_and(|code| {
+                        matches!(
+                            code,
+                            rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                        )
+                    }) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn with_timeout(workspace: &WorkspaceContext, id: &str, timeout: Duration) -> Result<Self> {
         let path = path(workspace, id, "json")?;
         fs::create_dir_all(path.parent().expect("operation parent"))?;
         let lock = super::storage::path(workspace, id, "lock")?;
         let connection = rusqlite::Connection::open(lock)?;
-        connection.busy_timeout(Duration::from_secs(30))?;
+        connection.busy_timeout(timeout)?;
         connection.execute_batch("PRAGMA journal_mode = OFF; BEGIN IMMEDIATE")?;
         Ok(Self {
             _connection: connection,
@@ -80,6 +106,19 @@ fn validate_operation(workspace: &WorkspaceContext, id: &str, operation: &Operat
     ensure!(
         operation.fingerprint == operation.plan.fingerprint,
         "operation fingerprint mismatch"
+    );
+    ensure!(
+        operation.external.len() == operation.plan.external.len()
+            && operation
+                .external
+                .iter()
+                .zip(&operation.plan.external)
+                .all(|(progress, action)| {
+                    progress.action_id == action.action_id
+                        && progress.adapter == action.adapter
+                        && progress.issue == action.issue
+                }),
+        "external progress does not match consented actions"
     );
     Ok(())
 }

@@ -1,6 +1,6 @@
 //! Recovery and read-only observation of durable operations.
 use super::{
-    execute::{commit, finish, operational, problem, snapshot, validate},
+    execute::{commit, external_commit, finish, operational, problem, revalidate},
     model::Problem,
     operations::{self, Operation, OperationOwner, Phase, Receipt},
 };
@@ -69,6 +69,7 @@ fn observe(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
 
 pub(crate) fn resume(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
     let status = observe(context, id)?;
+    actor(context, &status)?;
     if status.phase == Phase::Complete {
         return status
             .receipt
@@ -105,26 +106,33 @@ pub(crate) fn resume(context: &CommandContext, id: &str) -> Result<Receipt, Prob
         drop(owner);
         return finish(context, &ownership, &mut operation);
     }
-    let today = chrono::Local::now().date_naive();
-    let current = snapshot(context, today, &owner)?;
-    if let Err(error) = validate(&current, &operation.plan, &operation.fingerprint) {
-        if error.code == "stale_plan" {
-            operation.phase = Phase::NeedsReconfirmation;
-            ownership
-                .save(&context.workspace, &operation)
-                .map_err(unavailable)?;
-        }
-        return Err(error);
+    if operation.external.is_empty() {
+        revalidate(context, &ownership, &mut operation, &owner)?;
+        commit(context, &mut operation, &owner, |_| Ok(()))?;
+        drop(owner);
+    } else {
+        drop(owner);
+        super::external::reconcile(context, &ownership, &mut operation)?;
+        let owner = TaskStoreOwner::acquire(&context.workspace).map_err(unavailable)?;
+        revalidate(context, &ownership, &mut operation, &owner)?;
+        drop(owner);
+        external_commit(context, &ownership, &mut operation, |_| Ok(()))?;
     }
-    commit(context, &mut operation, &owner, |_| Ok(()))?;
-    drop(owner);
     finish(context, &ownership, &mut operation)
 }
 
 pub(crate) fn abandon(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
     // Validate existence/scope before creating even a lock file.
-    let _ = observe(context, id)?;
-    let ownership = OperationOwner::acquire(&context.workspace, id).map_err(unavailable)?;
+    actor(context, &observe(context, id)?)?;
+    let ownership = OperationOwner::try_acquire(&context.workspace, id)
+        .map_err(unavailable)?
+        .ok_or_else(|| {
+            Problem::new(
+                "operation_active",
+                "A running removal cannot be abandoned",
+                serde_json::json!({"operation_id": id}),
+            )
+        })?;
     if observe(context, id)?.receipt.is_some() {
         return Err(problem(
             "already_committed",
@@ -140,6 +148,19 @@ pub(crate) fn abandon(context: &CommandContext, id: &str) -> Result<Operation, P
         ));
     }
     let owner = recovery.map_err(|error| operational("recovery_failed", &error))?;
+    if operation
+        .external
+        .iter()
+        .any(|action| action.state == operations::ExternalState::Unknown)
+    {
+        return Err(super::external::identified(
+            &operation,
+            problem(
+                "external_pending",
+                "An unknown external outcome must be reconciled before abandonment",
+            ),
+        ));
+    }
     operation.phase = Phase::Abandoned;
     ownership
         .save(&context.workspace, &operation)
@@ -151,4 +172,17 @@ pub(crate) fn abandon(context: &CommandContext, id: &str) -> Result<Operation, P
 #[allow(clippy::needless_pass_by_value)] // Result::map_err consumes the underlying error.
 fn unavailable(error: anyhow::Error) -> Problem {
     operational("operation_unavailable", &error)
+}
+
+fn actor(context: &CommandContext, operation: &Operation) -> Result<(), Problem> {
+    if operation.actor_id != context.actor.user_id().as_str() {
+        return Err(super::external::identified(
+            operation,
+            problem(
+                "actor_mismatch",
+                "Only the original actor may resume or abandon this removal",
+            ),
+        ));
+    }
+    Ok(())
 }

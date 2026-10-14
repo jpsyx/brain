@@ -2,13 +2,13 @@ use super::fixture::{WorkspaceFixture, today};
 use crate::tasks::removal::{model::Options, preview};
 use serde_json::json;
 
-fn policy(f: &WorkspaceFixture) {
+pub(super) fn policy(f: &WorkspaceFixture) {
     f.write(".config/config.json", &serde_json::to_vec(&json!({
         "task_removal_integration": {"adapter":"tracker", "link_field":"linear_issue", "on_remove":"cancel"}
     })).unwrap());
 }
 
-fn registry(f: &WorkspaceFixture, adapters: serde_json::Value) {
+pub(super) fn registry(f: &WorkspaceFixture, adapters: serde_json::Value) {
     let command = f.command();
     command
         .registry_store
