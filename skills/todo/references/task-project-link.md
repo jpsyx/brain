@@ -111,8 +111,14 @@ asking) when any of these triggers:
    - `blocked_by` populated where applicable.
    Then populate `.METADATA.json:tasks[]` with all the sub-task
    `task_id`s (reverse link). Both directions must agree.
-5. **Delete the original task row.** It's been subsumed by the
-   project + its children.
+5. **Remove the source through the native CLI.** Preview the original task
+   with `brain tasks remove`, obtain consent for the selected dependency and
+   linked-issue policies, then apply with `--yes` and the preview fingerprint
+   as `--expect-plan`. The CLI owns reference and project link cleanup. If source
+   removal is blocked or fails, report incomplete source removal and the
+   operation ID when available; keep the created project and children visible.
+   Do not delete the source row or patch project arrays by hand. See
+   [Remove tasks](../SKILL.md#remove-tasks).
 6. **Run sync** so the lookup CSV mirrors the new project state
    and the bidirectional link validates clean.
 

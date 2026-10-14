@@ -207,7 +207,15 @@ The "> 30d old" cross-cut is shown even when the primary grouping is by `task_ty
 ## Step 3 — Bulk operations per group
 
 - **Defer all N days** — accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `brain tasks defer` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
-- **Drop all** — confirms with the count, then removes those rows from `tasks.csv` via `brain tasks remove`. Never silently destructive, and never applied to a habit (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+- **Drop all**: preview all consented IDs in one command with
+  `brain tasks remove T17 T18 --dry-run --json`, then obtain consent for the
+  exact scope and dependency/linked-issue policies. Apply the same batch with
+  `--yes` and the preview fingerprint as `--expect-plan`. The CLI owns link
+  cleanup. A stale plan requires a fresh preview and consent; unresolved policy
+  choices go back to the user. Never apply this to a habit (see
+  [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+  Follow [/todo's removal contract](../todo/SKILL.md#remove-tasks), including
+  native status/resume after an adapter failure and committed agenda warnings.
 - **1-by-1** — walks the group with per-task prompts (see Step 4).
 - **Skip group** — moves to next.
 
@@ -307,7 +315,7 @@ options:  Start now / Defer +7d / Drop / Convert to project
 
 - **start-now** — set `start_date=today` and `status=in_progress`. Use when the user commits to begin now.
 - **defer +Nd / defer to date** — push `due_date`, increments `defer_count` (except no-penalty defers: `status=waiting` or non-empty `blocked_by` push without raising the count). **Hard-deadline tasks require explicit confirm** (same rule as Step 5): pause and ask whether the hard deadline still holds before deferring.
-- **drop** — remove from CSV (confirms first).
+- **drop**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)).
 - **convert-to-project** — when `estimated_duration > 90` or scope verbs (`launch`, `build`, `migrate`, `research`) — suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md).
 - **skip** — acknowledge, no change. Use when the user is aware and chooses to leave it.
 
@@ -365,7 +373,7 @@ options:  Drop (Recommended) / Revive / Start now / Defer to date
 
 Actions:
 
-- **`drop`** — remove from CSV (confirms first). Use as default.
+- **`drop`**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)). Use as default.
 - **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `brain tasks touch <T###>`.
 - **`start-now`** — set `status=in_progress` and `start_date=today` (the underlying scripts will also touch the row). Use when the user commits to begin now.
 - **`convert-to-project`** — when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md). Note: don't reflexively convert — converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.

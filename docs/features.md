@@ -2819,6 +2819,15 @@ outcomes block abandonment. Status remains a read-only view of saved progress.
 
 ### Deterministic removal consent and output
 
+Bundled `/todo`, `/triage`, and task-to-project conversion guidance use native
+removal for the exact consented targets. Agents preview, collect dependency and
+linked-issue policy choices, then pass `--yes` and the preview fingerprint as
+`--expect-plan`. Bulk drops use one batch; the CLI owns task references and
+project link cleanup. Failed adapters use native status/resume rather than
+agent-tool cancellation, and conversion reports incomplete source removal.
+Backlog purge/dedupe retain their specialized commands. Notes and projects
+retain their archive workflow.
+
 `brain tasks remove T17 T18 --dry-run --json` returns a versioned preview with
 its fingerprint, resolved targets, effects, and typed blockers. Targets are
 resolved together, deduplicated, and sorted; inherited listing filters and

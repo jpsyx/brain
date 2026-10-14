@@ -1262,6 +1262,16 @@ first move is a failing test that reproduces it, *then* the fix.
   mistaken for one — and `--help` is run against each. A skill is an instruction
   an agent follows literally, so a renamed command has to fail here rather than
   in someone's session.
+  Complete removal examples additionally traverse the real global parser and
+  delegated task parser with every argument intact. Shell-variable templates
+  have matching concrete vectors in `tests/skill_command_examples/parsing.rs`.
+  `tests/skill_command_examples.rs` covers policies, batch targets, habit intent,
+  fingerprints, lifecycle modes, global workspace selection, and illegal option
+  combinations. Validation beyond clap runs the compiled binary in a temporary
+  ready workspace with an isolated registry, actor, environment, and agenda
+  directory; refused commands and previews preserve canonical bytes. The skill
+  contract guard prevents fallback to direct row/project-array edits and requires
+  preview-bound consent, native recovery, and incomplete conversion reporting.
 - **The ported task commands** (`tasks/mutate/tests/`, `tasks/backlog/tests.rs`,
   `tasks/scan/tests.rs`, `tasks/rules/tests.rs`, `tasks/habits/tests.rs`,
   `contacts/tests.rs`). Each is a pure decision over CSV rows and a fixed date,

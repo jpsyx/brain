@@ -832,8 +832,14 @@ status; don't skip them silently.
    It doesn't block the archive — just makes sure the user is
    archiving deliberately rather than papering over rot. If the
    answer is "yes, archive it and drop the open tasks", route
-   the open tasks via option 3 ("Mark done") or surface them as
-   drop candidates in step 4.
+   the explicit task deletions through
+   [/todo's removal contract](../todo/SKILL.md#remove-tasks): preview the exact
+   IDs, obtain consent for the dependency and linked-issue policies, then apply
+   the batch with `--yes` and the preview fingerprint as `--expect-plan`.
+   The CLI owns task references and project link cleanup. Report incomplete
+   deletion and any operation ID before continuing; do not remove rows or
+   project-array entries by hand. Archiving the project still moves its notes
+   and files into `archive/`; it does not delete them.
 4. **Handle linked tasks**, if the project's `.METADATA.json:tasks[]`
    array is non-empty. For each task with `status != done`, ask the
    user which of three options to apply (never silently):

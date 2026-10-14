@@ -47,8 +47,37 @@ row without changing its immutable `task_uuid`.
   `start_date`, `blocked_by`, or `task_type` on habits.
 - **`/todo add-to-project <project> "<freetext>"`** — like `add` but
   with `project` pre-filled. See [task-project-link.md](task-project-link.md).
-- **`/todo remove <task>`** — drop a row. Confirms first. Removes
-  task_id from any linked project's `tasks[]` array too (run sync).
+- **`/todo remove <task>`**: preview explicit targets with
+  `brain tasks remove T17 --dry-run --json`, obtain consent for the selected
+  policies, then apply through the native CLI. Dependency, reference, and project
+  link cleanup belong to the CLI. See [Remove tasks](../SKILL.md#remove-tasks).
+  Submit all consented IDs in one command for a bulk drop.
+
+## Native removal examples and recovery
+
+These examples inherit the selected workspace and effective actor. Select a
+workspace explicitly with `-w sample` when operating outside a Brain session.
+After consent, a preview-bound apply uses that preview's fingerprint:
+
+    brain -w sample tasks remove T17 --yes --expect-plan "$fingerprint" --json
+
+`$fingerprint` and `$operation_id` are shell-variable templates: use the
+actual preview fingerprint and reported operation ID, respectively.
+
+    brain tasks remove H42 --habit --yes
+    brain tasks remove T17 --linked-issue keep --yes
+    brain -w sample tasks remove --operation-status "$operation_id" --json
+    brain -w sample tasks remove --resume "$operation_id" --json
+    brain -w sample tasks remove --abandon "$operation_id" --yes --json
+
+Status and resume accept an operation ID instead of targets; do not add `--yes`,
+preview, habit, or policy flags. Abandon requires explicit consent and `--yes`;
+it cannot undo a committed deletion. A stale fingerprint requires a fresh preview
+and consent. Do not retry a committed deletion because derived agenda output
+reported a warning. Report the operation ID and inspect its saved status instead.
+Purge and dedupe retain their specialized `brain backlog purge` and
+`brain backlog dedupe` commands; do not reconstruct their candidate sets or
+remove their rows by hand.
 
 ## State changes
 
@@ -195,8 +224,10 @@ judgment is delegated to `/linear-pm`.
 
 `/todo add` also accepts `--linear-issue AVA-###` to set the link at
 creation (rare — the issue usually doesn't exist yet). `/todo done` on a
-linked task prints a reminder to close the Linear issue too; `/todo
-remove` should cancel it (never delete).
+linked task prints a reminder to close the Linear issue too. `/todo remove`
+uses the configured deterministic adapter for cancellation. Explicit local-only
+removal uses `--linked-issue keep`; do not replace a failed adapter with an
+agent-tool cancellation. See [Remove tasks](../SKILL.md#remove-tasks).
 
 ## Reindex
 

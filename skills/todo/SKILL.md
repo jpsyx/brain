@@ -1250,16 +1250,9 @@ load-bearing ones:
   any sequential dependencies between sub-tasks encoded explicitly
   via `blocked_by`. Don't leave the dependency structure in the
   user's head.
-- **`/todo done|defer|add|remove|list`** covers the usual CRUD. After resolving any
-  links or confirmation needed for removal, `/todo remove` must execute
-  `brain tasks remove` so deletion crosses the
-  config-aware task-store guard. Never delete a CSV row directly.
-  Removing a **habit** additionally requires `--habit`, because deleting a habit
-  row destroys the entire recurring chain including every future occurrence. The
-  script refuses a habit needle without that flag, so only an explicit "retire
-  this habit" request may pass it — confirm with the user first, and prefer
-  `brain habits defer` when they only want the next
-  occurrence pushed out. See [Habits are never cleanup fodder](#habits-are-never-cleanup-fodder).
+- **`/todo done|defer|add|remove|list`** covers the usual CRUD. For removal,
+  follow [Remove tasks](#remove-tasks); prefer `brain habits defer` when only
+  the next habit occurrence needs to move.
 - **`/todo chronic`** — list chronically-ignored tasks (the same set
   that `/triage` Step 7 sweeps). Backed by
   `brain tasks chronic`.
@@ -1279,6 +1272,37 @@ load-bearing ones:
   after.
 - **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
   `/second-brain reindex` runs for tasks.
+
+### Remove tasks
+
+Deletion is implemented by `brain tasks remove`. Use a preview to identify
+the exact rows and effects:
+
+    brain tasks remove T17 --dry-run --json
+
+After explicit consent, apply the chosen policy with `--yes`. If consent was
+based on a preview, pass its `fingerprint` as `--expect-plan`. A stale plan
+requires a fresh preview and consent. Do not edit CSV rows or project arrays
+yourself.
+
+    brain tasks remove T17 --yes --json
+    brain tasks remove T17 T18 --dependents rewire --yes --json
+
+`reject` is the default dependency policy. `unlink` removes references to the
+deleted tasks; `rewire` preserves their surviving prerequisites. These options
+do not delete dependent tasks. An unresolved policy is a user choice, not an
+invitation to invent one. The TUI collects the same choices natively.
+
+Habit removal requires explicit retirement intent and `--habit`. Managed
+triage habits remain protected. Preserve completed habit history unless it
+was explicitly selected.
+
+Configured external cancellation is performed by a deterministic adapter.
+Use `--linked-issue keep` for explicitly local-only removal, such as a
+reassigned issue or a duplicate. Never substitute an agent-tool cancellation
+when the configured adapter fails. Report the operation ID and use the native
+status/resume commands; committed deletion with an agenda warning is still a
+committed deletion.
 
 ## Managed triage rows
 
