@@ -8,9 +8,13 @@ use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result, anyhow, bail};
 
-use super::{FileChange, NONCE, Prepared, TransactionStep};
+use super::{FileChange, NONCE, Prepared, TargetPolicy, TransactionStep};
 
-pub(super) fn describe(root: &Path, changes: &[FileChange]) -> Result<Vec<Prepared>> {
+pub(super) fn describe(
+    root: &Path,
+    policy: TargetPolicy,
+    changes: &[FileChange],
+) -> Result<Vec<Prepared>> {
     let transaction_id = format!(
         "{}-{}",
         std::process::id(),
@@ -22,7 +26,7 @@ pub(super) fn describe(root: &Path, changes: &[FileChange]) -> Result<Vec<Prepar
         .enumerate()
         .map(|(index, change)| {
             let relative = relative(root, &change.path)?;
-            validate_live(root, &relative)?;
+            validate_live(root, policy, &relative)?;
             if !seen.insert(relative) {
                 bail!(
                     "duplicate triage transaction target {}",
@@ -63,25 +67,30 @@ pub(super) fn cleanup_artifacts(
     Ok(())
 }
 
-pub(super) fn validate_live(root: &Path, path: &Path) -> Result<()> {
+pub(super) fn validate_live(root: &Path, policy: TargetPolicy, path: &Path) -> Result<()> {
     validate_relative(path)?;
-    let allowed = path == Path::new(".config/config.json")
-        || matches!(
-            path.to_str(),
-            Some(
-                "tasks/tasks.csv"
-                    | "tasks/habits.csv"
-                    | "tasks/.habits_next_id"
-                    | "tasks/.tasks_next_id"
-            )
-        )
-        || (path.starts_with("projects")
-            && path.file_name().and_then(|name| name.to_str()) == Some(".METADATA.json"))
-        || (path.parent() == Some(Path::new("tasks"))
-            && path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(is_derived_name));
+    let allowed = match policy {
+        TargetPolicy::TaskRemoval => super::removal_path_allowed(path),
+        TargetPolicy::ManagedTriage => {
+            path == Path::new(".config/config.json")
+                || matches!(
+                    path.to_str(),
+                    Some(
+                        "tasks/tasks.csv"
+                            | "tasks/habits.csv"
+                            | "tasks/.habits_next_id"
+                            | "tasks/.tasks_next_id"
+                    )
+                )
+                || (path.starts_with("projects")
+                    && path.file_name().and_then(|name| name.to_str()) == Some(".METADATA.json"))
+                || (path.parent() == Some(Path::new("tasks"))
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(is_derived_name))
+        }
+    };
     if !allowed {
         bail!("unapproved triage transaction target {}", path.display());
     }
@@ -96,7 +105,7 @@ fn is_derived_name(name: &str) -> bool {
         && (lower.contains("agenda") || lower.contains("index") || lower.contains("lookup"))
 }
 
-fn reject_symlinks(root: &Path, path: &Path) -> Result<()> {
+pub(super) fn reject_symlinks(root: &Path, path: &Path) -> Result<()> {
     let mut current = root.to_path_buf();
     for component in path.components() {
         let Component::Normal(part) = component else {

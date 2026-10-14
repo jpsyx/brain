@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "brain"
-version = "0.102.7"
+version = "0.102.8"
 dependencies = [
  "anyhow",
  "base64",

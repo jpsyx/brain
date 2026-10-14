@@ -30,6 +30,7 @@ pub mod set;
 pub mod shortcuts;
 pub mod skip;
 pub(crate) mod store_lock;
+pub(crate) mod store_transaction;
 pub(crate) mod streak;
 pub mod task;
 pub mod triage_habits;

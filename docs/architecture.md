@@ -1634,11 +1634,27 @@ reads), `rules` (the task automation lint and the task ↔ project link),
 `habits` (habit defer and completed-occurrence retention), `streak` (named day
 streaks), `triage_state` (whether this month's monthly pass has happened),
 `triage_habits` (stable managed definitions,
-marker-based mutation policy, complete purge, and durable grouped
-replacement/recovery split into orchestration, artifact, and journal modules),
+marker-based mutation policy and complete purge), `store_transaction`
+(shared owner-verified grouped replacement/recovery, split into orchestration,
+artifact authentication, and journal modules),
 `doctor` (health check), `plain` (`--no-tui` printer),
 and `cli` (the tasks clap args, nested under `brain tasks`). Reuses the
 crate-level `session` / `state` / `pty_pane` shared with the brain-search view.
+
+The triage adapter retains its
+schema-v2 journal at `.config/.brain-triage-habits-transaction.json` and its
+original target allowlist. Removal uses schema v3 with explicit `task_removal`
+policy at the selected UUID cache's `task-removal-transaction.json`; it permits
+only the two task CSVs and active/archived project metadata or notes. Both
+journals authenticate the selected workspace root and UUID, exact sibling
+artifact names, relative paths, and symlink-free targets/artifacts. Every new
+group recovers legacy triage first, then removal, under the same task-store
+owner. Prepared groups roll back, while Preparing/Committed groups only clean
+up. After rollback has durably restored all originals, recovery republishes
+Preparing before removing backups so interrupted cleanup is retryable. Forward
+publication remains Preparing → Prepared → Committed, with before-image
+comparison and the existing file/directory fsync boundaries.
+
 Native task command runners accept explicit `WorkspaceContext` and
 `ActorContext`; they never re-resolve a global root. Shared CSV mutation code
 normalizes legacy `assignee` headers to `assigned_to` before any write.

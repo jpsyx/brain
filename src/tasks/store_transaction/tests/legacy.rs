@@ -1,14 +1,11 @@
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use super::{
-    FileChange, JournalState, TransactionStep, journal_path, recover_pending,
-    replace_group_with_hook,
-};
+use super::super::{FileChange, JournalState, TargetPolicy, TransactionStep, recover_pending};
 use crate::tasks::store_lock::TaskStoreOwner;
 use crate::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 
-fn fixture() -> (tempfile::TempDir, WorkspaceContext, Vec<FileChange>) {
+pub(super) fn fixture() -> (tempfile::TempDir, WorkspaceContext, Vec<FileChange>) {
     let temporary = tempfile::tempdir().unwrap();
     let root = temporary.path().join("family");
     std::fs::create_dir_all(root.join(".config")).unwrap();
@@ -39,7 +36,7 @@ fn fixture() -> (tempfile::TempDir, WorkspaceContext, Vec<FileChange>) {
     (temporary, workspace, changes)
 }
 
-fn assert_old(changes: &[FileChange]) {
+pub(super) fn assert_old(changes: &[FileChange]) {
     for change in changes {
         assert_eq!(
             std::fs::read(&change.path).unwrap(),
@@ -63,15 +60,21 @@ fn every_stage_and_install_failure_leaves_the_prior_generation() {
         ] {
             let (_temporary, workspace, changes) = fixture();
             let owner = TaskStoreOwner::acquire(&workspace).unwrap();
-            let result = replace_group_with_hook(&workspace, &owner, &changes, |step| {
-                if step == boundary {
-                    return Err(io::Error::other("injected failure"));
-                }
-                Ok(())
-            });
+            let result = super::super::replace_group_with_hook(
+                &workspace,
+                &owner,
+                TargetPolicy::ManagedTriage,
+                &changes,
+                |step| {
+                    if step == boundary {
+                        return Err(io::Error::other("injected failure"));
+                    }
+                    Ok(())
+                },
+            );
             assert!(result.is_err());
             assert_old(&changes);
-            assert!(!journal_path(workspace.root()).exists());
+            assert!(!super::super::journal_path(&workspace, TargetPolicy::ManagedTriage).exists());
         }
     }
 }
@@ -98,10 +101,16 @@ fn interruption_at_every_internal_boundary_recovers_a_complete_generation() {
         let (_temporary, workspace, changes) = fixture();
         let owner = TaskStoreOwner::acquire(&workspace).unwrap();
         let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _ = replace_group_with_hook(&workspace, &owner, &changes, |step| {
-                assert_ne!(step, boundary, "injected crash");
-                Ok(())
-            });
+            let _ = super::super::replace_group_with_hook(
+                &workspace,
+                &owner,
+                TargetPolicy::ManagedTriage,
+                &changes,
+                |step| {
+                    assert_ne!(step, boundary, "injected crash");
+                    Ok(())
+                },
+            );
         }));
         recover_pending(&workspace, &owner).unwrap();
         if matches!(
@@ -116,7 +125,7 @@ fn interruption_at_every_internal_boundary_recovers_a_complete_generation() {
         } else {
             assert_old(&changes);
         }
-        assert!(!journal_path(workspace.root()).exists());
+        assert!(!super::super::journal_path(&workspace, TargetPolicy::ManagedTriage).exists());
     }
 }
 
@@ -135,10 +144,16 @@ fn new_live_file_recovers_at_install_and_cleanup_boundaries() {
         }];
         let owner = TaskStoreOwner::acquire(&workspace).unwrap();
         let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _ = replace_group_with_hook(&workspace, &owner, &changes, |step| {
-                assert_ne!(step, boundary, "injected crash");
-                Ok(())
-            });
+            let _ = super::super::replace_group_with_hook(
+                &workspace,
+                &owner,
+                TargetPolicy::ManagedTriage,
+                &changes,
+                |step| {
+                    assert_ne!(step, boundary, "injected crash");
+                    Ok(())
+                },
+            );
         }));
         recover_pending(&workspace, &owner).unwrap();
         assert_eq!(
@@ -152,10 +167,16 @@ fn new_live_file_recovers_at_install_and_cleanup_boundaries() {
 fn every_existing_live_file_is_present_at_each_observable_transaction_boundary() {
     let (_temporary, workspace, changes) = fixture();
     let owner = TaskStoreOwner::acquire(&workspace).unwrap();
-    replace_group_with_hook(&workspace, &owner, &changes, |_| {
-        assert!(changes.iter().all(|change| change.path.exists()));
-        Ok(())
-    })
+    super::super::replace_group_with_hook(
+        &workspace,
+        &owner,
+        TargetPolicy::ManagedTriage,
+        &changes,
+        |_| {
+            assert!(changes.iter().all(|change| change.path.exists()));
+            Ok(())
+        },
+    )
     .unwrap();
 }
 
@@ -170,13 +191,19 @@ fn a_second_writer_cannot_enter_while_the_first_writer_owns_the_task_store() {
     let (release_tx, release_rx) = mpsc::channel();
     let first = std::thread::spawn(move || {
         let owner = TaskStoreOwner::acquire(&first_workspace).unwrap();
-        replace_group_with_hook(&first_workspace, &owner, &first_changes, |step| {
-            if step == TransactionStep::Install(0) {
-                entered_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-            }
-            Ok(())
-        })
+        super::super::replace_group_with_hook(
+            &first_workspace,
+            &owner,
+            TargetPolicy::ManagedTriage,
+            &first_changes,
+            |step| {
+                if step == TransactionStep::Install(0) {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }
+                Ok(())
+            },
+        )
     });
     entered_rx.recv().unwrap();
     let second_workspace = workspace;
@@ -202,13 +229,25 @@ fn published_journal_binds_the_workspace_identity_and_root() {
     let (_temporary, workspace, changes) = fixture();
     let owner = TaskStoreOwner::acquire(&workspace).unwrap();
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        let _ = replace_group_with_hook(&workspace, &owner, &changes, |step| {
-            assert_ne!(step, TransactionStep::Install(0), "injected crash");
-            Ok(())
-        });
+        let _ = super::super::replace_group_with_hook(
+            &workspace,
+            &owner,
+            TargetPolicy::ManagedTriage,
+            &changes,
+            |step| {
+                assert_ne!(step, TransactionStep::Install(0), "injected crash");
+                Ok(())
+            },
+        );
     }));
-    let journal: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(journal_path(workspace.root())).unwrap()).unwrap();
+    let journal: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(super::super::journal_path(
+            &workspace,
+            TargetPolicy::ManagedTriage,
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(journal["workspace_id"], workspace.id().to_string());
     assert_eq!(
         journal["workspace_root"],
@@ -222,7 +261,7 @@ fn forged_journal_cannot_restore_an_unapproved_live_path() {
     let victim = workspace.root().join("private.txt");
     std::fs::write(&victim, b"keep\n").unwrap();
     std::fs::write(workspace.root().join("forged.backup"), b"attacker\n").unwrap();
-    std::fs::write(journal_path(workspace.root()), format!(
+    std::fs::write(super::super::journal_path(&workspace, TargetPolicy::ManagedTriage), format!(
         "{{\"schema_version\":2,\"workspace_id\":\"{}\",\"workspace_root\":\"{}\",\"transaction_id\":\"1-1\",\"state\":\"prepared\",\"entries\":[{{\"live\":\"private.txt\",\"staged\":\"forged.staged\",\"backup\":\"forged.backup\",\"existed\":true}}]}}",
         workspace.id(), workspace.root().display()
     )).unwrap();
@@ -238,12 +277,18 @@ fn journal_recovery_rejects_duplicate_targets_and_wrong_workspace_identity() {
         let (_temporary, workspace, changes) = fixture();
         let owner = TaskStoreOwner::acquire(&workspace).unwrap();
         let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _ = replace_group_with_hook(&workspace, &owner, &changes, |step| {
-                assert_ne!(step, TransactionStep::Install(0), "injected crash");
-                Ok(())
-            });
+            let _ = super::super::replace_group_with_hook(
+                &workspace,
+                &owner,
+                TargetPolicy::ManagedTriage,
+                &changes,
+                |step| {
+                    assert_ne!(step, TransactionStep::Install(0), "injected crash");
+                    Ok(())
+                },
+            );
         }));
-        let path = journal_path(workspace.root());
+        let path = super::super::journal_path(&workspace, TargetPolicy::ManagedTriage);
         let mut journal: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         if mutation == "duplicate" {
@@ -280,7 +325,16 @@ fn symlink_ancestor_cannot_escape_the_workspace() {
     }];
     let owner = TaskStoreOwner::acquire(&workspace).unwrap();
 
-    assert!(replace_group_with_hook(&workspace, &owner, &changes, |_| Ok(())).is_err());
+    assert!(
+        super::super::replace_group_with_hook(
+            &workspace,
+            &owner,
+            TargetPolicy::ManagedTriage,
+            &changes,
+            |_| Ok(())
+        )
+        .is_err()
+    );
     assert_eq!(
         std::fs::read(outside.path().join(".METADATA.json")).unwrap(),
         b"keep\n"

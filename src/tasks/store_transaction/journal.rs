@@ -9,11 +9,11 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::artifacts::{
-    artifact_paths, cleanup_artifacts, relative, remove_if_exists, sync_parent,
+    artifact_paths, cleanup_artifacts, reject_symlinks, relative, remove_if_exists, sync_parent,
     transaction_id_from_artifact, validate_live, validate_relative, validate_transaction_id,
     write_new,
 };
-use super::{JournalState, NONCE, Prepared, TransactionStep};
+use super::{JournalState, NONCE, Prepared, TargetPolicy, TransactionStep};
 use crate::workspace::WorkspaceContext;
 
 const JOURNAL_SCHEMA_VERSION: u32 = 2;
@@ -22,6 +22,8 @@ const JOURNAL_SCHEMA_VERSION: u32 = 2;
 #[serde(deny_unknown_fields)]
 struct Journal {
     schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    policy: Option<TargetPolicy>,
     workspace_id: String,
     workspace_root: PathBuf,
     transaction_id: String,
@@ -40,6 +42,7 @@ struct JournalEntry {
 
 pub(super) fn publish_journal(
     workspace: &WorkspaceContext,
+    policy: TargetPolicy,
     prepared: &[Prepared],
     state: JournalState,
     hook: &mut impl FnMut(TransactionStep) -> std::io::Result<()>,
@@ -58,7 +61,11 @@ pub(super) fn publish_journal(
         })
         .collect::<Result<Vec<_>>>()?;
     let mut bytes = serde_json::to_vec_pretty(&Journal {
-        schema_version: JOURNAL_SCHEMA_VERSION,
+        schema_version: match policy {
+            TargetPolicy::ManagedTriage => JOURNAL_SCHEMA_VERSION,
+            TargetPolicy::TaskRemoval => 3,
+        },
+        policy: (policy == TargetPolicy::TaskRemoval).then_some(policy),
         workspace_id: workspace.id().to_string(),
         workspace_root: root.to_path_buf(),
         transaction_id,
@@ -66,7 +73,7 @@ pub(super) fn publish_journal(
         entries,
     })?;
     bytes.push(b'\n');
-    let path = journal_path(root);
+    let path = journal_path(workspace, policy);
     fs::create_dir_all(path.parent().expect("journal has parent"))?;
     let temporary = path.with_extension(format!(
         "json.pending-{}-{}",
@@ -83,9 +90,10 @@ pub(super) fn publish_journal(
 
 pub(super) fn recover_pending_locked(
     workspace: &WorkspaceContext,
+    policy: TargetPolicy,
     hook: &mut impl FnMut(TransactionStep) -> std::io::Result<()>,
 ) -> Result<()> {
-    let path = journal_path(workspace.root());
+    let path = journal_path(workspace, policy);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -93,9 +101,15 @@ pub(super) fn recover_pending_locked(
     };
     let journal: Journal = serde_json::from_slice(&bytes)
         .with_context(|| format!("parsing authenticated journal {}", path.display()))?;
-    let prepared = validate_journal(workspace, &journal)?;
+    let prepared = validate_journal(workspace, policy, &journal)?;
     match journal.state {
-        JournalState::Prepared => rollback(&prepared, hook)?,
+        JournalState::Prepared => {
+            rollback(&prepared, hook)?;
+            // All before-images are durable. Mark cleanup-only before deleting backups,
+            // so interrupted cleanup cannot require a backup it already removed.
+            publish_journal(workspace, policy, &prepared, JournalState::Preparing, hook)?;
+            cleanup_artifacts(&prepared, hook)?;
+        }
         JournalState::Preparing | JournalState::Committed => {
             cleanup_artifacts(&prepared, hook)?;
         }
@@ -103,12 +117,27 @@ pub(super) fn recover_pending_locked(
     remove_journal(&path, hook)
 }
 
-fn validate_journal(workspace: &WorkspaceContext, journal: &Journal) -> Result<Vec<Prepared>> {
-    if journal.schema_version != JOURNAL_SCHEMA_VERSION
+fn validate_journal(
+    workspace: &WorkspaceContext,
+    policy: TargetPolicy,
+    journal: &Journal,
+) -> Result<Vec<Prepared>> {
+    let valid_policy = match policy {
+        TargetPolicy::ManagedTriage => {
+            journal.schema_version == JOURNAL_SCHEMA_VERSION && journal.policy.is_none()
+        }
+        TargetPolicy::TaskRemoval => {
+            journal.schema_version == 3 && journal.policy == Some(TargetPolicy::TaskRemoval)
+        }
+    };
+    if !valid_policy
         || journal.workspace_id != workspace.id().to_string()
         || journal.workspace_root != workspace.root()
     {
         bail!("triage transaction journal does not belong to selected workspace");
+    }
+    if journal.entries.is_empty() {
+        bail!("empty task transaction journal");
     }
     validate_transaction_id(&journal.transaction_id)?;
     let mut seen = BTreeSet::new();
@@ -117,7 +146,7 @@ fn validate_journal(workspace: &WorkspaceContext, journal: &Journal) -> Result<V
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            validate_live(workspace.root(), &entry.live)?;
+            validate_live(workspace.root(), policy, &entry.live)?;
             let live = workspace.root().join(&entry.live);
             let (staged, backup) = artifact_paths(&live, &journal.transaction_id, index)?;
             if workspace.root().join(&entry.staged) != staged
@@ -127,6 +156,7 @@ fn validate_journal(workspace: &WorkspaceContext, journal: &Journal) -> Result<V
             }
             for path in [&entry.live, &entry.staged, &entry.backup] {
                 validate_relative(path)?;
+                reject_symlinks(workspace.root(), path)?;
                 if !seen.insert(path.clone()) {
                     bail!("duplicate triage transaction path");
                 }
@@ -161,7 +191,7 @@ fn rollback(
         }
         sync_parent(&change.live)?;
     }
-    cleanup_artifacts(prepared, hook)
+    Ok(())
 }
 
 pub(super) fn remove_journal(
@@ -174,6 +204,14 @@ pub(super) fn remove_journal(
     sync_parent(path)
 }
 
-pub(super) fn journal_path(root: &Path) -> PathBuf {
-    root.join(".config/.brain-triage-habits-transaction.json")
+pub(super) fn journal_path(workspace: &WorkspaceContext, policy: TargetPolicy) -> PathBuf {
+    match policy {
+        TargetPolicy::ManagedTriage => workspace
+            .root()
+            .join(".config/.brain-triage-habits-transaction.json"),
+        TargetPolicy::TaskRemoval => workspace
+            .paths()
+            .cache_dir()
+            .join("task-removal-transaction.json"),
+    }
 }
