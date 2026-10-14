@@ -47,6 +47,7 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
+    #[cfg(test)]
     pub(crate) fn read(context: &SnapshotContext<'_>, today: NaiveDate) -> Result<Self, Problem> {
         let owner = TaskStoreOwner::acquire(context.workspace).map_err(|error| {
             Problem::new(

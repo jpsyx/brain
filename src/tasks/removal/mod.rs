@@ -1,8 +1,5 @@
 //! Native removal policy and snapshot target resolution.
 
-// The planner and command surfaces consume this module in subsequent slices.
-#![allow(dead_code)]
-
 pub(crate) mod dependencies;
 pub(crate) mod external_policy;
 pub(crate) mod fingerprint;
@@ -15,3 +12,12 @@ pub(crate) mod snapshot;
 
 #[cfg(test)]
 mod tests;
+
+mod execute;
+pub(crate) use execute::{apply, preview};
+
+#[allow(dead_code)] // Task12 wires the operation lifecycle command grammar.
+mod lifecycle;
+pub(crate) mod operations;
+#[allow(unused_imports)] // Command grammar in Task12 consumes the lifecycle surface.
+pub(crate) use lifecycle::{abandon, operation_status, resume};

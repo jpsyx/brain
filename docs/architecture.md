@@ -1626,7 +1626,7 @@ target resolution reusing completion's locator, owned read-only snapshots of
 both CSVs and active/archived project metadata, and canonical SHA-256 plan
 fingerprints through a secret-free integration snapshot, plus exact pipe-item
 reference cleanup and pure changed-only project JSON after-images from those
-same snapshots),
+same snapshots; consented execution, operation lifecycle, and private durable receipts),
 `mutate` (remove/defer/touch/backlog/assign, plus
 the chunk-family cascade), `backlog` (the review listing and the two silent
 maintenance passes), `scan` (the chronic / stale-waiting / tracker-linked
@@ -1649,12 +1649,30 @@ only the two task CSVs and active/archived project metadata or notes. Both
 journals authenticate the selected workspace root and UUID, exact sibling
 artifact names, relative paths, and symlink-free targets/artifacts, including
 the derived rollback temporary. Every new group recovers legacy triage first,
-then removal, under the same task-store owner. Prepared groups roll back, while Preparing/Committed groups only clean
-up. After rollback has durably restored all originals, recovery republishes
+then removal, under the same task-store owner. Prepared groups roll back;
+Preparing groups clean up. Committed removal groups first publish their embedded
+immutable commit receipt, then clean up. Legacy committed groups only clean up. After rollback has durably restored all originals, recovery republishes
 Preparing before removing backups so interrupted cleanup is retryable. An
 interrupted restore temporary is discarded and rebuilt from its retained
 backup on retry. Forward publication remains Preparing → Prepared → Committed,
 with before-image comparison and the existing file/directory fsync boundaries.
+
+The removal service takes operation ownership before task ownership, recomputes
+consent against the selected actor and workspace, and retains Prepared progress
+before invoking the shared grouped engine. Its journal embeds a scoped commit
+record so recovery can publish `task-removals/<operation-uuid>.commit.json`
+without acquiring an operation lock. That immutable receipt must be durable
+before the committed journal can disappear. Progress uses a separate atomic
+0600 JSON record under an operation-specific lock. Status only reads records;
+preview acquires inspection ownership and refuses a pending known journal with
+`recovery_required`, without reading a partially installed generation or writing
+recovery changes. Apply/resume and ordinary canonical writers still recover.
+Resume uses the current local date for uncommitted consent; completed resume
+returns the original completed receipt without canonical writes. The existing
+single-task agenda adapter runs after releasing task ownership; explicit batch
+agenda effects and richer derived-output warnings are a subsequent integration.
+The old single-target remove shell now calls this service with CommandContext
+and never opens its older task-owned Session before operation ownership.
 
 `TaskStoreOwner::acquire` recovers both grouped journals before returning to a
 native writer. Existing-owner entry points verify and recover without acquiring

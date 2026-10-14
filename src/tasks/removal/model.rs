@@ -82,7 +82,7 @@ pub(crate) struct ExternalAction {
     pub action_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RemovalPlan {
     pub fingerprint: String,
     pub targets: Vec<Identity>,
@@ -146,3 +146,10 @@ pub(crate) enum OnRemove {
     Keep,
     Cancel,
 }
+
+impl std::fmt::Display for Problem {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+impl std::error::Error for Problem {}

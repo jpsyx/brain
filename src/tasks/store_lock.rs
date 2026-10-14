@@ -21,6 +21,11 @@ impl TaskStoreOwner {
         Ok(owner)
     }
 
+    /// Own the store without recovery, for a read-only pending-journal check.
+    pub(crate) fn acquire_inspection(workspace: &WorkspaceContext) -> Result<Self> {
+        Self::acquire_path(&workspace.paths().task_store_lock())
+    }
+
     pub(crate) fn acquire_path(lock_path: &Path) -> Result<Self> {
         if let Some(parent) = lock_path.parent() {
             fs::create_dir_all(parent)

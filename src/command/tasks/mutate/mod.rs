@@ -35,14 +35,7 @@ fn open(context: &CommandContext) -> Result<Session> {
 }
 
 pub(super) fn run_remove(context: &CommandContext, args: &RemoveArgs) -> Result<()> {
-    let session = open(context)?;
-    let (result, _) = remove::remove_in_root(
-        context.workspace.root(),
-        &session.targets,
-        &args.id,
-        args.habit,
-        session.today,
-    )?;
+    let result = remove::remove(context, &args.id, args.habit, Local::now().date_naive())?;
     eprint!("{}", report::removed(&result, Theme::active()));
     Ok(())
 }

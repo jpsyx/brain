@@ -53,6 +53,12 @@ impl WorkspacePaths {
         self.cache_dir.join("tasks.transaction.lock")
     }
 
+    /// Durable task-removal operations and immutable local commit receipts.
+    #[must_use]
+    pub fn task_removals_dir(&self) -> PathBuf {
+        self.cache_dir.join("task-removals")
+    }
+
     /// The workspace-scoped receiver inbox directory.
     #[must_use]
     pub fn inbox_dir(&self) -> PathBuf {

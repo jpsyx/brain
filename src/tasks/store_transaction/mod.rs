@@ -2,6 +2,7 @@
 
 mod artifacts;
 mod journal;
+pub(crate) use journal::committed_removal_pending;
 
 use std::fs;
 use std::path::PathBuf;
@@ -44,6 +45,7 @@ pub(crate) enum TransactionStep {
     PublishJournalSync(JournalState),
     CleanupStaged(usize),
     CleanupBackup(usize),
+    PublishReceipt,
     RemoveJournal,
     SyncJournalRemoval,
 }
@@ -72,9 +74,27 @@ pub(crate) fn replace_group_with_hook(
     owner: &TaskStoreOwner,
     policy: TargetPolicy,
     changes: &[FileChange],
+    hook: impl FnMut(TransactionStep) -> std::io::Result<()>,
+) -> Result<()> {
+    replace_group_recorded(workspace, owner, policy, changes, None, hook)
+}
+
+pub(crate) fn replace_group_recorded(
+    workspace: &WorkspaceContext,
+    owner: &TaskStoreOwner,
+    policy: TargetPolicy,
+    changes: &[FileChange],
+    commit: Option<&crate::tasks::removal::operations::CommitRecord>,
     mut hook: impl FnMut(TransactionStep) -> std::io::Result<()>,
 ) -> Result<()> {
     owner.verify(workspace)?;
+    if let Some(record) = commit {
+        anyhow::ensure!(
+            policy == TargetPolicy::TaskRemoval && !changes.is_empty(),
+            "commit requires removal changes"
+        );
+        crate::tasks::removal::operations::validate_commit(workspace, record)?;
+    }
     recover_all_locked(workspace, &mut hook)?;
     if changes.is_empty() {
         return Ok(());
@@ -85,9 +105,10 @@ pub(crate) fn replace_group_with_hook(
         policy,
         &prepared,
         JournalState::Preparing,
+        commit,
         &mut hook,
     )?;
-    let result = transact(workspace, policy, &prepared, &mut hook);
+    let result = transact(workspace, policy, &prepared, commit, &mut hook);
     if let Err(error) = result {
         return match recover_all_locked(workspace, &mut hook) {
             Ok(()) => Err(error),
@@ -101,6 +122,7 @@ fn transact(
     workspace: &WorkspaceContext,
     policy: TargetPolicy,
     prepared: &[Prepared],
+    commit: Option<&crate::tasks::removal::operations::CommitRecord>,
     hook: &mut impl FnMut(TransactionStep) -> std::io::Result<()>,
 ) -> Result<()> {
     for (index, change) in prepared.iter().enumerate() {
@@ -115,7 +137,14 @@ fn transact(
         }
         sync_parent(&change.live)?;
     }
-    publish_journal(workspace, policy, prepared, JournalState::Prepared, hook)?;
+    publish_journal(
+        workspace,
+        policy,
+        prepared,
+        JournalState::Prepared,
+        commit,
+        hook,
+    )?;
     for (index, change) in prepared.iter().enumerate() {
         hook(TransactionStep::Install(index))?;
         fs::rename(&change.staged, &change.live)
@@ -123,7 +152,15 @@ fn transact(
         hook(TransactionStep::SyncInstall(index))?;
         sync_parent(&change.live)?;
     }
-    publish_journal(workspace, policy, prepared, JournalState::Committed, hook)?;
+    publish_journal(
+        workspace,
+        policy,
+        prepared,
+        JournalState::Committed,
+        commit,
+        hook,
+    )?;
+    journal::publish_receipt(workspace, commit, hook)?;
     cleanup_artifacts(prepared, hook)?;
     journal::remove_journal(&journal_path(workspace, policy), hook)
 }
@@ -170,3 +207,16 @@ pub(crate) fn removal_path_allowed(path: &std::path::Path) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+/// Inspection does not parse or recover a partially installed generation.
+pub(crate) fn has_pending(workspace: &WorkspaceContext, owner: &TaskStoreOwner) -> Result<bool> {
+    owner.verify(workspace)?;
+    for policy in [TargetPolicy::ManagedTriage, TargetPolicy::TaskRemoval] {
+        match fs::symlink_metadata(journal_path(workspace, policy)) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
+}

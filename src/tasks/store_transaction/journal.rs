@@ -29,6 +29,8 @@ struct Journal {
     transaction_id: String,
     state: JournalState,
     entries: Vec<JournalEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commit: Option<crate::tasks::removal::operations::CommitRecord>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ pub(super) fn publish_journal(
     policy: TargetPolicy,
     prepared: &[Prepared],
     state: JournalState,
+    commit: Option<&crate::tasks::removal::operations::CommitRecord>,
     hook: &mut impl FnMut(TransactionStep) -> std::io::Result<()>,
 ) -> Result<()> {
     let root = workspace.root();
@@ -71,6 +74,7 @@ pub(super) fn publish_journal(
         transaction_id,
         state,
         entries,
+        commit: commit.cloned(),
     })?;
     bytes.push(b'\n');
     let path = journal_path(workspace, policy);
@@ -107,10 +111,21 @@ pub(super) fn recover_pending_locked(
             rollback(&prepared, hook)?;
             // All before-images are durable. Mark cleanup-only before deleting backups,
             // so interrupted cleanup cannot require a backup it already removed.
-            publish_journal(workspace, policy, &prepared, JournalState::Preparing, hook)?;
+            publish_journal(
+                workspace,
+                policy,
+                &prepared,
+                JournalState::Preparing,
+                journal.commit.as_ref(),
+                hook,
+            )?;
             cleanup_artifacts(&prepared, hook)?;
         }
-        JournalState::Preparing | JournalState::Committed => {
+        JournalState::Committed => {
+            publish_receipt(workspace, journal.commit.as_ref(), hook)?;
+            cleanup_artifacts(&prepared, hook)?;
+        }
+        JournalState::Preparing => {
             cleanup_artifacts(&prepared, hook)?;
         }
     }
@@ -135,6 +150,28 @@ fn validate_journal(
         || journal.workspace_root != workspace.root()
     {
         bail!("triage transaction journal does not belong to selected workspace");
+    }
+    if let Some(record) = &journal.commit {
+        anyhow::ensure!(
+            policy == TargetPolicy::TaskRemoval,
+            "legacy journal cannot carry a removal receipt"
+        );
+        crate::tasks::removal::operations::validate_commit(workspace, record)?;
+        let paths: BTreeSet<_> = journal
+            .entries
+            .iter()
+            .map(|entry| entry.live.to_string_lossy().into_owned())
+            .collect();
+        anyhow::ensure!(
+            record
+                .receipt
+                .updated
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>()
+                == paths,
+            "receipt paths do not match journal"
+        );
     }
     if journal.entries.is_empty() {
         bail!("empty task transaction journal");
@@ -218,4 +255,36 @@ pub(super) fn journal_path(workspace: &WorkspaceContext, policy: TargetPolicy) -
             .cache_dir()
             .join("task-removal-transaction.json"),
     }
+}
+
+pub(super) fn publish_receipt(
+    workspace: &WorkspaceContext,
+    commit: Option<&crate::tasks::removal::operations::CommitRecord>,
+    hook: &mut impl FnMut(TransactionStep) -> std::io::Result<()>,
+) -> Result<()> {
+    if let Some(record) = commit {
+        hook(TransactionStep::PublishReceipt)?;
+        crate::tasks::removal::operations::persist_commit(workspace, record)?;
+    }
+    Ok(())
+}
+
+/// Read-only commit detection for status. Atomic journal replacement makes each
+/// observation coherent; no recovery or operation ownership is needed.
+pub(crate) fn committed_removal_pending(
+    workspace: &WorkspaceContext,
+    operation_id: &str,
+) -> Result<bool> {
+    let bytes = match fs::read(journal_path(workspace, TargetPolicy::TaskRemoval)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let journal: Journal = serde_json::from_slice(&bytes)?;
+    let _ = validate_journal(workspace, TargetPolicy::TaskRemoval, &journal)?;
+    Ok(journal.state == JournalState::Committed
+        && journal
+            .commit
+            .as_ref()
+            .is_some_and(|commit| commit.receipt.operation_id == operation_id))
 }

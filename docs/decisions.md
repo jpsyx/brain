@@ -6076,3 +6076,16 @@ files are skipped to avoid unintentionally following links outside the selected
 tree. ZIP outputs exclude themselves. Existing sync locks serialize archive
 creation and upload against automatic sync; no migration or cleanup scheduler
 is needed because expiry changes authorization, not object storage.
+
+
+## Removal commit evidence is independent of mutable operation progress
+
+Removal takes operation ownership before task ownership. Native writer startup
+recovery already holds task ownership, so taking an operation lock during that
+recovery would reverse the order and permit deadlock. The grouped removal
+journal therefore embeds all data needed to publish a separate immutable commit
+receipt under task ownership alone. A committed journal remains until that
+receipt is durable. Status and resume honor that evidence over stale progress;
+completed progress can add derived-output warnings without changing local commit
+facts. Read-only preview checks for pending journals under inspection ownership
+and fails closed instead of performing recovery writes.

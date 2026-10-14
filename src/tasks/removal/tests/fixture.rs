@@ -84,3 +84,13 @@ impl WorkspaceFixture {
 pub(super) fn today() -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(2026, 10, 14).unwrap()
 }
+
+impl WorkspaceFixture {
+    pub fn command(&self) -> crate::workspace::CommandContext {
+        crate::workspace::CommandContext::for_test(
+            std::sync::Arc::new(self.workspace.clone()),
+            crate::workspace::RegistryStore::from_path(self.temporary.path().join("registry.json")),
+            "member",
+        )
+    }
+}

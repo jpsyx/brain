@@ -1083,7 +1083,8 @@ the original input plus candidate ID/name pairs. Nonblank stored UUIDs must be
 valid; resolving legacy rows does not edit the schema. The removal validation
 boundary rejects mixed task/habit batches, requires habit opt-in for habits,
 rejects that opt-in for tasks, and reuses managed-triage protection when enabled.
-This domain slice does not yet change the command or TUI entry points.
+The single-target remove command now routes through this domain service; the
+expanded CLI grammar and TUI consent surface are separate integrations.
 
 The pure `dependencies::rewrite` transforms an ID-to-prerequisite-set graph for
 one complete removal batch. Removed rows disappear; `reject` refuses any surviving
@@ -1100,8 +1101,9 @@ IDs have a deterministic lexical fallback after valid IDs. The graph boundary
 expects IDs already resolved to the same namespace; it does not canonicalize keys
 or write CSVs.
 
-`Snapshot::read` acquires the workspace task-store owner; `read_owned` verifies
-an existing owner so an apply transaction can retain ownership. Both recover
+`Snapshot::read` is an acquiring test-fixture convenience; production
+`read_owned` verifies an existing owner so an apply transaction retains
+ownership. Both recover
 pending grouped transactions before reading canonical inputs. Each CSV keeps
 its exact optional before-image, parsed rows, and immutable identities together.
 Absence differs from an empty file. Every row is validated for duplicate display
@@ -2829,3 +2831,32 @@ processes itself. See [integrations.md](integrations.md).
 For directories, `path` identifies the generated ZIP inside that directory.
 The expiry is read from the signed URL. Results are runtime data, never stored
 in workspace metadata or logs. A share adds no persistent configuration schema.
+
+
+### Removal operation and receipt storage
+
+`WorkspacePaths::task_removals_dir()` selects the UUID-scoped cache directory.
+An operation is stored as `<operation-uuid>.json`, with schema version 1,
+workspace UUID, actor ID, original date and fingerprint, serialized canonical
+inputs, complete plan before/after edits, phase, per-action external progress,
+and an optional receipt. Phases are `prepared`, `external_pending`,
+`external_complete`, `local_committed`, `complete`, `needs_reconfirmation`,
+and `abandoned`. UUID syntax is validated before constructing operation paths;
+records are atomically replaced with mode 0600 under operation ownership.
+
+`<operation-uuid>.commit.json` is separate immutable local-commit evidence.
+It contains a workspace-scoped version-1 commit record and receipt. Receipt
+fields are operation ID, committed flag, removed typed identities, `updated`
+(sorted, deduplicated workspace-relative canonical file paths), external
+outcomes, and warnings. The shared removal journal carries this record and
+cannot be deleted after commit until the receipt is durable. Recovery validates
+workspace scope and edited-path agreement, publishes only the immutable file,
+and never acquires operation ownership or changes mutable progress. Receipt
+presence overrides stale progress. Completed progress may retain additional
+derived-output warnings, but cannot override immutable local commit facts.
+
+Uncommitted resume rechecks the original plan against the current local date
+and selected actor. A changed fingerprint requires reconfirmation. Committed
+operations cannot be abandoned. Status does not recover journals. The local-only
+executor refuses configured integrations and pending external actions until
+the integration executor is connected; it cannot silently skip cancellation.

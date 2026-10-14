@@ -2796,3 +2796,13 @@ permissions plus download access. Client-side rclone crypt is rejected because
 a direct cloud URL cannot decrypt it. Server-side B2 encryption is compatible.
 Progress and expiry go to stderr; stdout contains only the URL, or the JSON
 result requested by `--json` (unless global `--verbose` is explicitly enabled).
+
+
+Native single-task removal now uses a consented plan and the shared grouped
+transaction, including dependency and project-reference policy. The service
+rechecks immutable identities and before-images immediately before commit;
+changed inputs return `stale_plan` without deleting a row. Machine-local durable
+operation records support recovery without repeating committed deletion. A
+completed resume returns its original receipt, and status is read-only. Preview
+refuses pending recovery rather than inspecting partly installed task data.
+The expanded operation CLI is a subsequent command-surface integration.
