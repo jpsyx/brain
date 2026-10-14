@@ -1647,13 +1647,14 @@ original target allowlist. Removal uses schema v3 with explicit `task_removal`
 policy at the selected UUID cache's `task-removal-transaction.json`; it permits
 only the two task CSVs and active/archived project metadata or notes. Both
 journals authenticate the selected workspace root and UUID, exact sibling
-artifact names, relative paths, and symlink-free targets/artifacts. Every new
-group recovers legacy triage first, then removal, under the same task-store
-owner. Prepared groups roll back, while Preparing/Committed groups only clean
+artifact names, relative paths, and symlink-free targets/artifacts, including
+the derived rollback temporary. Every new group recovers legacy triage first,
+then removal, under the same task-store owner. Prepared groups roll back, while Preparing/Committed groups only clean
 up. After rollback has durably restored all originals, recovery republishes
-Preparing before removing backups so interrupted cleanup is retryable. Forward
-publication remains Preparing → Prepared → Committed, with before-image
-comparison and the existing file/directory fsync boundaries.
+Preparing before removing backups so interrupted cleanup is retryable. An
+interrupted restore temporary is discarded and rebuilt from its retained
+backup on retry. Forward publication remains Preparing → Prepared → Committed,
+with before-image comparison and the existing file/directory fsync boundaries.
 
 Native task command runners accept explicit `WorkspaceContext` and
 `ActorContext`; they never re-resolve a global root. Shared CSV mutation code

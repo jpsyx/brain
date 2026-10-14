@@ -184,3 +184,43 @@ fn removal_path_policy_accepts_only_csvs_and_project_reference_files() {
         );
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn symlink_restore_temporary_is_rejected_before_any_rollback_write() {
+    use std::os::unix::fs::symlink;
+
+    let (_temporary, workspace, changes) = removal_fixture();
+    let owner = TaskStoreOwner::acquire(&workspace).unwrap();
+    crash_at(
+        &workspace,
+        &owner,
+        &changes,
+        TransactionStep::SyncInstall(changes.len() - 1),
+    );
+    let path = journal_path(&workspace, TargetPolicy::TaskRemoval);
+    let journal: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let backup = workspace
+        .root()
+        .join(journal["entries"][0]["backup"].as_str().unwrap());
+    let restore = backup.with_extension("backup.restore");
+    let outside = tempfile::tempdir().unwrap();
+    let victim = outside.path().join("victim");
+    std::fs::write(&victim, b"keep outside bytes").unwrap();
+    symlink(&victim, &restore).unwrap();
+
+    assert!(recover_pending(&workspace, &owner).is_err());
+    for change in &changes {
+        assert_eq!(std::fs::read(&change.path).unwrap(), change.after);
+    }
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep outside bytes");
+    assert!(
+        std::fs::symlink_metadata(&restore)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert!(backup.exists());
+    assert!(path.exists());
+}

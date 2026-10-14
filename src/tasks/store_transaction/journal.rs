@@ -154,7 +154,8 @@ fn validate_journal(
             {
                 bail!("triage transaction artifact is not the exact sibling of its live target");
             }
-            for path in [&entry.live, &entry.staged, &entry.backup] {
+            let restore = entry.backup.with_extension("backup.restore");
+            for path in [&entry.live, &entry.staged, &entry.backup, &restore] {
                 validate_relative(path)?;
                 reject_symlinks(workspace.root(), path)?;
                 if !seen.insert(path.clone()) {
@@ -184,6 +185,9 @@ fn rollback(
                 format!("reading authenticated backup {}", change.backup.display())
             })?;
             let restore = change.backup.with_extension("backup.restore");
+            // A stopped write can leave this derived temporary incomplete. The
+            // retained backup remains authoritative until rollback is durable.
+            remove_if_exists(&restore)?;
             write_new(&restore, &bytes)?;
             fs::rename(&restore, &change.live)?;
         } else if !change.staged.exists() {

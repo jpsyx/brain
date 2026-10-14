@@ -140,3 +140,60 @@ fn removal_recovers_legacy_schema_two_before_publishing_new_journal() {
     .unwrap();
     assert!(reached);
 }
+
+#[test]
+fn interrupted_restore_temporary_is_rebuilt_from_retained_backup() {
+    for policy in [TargetPolicy::ManagedTriage, TargetPolicy::TaskRemoval] {
+        for partial in [b"".as_slice(), b"partial before-image".as_slice()] {
+            let (_temporary, workspace, changes) = match policy {
+                TargetPolicy::ManagedTriage => fixture(),
+                TargetPolicy::TaskRemoval => removal_fixture(),
+            };
+            let owner = TaskStoreOwner::acquire(&workspace).unwrap();
+            let installed = catch_unwind(AssertUnwindSafe(|| {
+                replace_group_with_hook(&workspace, &owner, policy, &changes, |step| {
+                    assert_ne!(
+                        step,
+                        TransactionStep::SyncInstall(changes.len() - 1),
+                        "install interruption"
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            }));
+            assert!(installed.is_err());
+            let path = journal_path(&workspace, policy);
+            let journal: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            let backup = workspace
+                .root()
+                .join(journal["entries"][0]["backup"].as_str().unwrap());
+            let restore = backup.with_extension("backup.restore");
+            let mut interrupted = false;
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                replace_group_with_hook(&workspace, &owner, policy, &[], |step| {
+                    if step == TransactionStep::Restore(0) {
+                        interrupted = true;
+                        // Model a stopped write/fsync before the restore rename.
+                        std::fs::write(&restore, partial).unwrap();
+                        panic!("restore write interruption");
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            }));
+            assert!(interrupted);
+            assert_eq!(std::fs::read(&changes[0].path).unwrap(), changes[0].after);
+            assert_old(&changes[1..]);
+            assert_eq!(
+                std::fs::read(&backup).unwrap(),
+                changes[0].before.clone().unwrap()
+            );
+            recover_pending(&workspace, &owner).unwrap();
+            assert_old(&changes);
+            assert!(!restore.exists());
+            assert!(!backup.exists());
+            assert!(!path.exists());
+        }
+    }
+}
