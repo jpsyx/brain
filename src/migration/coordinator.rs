@@ -95,9 +95,7 @@ fn run_locked(
     let prepared = if sync_configured {
         None
     } else {
-        let config = Config::try_load(&context.workspace)?;
-        let users = prepare_users(context, &config, terminal.as_mut())?;
-        Some((config, users))
+        Some(prepare_migration(context, terminal.as_mut())?)
     };
 
     let now = Utc::now();
@@ -152,11 +150,31 @@ fn run_locked(
     Ok(())
 }
 
+struct PreparedMigration {
+    owner: crate::tasks::store_lock::TaskStoreOwner,
+    config: Config,
+    users: PreparedUsers,
+}
+
+fn prepare_migration(
+    context: &CommandContext,
+    terminal: Option<&mut Terminal>,
+) -> Result<PreparedMigration> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
+    let config = Config::try_load(&context.workspace)?;
+    let users = prepare_users(context, &config, terminal)?;
+    Ok(PreparedMigration {
+        owner,
+        config,
+        users,
+    })
+}
+
 fn execute(
     context: &CommandContext,
     sync_config: &crate::sync::config::SyncConfig,
     terminal: Option<&mut Terminal>,
-    prepared: Option<(Config, PreparedUsers)>,
+    prepared: Option<PreparedMigration>,
     backup_base: &Path,
     journal: &mut MigrationJournal,
 ) -> Result<()> {
@@ -167,13 +185,14 @@ fn execute(
         journal.record_completed(Step::LegacySemanticSync)?;
     }
 
-    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
-    let (config, prepared_users) = if let Some(prepared) = prepared {
+    let PreparedMigration {
+        owner,
+        config,
+        users: prepared_users,
+    } = if let Some(prepared) = prepared {
         prepared
     } else {
-        let config = Config::try_load(&context.workspace)?;
-        let users = prepare_users(context, &config, terminal)?;
-        (config, users)
+        prepare_migration(context, terminal)?
     };
     let steps = journal.remaining_steps().to_vec();
     for step in steps {
@@ -364,3 +383,7 @@ mod tests {
         assert!(!instructions.contains("Restore only"));
     }
 }
+
+#[cfg(test)]
+#[path = "coordinator_preparation_tests.rs"]
+mod preparation_tests;

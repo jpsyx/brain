@@ -1662,8 +1662,12 @@ again. Project create/set/archive retain ownership through derived reindex;
 task reindex threads that same owner through managed-triage reconciliation.
 The sync caller owns the sync lock first, then the task-store owner spans file
 bisync (including project metadata), CSV merge, upload, and counter writes.
-The migration coordinator acquires after its final legacy sync and retains the
-owner through schema conversion, triage, reindex, repair, and publication.
+For offline migration, assignment preparation acquires and recovers ownership
+before reading either CSV, then carries that same owner with its prepared
+config/users into execution. Mapping failures still precede journal creation.
+Configured migration prepares only after its final legacy sync. Both paths
+retain the owner through schema conversion, triage, reindex, repair, and
+publication.
 `tasks/schema/ownership.rs` separates inactive path-only fixture entry points
 from native workspace-owned migration. The habits HTTP completion path also
 carries the resolved workspace into acquisition and recovery.
