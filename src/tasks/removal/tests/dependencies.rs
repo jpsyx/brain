@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 // These fixtures name the break each transform must prevent: stale removed
 // edges, lost blockers, duplicate expansion, and global overvalidation.
 fn dependency_graph(rows: &[(&str, &[&str])]) -> super::super::dependencies::Graph {
@@ -5,7 +7,7 @@ fn dependency_graph(rows: &[(&str, &[&str])]) -> super::super::dependencies::Gra
         .map(|(id, edges)| {
             (
                 id.to_string(),
-                edges.iter().map(|s| s.to_string()).collect(),
+                edges.iter().map(ToString::to_string).collect(),
             )
         })
         .collect()
@@ -33,7 +35,7 @@ fn dependency_batch_and_diamond_expand_to_unique_surviving_blockers() {
         Dependents::Rewire,
     )
     .unwrap();
-    assert_eq!(result["T3"], Default::default());
+    assert_eq!(result["T3"], BTreeSet::default());
     assert_eq!(
         result["T4"],
         ["T3".into(), "T8".into()].into_iter().collect()
@@ -49,7 +51,7 @@ fn dependency_reject_reports_surviving_dependents_and_unlink_preserves_other_edg
         ("T3", &["T2", "T8"]),
         ("T8", &[]),
     ]);
-    let removed = ["T2".into()].into_iter().collect();
+    let removed = std::iter::once("T2".into()).collect();
     let problem = rewrite(&graph, &removed, Dependents::Reject).unwrap_err();
     assert_eq!(problem.code, "dependents_exist");
     assert_eq!(problem.details["task_id"], "T3");
@@ -73,7 +75,7 @@ fn dependency_problem(rows: &[(&str, &[&str])], removed: &[&str], code: &str, id
     use super::super::{dependencies::rewrite, model::Dependents};
     let problem = rewrite(
         &dependency_graph(rows),
-        &removed.iter().map(|s| s.to_string()).collect(),
+        &removed.iter().map(ToString::to_string).collect(),
         Dependents::Rewire,
     )
     .unwrap_err();
@@ -146,7 +148,7 @@ fn dependency_rewrite_preserves_unrelated_invalid_state_and_input() {
     assert_eq!(
         rewrite(
             &graph,
-            &["T2".into()].into_iter().collect(),
+            &std::iter::once("T2".into()).collect(),
             Dependents::Rewire
         )
         .unwrap(),
@@ -159,7 +161,7 @@ fn dependency_rewrite_preserves_unrelated_invalid_state_and_input() {
         ])
     );
     assert_eq!(
-        rewrite(&graph, &Default::default(), Dependents::Rewire).unwrap(),
+        rewrite(&graph, &BTreeSet::default(), Dependents::Rewire).unwrap(),
         before
     );
     assert_eq!(graph, before);
@@ -177,7 +179,7 @@ fn dependency_unlink_filters_only_removed_ids() {
     assert_eq!(
         rewrite(
             &graph,
-            &["T2".into()].into_iter().collect(),
+            &std::iter::once("T2".into()).collect(),
             Dependents::Unlink
         )
         .unwrap(),
