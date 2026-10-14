@@ -34,6 +34,18 @@ pub fn run(
     resources: bool,
     tasks_flag: bool,
 ) -> Result<()> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    run_owned(workspace, projects, resources, tasks_flag, &owner)
+}
+
+pub(crate) fn run_owned(
+    workspace: &crate::workspace::WorkspaceContext,
+    projects: bool,
+    resources: bool,
+    tasks_flag: bool,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
+) -> Result<()> {
+    owner.recover(workspace)?;
     let root = workspace.root();
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -68,7 +80,7 @@ pub fn run(
     }
     if sel.tasks {
         println!("{}", theme.muted("Applying task + habit automation rules…"));
-        let outcome = tasks::reindex_tasks(workspace, &home)?;
+        let outcome = tasks::reindex_tasks_owned(workspace, &home, owner)?;
         println!("{}", tasks::format_task_outcome(&outcome, theme));
     }
     Ok(())

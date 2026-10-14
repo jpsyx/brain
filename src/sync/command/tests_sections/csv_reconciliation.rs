@@ -1,4 +1,3 @@
-
 #[test]
 fn csv_note_sums_added_merged_deleted_and_flags_soft_conflicts() {
     use crate::sync::csv_sync::CsvMergeOutcome;
@@ -64,18 +63,15 @@ fn csv_preflight_failure_skips_counter_reconciliation() {
 #[test]
 fn sync_once_refuses_when_unconfigured() {
     let cfg: SyncConfig = serde_json::from_str("{}").unwrap();
-    let paths = crate::workspace::WorkspacePaths::new(
+    let workspace = crate::workspace::WorkspaceContext::new(
         Path::new("/home/tester"),
         crate::workspace::WorkspaceId::new(),
-    );
-    let err = sync_once(
-        &paths,
-        crate::workspace::WorkspaceId::new(),
-        &cfg,
+        crate::workspace::WorkspaceName::parse("sample").unwrap(),
         Path::new("/tmp"),
-        Direction::Both,
-        ("a", "b", "2026-07-25"),
+        "member",
+        Path::new("/home/tester"),
     )
-    .unwrap_err();
+    .unwrap();
+    let err = sync_once(&workspace, &cfg, Direction::Both, ("a", "b", "2026-07-25")).unwrap_err();
     assert!(err.to_string().contains("brain sync setup"));
 }

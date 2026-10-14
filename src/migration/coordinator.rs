@@ -13,7 +13,7 @@ use super::{
     Step, backup_directory, backup_portable_data, discover_state, migration_gate, migration_plan,
 };
 use crate::config::Config;
-use crate::tasks::schema::{LegacySemanticSync, TaskSchemaMigration, migrate_inactive};
+use crate::tasks::schema::{LegacySemanticSync, TaskSchemaMigration, migrate_inactive_owned};
 use crate::workspace::CommandContext;
 
 pub(crate) fn run(
@@ -39,7 +39,10 @@ fn run_locked(
     let sync_config = crate::sync::config::SyncConfig::load(context);
     let sync_configured = sync_config.is_configured();
     let journal_path = context.workspace.paths().migration_journal();
-    let state = discover_state(context.workspace.root())?;
+    let state = {
+        let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
+        discover_state(context.workspace.root())?
+    };
     if matches!(state, MigrationState::Current) && !journal_path.exists() {
         eprintln!(
             "{}",
@@ -164,6 +167,7 @@ fn execute(
         journal.record_completed(Step::LegacySemanticSync)?;
     }
 
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
     let (config, prepared_users) = if let Some(prepared) = prepared {
         prepared
     } else {
@@ -190,34 +194,43 @@ fn execute(
                 journal.record_completed(step)?;
             }
             Step::MigrateTaskColumnsAndUuids => {
-                migrate_inactive(TaskSchemaMigration {
-                    workspace_id: context.workspace.id(),
-                    workspace_root: context.workspace.root(),
-                    task_store_lock: &context.workspace.paths().task_store_lock(),
-                    preexisting_backup_base: backup_base,
-                    backup_dir: journal.backup_dir(),
-                    legacy_semantic_sync: if sync_config.is_configured() {
-                        LegacySemanticSync::Complete
-                    } else {
-                        LegacySemanticSync::NotConfigured
+                migrate_inactive_owned(
+                    &context.workspace,
+                    &owner,
+                    TaskSchemaMigration {
+                        workspace_id: context.workspace.id(),
+                        workspace_root: context.workspace.root(),
+                        task_store_lock: &context.workspace.paths().task_store_lock(),
+                        preexisting_backup_base: backup_base,
+                        backup_dir: journal.backup_dir(),
+                        legacy_semantic_sync: if sync_config.is_configured() {
+                            LegacySemanticSync::Complete
+                        } else {
+                            LegacySemanticSync::NotConfigured
+                        },
+                        assignment_rewrites: prepared_users.assignment_rewrites(),
                     },
-                    assignment_rewrites: prepared_users.assignment_rewrites(),
-                })?;
+                )?;
                 journal.record_completed(step)?;
             }
             Step::PublishTaskSchemaTransition => {
-                super::schema_transition::publish_task_schema_transition(context, sync_config)?;
+                super::schema_transition::publish_task_schema_transition_owned(
+                    context,
+                    sync_config,
+                    &owner,
+                )?;
                 journal.record_completed(step)?;
             }
             Step::ReconcileManagedTriage => {
-                crate::tasks::triage_habits::apply_triage_habits_config(
+                crate::tasks::triage_habits::apply_triage_habits_config_owned(
                     &context.workspace,
                     config.enable_triage_habits,
+                    &owner,
                 )?;
                 journal.record_completed(step)?;
             }
             Step::RebuildDerivedData => {
-                crate::reindex::run(&context.workspace, true, true, true)?;
+                crate::reindex::run_owned(&context.workspace, true, true, true, &owner)?;
                 journal.record_completed(step)?;
             }
             Step::Verify => {
@@ -231,10 +244,14 @@ fn execute(
                         crate::theme::Theme::active()
                             .info("Repairing duplicate task UUIDs from an earlier writer...")
                     );
-                    crate::reindex::run(&context.workspace, true, true, true)?;
+                    crate::reindex::run_owned(&context.workspace, true, true, true, &owner)?;
                 }
                 if sync_config.is_configured() {
-                    super::schema_transition::publish_task_schema_transition(context, sync_config)?;
+                    super::schema_transition::publish_task_schema_transition_owned(
+                        context,
+                        sync_config,
+                        &owner,
+                    )?;
                 }
                 verify::completed(context, sync_config)?;
                 journal.record_completed(step)?;

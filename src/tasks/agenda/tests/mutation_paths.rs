@@ -143,9 +143,17 @@ fn completing_managed_triage_updates_the_agenda() {
 fn the_habits_page_completion_updates_the_agenda() {
     let fixture = fixture(Some(AGENDA_WITH_HABITS));
 
-    let outcome = crate::server::routes::habits::complete_and_sync_in_root(
+    let workspace = crate::workspace::WorkspaceContext::new(
         &fixture.root,
-        &fixture.root.join("tasks.transaction.lock"),
+        crate::workspace::WorkspaceId::new(),
+        crate::workspace::WorkspaceName::parse("sample").unwrap(),
+        &fixture.root,
+        "member",
+        &fixture.root,
+    )
+    .unwrap();
+    let outcome = crate::server::routes::habits::complete_and_sync_in_root(
+        &workspace,
         &fixture.targets,
         r#"{"task_id": "H304"}"#,
         today(),

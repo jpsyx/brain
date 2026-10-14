@@ -24,14 +24,27 @@ struct Generation {
 
 /// Reconcile current remote rows into a legacy local generation without
 /// publishing anything. Replaying after a crash produces the same bytes.
+///
+/// This inactive transport primitive has no workspace recovery context; native
+/// callers use the verified, recovering command wrapper.
 pub fn join_legacy_to_current_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &Path,
     remote_schema: &str,
+    fetch: impl FnMut(&str) -> Option<String>,
+) -> Result<()> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
+    join_owned(paths, root, &owner, remote_schema, fetch)
+}
+
+fn join_owned(
+    paths: &crate::workspace::WorkspacePaths,
+    root: &Path,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
+    remote_schema: &str,
     mut fetch: impl FnMut(&str) -> Option<String>,
 ) -> Result<()> {
-    let _task_owner =
-        crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
+    owner.verify_path(&paths.task_store_lock())?;
     let local_schema_path = root.join("tasks/SCHEMA.json");
     let local_schema = fs::read_to_string(&local_schema_path)
         .with_context(|| format!("reading legacy task schema {}", local_schema_path.display()))?;
@@ -114,9 +127,11 @@ pub(crate) fn join_legacy_to_current(
     remote: &crate::sync::remote::Remote,
     remote_schema: &str,
 ) -> Result<()> {
-    join_legacy_to_current_with_transport(
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
+    join_owned(
         context.workspace.paths(),
         context.workspace.root(),
+        &owner,
         remote_schema,
         |relative| fetch_remote_csv(context.workspace.paths(), remote, relative),
     )

@@ -246,10 +246,8 @@ pub fn run(
             let ts = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
             let date = now.format("%Y-%m-%d").to_string();
             crate::sync::command::sync_once(
-                command.workspace.paths(),
-                command.workspace.id(),
+                &command.workspace,
                 &candidate,
-                root,
                 Direction::Resync,
                 (&ts, &ts, &date),
             )
@@ -296,6 +294,7 @@ fn prepare_current_schema_for_setup(
     command: &crate::workspace::CommandContext,
     config: &SyncConfig,
 ) -> Result<()> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&command.workspace)?;
     let local = crate::tasks::schema::inspect_inactive(command.workspace.root())?;
     if !local.current {
         return Ok(());
@@ -325,7 +324,7 @@ fn prepare_current_schema_for_setup(
             crate::workspace::suggest("workspace migrate")
         );
     }
-    crate::migration::publish_task_schema_transition(command, config)
+    crate::migration::publish_task_schema_transition_owned(command, config, &owner)
 }
 
 fn run_setup_stages(

@@ -67,6 +67,9 @@ impl Snapshot {
         owner
             .verify(workspace)
             .map_err(|error| problem("invalid_task_store_owner", &error, ""))?;
+        owner
+            .recover(workspace)
+            .map_err(|error| problem("snapshot_recovery_failed", &error, ""))?;
         let root = workspace.root();
         validate_path(root, root)?;
         validate_file(root, &root.join(".config/config.json"))?;

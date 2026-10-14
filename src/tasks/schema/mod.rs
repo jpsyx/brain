@@ -98,18 +98,12 @@ pub(crate) fn inspect_inactive(workspace_root: &Path) -> Result<Inspection> {
     })
 }
 
-/// Apply the schema conversion only after a rollout coordinator supplies the
-/// legacy-sync decision and a machine-local backup destination.
-pub fn migrate_inactive(request: TaskSchemaMigration<'_>) -> Result<MigrationOutcome> {
-    migrate_inactive_with_hook(request, |_| Ok(()))
-}
-
-fn migrate_inactive_with_hook(
+fn migrate_owned_with_hook(
     request: TaskSchemaMigration<'_>,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
     mut hook: impl FnMut(MigrationStep) -> std::io::Result<()>,
 ) -> Result<MigrationOutcome> {
-    let _task_owner =
-        crate::tasks::store_lock::TaskStoreOwner::acquire_path(request.task_store_lock)?;
+    owner.verify_path(request.task_store_lock)?;
     let (workspace_root, backup_base, backup_dir) = validate_backup_destination(
         request.workspace_root,
         request.preexisting_backup_base,
@@ -394,3 +388,9 @@ fn sync_parent(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod transaction_tests;
+
+mod ownership;
+pub use ownership::migrate_inactive;
+pub(crate) use ownership::migrate_inactive_owned;
+#[cfg(test)]
+use ownership::migrate_inactive_with_hook;

@@ -50,8 +50,8 @@ pub(crate) fn apply_triage_habits_config_owned(
     owner: &TaskStoreOwner,
 ) -> Result<()> {
     let config_path = crate::settings::config_dir(workspace).join("config.json");
-    validate_existing_config(&config_path)?;
     recover_pending(workspace, owner)?;
+    validate_existing_config(&config_path)?;
     let tasks_dir = workspace.root().join("tasks");
     let tasks_path = tasks_dir.join("tasks.csv");
     let habits_path = tasks_dir.join("habits.csv");

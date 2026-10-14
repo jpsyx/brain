@@ -1553,6 +1553,17 @@ both CSVs, both baselines, metadata, remotes, and counters unchanged. Current
 identity requires `task_uuid`, `task_id`, `assigned_to`, and `system_key`;
 `last_touched` improves conflict resolution but is not identity.
 
+**Why canonical publication retains task-store ownership.** A project edit
+rewrites the complete metadata document, including its task array. File bisync
+also reads and writes those documents before the CSV lane starts. Locking only
+CSV merge would therefore allow either writer to observe or reintroduce a
+half-installed removal. Native writers recover under ownership before reading;
+sync takes its sync lock first and keeps task ownership through both lanes and
+the final upload. Owned internal entry points avoid reacquiring the same lock.
+This changes coordination, not reconciliation: a local deletion beats an
+unchanged remote row, while an edited remote row survives with a soft conflict.
+Project task arrays follow the surviving merged rows in both cases.
+
 **Why schema-v2 unknown columns are opt-in.** Silently accepting a column Brain
 does not understand can preserve bytes while breaking relationship or identity
 semantics. Current tables require the known identity columns. A manifest may

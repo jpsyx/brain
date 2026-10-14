@@ -14,6 +14,7 @@ use crate::workspace::CommandContext;
 
 pub fn run(args: &ProjectArgs, context: &CommandContext) -> Result<()> {
     let root = context.workspace.root();
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(&context.workspace)?;
     let theme = Theme::active();
     match &args.action {
         ProjectAction::New(new) => {
@@ -26,7 +27,7 @@ pub fn run(args: &ProjectArgs, context: &CommandContext) -> Result<()> {
                 &new.due,
                 &new.description,
             )?;
-            reindex_projects(context)?;
+            reindex_projects(context, &owner)?;
             eprint!(
                 "{}",
                 render_created(
@@ -47,14 +48,14 @@ pub fn run(args: &ProjectArgs, context: &CommandContext) -> Result<()> {
                 set.due.as_deref(),
             )?;
             if !changes.is_empty() {
-                reindex_projects(context)?;
+                reindex_projects(context, &owner)?;
             }
             eprint!("{}", render_changes(&located.slug, &changes, theme));
             Ok(())
         }
         ProjectAction::Archive(slug) => {
             let located = project::archive(root, &slug.slug)?;
-            reindex_projects(context)?;
+            reindex_projects(context, &owner)?;
             eprintln!(
                 "{} {}  {}",
                 theme.success("archived:"),
@@ -76,8 +77,11 @@ pub fn run(args: &ProjectArgs, context: &CommandContext) -> Result<()> {
 }
 
 /// Rebuild `projects-lookup.csv` so it mirrors what just changed on disk.
-fn reindex_projects(context: &CommandContext) -> Result<()> {
-    crate::reindex::run(&context.workspace, true, false, false)
+fn reindex_projects(
+    context: &CommandContext,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
+) -> Result<()> {
+    crate::reindex::run_owned(&context.workspace, true, false, false, owner)
 }
 
 fn render_created(slug: &str, directory: &str, theme: Theme) -> String {

@@ -79,3 +79,7 @@ fn removal_group_recovers_after_csv_replacement() {
     recover_pending(&workspace, &owner).unwrap();
     assert_old(&changes);
 }
+
+mod writers;
+
+mod migration_writers;

@@ -2306,8 +2306,12 @@ brain-root lookup.
   line-based bisync would happily let one machine's edit clobber another's on
   structured, id-keyed data. Instead `command::sync_once` runs a dedicated
   step (`crate::sync::csv_sync::sync_csvs`) once bisync itself hasn't aborted.
-  It holds the workspace task-store owner across CSV publication and dependent
-  counter reconciliation. For each CSV it reads the cached baseline
+  After the sync lock, it acquires and recovers the workspace task-store owner
+  before file bisync starts, retaining it through CSV publication and dependent
+  counter reconciliation. This also protects active and archived project metadata
+  in the file lane. Batched uploads preserve each workspace-relative path under
+  the remote workspace root; metadata files from different projects cannot
+  collide in staging. For each CSV it reads the cached baseline
   (`csv_sync::baseline_path`,
   `<workspace-cache>/sync/baselines/{tasks.csv,habits.csv}`, machine-local and
   never synced), the local file, and the remote copy (fetched with `rclone

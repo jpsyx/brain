@@ -1101,7 +1101,8 @@ expects IDs already resolved to the same namespace; it does not canonicalize key
 or write CSVs.
 
 `Snapshot::read` acquires the workspace task-store owner; `read_owned` verifies
-an existing owner so an apply transaction can retain ownership. Each CSV keeps
+an existing owner so an apply transaction can retain ownership. Both recover
+pending grouped transactions before reading canonical inputs. Each CSV keeps
 its exact optional before-image, parsed rows, and immutable identities together.
 Absence differs from an empty file. Every row is validated for duplicate display
 IDs and UUIDs, including collisions between persisted and derived legacy UUIDs.

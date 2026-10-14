@@ -265,8 +265,7 @@ fn forged_journal_cannot_restore_an_unapproved_live_path() {
         "{{\"schema_version\":2,\"workspace_id\":\"{}\",\"workspace_root\":\"{}\",\"transaction_id\":\"1-1\",\"state\":\"prepared\",\"entries\":[{{\"live\":\"private.txt\",\"staged\":\"forged.staged\",\"backup\":\"forged.backup\",\"existed\":true}}]}}",
         workspace.id(), workspace.root().display()
     )).unwrap();
-    let owner = TaskStoreOwner::acquire(&workspace).unwrap();
-    assert!(recover_pending(&workspace, &owner).is_err());
+    assert!(TaskStoreOwner::acquire(&workspace).is_err());
     assert_eq!(std::fs::read(&victim).unwrap(), b"keep\n");
     assert!(workspace.root().join("forged.backup").exists());
 }

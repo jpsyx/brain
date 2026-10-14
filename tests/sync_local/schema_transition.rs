@@ -172,8 +172,7 @@ fn real_rclone_wrong_typed_remote_schema_refuses_legacy_sync_without_publication
     let paths = workspace_paths(temporary.path(), workspace_id());
 
     let error = brain::sync::csv_sync::sync_csvs_with_transport(
-        &paths,
-        &local,
+        &semantic_workspace(&paths, &local),
         Direction::Both,
         |relative| rclone_cat(&remote.join(relative)),
         |relative, text| rclone_copy_text(text, &remote.join(relative)),
@@ -212,8 +211,7 @@ fn write_legacy_state(root: &Path) {
 
 fn semantic_sync(paths: &brain::workspace::WorkspacePaths, root: &Path, remote: &Path) {
     brain::sync::csv_sync::sync_csvs_with_transport(
-        paths,
-        root,
+        &semantic_workspace(paths, root),
         Direction::Both,
         |relative| rclone_cat(&remote.join(relative)),
         |relative, text| rclone_copy_text(text, &remote.join(relative)),
@@ -289,4 +287,20 @@ fn rclone_copy(source: &Path, destination: &Path) -> bool {
         ])
         .status()
         .is_ok_and(|status| status.success())
+}
+
+fn semantic_workspace(
+    paths: &brain::workspace::WorkspacePaths,
+    root: &Path,
+) -> brain::workspace::WorkspaceContext {
+    let home = paths.cache_dir().ancestors().nth(4).unwrap();
+    brain::workspace::WorkspaceContext::new(
+        home,
+        workspace_id(),
+        brain::workspace::WorkspaceName::parse("sample").unwrap(),
+        root,
+        "member",
+        home,
+    )
+    .unwrap()
 }

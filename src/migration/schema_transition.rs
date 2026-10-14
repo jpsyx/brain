@@ -10,6 +10,8 @@ const TASKS: &str = "tasks/tasks.csv";
 const HABITS: &str = "tasks/habits.csv";
 const SCHEMA: &str = "tasks/SCHEMA.json";
 
+/// Inactive transport primitive; native publication retains a recovered owner
+/// through the complete schema-last upload.
 pub fn publish_task_schema_transition_with_transport(
     paths: &crate::workspace::WorkspacePaths,
     root: &Path,
@@ -40,10 +42,12 @@ pub fn publish_task_schema_transition_with_transport(
     Ok(())
 }
 
-pub(crate) fn publish_task_schema_transition(
+pub(crate) fn publish_task_schema_transition_owned(
     context: &crate::workspace::CommandContext,
     config: &crate::sync::config::SyncConfig,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
 ) -> Result<()> {
+    owner.recover(&context.workspace)?;
     let remote = crate::sync::remote::build_remote(config);
     let verified = crate::sync::identity::require_remote_identity(
         context.workspace.root(),

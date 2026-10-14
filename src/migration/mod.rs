@@ -19,7 +19,7 @@ pub use journal::{JournalRequest, MigrationJournal};
 pub(crate) use legacy_join::join_legacy_to_current;
 pub use legacy_join::join_legacy_to_current_with_transport;
 pub use plan::{MigrationState, PlanInput, Step, discover_state, migration_plan};
-pub(crate) use schema_transition::publish_task_schema_transition;
+pub(crate) use schema_transition::publish_task_schema_transition_owned;
 pub use schema_transition::publish_task_schema_transition_with_transport;
 pub use steps::{
     MappingIssue, MappingResolution, MigrationGate, MigrationGateInput, apply_mapping_resolution,

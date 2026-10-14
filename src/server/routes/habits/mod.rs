@@ -85,20 +85,13 @@ pub fn done(
 ) -> DoneOutcome {
     let today = Local::now().date_naive();
     let targets = crate::tasks::agenda::resolve_targets(store, workspace, today);
-    complete_and_sync_in_root(
-        workspace.root(),
-        &workspace.paths().task_store_lock(),
-        &targets,
-        body,
-        today,
-    )
+    complete_and_sync_in_root(workspace, &targets, body, today)
 }
 
 /// The tested core of [`done`], with the day's targets injected.
 #[must_use]
 pub(crate) fn complete_and_sync_in_root(
-    root: &std::path::Path,
-    lock_path: &std::path::Path,
+    workspace: &crate::workspace::WorkspaceContext,
     targets: &crate::tasks::agenda::Targets,
     body: &str,
     today: chrono::NaiveDate,
@@ -111,11 +104,17 @@ pub(crate) fn complete_and_sync_in_root(
         Ok(id) => id,
         Err(e) => return DoneOutcome::BadRequest(e.to_string()),
     };
-    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire_path(lock_path) {
+    let owner = match crate::tasks::store_lock::TaskStoreOwner::acquire(workspace) {
         Ok(owner) => owner,
         Err(error) => return DoneOutcome::Failed(error.to_string()),
     };
-    match complete_in_root_with_owner_and_today(root, lock_path, &owner, &id, today) {
+    match complete_in_root_with_owner_and_today(
+        workspace.root(),
+        &workspace.paths().task_store_lock(),
+        &owner,
+        &id,
+        today,
+    ) {
         Ok(result) => {
             crate::tasks::agenda::sync_targets(
                 targets,

@@ -200,16 +200,13 @@ fn run_acquired(
     direction: crate::sync::args::Direction,
 ) -> Result<bool> {
     crate::migration::require_no_active_rollout(command.workspace.paths())?;
-    let root = command.workspace.root();
     let now = chrono::Utc::now();
     let timestamp = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let date = now.format("%Y-%m-%d").to_string();
     crate::logging::log(format!("sync start ts={timestamp}"));
     let outcome = crate::sync::command::sync_once(
-        command.workspace.paths(),
-        command.workspace.id(),
+        &command.workspace,
         config,
-        root,
         direction,
         (&timestamp, &timestamp, &date),
     )?;

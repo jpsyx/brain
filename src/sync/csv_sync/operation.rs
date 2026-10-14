@@ -105,12 +105,28 @@ fn heal_or_refuse(
 }
 
 pub fn sync_csvs_with_transport(
-    paths: &crate::workspace::WorkspacePaths,
-    root: &Path,
+    workspace: &crate::workspace::WorkspaceContext,
+    direction: Direction,
+    fetch: impl FnMut(&str) -> Option<String>,
+    push: impl FnMut(&str, &str) -> bool,
+) -> Result<CsvSyncResult, CsvSyncError> {
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)
+        .map_err(|error| CsvSyncError::Preflight(format!("task-store recovery: {error:#}")))?;
+    sync_csvs_with_transport_owned(workspace, &owner, direction, fetch, push)
+}
+
+pub(crate) fn sync_csvs_with_transport_owned(
+    workspace: &crate::workspace::WorkspaceContext,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
     direction: Direction,
     mut fetch: impl FnMut(&str) -> Option<String>,
     mut push: impl FnMut(&str, &str) -> bool,
 ) -> Result<CsvSyncResult, CsvSyncError> {
+    owner
+        .recover(workspace)
+        .map_err(|error| CsvSyncError::Preflight(format!("task-store recovery: {error:#}")))?;
+    let paths = workspace.paths();
+    let root = workspace.root();
     let manifest = std::fs::read_to_string(root.join("tasks/SCHEMA.json")).ok();
     let local_schema_status = schema_status(manifest.as_deref())
         .map_err(|error| CsvSyncError::Preflight(format!("{error:#}")))?;

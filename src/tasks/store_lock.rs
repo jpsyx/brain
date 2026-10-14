@@ -16,7 +16,9 @@ pub(crate) struct TaskStoreOwner {
 
 impl TaskStoreOwner {
     pub(crate) fn acquire(workspace: &WorkspaceContext) -> Result<Self> {
-        Self::acquire_path(&workspace.paths().task_store_lock())
+        let owner = Self::acquire_path(&workspace.paths().task_store_lock())?;
+        owner.recover(workspace)?;
+        Ok(owner)
     }
 
     pub(crate) fn acquire_path(lock_path: &Path) -> Result<Self> {
@@ -34,6 +36,10 @@ impl TaskStoreOwner {
             _connection: connection,
             lock_path: lock_path.to_path_buf(),
         })
+    }
+
+    pub(crate) fn recover(&self, workspace: &WorkspaceContext) -> Result<()> {
+        crate::tasks::store_transaction::recover_pending(workspace, self)
     }
 
     pub(crate) fn verify(&self, workspace: &WorkspaceContext) -> Result<()> {

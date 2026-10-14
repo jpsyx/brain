@@ -18,19 +18,25 @@ pub enum TaskOutcome {
     Ran,
 }
 
-fn reconcile_triage_before_reindex(workspace: &crate::workspace::WorkspaceContext) -> Result<()> {
-    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
-    crate::tasks::triage_habits::apply_triage_habits_config(workspace, enabled)
-}
-
 /// Reconcile managed triage, apply every rule, then sweep old completions.
+#[cfg(test)]
 pub fn reindex_tasks(
     workspace: &crate::workspace::WorkspaceContext,
-    _home: &Path,
+    home: &Path,
 ) -> Result<TaskOutcome> {
-    reconcile_triage_before_reindex(workspace)?;
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
+    reindex_tasks_owned(workspace, home, &owner)
+}
+
+pub(super) fn reindex_tasks_owned(
+    workspace: &crate::workspace::WorkspaceContext,
+    _home: &Path,
+    owner: &crate::tasks::store_lock::TaskStoreOwner,
+) -> Result<TaskOutcome> {
+    owner.recover(workspace)?;
+    let enabled = crate::config::Config::load(workspace).enable_triage_habits;
+    crate::tasks::triage_habits::apply_triage_habits_config_owned(workspace, enabled, owner)?;
     let today = chrono::Local::now().date_naive();
-    let _owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let theme = Theme::active();
     let report = crate::tasks::rules::run(workspace.root(), today, true)?;
     eprint!("{}", crate::tasks::rules::render(&report, true, theme));
@@ -97,7 +103,7 @@ mod tests {
         .unwrap();
         std::fs::write(workspace.root().join(".config/config.json"), "{}\n").unwrap();
 
-        reconcile_triage_before_reindex(&workspace).unwrap();
+        reindex_tasks(&workspace, temporary.path()).unwrap();
 
         let habits =
             crate::tasks::task::load_habits(&workspace.root().join("tasks/habits.csv")).unwrap();

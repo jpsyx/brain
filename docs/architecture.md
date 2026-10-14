@@ -1656,6 +1656,18 @@ interrupted restore temporary is discarded and rebuilt from its retained
 backup on retry. Forward publication remains Preparing → Prepared → Committed,
 with before-image comparison and the existing file/directory fsync boundaries.
 
+`TaskStoreOwner::acquire` recovers both grouped journals before returning to a
+native writer. Existing-owner entry points verify and recover without acquiring
+again. Project create/set/archive retain ownership through derived reindex;
+task reindex threads that same owner through managed-triage reconciliation.
+The sync caller owns the sync lock first, then the task-store owner spans file
+bisync (including project metadata), CSV merge, upload, and counter writes.
+The migration coordinator acquires after its final legacy sync and retains the
+owner through schema conversion, triage, reindex, repair, and publication.
+`tasks/schema/ownership.rs` separates inactive path-only fixture entry points
+from native workspace-owned migration. The habits HTTP completion path also
+carries the resolved workspace into acquisition and recovery.
+
 Native task command runners accept explicit `WorkspaceContext` and
 `ActorContext`; they never re-resolve a global root. Shared CSV mutation code
 normalizes legacy `assignee` headers to `assigned_to` before any write.
@@ -1682,7 +1694,9 @@ base, local, and remote task/habit table as one operation before any write;
 `csv_sync/metadata.rs` stages project metadata and republishes every
 authoritative metadata file so retries heal partial remote publication.
 `csv_sync/transport.rs` is the rclone-facing adapter that batches staging,
-downloads, and publication; the parent retains merge policy and setup
+downloads, and publication. Downloads remain scoped to remote `tasks/`, while
+upload staging preserves workspace-relative CSV and project metadata paths and
+publishes against the remote workspace root; the parent retains merge policy and setup
 classification.
 Its publication result distinguishes local filesystem failures from remote
 transport failures so command diagnostics identify the failing boundary.

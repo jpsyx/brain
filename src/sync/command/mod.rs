@@ -61,21 +61,17 @@ pub fn hostname() -> String {
 /// call is testable and to keep clock reads out of pure code). Returns the
 /// verified outcome.
 pub fn sync_once(
-    paths: &crate::workspace::WorkspacePaths,
-    workspace_id: crate::workspace::WorkspaceId,
+    workspace: &crate::workspace::WorkspaceContext,
     cfg: &SyncConfig,
-    root: &Path,
     dir: Direction,
     now: (&str, &str, &str),
 ) -> Result<Outcome> {
-    sync_once_with_task_state(paths, workspace_id, cfg, root, dir, now, true)
+    sync_once_with_task_state(workspace, cfg, dir, now, true)
 }
 
 fn sync_once_with_task_state(
-    paths: &crate::workspace::WorkspacePaths,
-    workspace_id: crate::workspace::WorkspaceId,
+    workspace: &crate::workspace::WorkspaceContext,
     cfg: &SyncConfig,
-    root: &Path,
     dir: Direction,
     now: (&str, &str, &str),
     reconcile_task_state: bool,
@@ -86,6 +82,9 @@ fn sync_once_with_task_state(
             crate::workspace::suggest("sync setup")
         );
     }
+    let paths = workspace.paths();
+    let root = workspace.root();
+    let workspace_id = workspace.id();
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
@@ -123,6 +122,9 @@ fn sync_once_with_task_state(
     reporter.line(&theme.muted(&format!(
         "  found: remote belongs to this workspace ({workspace_id}) → proceeding"
     )));
+    // The caller owns the sync lock. File sync also reads and writes project
+    // metadata, so ownership spans both lanes and their final publication.
+    let task_owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let workdir = crate::sync::run::bisync_workdir(paths);
     let _ = std::fs::create_dir_all(&workdir);
     let workdir_arg = workdir.to_string_lossy().into_owned();
@@ -216,10 +218,8 @@ fn sync_once_with_task_state(
     } else {
         crate::logging::log("sync csv merge start");
         reporter.line(&theme.info("Merging task and habit CSVs by row id…"));
-        let _task_owner =
-            crate::tasks::store_lock::TaskStoreOwner::acquire_path(&paths.task_store_lock())?;
         let csv = sync_task_state(
-            || crate::sync::csv_sync::sync_csvs(paths, verified, root, dir),
+            || crate::sync::csv_sync::sync_csvs(workspace, &task_owner, verified, dir),
             |floors| {
                 reporter.line(&theme.info("Reconciling task and habit id counters…"));
                 let counters = crate::sync::counters::sync_counters(verified, root, dir, floors);
@@ -302,10 +302,8 @@ pub fn run_legacy_migration_sync(
     let date = now.format("%Y-%m-%d").to_string();
     let reconcile_task_state = remote_schema == crate::sync::csv_merge::SchemaStatus::Legacy;
     let outcome = sync_once_with_task_state(
-        context.workspace.paths(),
-        context.workspace.id(),
+        &context.workspace,
         config,
-        context.workspace.root(),
         Direction::Both,
         (&started_at, &finished_at, &date),
         reconcile_task_state,

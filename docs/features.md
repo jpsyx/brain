@@ -925,7 +925,10 @@ carrying its `system_key`). The triage skill additionally has a narrow
 marker-aware helper that completes the chain by `system_key` when it has no id
 in hand. Every native
 or bundled-script task, habit, and display-counter writer participates in one
-workspace UUID-scoped task-store lock. Python writers also verify the exact
+workspace UUID-scoped task-store lock. Native acquisition recovers interrupted
+managed-triage and removal transactions before reading canonical data. Project
+create/set/archive, derived reindex, and both sync publication lanes participate
+in that same ownership boundary. Python writers also verify the exact
 bytes they read before atomically replacing a CSV, and `/todo remove` uses the
 protected removal script instead of editing a row directly.
 
