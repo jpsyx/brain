@@ -6105,3 +6105,28 @@ a partial operation without restoring local rows merely to learn its outcome.
 Reconciliation never authorizes new cancellation or local effects: both require
 complete original snapshot equality. A running executor owns its operation, so
 abandon rejects immediately instead of waiting and acting on a later state.
+
+
+## Removal refresh uses explicit effects and preserves the previous printable
+
+A removed row cannot supply completion's family evidence after commit. Removal
+therefore sends one saved batch of removed IDs and explicit successors to the
+agenda synchronizer. Current eligibility can suppress a supplied successor,
+without guessing a fallback. Original agenda order selects the earliest slot
+independently of effect order. Existing successor callouts are preserved;
+introduced placements are deduplicated, ordered lists renumber once, and current
+habits and completed history are derived once.
+
+Canonical commit and downstream refresh have different recovery boundaries.
+Removal's separate result reports safe failure stages and saves warnings in
+Complete progress without editing immutable commit evidence. An unacknowledged
+LocalCommitted refresh retries an existing printable even after Markdown was
+written; completed resume returns saved results without another refresh.
+
+Removal-only PDF rendering writes to a unique directory on the destination
+filesystem and requires successful exit plus a nonempty regular output before
+atomic replacement. Symlink output is rejected. This validates production and
+existence, not PDF syntax. Failure retains the previous printable, with a warning
+that it was not refreshed. Renderer streams are suppressed so they cannot leak
+private diagnostics or corrupt the CLI's single JSON object. Ordinary completion
+and explicit printing retain their existing API and behavior.

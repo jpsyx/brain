@@ -71,6 +71,29 @@ fn duration_suffix(row: &Row) -> String {
     }
 }
 
+/// Render one MIT replacement using the same labels as completion.
+pub(super) fn mit_replacement(next: &Row) -> String {
+    format!(
+        "- [ ] ❗ **{}** {}{}",
+        field(next, "task_id").trim(),
+        field(next, "task_name").trim(),
+        duration_suffix(next)
+    )
+}
+
+/// Render one suggested replacement, preserving its original slot and number.
+pub(super) fn suggested_replacement(line: &str, next: &Row) -> Option<String> {
+    let captures = suggested_line().captures(line)?;
+    Some(format!(
+        "{}. [ ] {} | **{}** {}{}",
+        &captures[1],
+        &captures[2],
+        field(next, "task_id").trim(),
+        field(next, "task_name").trim(),
+        duration_suffix(next)
+    ))
+}
+
 /// Swap the completed chunk's MIT-callout line for the next chunk's, so the
 /// user always has exactly one actionable chunk visible. Falls back to a plain
 /// drop when the next chunk is already called out.

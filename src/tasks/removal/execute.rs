@@ -178,7 +178,7 @@ pub(super) fn finish(
     ownership: &OperationOwner,
     operation: &mut Operation,
 ) -> Result<Receipt, Problem> {
-    let receipt = operation
+    let mut receipt = operation
         .receipt
         .as_ref()
         .expect("finish follows durable commit")
@@ -187,14 +187,26 @@ pub(super) fn finish(
         .map_err(|error| operational("invalid_operation_date", &error.into()))?;
     let targets =
         crate::tasks::agenda::resolve_targets(&context.registry_store, &context.workspace, date);
-    for removed in &receipt.removed {
-        crate::tasks::agenda::sync_targets(
-            &targets,
-            &removed.task_id,
-            crate::tasks::agenda::Action::Defer,
-            date,
-        );
+    let changes: Vec<_> = operation
+        .plan
+        .targets
+        .iter()
+        .map(|target| crate::tasks::agenda::RemovalAgendaChange {
+            removed_id: target.task_id.clone(),
+            successor_id: operation.plan.successors.get(&target.task_id).cloned(),
+        })
+        .collect();
+    if let crate::tasks::agenda::RemovalOutcome::Warning { stage } =
+        crate::tasks::agenda::sync_removal_targets(&targets, &changes, date)
+    {
+        receipt.warnings.push(Problem::new(
+            "agenda_refresh_failed",
+            "Agenda refresh failed after local commit",
+            serde_json::json!({"stage":stage.as_str()}),
+        ));
     }
+    // Downstream warnings belong to mutable progress, never the commit record.
+    operation.receipt = Some(receipt.clone());
     operation.phase = Phase::Complete;
     // Receipt is already authoritative. Failure to save progress cannot undo it.
     if let Err(error) = ownership.save(&context.workspace, operation) {

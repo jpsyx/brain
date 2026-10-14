@@ -50,3 +50,5 @@ pub(super) const FULL_AGENDA: &str = "\
 
 Core has never heard of this section.
 ";
+mod remove;
+mod remove_io;

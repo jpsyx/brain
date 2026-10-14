@@ -25,3 +25,5 @@ mod external_recovery;
 mod external_network;
 
 mod external_errors;
+
+mod agenda;

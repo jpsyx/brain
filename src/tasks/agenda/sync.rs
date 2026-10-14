@@ -84,6 +84,115 @@ pub(crate) fn sync_markdown(
     Ok(doc.render())
 }
 
+/// Refresh a removal batch without requiring deleted rows in the snapshot.
+#[allow(clippy::unnecessary_wraps)] // Preserve the fallible transformation boundary for stage reporting.
+pub(crate) fn sync_removal_markdown(
+    text: &str,
+    changes: &[super::RemovalAgendaChange],
+    snapshot: &Snapshot<'_>,
+    today: NaiveDate,
+) -> Result<String, String> {
+    let mut doc = Document::parse(text);
+    let removed: std::collections::BTreeSet<_> = changes
+        .iter()
+        .map(|change| change.removed_id.as_str())
+        .collect();
+    let successors: std::collections::BTreeMap<_, _> = changes
+        .iter()
+        .filter_map(|change| {
+            let id = change.successor_id.as_ref()?;
+            let next = snapshot
+                .tasks
+                .iter()
+                .find(|row| field(row, "task_id").trim() == id)?;
+            (!removed.contains(id.as_str()) && removal_eligible(next, snapshot, today))
+                .then_some((change.removed_id.as_str(), next))
+        })
+        .collect();
+    for heading in [MIT_HEADING, SUGGESTED_HEADING, CUT_HEADING] {
+        if let Some(index) = doc.find(heading) {
+            let body = &doc.sections[index].body;
+            let mut placed: std::collections::BTreeSet<_> = successors
+                .values()
+                .filter_map(|next| {
+                    let id = field(next, "task_id");
+                    body.iter()
+                        .any(|line| {
+                            lines::has_id(line, &id)
+                                && !removed.iter().any(|removed| lines::has_id(line, removed))
+                        })
+                        .then_some(id)
+                })
+                .collect();
+            let mut out = Vec::with_capacity(body.len());
+            for line in body {
+                let anchors: Vec<_> = removed
+                    .iter()
+                    .filter(|id| lines::has_id(line, id))
+                    .collect();
+                if anchors.is_empty() {
+                    out.push(line.clone());
+                    continue;
+                }
+                if heading == CUT_HEADING {
+                    continue;
+                }
+                for anchor in anchors {
+                    let Some(next) = successors.get(*anchor) else {
+                        continue;
+                    };
+                    let id = field(next, "task_id");
+                    if placed.contains(&id) {
+                        continue;
+                    }
+                    let replacement = if heading == MIT_HEADING {
+                        Some(lines::mit_replacement(next))
+                    } else {
+                        lines::suggested_replacement(line, next)
+                    };
+                    if let Some(replacement) = replacement {
+                        placed.insert(id);
+                        out.push(replacement);
+                        break;
+                    }
+                }
+            }
+            doc.sections[index].body = if heading == MIT_HEADING {
+                out
+            } else {
+                lines::renumber(&out)
+            };
+        }
+    }
+    doc.replace_or_set(
+        super::HABITS_HEADING,
+        derive::today_habits(snapshot.habits, today),
+    );
+    doc.replace_or_set(
+        super::COMPLETED_HEADING,
+        derive::completed_today_section(snapshot.tasks, snapshot.habits, today),
+    );
+    Ok(doc.render())
+}
+
+/// Recheck only the supplied successor against the planner's current visibility rules.
+fn removal_eligible(row: &Row, snapshot: &Snapshot<'_>, today: NaiveDate) -> bool {
+    use crate::tasks::complete::{normalize_id, parse_date};
+    let key = |value: &str| normalize_id(value.trim()).unwrap_or_else(|_| value.trim().to_owned());
+    matches!(field(row, "status").trim(), "not_started" | "in_progress")
+        && parse_date(&field(row, "start_date")).is_none_or(|date| date <= today)
+        && !field(row, "blocked_by")
+            .split('|')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .any(|id| {
+                snapshot.tasks.iter().chain(snapshot.habits).any(|blocker| {
+                    key(&field(blocker, "task_id")) == key(id)
+                        && field(blocker, "status").trim() != "done"
+                })
+            })
+}
+
 /// Resolve from the post-mutation snapshot, where the anchor is already done.
 fn next_chunk_row<'a>(tasks: &'a [Row], task_id: &str) -> Result<Option<&'a Row>, String> {
     if !task_id.starts_with('T') {

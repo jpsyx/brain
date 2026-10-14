@@ -1669,8 +1669,16 @@ preview acquires inspection ownership and refuses a pending known journal with
 recovery changes. Apply/resume and ordinary canonical writers still recover.
 Resume uses the current local date for uncommitted consent; completed resume
 returns the original completed receipt without canonical writes. The existing
-single-task agenda adapter runs after releasing task ownership; explicit batch
-agenda effects and richer derived-output warnings are a subsequent integration.
+removal agenda adapter runs once after releasing task ownership. It passes the
+plan's explicit removed/successor IDs to the pure batch synchronizer, which
+rechecks successor eligibility from the current CSV snapshot and preserves
+unrelated sections. `agenda/removal_io` returns separate stage-bearing derived
+results; `agenda/removal_pdf` stages and validates a nonempty regular output on
+the destination filesystem before atomically replacing an existing printable.
+The ordinary completion `Outcome` contract remains unchanged. Downstream
+warnings are saved in mutable progress before Complete, without changing the
+immutable canonical receipt. LocalCommitted recovery retries an existing
+printable even if Markdown is unchanged; Complete returns its saved receipt.
 `command/tasks/mutate/remove/{mod,interactive,report}` implements explicit-batch
 CLI validation, terminal consent, and redacted public reporting around these
 services. Lifecycle commands call the saved-operation services directly, without

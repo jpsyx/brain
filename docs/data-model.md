@@ -2877,6 +2877,15 @@ workspace scope and edited-path agreement, publishes only the immutable file,
 and never acquires operation ownership or changes mutable progress. Receipt
 presence overrides stale progress. Completed progress may retain additional
 derived-output warnings, but cannot override immutable local commit facts.
+Removal refresh uses `RemovalAgendaChange { removed_id, successor_id }`, built
+from saved plan targets and explicit successors, rather than a deleted row.
+`RemovalOutcome` distinguishes `NoAgenda`, `Unchanged`, `Updated { pdf }`, and
+`Warning { stage }`. Warning receipts use code `agenda_refresh_failed` with a
+safe `details.stage`: `agenda_read`, `snapshot_read`, `transform`, `agenda_write`,
+or `pdf_render`. The transformation boundary currently has no failing branch;
+it retains the fallible sync interface. These downstream warnings belong only
+to Complete operation progress. `Receipt.updated` continues to contain canonical
+workspace-relative paths, and the immutable commit record is never rewritten.
 
 Uncommitted resume rechecks the original plan against the current local date
 and selected actor. A changed fingerprint requires reconfirmation. Committed

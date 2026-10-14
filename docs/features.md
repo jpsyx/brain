@@ -2851,3 +2851,20 @@ JSON also disables bootstrap readiness/persona prompts; required readiness
 failures return promptly without bypassing workspace validation. Removal skips
 the startup PDF prerequisite gate: missing PDF tooling cannot prevent a
 canonical commit. Derived-output handling reports rendering failures afterward.
+
+After a commit, one batch refresh drops every removed callout from MIT,
+Suggested order, and Cut order. Explicit eligible successors inherit the earliest
+original slot per section; existing successor callouts win and are preserved.
+Introduced successors appear once per section. Cut order only drops entries.
+A missing, deferred, backlogged, done, or blocked successor is drop-only, with
+no search for a later chunk. Habits and completed history are derived once from
+the current CSVs, while unrelated notes and appendices are preserved.
+
+A missing agenda needs no action. Read, snapshot, transformation, write, and
+PDF failures become persisted `agenda_refresh_failed` warnings after commit.
+An existing printable is retained until a successful renderer produces a
+nonempty regular staged file that can replace it atomically. No printable is
+created when none existed. An interrupted LocalCommitted refresh retries its
+existing printable even if Markdown is already accurate; a saved Complete
+receipt returns unchanged without rerendering. Rendering failure cannot undo
+canonical removal or add agenda paths to the receipt's canonical `updated` list.
