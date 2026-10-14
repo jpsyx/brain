@@ -52,6 +52,32 @@ fn bundled_removal_guidance_uses_the_native_preview_and_consent_contract() {
 }
 
 #[test]
+fn retained_triage_references_require_the_same_native_batch_contract() {
+    for (name, source) in [
+        (
+            "todo/references/triage-heuristics.md",
+            include_str!("../skills/todo/references/triage-heuristics.md"),
+        ),
+        (
+            "triage/references/heuristics.md",
+            include_str!("../skills/triage/references/heuristics.md"),
+        ),
+    ] {
+        let normalized = source.split_whitespace().collect::<Vec<_>>().join(" ");
+        for required in [
+            "all consented IDs in one command",
+            "#remove-tasks",
+            "chosen dependency and linked-issue policies",
+            "preview fingerprint as `--expect-plan`",
+            "CLI owns link cleanup",
+        ] {
+            assert!(normalized.contains(required), "{name}: missing {required}");
+        }
+        assert!(!normalized.contains("confirms with the count, then removes them from the CSV"));
+    }
+}
+
+#[test]
 fn documented_removal_options_parse_through_both_real_parsers() {
     for example in parsing::EXAMPLES {
         let parsed = parsing::parse(example).unwrap_or_else(|error| panic!("{example:?}: {error}"));

@@ -51,8 +51,11 @@ is by task_type — it's the highest-signal group.
   are `1`, `7`, `14`. Increments `defer_count` for each. If any task
   in the group hits `defer_count >= 3` *after* the bulk defer, flag
   it in the summary.
-- **Drop all** — confirms with the count, then removes them from the
-  CSV. Never silently destructive.
+- **Drop all**: submit all consented IDs in one command through
+  [the native removal contract](../SKILL.md#remove-tasks). Preview the batch,
+  obtain consent for the exact scope and chosen dependency and linked-issue
+  policies, then apply with `--yes` and the preview fingerprint as `--expect-plan`.
+  The CLI owns link cleanup. A stale plan requires a fresh preview and consent.
 - **1-by-1** — walks the group with per-task prompts (see Step 4).
 - **Skip group** — moves to next.
 
