@@ -995,7 +995,7 @@ computation), `install` (checked source loading and rendering),
 recovery and fallible success stamping), `prune` (pure stale-name selection),
 and `command` (`brain skills sync [--root <sandbox>]` and capability status).
 The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
-`journal`, `validation`, and `legacy` modules share one bounded installation boundary.
+`journal`, `disposal`, `validation`, and `legacy` modules share one bounded installation boundary.
 
 Every install holds an exclusive OS advisory lock on the persistent
 `<workspace-cache>/skills-install/install.lock` inode. Registered identities
@@ -1016,7 +1016,13 @@ If old and next manifests are byte-identical, complete after-fingerprint
 verification permits finishing the equivalent committed state; this does not
 identify which physical manifest rename occurred. Partial states roll back only
 after all rollback artifacts authenticate. Unexpected edits retain evidence and
-report a conflict.
+report a conflict. Rollback durably records its intent, detaches installed output
+into derived discard slots, and restores intact backups before disposing of any
+artifacts. Durable disposal phases accept missing children as prior deletion
+progress while refusing new or changed content. Live trees remain complete during
+disposal. Unjournaled reserved stages are retained as evidence and excluded from
+user-skill discovery. Preflight checks the encoded manifest and longest journal
+phase against the same 16 MiB bound enforced on every state read and write.
 
 `managed.json` records the exact schema version, workspace UUID, binary version,
 compatibility revision, and SHA-256 map of generated regular-file paths. Missing

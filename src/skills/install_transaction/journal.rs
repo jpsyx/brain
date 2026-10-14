@@ -5,10 +5,7 @@ use super::{
 };
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -52,9 +49,38 @@ pub(super) struct Journal {
 pub(super) enum Phase {
     Prepared,
     Published,
+    RollingBack,
+    DisposingRollback,
+    DisposingCommitted,
 }
 
 impl Journal {
+    pub fn planned(
+        identity: &super::InstallIdentity,
+        previous: Option<Vec<u8>>,
+        plan: &super::ownership::Plan,
+    ) -> Result<Self> {
+        let next = serde_json::to_vec(&plan.manifest)?;
+        snapshot::check_state_bytes(&next)?;
+        let mut journal = Self {
+            phase: Phase::DisposingCommitted,
+            users: plan.users.clone(),
+            legacy: plan.legacy.clone(),
+            previous_sha256: previous.as_ref().map(|bytes| snapshot::digest(bytes)),
+            next_sha256: snapshot::digest(&next),
+            schema_version: 1,
+            workspace_id: identity.workspace_id.clone(),
+            root: identity.root.clone(),
+            transaction_id: uuid::Uuid::new_v4().to_string(),
+            previous,
+            next,
+            entries: plan.entries.clone(),
+        };
+        // This is the longest serialized phase; later transitions cannot exceed this size.
+        snapshot::check_state_bytes(&serde_json::to_vec(&journal)?)?;
+        journal.phase = Phase::Prepared;
+        Ok(journal)
+    }
     pub fn save(&self, cache: &Path) -> Result<()> {
         snapshot::atomic_write(&cache.join("pending.json"), &serde_json::to_vec(self)?)
     }
@@ -122,89 +148,5 @@ impl Journal {
             );
         }
         Ok(())
-    }
-    pub fn validate_rollback(&self, root: &Path) -> Result<()> {
-        self.validate_slots(root)?;
-        for (index, entry) in self.entries.iter().enumerate() {
-            snapshot::check_parent(root, &entry.live)?;
-            let observed = snapshot::read(&root.join(&entry.live))?;
-            let backup = snapshot::read(&entry.slot(root, &self.transaction_id, index, "backup"))?;
-            if backup != Snapshot::Absent || entry.before == Snapshot::Absent {
-                ensure!(
-                    observed == entry.after || observed == Snapshot::Absent,
-                    "skills recovery conflict at {}",
-                    entry.live
-                );
-            } else {
-                ensure!(
-                    observed == entry.before,
-                    "skills original missing during recovery: {}",
-                    entry.live
-                );
-            }
-        }
-        Ok(())
-    }
-    pub fn validate_slots(&self, root: &Path) -> Result<()> {
-        for (index, entry) in self.entries.iter().enumerate() {
-            snapshot::check_parent(root, &entry.live)?;
-            for (role, expected) in [("stage", &entry.after), ("backup", &entry.before)] {
-                let observed =
-                    snapshot::read(&entry.slot(root, &self.transaction_id, index, role))?;
-                ensure!(
-                    observed == Snapshot::Absent || observed == *expected,
-                    "skills recovery slot conflict"
-                );
-            }
-        }
-        Ok(())
-    }
-    pub fn rollback(&self, root: &Path) -> Result<()> {
-        self.validate_rollback(root)?;
-        for (index, entry) in self.entries.iter().enumerate().rev() {
-            snapshot::check_parent(root, &entry.live)?;
-            let live = root.join(&entry.live);
-            let backup = entry.slot(root, &self.transaction_id, index, "backup");
-            let observed = snapshot::read(&live)?;
-            if snapshot::read(&backup)? != Snapshot::Absent {
-                ensure!(
-                    snapshot::read(&backup)? == entry.before,
-                    "skills backup changed"
-                );
-                ensure!(
-                    observed == entry.after || observed == Snapshot::Absent,
-                    "skills recovery conflict"
-                );
-                snapshot::remove(&live, &observed)?;
-                fs::rename(&backup, &live)?;
-            } else if entry.before == Snapshot::Absent {
-                ensure!(
-                    observed == entry.after || observed == Snapshot::Absent,
-                    "skills recovery conflict"
-                );
-                snapshot::remove(&live, &observed)?;
-            } else {
-                ensure!(
-                    observed == entry.before,
-                    "skills original missing during recovery"
-                );
-            }
-            snapshot::sync_dir(live.parent().expect("validated artifact parent"))?;
-        }
-        Ok(())
-    }
-    pub fn cleanup(&self, root: &Path, cache: &Path) -> Result<()> {
-        self.validate_slots(root)?;
-        for (index, entry) in self.entries.iter().enumerate() {
-            for (role, expected) in [("stage", &entry.after), ("backup", &entry.before)] {
-                let path = entry.slot(root, &self.transaction_id, index, role);
-                if snapshot::read(&path)? != Snapshot::Absent {
-                    snapshot::remove(&path, expected)?;
-                    snapshot::sync_dir(path.parent().expect("validated artifact parent"))?;
-                }
-            }
-        }
-        fs::remove_file(cache.join("pending.json"))?;
-        snapshot::sync_dir(cache)
     }
 }

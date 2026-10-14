@@ -82,7 +82,11 @@ pub fn discover_names(dir: &Path) -> Vec<String> {
             let skill = path.join("SKILL.md");
             let skill_metadata = fs::symlink_metadata(skill).ok()?;
             if skill_metadata.is_file() && !skill_metadata.file_type().is_symlink() {
-                entry.file_name().into_string().ok()
+                entry
+                    .file_name()
+                    .into_string()
+                    .ok()
+                    .filter(|name| !name.starts_with(".brain-skills-"))
             } else {
                 None
             }

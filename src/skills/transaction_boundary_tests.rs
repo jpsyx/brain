@@ -173,3 +173,91 @@ fn published_journal_rejects_a_regressed_committed_manifest() {
     );
     assert!(cache.path().join("skills-install/pending.json").exists());
 }
+
+#[test]
+fn abandoned_prejournal_stage_is_preserved_without_blocking_installation() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let orphan = root.path().join(format!(
+        ".agents/skills/.brain-skills-{}-0-stage",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&orphan).unwrap();
+    fs::write(orphan.join("SKILL.md"), "unproven evidence").unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let mut locked = LockedInstall::acquire(&identity).unwrap();
+    locked
+        .install(rendered("new"), &InstallVersion::current(), &mut NoStamp)
+        .unwrap();
+    assert_eq!(
+        fs::read(orphan.join("SKILL.md")).unwrap(),
+        b"unproven evidence"
+    );
+    assert_eq!(
+        fs::read(root.path().join(".agents/skills/todo/SKILL.md")).unwrap(),
+        b"new"
+    );
+    for frontend in [".claude", ".codex", ".opencode"] {
+        assert_eq!(
+            fs::read_dir(root.path().join(frontend).join("skills"))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn oversized_journal_is_rejected_before_staging_or_live_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let mut locked = LockedInstall::acquire(&identity).unwrap();
+    let mut large = rendered("new");
+    for index in 0..20_000 {
+        large.get_mut("todo").unwrap().insert(
+            format!("references/{index:05}-{}.md", "x".repeat(180)),
+            Vec::new(),
+        );
+    }
+    let version = InstallVersion::current();
+    assert!(
+        locked.preflight(&large, &version).is_err(),
+        "oversized journal must fail read-only preflight"
+    );
+    assert!(locked.install(large, &version, &mut NoStamp).is_err());
+    assert!(!root.path().join(".agents").exists());
+    assert!(!cache.path().join("skills-install/pending.json").exists());
+    assert!(!cache.path().join("skills-install/managed.json").exists());
+}
+
+#[test]
+fn recovered_completion_reports_the_same_retained_content_as_preflight() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let mut locked = LockedInstall::acquire(&identity).unwrap();
+    let version = InstallVersion::current();
+    locked
+        .install(rendered("old"), &version, &mut NoStamp)
+        .unwrap();
+    fs::write(root.path().join(".agents/skills/todo/extra"), "retain me").unwrap();
+    let empty = std::collections::BTreeMap::new();
+    let ordinary = locked.preflight(&empty, &version).unwrap();
+    assert_eq!(ordinary.retained, ["todo"]);
+    assert!(
+        locked
+            .install_with(empty, &version, &mut NoStamp, &mut |point| {
+                anyhow::ensure!(
+                    point != Checkpoint::ManifestPublished,
+                    "interrupted completion"
+                );
+                Ok(())
+            })
+            .is_err()
+    );
+    let recovered = locked.recover(&mut NoStamp).unwrap().unwrap().report;
+    assert_eq!(ordinary.installed, recovered.installed);
+    assert_eq!(ordinary.pruned, recovered.pruned);
+    assert_eq!(ordinary.retained, recovered.retained);
+}

@@ -1,4 +1,5 @@
 //! Recoverable publication of the whole managed skill installation.
+mod disposal;
 mod identity;
 mod inspection;
 mod journal;
@@ -88,41 +89,9 @@ impl LockedInstall {
         );
         let previous = self.manifest()?;
         let plan = ownership::plan(&self.identity, previous.as_ref(), rendered.clone(), version)?;
-        let installed: Vec<_> = rendered.keys().chain(plan.users.keys()).cloned().collect();
-        let old = previous
-            .as_ref()
-            .map_or_else(Vec::new, |m| ownership::roots(m).into_iter().collect());
-        let pruned = super::prune::stale_rendered(&old, &installed);
-        let retained = plan
-            .legacy
-            .keys()
-            .filter(|name| !rendered.contains_key(*name))
-            .cloned()
-            .chain(
-                plan.entries
-                    .iter()
-                    .filter(|entry| {
-                        entry.live.starts_with(".agents/")
-                            && entry.after != Snapshot::Absent
-                            && !rendered.contains_key(
-                                entry.live.split('/').nth(2).expect("validated skill root"),
-                            )
-                    })
-                    .map(|entry| {
-                        entry
-                            .live
-                            .split('/')
-                            .nth(2)
-                            .expect("validated skill root")
-                            .to_owned()
-                    }),
-            )
-            .collect();
-        Ok(super::install::Report {
-            installed,
-            pruned,
-            retained,
-        })
+        let previous_bytes =
+            snapshot::read_optional_file(&self.identity.cache.join("managed.json"))?;
+        Journal::planned(&self.identity, previous_bytes, &plan)?.report()
     }
     pub(crate) fn manifest(&self) -> Result<Option<ManagedSkillManifest>> {
         let parsed: Option<ManagedSkillManifest> =
@@ -167,11 +136,12 @@ impl LockedInstall {
             rendered,
             version,
         )?;
-        let transaction_id = uuid::Uuid::new_v4().to_string();
-        legacy::backup(&self.identity, &transaction_id, &plan.legacy)?;
+        let journal = Journal::planned(&self.identity, previous, &plan)?;
+        let transaction_id = &journal.transaction_id;
+        legacy::backup(&self.identity, transaction_id, &plan.legacy)?;
         for (index, entry) in plan.entries.iter().enumerate() {
             snapshot::ensure_parent(&self.identity.root, &entry.live)?;
-            let stage = entry.slot(&self.identity.root, &transaction_id, index, "stage");
+            let stage = entry.slot(&self.identity.root, transaction_id, index, "stage");
             snapshot::materialize(
                 &self.identity.root,
                 &stage,
@@ -184,28 +154,12 @@ impl LockedInstall {
         if let Err(error) = checkpoint(Checkpoint::Staged) {
             for (index, entry) in plan.entries.iter().enumerate() {
                 snapshot::remove(
-                    &entry.slot(&self.identity.root, &transaction_id, index, "stage"),
+                    &entry.slot(&self.identity.root, transaction_id, index, "stage"),
                     &entry.after,
                 )?;
             }
             return Err(error);
         }
-        let next = serde_json::to_vec(&plan.manifest)?;
-        let entries = plan.entries;
-        let journal = Journal {
-            users: plan.users,
-            legacy: plan.legacy,
-            phase: Phase::Prepared,
-            previous_sha256: previous.as_ref().map(|bytes| snapshot::digest(bytes)),
-            next_sha256: snapshot::digest(&next),
-            schema_version: 1,
-            workspace_id: self.identity.workspace_id.clone(),
-            root: self.identity.root.clone(),
-            transaction_id,
-            previous,
-            next,
-            entries,
-        };
         validation::journal(&journal, &self.identity)?;
         journal.save(&self.identity.cache)?;
         let result = self.apply(&journal, stamp, checkpoint);
@@ -263,7 +217,8 @@ impl LockedInstall {
         checkpoint(Checkpoint::ManifestPublished)?;
         let receipt = journal.receipt()?;
         stamp.write(&receipt)?;
-        journal.cleanup(&self.identity.root, &self.identity.cache)?;
+        published.transition(Phase::DisposingCommitted, &self.identity.cache)?;
+        published.cleanup(&self.identity.root, &self.identity.cache)?;
         Ok(receipt)
     }
 
@@ -277,22 +232,36 @@ impl LockedInstall {
         let Some(bytes) = snapshot::read_optional_file(&path)? else {
             return Ok(None);
         };
-        let journal: Journal = serde_json::from_slice(&bytes)?;
+        let mut journal: Journal = serde_json::from_slice(&bytes)?;
         validation::journal(&journal, &self.identity)?;
         journal.validate_slots(&self.identity.root)?;
         let actual = snapshot::read_optional_file(&self.identity.cache.join("managed.json"))?;
-        ensure!(
-            journal.phase != Phase::Published || actual.as_ref() == Some(&journal.next),
-            "published skills manifest changed during recovery"
-        );
-        let recovered = if actual.as_ref() == Some(&journal.next)
-            && (journal.previous.as_ref() != Some(&journal.next)
-                || journal.phase == Phase::Published
-                || journal.verify_after(&self.identity.root).is_ok())
-        {
+        let committed = match journal.phase {
+            Phase::Published | Phase::DisposingCommitted => {
+                ensure!(
+                    actual.as_ref() == Some(&journal.next),
+                    "published skills manifest changed during recovery"
+                );
+                true
+            }
+            Phase::RollingBack | Phase::DisposingRollback => {
+                ensure!(
+                    actual == journal.previous,
+                    "skills rollback manifest conflict"
+                );
+                false
+            }
+            Phase::Prepared => {
+                actual.as_ref() == Some(&journal.next)
+                    && (journal.previous.as_ref() != Some(&journal.next)
+                        || journal.verify_after(&self.identity.root).is_ok())
+            }
+        };
+        let recovered = if committed {
             journal.verify_after(&self.identity.root)?;
             let receipt = journal.receipt()?;
             stamp.write(&receipt)?;
+            journal.transition(Phase::DisposingCommitted, &self.identity.cache)?;
             Some(RecoveredInstall {
                 receipt,
                 report: journal.report()?,
@@ -302,7 +271,11 @@ impl LockedInstall {
                 actual == journal.previous,
                 "skills recovery manifest conflict"
             );
-            journal.rollback(&self.identity.root)?;
+            if journal.phase == Phase::DisposingRollback {
+                journal.verify_before(&self.identity.root)?;
+            } else {
+                journal.rollback(&self.identity.root, &self.identity.cache)?;
+            }
             None
         };
         journal.cleanup(&self.identity.root, &self.identity.cache)?;

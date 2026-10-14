@@ -364,3 +364,6 @@ mod transaction_boundary_tests;
 
 #[cfg(test)]
 mod transaction_inspection_tests;
+
+#[cfg(test)]
+mod transaction_disposal_tests;

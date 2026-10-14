@@ -6165,3 +6165,12 @@ for unmarked user skills. Safe fan-out can create missing links, but later orpha
 cleanup requires prior managed-root ownership. Global registries and source
 extensions/plugins are outside the transaction's mutation allowlist. Actor
 capability renders retain their separate disposable-cache lifecycle.
+
+
+Rollback detaches installed output into recorded sibling discard slots before
+restoring originals. A durable disposal phase then permits only missing-node
+subsets of authenticated fingerprints, so interruption during recursive cleanup
+can resume without treating new or changed content as disposable. Journal planning
+checks the longest encoded phase against the shared reader/writer size bound
+before creating stages, and ordinary and recovered completion use one report
+builder to keep retained-content reporting consistent.

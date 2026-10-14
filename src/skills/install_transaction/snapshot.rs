@@ -111,7 +111,18 @@ pub(super) fn sync_dir(path: &Path) -> Result<()> {
     Ok(fs::File::open(path)?.sync_all()?)
 }
 
+pub(super) const STATE_FILE_LIMIT: usize = 16 * 1024 * 1024;
+
+pub(super) fn check_state_bytes(bytes: &[u8]) -> Result<()> {
+    ensure!(
+        bytes.len() <= STATE_FILE_LIMIT,
+        "skills state exceeds the readable byte limit"
+    );
+    Ok(())
+}
+
 pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    check_state_bytes(bytes)?;
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("missing parent"))?;
@@ -268,11 +279,28 @@ pub(super) fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
             ensure!(
                 metadata.is_file()
                     && !metadata.file_type().is_symlink()
-                    && metadata.len() <= 16 * 1024 * 1024,
+                    && metadata.len() <= STATE_FILE_LIMIT as u64,
                 "invalid skills state file: {}",
                 path.display()
             );
             Ok(Some(fs::read(path)?))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{STATE_FILE_LIMIT, atomic_write, read_optional_file};
+
+    #[test]
+    fn state_writer_and_reader_agree_at_the_exact_size_boundary() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("state.json");
+        let accepted = vec![b'x'; STATE_FILE_LIMIT];
+        atomic_write(&path, &accepted).unwrap();
+        assert_eq!(read_optional_file(&path).unwrap().unwrap(), accepted);
+        assert!(atomic_write(&path, &vec![b'y'; STATE_FILE_LIMIT + 1]).is_err());
+        assert_eq!(read_optional_file(&path).unwrap().unwrap(), accepted);
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     }
 }

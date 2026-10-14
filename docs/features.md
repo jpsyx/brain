@@ -1512,7 +1512,9 @@ complete trees before replacing live files and holds a per-workspace install
 lock through recovery, publication and success stamping. An interrupted install
 restores its previous complete trees and links before publication, or finishes
 verification and stamping after publication. Recovery conflicts retain their
-backups and journal for investigation.
+backups and journal for investigation. Interrupted artifact cleanup resumes from
+verified remaining content; abandoned pre-journal stages are preserved without
+blocking later syncs. Oversized recovery state is rejected before staging.
 
 Generated files are tracked by SHA-256 in the workspace cache. Missing files
 are repairable; edited generated files, changed file types, unmarked same-name
