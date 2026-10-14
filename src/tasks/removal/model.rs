@@ -43,3 +43,25 @@ impl Problem {
         }
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Identity {
+    pub csv: crate::tasks::identity::CsvKind,
+    pub task_id: String,
+    pub task_uuid: crate::tasks::identity::TaskUuid,
+    pub task_name: String,
+}
+
+/// Integration semantics only. Credentials have no representation here.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct IntegrationSnapshot {
+    pub linked_issue: LinkedIssue,
+    pub adapter: Option<AdapterSnapshot>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AdapterSnapshot {
+    pub argv: Vec<String>,
+    pub environment_names: std::collections::BTreeSet<String>,
+    pub timeout_ms: u64,
+}

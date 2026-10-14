@@ -6,6 +6,23 @@ use crate::tasks::removal::model::Options;
 use crate::tasks::removal::resolve::{resolve_for_removal, resolve_targets};
 
 #[test]
+fn removal_fingerprint_changes_only_with_canonical_input() {
+    use crate::tasks::removal::fingerprint::digest;
+    use std::collections::BTreeMap;
+
+    let a = BTreeMap::from([
+        ("tasks/tasks.csv".to_owned(), b"before".to_vec()),
+        ("tasks/habits.csv".to_owned(), Vec::new()),
+    ]);
+    let mut b = BTreeMap::new();
+    b.insert("tasks/habits.csv".to_owned(), Vec::new());
+    b.insert("tasks/tasks.csv".to_owned(), b"before".to_vec());
+    assert_eq!(digest(&a).unwrap(), digest(&b).unwrap());
+    b.insert("tasks/tasks.csv".into(), b"after".to_vec());
+    assert_ne!(digest(&a).unwrap(), digest(&b).unwrap());
+}
+
+#[test]
 fn targets_sort_by_kind_then_numeric_id() {
     let tasks = csv(vec![row("T17", "Send proposal"), row("T2", "Book meeting")]);
     let habits = csv(vec![row("H10", "Read"), row("H2", "Walk")]);

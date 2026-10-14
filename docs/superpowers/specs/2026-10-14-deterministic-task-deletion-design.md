@@ -108,7 +108,8 @@ clap's exit status 2; syntax failures need not use the JSON envelope.
 
 `--expect-plan` is accepted for apply, not dry-run. A plan fingerprint is a
 SHA-256 digest of a canonical versioned document including workspace UUID,
-actor ID, date, options, task/habit bytes, inspected project metadata bytes,
+actor ID, date, options, sorted and deduplicated selected identity keys
+(CSV kind, task UUID, display ID), task/habit bytes, inspected project metadata bytes,
 and relevant integration configuration. Sort arrays and map keys explicitly.
 Exclude presentation text, file mtimes, credentials, and random operation IDs.
 A changed fingerprint never authorizes a recomputed deletion silently.

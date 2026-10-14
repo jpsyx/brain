@@ -1085,6 +1085,24 @@ boundary rejects mixed task/habit batches, requires habit opt-in for habits,
 rejects that opt-in for tasks, and reuses managed-triage protection when enabled.
 This domain slice does not yet change the command or TUI entry points.
 
+`Snapshot::read` acquires the workspace task-store owner; `read_owned` verifies
+an existing owner so an apply transaction can retain ownership. Each CSV keeps
+its exact optional before-image, parsed rows, and immutable identities together.
+Absence differs from an empty file. Every row is validated for duplicate display
+IDs and UUIDs, including collisions between persisted and derived legacy UUIDs.
+Legacy UUIDs use the existing workspace/kind/display-ID derivation without schema
+or counter writes. Metadata scans cover `projects/` and `archive/projects/`,
+retain exact bytes plus typed metadata, and do not follow symlinks. Malformed
+metadata fails; missing referenced projects produce structured warnings.
+
+The version-1 canonical fingerprint binds workspace UUID, actor ID, execution
+date, options, both complete CSV before-images, sorted project metadata
+before-images, managed-habit enablement, and integration semantics. Selected
+identity keys (CSV kind, UUID, display ID) are sorted and deduplicated internally;
+presentation labels and random operation IDs are excluded. The integration seam
+contains only linked-issue policy and optional adapter argv, sorted environment
+variable names, and timeout. It cannot carry environment variable values.
+
 ## Agenda document (`src/tasks/agenda/doc.rs`, `<agenda_markdown_dir>/<date>.md`)
 
 The day's agenda is markdown, not a record format, so the model is deliberately

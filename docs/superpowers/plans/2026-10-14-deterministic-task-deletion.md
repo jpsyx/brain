@@ -169,7 +169,8 @@ pub(crate) fn digest<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
 ```
 
 The canonical document contains schema version 1, workspace UUID, actor ID,
-execution date, `Options`, complete task/habit before-images, a sorted map of
+execution date, `Options`, sorted and deduplicated selected identity keys
+(CSV kind, task UUID, display ID), complete task/habit before-images, a sorted map of
 every scanned project metadata before-image, integration policy, and adapter
 argv/environment-variable names/timeout. It excludes environment values,
 operation UUIDs, and timestamps unrelated to task semantics.
