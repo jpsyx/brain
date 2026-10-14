@@ -34,6 +34,11 @@ impl Fixture {
             root.join("install.sh"),
         )
         .expect("copy installer");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"brain\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
         let target = format!(
             "#!/bin/sh\nif [ \"${{1:-}}\" = --version ]; then echo 'brain {target_version}'; exit 0; fi\necho \"target $*\" >> \"$MIGRATION_LOG\"\n"
         );
@@ -217,3 +222,21 @@ fn help_and_invalid_arguments_leave_installation_untouched() {
         assert!(fixture.migration_log().is_empty());
     }
 }
+
+#[test]
+fn downgrade_retains_helper_for_post_replacement_target_refresh() {
+    let fixture = Fixture::new(Some("0.102.25"), "0.101.0");
+    let output = fixture.run();
+    assert!(output.status.success());
+    let log = fixture.migration_log();
+    assert!(
+        log.contains("installed __refresh-workspace-skills"),
+        "{log}"
+    );
+    assert!(log.contains("--phase preflight"), "{log}");
+    assert!(log.contains("--phase apply"), "{log}");
+    assert!(log.contains("--installer-refresh-protocol 1"), "{log}");
+}
+
+#[path = "install_script/refresh.rs"]
+mod refresh;

@@ -1858,8 +1858,8 @@ The sync also discovers valid user-authored skill directories already under
 `.agents/skills` and links them without rewriting their contents. A new-version
 migration pass renders the embedded core set into every registered workspace,
 detecting legacy global locations for observability while leaving those old
-files untouched. TUI startup excludes its selected root from that pass because
-the normal startup sync handles it immediately afterward.
+files untouched. Mandatory machine migration now owns the all-workspace pass;
+selected bootstrap and TUI do not repeat it.
 
 ## Why skill auto-sync had a rollout gate (historical; default now on)
 
@@ -1892,8 +1892,7 @@ earlier mandatory migration error and completes the independent requested skill
 report. It still runs mandatory startup once, keeps the failed machine stamp
 unchanged, and exits nonzero. Ordinary commands and installer migrations retain
 fail-fast behavior. One invocation-owned attempt slot stores successful and
-failed results before they can propagate, so a dedicated migration callback can
-share the exact explicit-source request without a duplicate repair. A startup
+failed results before they can propagate, so the managed-skills migration callback shares the exact explicit-source request without a duplicate repair. A startup
 hook error is reported separately from successful skill installation; JSON is
 one aggregate even with verbose logging or logger initialization failure.
 
@@ -6165,3 +6164,27 @@ can resume without treating new or changed content as disposable. Journal planni
 checks the longest encoded phase against the shared reader/writer size bound
 before creating stages, and ordinary and recovered completion use one report
 builder to keep retained-content reporting consistent.
+
+
+## Why downgrade rendering uses an isolated target replica
+
+A historical selected-workspace sync can run all-root startup callbacks, create
+missing roots, clear generated trees and replace unrelated frontend entries.
+A registry restricted to one real root would still expose that root to these
+writes. The installer therefore runs the trusted, audited target in a private
+replica with exact selected-workspace argv and byte-preserving customization
+copies, then imports only validated generated buffers through the existing
+ownership transaction. The target's own empty-source render supplies its core
+inventory. Helper-embedded skill content is never relabeled as older output.
+
+Preflight and apply independently validate identity, inputs, local operation
+state and ownership. A frozen executable plus one expected SHA-256 binds their
+separate helper processes; apply executes the installed path. A separate protocol
+1 acknowledgement rejects historical installers that cannot retain the helper
+and finish refresh. Neither value is authentication. No download framework,
+persistent ticket, provider recovery or second live installer is introduced.
+
+Profiles deliberately support only audited 0.101.0 and the running coordinator's
+exact current version. New target profiles require source and actual-binary
+acceptance evidence. The guarantee ends at installer refresh; an older release's
+later commands retain their historical limitations.

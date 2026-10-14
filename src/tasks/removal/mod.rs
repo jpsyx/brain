@@ -19,6 +19,8 @@ mod external;
 pub(crate) mod maintenance;
 pub(crate) use execute::{apply, preview};
 
+mod downgrade;
 mod lifecycle;
+pub(crate) use downgrade::prepare_downgrade;
 pub(crate) mod operations;
 pub(crate) use lifecycle::{abandon, operation_status, resume};

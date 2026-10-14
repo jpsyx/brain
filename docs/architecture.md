@@ -586,9 +586,9 @@ new binary and asks it to migrate forward; a downgrade asks the still-installed
 newer binary to migrate backward before replacement. `--name` selects the exact
 installed filename used by both version detection and migration dispatch;
 the compiled release artifact remains `target/release/brain`. Replacement uses
-a temporary file in `BIN_DIR` and an atomic rename. The hidden `__migrate`
-route exists only for that installer handoff and exits before ordinary
-bootstrap.
+a private stage in `BIN_DIR` and an atomic rename of the preflighted candidate.
+The hidden migration and target-refresh routes exist only for that installer
+handoff and exit before ordinary bootstrap. See the installer transition below.
 
 ### `cli/`
 The clap derive surface, split by command family. `mod.rs` keeps the parser
@@ -2853,3 +2853,37 @@ project cleanup, deletion history, and notes from original snapshot inputs.
 Scoped notes are read under task ownership. The ordinary executor enriches its
 fresh snapshot from saved intent and retains complete plan equality before apply
 or resume. Backlog commands perform no independent canonical or agenda writes.
+
+### Installer-owned skill compatibility transition
+
+Version 0.102.25 registers `startup_migration/task_deletion_skills.rs` as the
+mandatory managed-skill callback. An invocation-owned `RefreshAttempt` shares
+one complete coordinator result with explicit all-workspace repair, including
+failures. Bootstrap and TUI no longer rerun that coordinator. Down takes removal
+operation ownership before task ownership, settles authenticated local journals
+without adapters, recovers managed installation, and invalidates only DB success
+receipts. The ownership manifest and immutable removal receipts remain intact.
+
+`install.sh --target-source CHECKOUT` builds a selected local Brain package while
+the current installer owns the transition. It freezes one executable in a private
+same-filesystem stage, carries its SHA-256 through preflight/apply, and renames
+that exact candidate into place. A downgrade retains the installed newer helper;
+other transitions retain the built helper. Preflight precedes replacement and
+down migration, and apply runs the installed target. Historical cross-boundary
+`__migrate` calls without installer refresh protocol 1 fail before mutation.
+
+The hidden `__refresh-workspace-skills` route exits before ordinary bootstrap.
+Its arguments are `--target-binary`, `--target-version`, `--phase preflight|apply`
+and `--expected-target-sha256`. The modern installer supplies the digest in both
+phases; apply requires it. `skill_refresh/{target,sources,replica}.rs` validate
+byte identity, snapshot complete no-follow inputs and render actual target bytes
+with exactly `-w NAME skills sync` in a disposable one-workspace registry.
+Private HOME/XDG/TMP, empty integration env, original UUID/name and minimal config
+contain the target's startup writes. The helper validates a target-only core
+inventory and full customized output, then uses the existing managed-install
+transaction and fallible workspace DB stamp. No target receives new flags.
+
+Supported profiles are the audited 0.101.0 target and the running coordinator's
+exact current version. Unknown target versions fail before replacement. These
+trusted-build profiles are not executable authentication or an OS sandbox; the
+digest detects changed bytes, not adversarial same-user hash/exec races.

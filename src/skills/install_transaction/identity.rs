@@ -16,6 +16,11 @@ pub(crate) struct InstallIdentity {
     portable: bool,
 }
 impl InstallIdentity {
+    /// Validate/create the same cache ancestry before local migration recovery.
+    pub(crate) fn prepare_cache(&self) -> Result<()> {
+        snapshot::ensure_absolute_directory(&self.cache)
+    }
+
     pub(crate) fn registered(root: &Path, id: WorkspaceId, cache: &Path) -> Result<Self> {
         let identity = Self::sandbox_with_cache(root, cache)?;
         let manifest = WorkspaceManifest::load(&identity.root, super::super::current_version())?;
@@ -114,7 +119,7 @@ impl LockedInstall {
                 "sandbox gained a portable identity; resolve it again"
             );
         }
-        snapshot::ensure_absolute_directory(&identity.cache)?;
+        identity.prepare_cache()?;
         let lock_path = identity.cache.join("install.lock");
         ensure!(
             matches!(

@@ -21,7 +21,12 @@ fn main() -> Result<()> {
     }
 
     if let Some(brain::cli::Cmd::InternalMigration(args)) = &cli.command {
-        brain::startup_migration::run_explicit(&args.from_version, &args.to_version)?;
+        brain::startup_migration::run_installer(args)?;
+        return Ok(());
+    }
+
+    if let Some(brain::cli::Cmd::RefreshWorkspaceSkills(args)) = &cli.command {
+        brain::startup_migration::refresh_workspace_skills(args)?;
         return Ok(());
     }
 

@@ -160,7 +160,9 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
 
     match &cli.command {
         None => Invocation::Tui,
-        Some(Cmd::InternalMigration(_)) => Invocation::InternalMigration,
+        Some(Cmd::InternalMigration(_) | Cmd::RefreshWorkspaceSkills(_)) => {
+            Invocation::InternalMigration
+        }
         Some(Cmd::Version) => Invocation::Version,
         Some(Cmd::Workspace(args)) => match &args.action {
             WorkspaceAction::List => Invocation::WorkspaceList,

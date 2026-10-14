@@ -2919,3 +2919,13 @@ missing versus empty files. Both maintenance policies are task-only Rewire/Keep;
 dedupe intent selects substitution semantics. `successors` remains exclusively
 chunk agenda handoff output. Absent maintenance and notes fields preserve schema-1
 ordinary plan JSON and canonical bytes, including reading old operation records.
+
+
+During a supported installer downgrade, ownership manifests remain authoritative.
+The down callback clears `skills_install_receipt` and `skills_synced_version` DB
+keys for validated available roots after local recovery; it does not remove
+managed-file hashes or immutable removal commit receipts. Target publication
+writes a new ordinary receipt with the actual target version, manifest SHA-256
+and compatibility revision 0 for audited 0.101.0 (1 for the current coordinator
+version). Missing roots have no new receipt or cache created. No persistent
+installer ticket or target-digest manifest field is added.

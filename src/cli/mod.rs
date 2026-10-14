@@ -19,7 +19,7 @@ mod workspace;
 pub use configuration::*;
 pub use contacts::*;
 pub use global::{AgentSelectionError, Cli};
-pub use internal::InternalMigrationArgs;
+pub use internal::{InternalMigrationArgs, RefreshPhase, RefreshWorkspaceSkillsArgs};
 pub use project::*;
 pub use server::*;
 pub use share::ShareArgs;
@@ -55,6 +55,8 @@ pub enum Cmd {
     /// Run an installer-owned version transition.
     #[command(name = "__migrate", hide = true)]
     InternalMigration(InternalMigrationArgs),
+    #[command(name = "__refresh-workspace-skills", hide = true)]
+    RefreshWorkspaceSkills(RefreshWorkspaceSkillsArgs),
 
     /// Open the merged shell in the tasks view, or run a tasks utility.
     ///

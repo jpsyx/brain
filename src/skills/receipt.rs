@@ -23,6 +23,12 @@ impl WorkspaceStamp {
     pub(crate) fn selected(workspace: &WorkspaceContext) -> Self {
         Self::registered(workspace.paths(), workspace.id(), workspace.local_user_id())
     }
+    pub(crate) fn invalidate(&self) -> Result<()> {
+        if self.path.exists() {
+            self.open()?.invalidate_skills_receipt()?;
+        }
+        Ok(())
+    }
     fn open(&self) -> Result<Db> {
         Db::open_path_with_legacy_identity(&self.path, &self.workspace_id, &self.actor_id)
     }

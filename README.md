@@ -36,14 +36,20 @@ the installer says so and prints the line to add. `./install.sh --name brain-dev
 chooses a different command filename. Repeating the same name updates that
 binary and runs the same upgrade or downgrade migrations as the default install.
 
-**B. `cargo install --path .`** (the same idea, the Cargo way):
+**B. `cargo install --path .`** (direct Cargo installation):
 
 ```sh
 cargo install --path .     # builds release, installs `brain` into ~/.cargo/bin
 brain                      # run it (ensure ~/.cargo/bin is on your PATH)
 ```
 
-Re-run `cargo install --path .` after a `git pull` to update.
+Re-run `cargo install --path .` after a `git pull` to update. Direct Cargo
+replacement does not provide the installer's downgrade handoff. To install a
+supported older source with the standalone installer, keep the current checkout
+and run `/path/to/current-brain/install.sh --target-source /path/to/older-brain`.
+An installed migration-capable Brain is required; currently audited 0.101.0 and
+the coordinator's exact current version are supported. See
+[installer compatibility](docs/features.md#installing-a-supported-older-version).
 
 **C. Run through `run.sh`** (auto-rebuilds whenever the sources change):
 

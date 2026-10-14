@@ -77,9 +77,9 @@ pub fn run(cli: &crate::cli::Cli) -> Result<i32> {
         "--workspace conflicts with --all-workspaces"
     );
     let mut attempt = RefreshAttempt::new(RefreshMode::Explicit);
-    // The dedicated migration callback can populate this same slot when added.
+    // The managed-skills migration callback and fallback share this exact slot.
     // Ordinary startup and installer migration retain their fail-fast behavior.
-    let startup = crate::startup_migration::run_current();
+    let startup = crate::startup_migration::run_current_with_refresh(&mut attempt);
     let logger = crate::logging::init(cli.verbose, false);
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let (report, guard) = finish_report(

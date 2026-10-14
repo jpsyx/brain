@@ -2937,3 +2937,37 @@ entries with `task_id`, sorted `survivor_ids`, and `ambiguous_survivor` code.
 Existing dry-run and report keys remain available; routine success stays silent.
 Empty candidate sets create no operation. Apply and resume never expand the
 saved candidate set or choose a different survivor.
+
+### Installing a supported older version
+
+Use a migration-aware standalone installer with the older source checkout:
+
+```sh
+BIN_DIR="$HOME/.local/bin" /path/to/current-brain/install.sh \
+  --name brain --target-source /path/to/older-brain
+```
+
+An old target requires an already installed migration-capable coordinator.
+Current profiles support audited 0.101.0 and the coordinator's exact current
+version. The installer rejects unknown targets and incompatible workspace
+identity, schema, active removal or managed ownership before replacement.
+Available roots are attempted independently; missing roots remain pending and
+are never created. A post-replacement refresh failure exits nonzero with pending
+workspace details and does not print installation success. Retry through the
+current installer after repairing the reported cause; no manual migration is
+needed.
+
+Legacy rendering uses private temporary copies of `.config/extensions` and
+`.config/plugins`. Ordinary files, nested binary references and literal source
+bytes are preserved. Source symlinks, special files, reserved render markers,
+core/plugin collisions and protected live destinations fail closed. Temporary
+copies are removed on exit. The actual target generates the installed skill
+bytes; 0.101.0 output receives compatibility revision 0.
+
+This guarantee covers the standalone installer transition and refresh. An old
+binary's later ordinary startup or explicit sync still has its historical
+behavior, including all-root bootstrap and destructive managed-tree replacement.
+Historical installers fail safely when the installed modern binary detects an
+incomplete downgrade protocol. Direct Cargo replacement, manual copying, old
+run wrappers and installation managers without this modern handoff are outside
+this guarantee.

@@ -979,3 +979,15 @@ explicit keep and targets without linked issues need no available executable.
 Invalid configuration or changed registry identity fails closed. An unfinished
 surviving row sharing an issue blocks cancellation. See
 [integrations.md](integrations.md#task-removal-adapter-protocol) for the protocol.
+
+
+The managed-skill callback introduced in 0.102.25 is mandatory even when
+`skills_auto_sync` is false. Selected bootstrap and TUI defer to that process-level
+callback. Installer target rendering privately projects the effective original
+access mode, original workspace UUID/name and validated local user into a
+one-entry schema-4 registry. It copies the original manifest and optional users
+document, but no integration environment, receiver intent, task CSVs, journals,
+personas or frontend commands. This projection never changes real configuration
+or lowers the manifest's minimum Brain version. Missing roots remain pending.
+Use the modern standalone `install.sh --target-source CHECKOUT` for supported
+cross-version installation; users do not invoke hidden migrations themselves.

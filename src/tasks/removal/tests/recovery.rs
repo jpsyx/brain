@@ -306,3 +306,64 @@ fn removal_resume_returns_commit_when_recovery_cleanup_fails() {
         "already_committed"
     );
 }
+
+#[test]
+fn downgrade_only_settles_committed_local_journal_and_preserves_progress() {
+    let fixture = WorkspaceFixture::new();
+    let id = crash(&fixture, TransactionStep::PublishReceipt);
+    let progress = fixture
+        .workspace
+        .paths()
+        .task_removals_dir()
+        .join(format!("{id}.json"));
+    let before = std::fs::read(&progress).unwrap();
+    let owner = crate::tasks::removal::prepare_downgrade(&fixture.workspace).unwrap();
+    assert_eq!(std::fs::read(&progress).unwrap(), before);
+    assert!(
+        crate::tasks::removal::operations::load_commit(&fixture.workspace, &id)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        !fixture
+            .workspace
+            .paths()
+            .cache_dir()
+            .join("task-removal-transaction.json")
+            .exists()
+    );
+    drop(owner);
+    assert!(crate::tasks::removal::prepare_downgrade(&fixture.workspace).is_ok());
+}
+#[test]
+fn downgrade_rejects_unresolved_or_active_removal_without_running_adapters() {
+    let fixture = WorkspaceFixture::new();
+    let id = crash(&fixture, TransactionStep::Install(0));
+    let operation_owner =
+        crate::tasks::removal::operations::OperationOwner::acquire(&fixture.workspace, &id)
+            .unwrap();
+    assert!(crate::tasks::removal::prepare_downgrade(&fixture.workspace).is_err());
+    drop(operation_owner);
+    assert!(crate::tasks::removal::prepare_downgrade(&fixture.workspace).is_err());
+    assert!(
+        std::fs::read_to_string(fixture.workspace.root().join("tasks/tasks.csv"))
+            .unwrap()
+            .contains("T17")
+    );
+    assert!(
+        crate::tasks::removal::operations::load_commit(&fixture.workspace, &id)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn downgrade_detects_running_operation_before_its_first_progress_record() {
+    let fixture = WorkspaceFixture::new();
+    let id = uuid::Uuid::new_v4().to_string();
+    let owner = crate::tasks::removal::operations::OperationOwner::acquire(&fixture.workspace, &id)
+        .unwrap();
+    assert!(crate::tasks::removal::prepare_downgrade(&fixture.workspace).is_err());
+    drop(owner);
+    assert!(crate::tasks::removal::prepare_downgrade(&fixture.workspace).is_ok());
+}

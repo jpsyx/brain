@@ -177,22 +177,12 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             &mut std::io::sink(),
         )?
     };
-    // First run of a new brain binary against a ready workspace re-renders the
-    // bundled skills so a version bump ships its skill changes the way it ships
-    // code changes. Deterministic, LLM-free, and a no-op once stamped. Only the
-    // ready path reaches here, so `--help`/`--version`, the internal
-    // hook/server, and registry-only maintenance never trigger it.
+    // Mandatory managed-skill compatibility ran before bootstrap.
     if let BootstrapContext::Ready(command_context) = &context {
         validate_expected_workspace_id(
             std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
             command_context.workspace.id(),
         )?;
-        if should_migrate_global_skills(invocation_for(cli)) {
-            crate::skills::reconcile_registered_skills();
-        }
-        if should_resync_skills(invocation_for(cli)) {
-            crate::skills::resync_on_version_change(&command_context.workspace);
-        }
         // A member brain knows nothing about is a gap it should close the next
         // time it sees them, on whatever command they happened to run. Only the
         // person at *this* machine is asked; other members' gaps are reported by
@@ -211,20 +201,6 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
 mod selection;
 
 use selection::{enforce_strict_selector, resolve_workspace_selector};
-
-const fn should_resync_skills(invocation: Invocation) -> bool {
-    !matches!(
-        invocation,
-        Invocation::WorkspaceMigrate | Invocation::Tui | Invocation::Skills
-    )
-}
-
-pub(crate) const fn should_migrate_global_skills(invocation: Invocation) -> bool {
-    !matches!(
-        invocation,
-        Invocation::WorkspaceMigrate | Invocation::Tui | Invocation::Skills
-    )
-}
 
 pub(super) fn validate_expected_workspace_id(
     raw_expected: Option<&std::ffi::OsStr>,

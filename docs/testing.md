@@ -1777,3 +1777,25 @@ The explicit repair still emits one JSON document and attempts independent roots
 after startup failure; ordinary startup remains fail-fast. Skills unit tests
 cover the optional preference boundary, TUI currentness, retained failed attempts
 and logger-failure reporting. No live workspace or provider is used.
+
+
+Installer tests separate modern script source from old target source, record
+helper/target identity and exact argv, and exercise frozen artifact binding,
+retention, cleanup and failed phases. A preserved historical installer fixture
+from 0.101.0 is rejected by the actual modern binary before replacement.
+`task_deletion_skill_refresh` tests target replicas, revision-0/1 publication,
+missing roots, digest binding, source and ownership protections. Default tests
+are portable and offline. The optional actual-legacy acceptance test requires an
+explicitly supplied audited executable; no compiled binary or download is stored
+in the suite:
+
+```sh
+BRAIN_TEST_LEGACY_BINARY=/absolute/path/to/audited-brain-0.101.0 \
+  cargo test --release --test task_deletion_skill_refresh actual_legacy_target -- --ignored
+```
+
+That fixture always uses temporary HOME/XDG, synthetic roots and private replica
+inputs. It verifies actual target bytes, extension application, nested binary
+plugin data, unchanged real configuration/sources, absent missing roots and
+revision-0 DB receipts. Removal unit fixtures verify local committed-journal
+settlement and refusal of unresolved/running operations without adapters.

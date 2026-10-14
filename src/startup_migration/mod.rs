@@ -15,7 +15,10 @@ mod receiver_recovery;
 mod receiver_recovery_cleanup;
 mod receiver_session_registration;
 mod receiver_unavailable_notice;
+mod skill_refresh;
+mod task_deletion_skills;
 mod version;
+pub use skill_refresh::refresh_workspace_skills;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -39,6 +42,7 @@ const JOB_SOCKET_CUTOVER_VERSION: Version = Version::new(0, 86, 2);
 const MANUAL_SESSION_VERSION: Version = Version::new(0, 87, 0);
 const PI_FRONTEND_VERSION: Version = Version::new(0, 91, 0);
 const CAPTURE_DIRECTORY_VERSION: Version = Version::new(0, 94, 0);
+const TASK_DELETION_SKILLS_VERSION: Version = Version::new(0, 102, 25);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -47,7 +51,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 15] = [
+const MIGRATIONS: [Migration; 16] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -123,16 +127,29 @@ const MIGRATIONS: [Migration; 15] = [
         up: capture_directory::up,
         down: capture_directory::down,
     },
+    Migration {
+        introduced: TASK_DELETION_SKILLS_VERSION,
+        up: task_deletion_skills::up,
+        down: task_deletion_skills::down,
+    },
 ];
 
 /// Reconcile every migration owned by this binary before ordinary dispatch.
 pub fn run_current() -> Result<()> {
+    run_current_with_refresh(&mut crate::skills::repair::RefreshAttempt::new(
+        crate::skills::reconcile::RefreshMode::Compatibility,
+    ))
+}
+
+pub(crate) fn run_current_with_refresh(
+    attempt: &mut crate::skills::repair::RefreshAttempt,
+) -> Result<()> {
     let home = home_dir()?;
     let state_path = state_path();
     let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
     let recorded = read_state(&state_path)?;
     let from = recorded.unwrap_or(PRE_MIGRATION_VERSION);
-    run(&home, from, current, true)?;
+    run_with_refresh(&home, from, current, true, Some(attempt))?;
     if recorded != Some(current) {
         // Reconciliation is idempotent, so an unwritable stamp only means the
         // next ordinary command will repeat it. Do not mask that command's own
@@ -140,6 +157,23 @@ pub fn run_current() -> Result<()> {
         let _ = write_state(&state_path, current);
     }
     Ok(())
+}
+
+/// Validate the modern installer's downgrade handoff before any migration IO.
+pub fn run_installer(args: &crate::cli::InternalMigrationArgs) -> Result<()> {
+    let from = Version::parse(&args.from_version)?;
+    let to = Version::parse(&args.to_version)?;
+    anyhow::ensure!(
+        args.installer_refresh_protocol
+            .is_none_or(|protocol| protocol == 1),
+        "unsupported installer refresh protocol"
+    );
+    anyhow::ensure!(
+        !(from >= TASK_DELETION_SKILLS_VERSION && to < TASK_DELETION_SKILLS_VERSION)
+            || args.installer_refresh_protocol == Some(1),
+        "this historical installer cannot complete the required skill refresh; use /path/to/current/install.sh --target-source /path/to/target-source"
+    );
+    run_explicit(&args.from_version, &args.to_version)
 }
 
 /// Run an installer-requested upgrade or downgrade without ordinary dispatch.
@@ -157,12 +191,25 @@ pub fn run_explicit(from: &str, to: &str) -> Result<()> {
 }
 
 fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
+    run_with_refresh(home, from, to, reconcile, None)
+}
+fn run_with_refresh(
+    home: &Path,
+    from: Version,
+    to: Version,
+    reconcile: bool,
+    mut attempt: Option<&mut crate::skills::repair::RefreshAttempt>,
+) -> Result<()> {
     if from < to {
         for migration in MIGRATIONS
             .iter()
             .filter(|migration| runs_on_upgrade(migration.introduced, from, to))
         {
-            (migration.up)(home)?;
+            if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+                task_deletion_skills::up_with_attempt(home, attempt.as_deref_mut())?;
+            } else {
+                (migration.up)(home)?;
+            }
         }
     } else if from > to {
         for migration in MIGRATIONS
@@ -177,7 +224,11 @@ fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
             .iter()
             .filter(|migration| migration.introduced <= to)
         {
-            (migration.up)(home)?;
+            if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+                task_deletion_skills::up_with_attempt(home, attempt.as_deref_mut())?;
+            } else {
+                (migration.up)(home)?;
+            }
         }
     }
     Ok(())

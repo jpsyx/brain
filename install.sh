@@ -5,10 +5,11 @@ set -euo pipefail
 usage() {
   printf '%s\n' 'Install or update brain as an executable command.
 
-Usage: ./install.sh [--name <command>] [-h|--help]
+Usage: ./install.sh [--name <command>] [--target-source <checkout>] [-h|--help]
 
 Options:
   --name <command>  Command filename (default: brain).
+  --target-source <checkout>  Build a local Brain source with this installer.
   -h, --help        Show this help without installing anything.
 
 Environment:
@@ -24,11 +25,18 @@ for arg in "$@"; do
 done
 
 command_name="brain"
+target_source=""
 while (($#)); do
   case "$1" in
     --name)
       if (($# < 2)); then usage >&2; exit 2; fi
       command_name="$2"
+      shift 2
+      ;;
+    --target-source)
+      if (($# < 2)); then usage >&2; exit 2; fi
+      target_source="$2"
+      [[ -n "$target_source" ]] || { usage >&2; exit 2; }
       shift 2
       ;;
     *) usage >&2; exit 2 ;;
@@ -40,6 +48,24 @@ esac
 if ((${#command_name} > 100)); then usage >&2; exit 2; fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+SOURCE_DIR="${target_source:-$SCRIPT_DIR}"
+if [[ ! -d "$SOURCE_DIR" || ! -f "$SOURCE_DIR/Cargo.toml" ]]; then
+  echo 'error: target source must be a local Brain source directory.' >&2
+  exit 1
+fi
+SOURCE_DIR="$(cd -- "$SOURCE_DIR" && pwd)"
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: 'python3' not found; install Python 3 and retry." >&2
+  exit 1
+fi
+python3 - "$SOURCE_DIR/Cargo.toml" <<'PYTHON'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+package = re.search(r'^\[package\]\s*$(.*?)(?=^\[|\Z)', text, re.M | re.S)
+if not package or not re.search(r'^name\s*=\s*"brain"\s*$', package[1], re.M):
+    sys.exit('error: target source package must be brain')
+PYTHON
 
 # Where to install the binary. Callers may pass BIN_DIR; otherwise default to the
 # conventional user bin dir. Resolved to an absolute path so the $PATH check
@@ -102,35 +128,74 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 echo "Building brain (release)…" >&2
-(cd "$SCRIPT_DIR" && cargo build --release) >&2
+# An explicit destination avoids stale artifacts when CARGO_TARGET_DIR is set.
+BUILD_DIR="$SOURCE_DIR/target"
+(cd "$SOURCE_DIR" && cargo build --release --bin brain --target-dir "$BUILD_DIR") >&2
 
-BUILT_BINARY="$SCRIPT_DIR/target/release/brain"
-if ! BUILT_VERSION="$(brain_version "$BUILT_BINARY")"; then
+stage="$(mktemp -d "$BIN_DIR/.brain-install.XXXXXXXX")"
+chmod 0700 "$stage"
+trap 'rm -rf -- "$stage"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+install -m 0755 "$BUILD_DIR/release/brain" "$stage/target"
+if ! BUILT_VERSION="$(brain_version "$stage/target")"; then
   echo "error: built binary did not report a supported Brain version." >&2
   exit 1
 fi
-
+sha256() {
+  python3 - "$1" <<'PYTHON'
+import hashlib, sys
+with open(sys.argv[1], 'rb') as source:
+    digest = hashlib.sha256()
+    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+        digest.update(chunk)
+print(digest.hexdigest())
+PYTHON
+}
+expected_digest="$(sha256 "$stage/target")"
+[[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || { echo 'error: invalid target digest.' >&2; exit 1; }
+coordinator_version="$BUILT_VERSION"
+downgrade=false
 if [[ -n "$INSTALLED_VERSION" ]] && version_is_greater "$INSTALLED_VERSION" "$BUILT_VERSION"; then
-  echo "Migrating brain ${INSTALLED_VERSION} -> ${BUILT_VERSION} before downgrade…" >&2
-  "$INSTALLED_BINARY" __migrate \
-    --from-version "$INSTALLED_VERSION" \
-    --to-version "$BUILT_VERSION"
+  downgrade=true
+  coordinator_version="$INSTALLED_VERSION"
+  install -m 0755 "$INSTALLED_BINARY" "$stage/helper"
+else
+  install -m 0755 "$stage/target" "$stage/helper"
 fi
-
-# Install to a fixed filename so each run overwrites the previous binary.
-temporary="$(mktemp "$BIN_DIR/.install.XXXXXXXX")"
-trap 'rm -f -- "$temporary"' EXIT
-install -m 0755 "$BUILT_BINARY" "$temporary"
-mv -f -- "$temporary" "$INSTALLED_BINARY"
-[[ -f "$INSTALLED_BINARY" && -x "$INSTALLED_BINARY" ]]
-
-if [[ -z "$INSTALLED_VERSION" ]] || ! version_is_greater "$INSTALLED_VERSION" "$BUILT_VERSION"; then
+refresh=false
+if ! version_is_greater 0.102.25 "$coordinator_version"; then refresh=true; fi
+if [[ -n "$target_source" ]] && version_is_greater 0.102.25 "$BUILT_VERSION" && { ! $downgrade || ! $refresh; }; then
+  echo 'error: legacy target source requires an installed migration-capable Brain; use the current installer first.' >&2
+  exit 1
+fi
+refresh_skills() {
+  "$stage/helper" __refresh-workspace-skills --target-binary "$1" \
+    --target-version "$BUILT_VERSION" --phase "$2" \
+    --expected-target-sha256 "$expected_digest"
+}
+if $refresh; then refresh_skills "$stage/target" preflight; fi
+[[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
+if $downgrade; then
+  echo "Migrating brain ${INSTALLED_VERSION} -> ${BUILT_VERSION} before downgrade…" >&2
+  if $refresh; then
+    "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" \
+      --to-version "$BUILT_VERSION" --installer-refresh-protocol 1
+  else
+    "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" --to-version "$BUILT_VERSION"
+  fi
+fi
+[[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
+mv -f -- "$stage/target" "$INSTALLED_BINARY"
+[[ -f "$INSTALLED_BINARY" && ! -L "$INSTALLED_BINARY" && -x "$INSTALLED_BINARY" ]] || { echo 'error: installed target is not a regular executable.' >&2; exit 1; }
+[[ "$(sha256 "$INSTALLED_BINARY")" = "$expected_digest" ]] || { echo 'error: installed target digest changed.' >&2; exit 1; }
+[[ "$(brain_version "$INSTALLED_BINARY")" = "$BUILT_VERSION" ]] || { echo 'error: installed target version changed.' >&2; exit 1; }
+if ! $downgrade; then
   MIGRATION_FROM="${INSTALLED_VERSION:-$BUILT_VERSION}"
   echo "Migrating brain ${MIGRATION_FROM} -> ${BUILT_VERSION}…" >&2
-  "$INSTALLED_BINARY" __migrate \
-    --from-version "$MIGRATION_FROM" \
-    --to-version "$BUILT_VERSION"
+  "$stage/helper" __migrate --from-version "$MIGRATION_FROM" --to-version "$BUILT_VERSION"
 fi
+if $refresh; then refresh_skills "$INSTALLED_BINARY" apply; fi
 
 echo "installed $command_name -> $INSTALLED_BINARY"
 

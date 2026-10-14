@@ -5,6 +5,14 @@ use anyhow::Result;
 use rusqlite::OptionalExtension as _;
 
 impl Db {
+    pub(crate) fn invalidate_skills_receipt(&self) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM meta WHERE key IN ('skills_install_receipt', 'skills_synced_version')",
+            [],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn skills_install_receipt(&self) -> Result<Option<InstallReceipt>> {
         let value: Option<String> = self
             .conn
