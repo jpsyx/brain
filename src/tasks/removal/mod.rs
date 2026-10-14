@@ -6,6 +6,8 @@
 pub(crate) mod dependencies;
 pub(crate) mod fingerprint;
 pub(crate) mod model;
+pub(crate) mod projects;
+pub(crate) mod references;
 pub(crate) mod resolve;
 pub(crate) mod snapshot;
 

@@ -1118,6 +1118,19 @@ presentation labels and random operation IDs are excluded. The integration seam
 contains only linked-issue policy and optional adapter argv, sorted environment
 variable names, and timeout. It cannot carry environment variable values.
 
+`references::strip_items` removes only pipe-delimited items whose trimmed text
+exactly matches a removed display ID; surviving items retain their text and
+order, including URLs and prose that merely contain an ID. `projects::clean`
+consumes the snapshot's already-scanned metadata before-images, including
+archived and stale reverse links independently of each task's forward project.
+It validates JSON objects and optional string-array `tasks`, removes exact
+matching IDs without sorting survivors, and retains every other JSON value.
+It returns a workspace-relative path-to-bytes map containing only changed
+metadata after-images. Missing `tasks`, unchanged arrays, and missing metadata
+produce no after-image; unchanged file bytes remain the snapshot's exact
+before-image. No cleanup helper writes files or updates project status.
+Malformed inputs return `invalid_project_metadata` with their path.
+
 ## Agenda document (`src/tasks/agenda/doc.rs`, `<agenda_markdown_dir>/<date>.md`)
 
 The day's agenda is markdown, not a record format, so the model is deliberately

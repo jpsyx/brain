@@ -210,3 +210,13 @@ fn rewiring_a_removed_middle_task_preserves_its_prerequisite() {
     assert_eq!(result["T3"], BTreeSet::from(["T1".into()]));
     assert!(!result.contains_key("T2"));
 }
+
+#[test]
+fn removed_task_reference_does_not_rewrite_a_url_or_prose() {
+    let removed = std::collections::BTreeSet::from(["T17".to_owned()]);
+    let text = " T17 |https://example.test/T17|notes about T17|T18";
+    assert_eq!(
+        crate::tasks::removal::references::strip_items(text, &removed),
+        "https://example.test/T17|notes about T17|T18"
+    );
+}

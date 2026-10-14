@@ -1623,7 +1623,9 @@ that every completion runs), `removal` (typed removal policies, pure dependency
 graph repair with scoped validation and numeric CSV-token ordering, pure batch
 target resolution reusing completion's locator, owned read-only snapshots of
 both CSVs and active/archived project metadata, and canonical SHA-256 plan
-fingerprints through a secret-free integration snapshot),
+fingerprints through a secret-free integration snapshot, plus exact pipe-item
+reference cleanup and pure changed-only project JSON after-images from those
+same snapshots),
 `mutate` (remove/defer/touch/backlog/assign, plus
 the chunk-family cascade), `backlog` (the review listing and the two silent
 maintenance passes), `scan` (the chronic / stale-waiting / tracker-linked
