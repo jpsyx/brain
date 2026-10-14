@@ -1067,6 +1067,24 @@ malformed JSON, invalid UTF-8 indexes, and traversal errors abort the whole
 transaction before publication. A display reference shared with an unmanaged
 row is preserved because the surviving row remains its possible target.
 
+## Native removal policy (`src/tasks/removal/`)
+
+The removal domain represents dependency policy as `reject`, `unlink`, or
+`rewire`, and linked-issue policy as `configured`, `keep`, or `cancel`.
+Its options default to no habit opt-in, rejected dependents, and configured
+linked-issue handling. Domain failures retain a stable `code`, human-readable
+`message`, and structured JSON `details`.
+
+Snapshot resolution reuses the completion locator for explicit display IDs,
+unambiguous bare numbers, and unique name fragments. It resolves every input
+before returning, deduplicates row selections, and orders them by CSV kind and
+numeric display ID. Missing and ambiguous targets reject the batch and retain
+the original input plus candidate ID/name pairs. Nonblank stored UUIDs must be
+valid; resolving legacy rows does not edit the schema. The removal validation
+boundary rejects mixed task/habit batches, requires habit opt-in for habits,
+rejects that opt-in for tasks, and reuses managed-triage protection when enabled.
+This domain slice does not yet change the command or TUI entry points.
+
 ## Agenda document (`src/tasks/agenda/doc.rs`, `<agenda_markdown_dir>/<date>.md`)
 
 The day's agenda is markdown, not a record format, so the model is deliberately

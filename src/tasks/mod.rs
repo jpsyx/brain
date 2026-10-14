@@ -18,6 +18,7 @@ pub(crate) mod habits;
 pub mod identity;
 pub(crate) mod mutate;
 pub mod plain;
+pub(crate) mod removal;
 pub mod render;
 pub mod revive;
 pub(crate) mod rules;

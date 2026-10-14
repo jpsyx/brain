@@ -1619,7 +1619,9 @@ assignment defaults/membership/UI visibility), `view` (sub-views +
 `build_view`), `selector` (date parsing), `render` (task-card lines, chrome,
 markdown), `shortcuts` (the help/footer catalogue), `complete` (native
 task/habit completion), `agenda` (the section-preserving agenda-markdown sync
-that every completion runs), `mutate` (remove/defer/touch/backlog/assign, plus
+that every completion runs), `removal` (typed removal policies and pure batch
+target resolution over a CSV snapshot, reusing completion's locator),
+`mutate` (remove/defer/touch/backlog/assign, plus
 the chunk-family cascade), `backlog` (the review listing and the two silent
 maintenance passes), `scan` (the chronic / stale-waiting / tracker-linked
 reads), `rules` (the task automation lint and the task ↔ project link),
