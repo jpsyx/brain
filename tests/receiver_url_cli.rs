@@ -155,9 +155,11 @@ fn receiver_status_without_a_public_url_names_the_variable_instead_of_a_url() {
         "{status}"
     );
     assert!(!status.contains("/sms"), "{status}");
-    assert!(status.contains("Durable work"), "{status}");
-    assert!(status.contains("unavailable"), "{status}");
-    assert!(!status.contains("Agent queue    0"), "{status}");
+    // Mandatory managed-skill compatibility now creates the receipt DB.
+    // The existing empty store is available, without any provider work.
+    assert!(status.contains("Agent queue    0"), "{status}");
+    assert!(status.contains("Oldest phase   none"), "{status}");
+    assert!(!status.contains("Durable work  unavailable"), "{status}");
 }
 
 #[test]

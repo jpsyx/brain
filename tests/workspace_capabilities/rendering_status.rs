@@ -49,7 +49,9 @@ fn capability_status_reports_request_availability_and_honest_frontend_enforcemen
         "{status}"
     );
     assert!(
-        status.contains("Claude=unavailable  Codex=unavailable  OpenCode=unavailable  pi=unavailable"),
+        status.contains(
+            "Claude=unavailable  Codex=unavailable  OpenCode=unavailable  pi=unavailable"
+        ),
         "{status}"
     );
     assert!(

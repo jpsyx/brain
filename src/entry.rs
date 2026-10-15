@@ -86,7 +86,11 @@ impl Hidden {
     /// value and the palette toggle cannot disagree about what it means.
     #[must_use]
     pub const fn for_show_hidden(show_hidden: bool) -> Self {
-        if show_hidden { Self::Include } else { Self::Skip }
+        if show_hidden {
+            Self::Include
+        } else {
+            Self::Skip
+        }
     }
 }
 
@@ -277,7 +281,10 @@ mod tests {
             .expect("the plan file is collected");
 
         assert!(dir.is_dir, "a directory entry must be marked as one");
-        assert!(!file.is_dir, "a file entry must not be marked as a directory");
+        assert!(
+            !file.is_dir,
+            "a file entry must not be marked as a directory"
+        );
     }
 
     #[test]
@@ -351,12 +358,8 @@ mod tests {
         std::fs::create_dir_all(projects.join(".obsidian")).expect("create the dotted dir");
         std::fs::write(projects.join(".obsidian/notes.md"), "x").expect("write file");
 
-        let entries = collect_with(
-            brain,
-            &[(Bucket::Projects, projects)],
-            Hidden::Include,
-        )
-        .expect("collect");
+        let entries =
+            collect_with(brain, &[(Bucket::Projects, projects)], Hidden::Include).expect("collect");
 
         let nested = entries
             .iter()
@@ -369,7 +372,10 @@ mod tests {
     fn hidden_below_reads_every_component_under_the_walk_root() {
         let root = Path::new("/brain/projects");
 
-        assert!(!hidden_below(root, Path::new("/brain/projects/atlas/plan.md")));
+        assert!(!hidden_below(
+            root,
+            Path::new("/brain/projects/atlas/plan.md")
+        ));
         assert!(hidden_below(root, Path::new("/brain/projects/.secret.md")));
         assert!(hidden_below(
             root,

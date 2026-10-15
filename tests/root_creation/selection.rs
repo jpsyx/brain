@@ -11,6 +11,9 @@ pub(super) fn two_workspaces(home: &TempDir, config_home: &TempDir) {
     ] {
         let root = home.path().join(name);
         std::fs::create_dir_all(root.join(".config")).expect("root");
+        brain::workspace::WorkspaceManifest::new(brain::workspace::WorkspaceId::parse(id).unwrap())
+            .write_new(&root)
+            .unwrap();
         std::fs::write(
             root.join(".config/config.json"),
             format!("{{\"linear_workspace\":\"{name}-slug\"}}\n"),

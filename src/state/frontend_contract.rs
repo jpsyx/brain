@@ -112,10 +112,8 @@ pub(crate) fn down_path(path: &std::path::Path) -> Result<()> {
 }
 
 fn rebuild_to_previous_contract(connection: &Connection) -> Result<()> {
-    let transaction = rusqlite::Transaction::new_unchecked(
-        connection,
-        rusqlite::TransactionBehavior::Immediate,
-    )?;
+    let transaction =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)?;
     for (table, columns, create) in [
         (
             super::manual_session::schema::TABLE,

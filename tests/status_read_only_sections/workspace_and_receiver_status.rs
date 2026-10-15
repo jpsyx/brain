@@ -30,7 +30,7 @@ fn tasks_doctor_is_grouped_by_workspace_and_does_not_write_state() {
 
     let (pid, output) = run(home.path(), &["-b", "brain", "tasks", "doctor"]);
 
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(snapshot(home.path()), before);
     assert_eq!(
         pid_run_logs(pid, &run_log_snapshot()),
@@ -43,6 +43,8 @@ fn tasks_doctor_is_grouped_by_workspace_and_does_not_write_state() {
     assert!(stdout.contains("Codex SessionStart"), "{stdout}");
     assert!(stdout.contains("OpenCode Brain plugin"), "{stdout}");
     assert!(stdout.contains("Features"), "{stdout}");
+    assert!(stdout.contains("state database: ready"), "{stdout}");
+    assert!(stdout.contains("task schema: incomplete"), "{stdout}");
 }
 
 #[test]

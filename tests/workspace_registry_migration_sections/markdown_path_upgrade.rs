@@ -6,6 +6,8 @@ fn v2_registry(config_dir: &Path, roots: &[(&str, &Path)], markdown: &[(&str, &s
     let workspaces = roots
         .iter()
         .map(|(name, root)| {
+            let workspace_id = WorkspaceId::new();
+            WorkspaceManifest::new(workspace_id).write_new(root).expect("matching fixture manifest");
             let mut env = json!({"claude_cmd": format!("claude --{name}")});
             if let Some((_, path)) = markdown.iter().find(|(owner, _)| owner == name) {
                 env["markdown_to_pdf_path"] = json!(path);
@@ -13,7 +15,7 @@ fn v2_registry(config_dir: &Path, roots: &[(&str, &Path)], markdown: &[(&str, &s
             (
                 (*name).to_owned(),
                 json!({
-                    "workspace_id": WorkspaceId::new().to_string(),
+                    "workspace_id": workspace_id.to_string(),
                     "root": root,
                     "aliases": [],
                     "local_user_id": "migration-user",

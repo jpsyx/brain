@@ -1,3 +1,6 @@
+#[path = "../support/workspace_startup_support.rs"]
+mod startup;
+
 mod dual_fixture;
 mod fixture;
 mod model;

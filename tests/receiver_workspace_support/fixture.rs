@@ -112,13 +112,14 @@ impl SharedReceiverFixture {
         let store =
             brain::workspace::RegistryStore::from_path(home.path().join(".config/brain/env.json"));
         store.replace(&registry).unwrap();
+        let process_permit = ProcessFixtureProcess::prepare(&home);
         let guard = brain::tui::singleton::Guard::acquire(&workspace).unwrap();
         let paths = brain::server::lifecycle::ServerPaths::from_home(home.path());
         let generation = brain::server::lifecycle::ServerGeneration::new();
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
             .unwrap()
             .unwrap();
-        let process = ProcessFixtureProcess::spawn(&home, generation);
+        let process = ProcessFixtureProcess::spawn(&home, generation, process_permit);
         let handoff = election.handoff();
         let client = brain::server::control::ServerClient::with_launch_context(
             paths,

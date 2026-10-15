@@ -15,6 +15,7 @@ mod receiver_recovery;
 mod receiver_recovery_cleanup;
 mod receiver_session_registration;
 mod receiver_unavailable_notice;
+mod setup;
 mod skill_refresh;
 mod task_deletion_skills;
 mod version;
@@ -144,12 +145,39 @@ pub fn run_current() -> Result<()> {
 pub(crate) fn run_current_with_refresh(
     attempt: &mut crate::skills::repair::RefreshAttempt,
 ) -> Result<()> {
+    run_current_prepared(attempt, None)
+}
+
+pub(crate) fn run_current_with_setup(prepare: impl FnOnce() -> Result<()>) -> Result<()> {
+    let mut attempt = crate::skills::repair::RefreshAttempt::new(
+        crate::skills::reconcile::RefreshMode::Compatibility,
+    );
+    run_current_prepared(&mut attempt, Some(setup::Preparation::new(prepare)))
+}
+
+fn run_current_prepared(
+    attempt: &mut crate::skills::repair::RefreshAttempt,
+    mut preparation: Option<setup::Preparation<'_>>,
+) -> Result<()> {
     let home = home_dir()?;
     let state_path = state_path();
     let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
     let recorded = read_state(&state_path)?;
     let from = recorded.unwrap_or(PRE_MIGRATION_VERSION);
-    run_with_refresh(&home, from, current, true, Some(attempt))?;
+    run_with_refresh(
+        &home,
+        from,
+        current,
+        true,
+        Some(&mut *attempt),
+        preparation.as_mut(),
+    )?;
+    if let Some(preparation) = preparation.as_mut()
+        && preparation.pending()
+    {
+        preparation.run()?;
+        task_deletion_skills::up_with_attempt(&home, Some(attempt))?;
+    }
     if recorded != Some(current) {
         // Reconciliation is idempotent, so an unwritable stamp only means the
         // next ordinary command will repeat it. Do not mask that command's own
@@ -191,7 +219,7 @@ pub fn run_explicit(from: &str, to: &str) -> Result<()> {
 }
 
 fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
-    run_with_refresh(home, from, to, reconcile, None)
+    run_with_refresh(home, from, to, reconcile, None, None)
 }
 fn run_with_refresh(
     home: &Path,
@@ -199,6 +227,7 @@ fn run_with_refresh(
     to: Version,
     reconcile: bool,
     mut attempt: Option<&mut crate::skills::repair::RefreshAttempt>,
+    mut preparation: Option<&mut setup::Preparation<'_>>,
 ) -> Result<()> {
     if from < to {
         for migration in MIGRATIONS
@@ -206,6 +235,9 @@ fn run_with_refresh(
             .filter(|migration| runs_on_upgrade(migration.introduced, from, to))
         {
             if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+                if let Some(preparation) = preparation.as_deref_mut() {
+                    preparation.run()?;
+                }
                 task_deletion_skills::up_with_attempt(home, attempt.as_deref_mut())?;
             } else {
                 (migration.up)(home)?;
@@ -225,6 +257,9 @@ fn run_with_refresh(
             .filter(|migration| migration.introduced <= to)
         {
             if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+                if let Some(preparation) = preparation.as_deref_mut() {
+                    preparation.run()?;
+                }
                 task_deletion_skills::up_with_attempt(home, attempt.as_deref_mut())?;
             } else {
                 (migration.up)(home)?;

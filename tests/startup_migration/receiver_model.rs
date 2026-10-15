@@ -12,11 +12,7 @@ impl Fixture {
             "22222222-2222-4222-8222-222222222222",
         ] {
             let path = self.state_db(workspace_id);
-            std::fs::create_dir_all(path.parent().expect("state parent")).expect("state directory");
-            let connection = rusqlite::Connection::open(path).expect("pre-receiver state");
-            connection
-                .pragma_update(None, "user_version", 5)
-                .expect("pre-receiver state version");
+            super::legacy_state::seed(&path);
         }
     }
 }
@@ -89,7 +85,7 @@ fn receiver_migration_defers_until_legacy_registry_bootstrap_finishes() {
 }
 
 #[test]
-fn receiver_migration_reconciles_only_existing_workspace_state_databases() {
+fn full_startup_creates_receipt_state_without_inventing_receiver_work() {
     let fixture = Fixture::new();
     let state_paths = [
         fixture.state_db("11111111-1111-4111-8111-111111111111"),
@@ -104,7 +100,11 @@ fn receiver_migration_reconciles_only_existing_workspace_state_databases() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(state_paths.iter().all(|path| !path.exists()));
+    // Full startup now creates the managed-skill receipt DB. It must not
+    // synthesize sessions or receiver work while doing so.
+    for path in state_paths {
+        super::receipt::assert_empty(&path);
+    }
 }
 
 #[test]
@@ -224,13 +224,7 @@ fn explicit_down_migration_removes_only_receiver_recovery_state() {
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.83.9",
-    ]);
+    let down = fixture.acknowledged_down("0.83.9");
 
     assert!(
         down.status.success(),
@@ -278,13 +272,7 @@ fn explicit_down_migration_removes_only_receiver_session_registration_state() {
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.75.0",
-    ]);
+    let down = fixture.acknowledged_down("0.75.0");
 
     assert!(
         down.status.success(),
@@ -313,13 +301,7 @@ fn explicit_down_migration_removes_only_the_receiver_launch_retry_origin() {
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.74.4",
-    ]);
+    let down = fixture.acknowledged_down("0.74.4");
 
     assert!(
         down.status.success(),
@@ -348,13 +330,7 @@ fn observation_down_rebuilds_a_v8_compatible_table_before_the_remaining_down_cha
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.74.4",
-    ]);
+    let down = fixture.acknowledged_down("0.74.4");
 
     assert!(
         down.status.success(),
@@ -385,13 +361,7 @@ fn explicit_down_migration_removes_receiver_schema_from_every_workspace() {
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.71.38",
-    ]);
+    let down = fixture.acknowledged_down("0.71.38");
 
     assert!(
         down.status.success(),

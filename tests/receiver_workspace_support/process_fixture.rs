@@ -74,11 +74,17 @@ pub(super) struct ProcessFixtureProcess {
 }
 
 impl ProcessFixtureProcess {
+    pub(super) fn prepare(home: &tempfile::TempDir) -> ProcessFixturePermit<'static> {
+        let permit = PROCESS_FIXTURE_PERMITS.acquire();
+        super::startup::prepare(home.path());
+        permit
+    }
+
     pub(super) fn spawn(
         home: &tempfile::TempDir,
         generation: brain::server::lifecycle::ServerGeneration,
+        permit: ProcessFixturePermit<'static>,
     ) -> Self {
-        let permit = PROCESS_FIXTURE_PERMITS.acquire();
         let child = std::process::Command::new(env!("CARGO_BIN_EXE_brain"))
             .args([
                 "server",
@@ -89,6 +95,7 @@ impl ProcessFixtureProcess {
                 "0",
             ])
             .env("HOME", home.path())
+            .env_remove("XDG_CONFIG_HOME")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

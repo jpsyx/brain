@@ -248,7 +248,7 @@ pub(super) fn ensure_absolute_directory(path: &Path) -> Result<()> {
         if current.exists() {
             current = fs::canonicalize(current)?;
         } else {
-            fs::create_dir(&current)?;
+            create_directory(&current)?;
         }
     }
     for component in components {
@@ -259,7 +259,7 @@ pub(super) fn ensure_absolute_directory(path: &Path) -> Result<()> {
         current.push(component);
         match read_metadata(&current)? {
             None => {
-                fs::create_dir(&current)?;
+                create_directory(&current)?;
                 sync_dir(current.parent().expect("validated artifact parent"))?;
             }
             Some(metadata) => ensure!(
@@ -270,6 +270,25 @@ pub(super) fn ensure_absolute_directory(path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+// A caller observed absence; another creator may have won before create_dir.
+fn create_directory(path: &Path) -> Result<()> {
+    validate_directory_creation(path, fs::create_dir(path))
+}
+
+fn validate_directory_creation(path: &Path, created: std::io::Result<()>) -> Result<()> {
+    match created {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            ensure!(
+                read_metadata(path)?.is_some_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink()),
+                "unsafe concurrent skills cache ancestor: {}", path.display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(super) fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -290,7 +309,63 @@ pub(super) fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{STATE_FILE_LIMIT, atomic_write, read_optional_file};
+    use super::{
+        STATE_FILE_LIMIT, atomic_write, create_directory, read_optional_file,
+        validate_directory_creation,
+    };
+
+    #[test]
+    fn concurrent_cache_directory_winner_is_revalidated_without_following_links() {
+        let root = tempfile::tempdir().unwrap();
+        let winner = root.path().join("directory");
+        std::fs::create_dir(&winner).unwrap();
+        assert!(
+            create_directory(&winner).is_ok(),
+            "a real concurrent directory winner is safe"
+        );
+        let file = root.path().join("file");
+        std::fs::write(&file, b"preserve").unwrap();
+        assert!(create_directory(&file).is_err());
+        assert_eq!(std::fs::read(&file).unwrap(), b"preserve");
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(&winner, &link).unwrap();
+        assert!(create_directory(&link).is_err());
+        assert!(
+            std::fs::symlink_metadata(link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    #[test]
+    fn vanished_directory_winner_and_non_already_exists_errors_are_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let vanished = root.path().join("vanished");
+        assert!(
+            validate_directory_creation(&vanished, Err(std::io::ErrorKind::AlreadyExists.into()))
+                .is_err()
+        );
+        assert!(!vanished.exists());
+        let error = validate_directory_creation(
+            root.path(),
+            Err(std::io::ErrorKind::PermissionDenied.into()),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        let missing_parent = root.path().join("absent/child");
+        let error = create_directory(&missing_parent).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        let socket = root.path().join("socket");
+        let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        assert!(create_directory(&socket).is_err());
+    }
 
     #[test]
     fn state_writer_and_reader_agree_at_the_exact_size_boundary() {

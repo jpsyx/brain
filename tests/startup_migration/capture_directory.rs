@@ -45,13 +45,7 @@ fn a_downgrade_removes_an_empty_in_basket_and_keeps_a_filled_one() {
     );
     std::fs::write(fixture.work.join("capture/receipt.png"), b"png").expect("captured file");
 
-    let output = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.93.0",
-    ]);
+    let output = fixture.acknowledged_down("0.93.0");
 
     assert!(
         output.status.success(),

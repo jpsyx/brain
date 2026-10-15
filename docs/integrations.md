@@ -2439,6 +2439,12 @@ brain-root lookup.
   one informational line (`rclone ✓ <version> · sync configured` or `rclone ✗
   not installed · sync off`), which never affects the doctor's overall
   pass/fail.
+  The explicit workspace migration coordinator runs as one prepared operation
+  before mandatory managed-skill compatibility, so legacy identity can be
+  established through this complete workflow. Mapping refusal precedes its
+  journal and portable identity writes. A subsequent compatibility failure
+  leaves completed local rollout intact, returns nonzero and preserves the
+  old machine migration stamp; the command is never dispatched again.
 
 ## Auto-sync triggers (startup, periodic, change, and receiver)
 

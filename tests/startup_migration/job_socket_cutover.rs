@@ -120,13 +120,7 @@ fn explicit_downgrade_is_idempotent_and_does_not_create_a_legacy_socket() {
     let socket = legacy_socket(&fixture, FAMILY_ID);
 
     for _ in 0..2 {
-        let output = fixture.run(&[
-            "__migrate",
-            "--from-version",
-            env!("CARGO_PKG_VERSION"),
-            "--to-version",
-            "0.86.1",
-        ]);
+        let output = fixture.acknowledged_down("0.86.1");
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         assert!(std::fs::symlink_metadata(&socket).is_err());
     }

@@ -62,6 +62,7 @@ impl DualWorkspaceReceiverFixture {
         store.replace(&registry).unwrap();
         save_user(&personal, "personal-member");
         save_user(&family, "family-member");
+        let process_permit = ProcessFixtureProcess::prepare(&home);
 
         let personal_guard = brain::tui::singleton::Guard::acquire(&personal).unwrap();
         let family_guard = brain::tui::singleton::Guard::acquire(&family).unwrap();
@@ -70,7 +71,7 @@ impl DualWorkspaceReceiverFixture {
         let election = brain::server::lifecycle::ElectionGuard::try_acquire(&paths, generation)
             .unwrap()
             .unwrap();
-        let process = ProcessFixtureProcess::spawn(&home, generation);
+        let process = ProcessFixtureProcess::spawn(&home, generation, process_permit);
         let handoff = election.handoff();
         let client = brain::server::control::ServerClient::new(paths);
         let record = poll_value(Instant::now() + Duration::from_secs(3), || {

@@ -71,7 +71,11 @@ fn an_explicit_session_directory_is_used_flat() {
 #[test]
 fn without_a_home_or_an_override_there_is_no_session_directory() {
     assert_eq!(
-        session_directory(Path::new("/Users/tester/brain"), None, SessionDirOverrides::default()),
+        session_directory(
+            Path::new("/Users/tester/brain"),
+            None,
+            SessionDirOverrides::default()
+        ),
         None
     );
     assert_eq!(
@@ -119,8 +123,5 @@ fn a_recorded_session_is_found_and_a_never_used_one_is_not() {
         directory.path(),
         "0199a1f4-1c0f-7a3b-9d21-000000000000"
     ));
-    assert!(!session_exists(
-        &directory.path().join("missing"),
-        SESSION
-    ));
+    assert!(!session_exists(&directory.path().join("missing"), SESSION));
 }

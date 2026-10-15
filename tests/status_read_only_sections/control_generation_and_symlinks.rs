@@ -34,7 +34,7 @@ fn receiver_status_rejects_generation_replacement_in_its_single_control_probe() 
 }
 
 #[test]
-fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
+fn concurrent_status_commands_preserve_an_active_generation_and_durable_state() {
     let mut fixture = DualWorkspaceReceiverFixture::start();
     seed_current_migration(fixture.home());
     let before_filesystem = snapshot(fixture.home());
@@ -75,7 +75,7 @@ fn concurrent_status_commands_leave_an_active_generation_exactly_unchanged() {
 
     let after_server = fixture.server_snapshot();
     assert_eq!(after_server, before_server);
-    assert_eq!(snapshot(fixture.home()), before_filesystem);
+    assert_receiver_state_unchanged(&before_filesystem, &snapshot(fixture.home()), &[fixture.personal.id()]);
     assert_eq!(snapshot_entry(&control_socket), before_control_socket);
     assert!(fixture.server_is_running());
     fixture.shutdown();
@@ -100,7 +100,7 @@ fn receiver_status_is_read_only_through_symlinked_config_and_workspace_paths() {
     let (_, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
 
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(snapshot(home.path()), before);
+    assert_receiver_state_unchanged(&before, &snapshot(home.path()), &[selected_status_workspace()]);
 }
 
 fn run(home: &Path, arguments: &[&str]) -> (u32, Output) {

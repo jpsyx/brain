@@ -5,13 +5,15 @@ mod mutate;
 mod preflight;
 pub(super) mod prompt;
 mod provision;
+mod setup;
+pub(crate) use setup::prepared as apply_prepared_setup;
 
 pub(crate) use preflight::registry_only as preflight_registry_only;
 pub(crate) use preflight::registry_only_with_io as preflight_registry_only_with_io;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 
 use mutate::{MutationInput, decide_mutation};
 
@@ -120,6 +122,13 @@ fn run_inner(
     explicit_workspace: bool,
 ) -> Result<()> {
     let answers = prompt::collect(&args.action)?;
+    if setup::is_action(&args.action) {
+        println!(
+            "{}",
+            setup::apply(&args.action, selection.raw_selector()?, store, &answers)?
+        );
+        return Ok(());
+    }
     match &args.action {
         WorkspaceAction::List => {
             let registry = mutate::load_registry(store)?;
@@ -127,38 +136,8 @@ fn run_inner(
             list::print(&registry, context, explicit_workspace, Theme::active());
             Ok(())
         }
-        WorkspaceAction::Create { name, root } => {
-            let prompted_root = answers.value(prompt::PromptField::Root).map(PathBuf::from);
-            let root = root
-                .as_deref()
-                .or(prompted_root.as_deref())
-                .ok_or_else(|| anyhow!("workspace root was not provided"))?;
-            let home = mutate::home_dir()?;
-            let current_dir = std::env::current_dir().context("read the current directory")?;
-            let decision = decide_mutation(
-                MutationInput::Create {
-                    name: name
-                        .as_deref()
-                        .or_else(|| answers.value(prompt::PromptField::Name)),
-                    root,
-                },
-                &home,
-                &current_dir,
-            )?;
-            provision::create(store, decision)?;
-            Ok(())
-        }
-        WorkspaceAction::Attach { root } => {
-            let prompted_root = answers.value(prompt::PromptField::Root).map(PathBuf::from);
-            let root = root
-                .as_deref()
-                .or(prompted_root.as_deref())
-                .ok_or_else(|| anyhow!("workspace root was not provided"))?;
-            let home = mutate::home_dir()?;
-            let current_dir = std::env::current_dir().context("read the current directory")?;
-            let decision = decide_mutation(MutationInput::Attach { root }, &home, &current_dir)?;
-            provision::attach(store, decision)?;
-            Ok(())
+        WorkspaceAction::Create { .. } | WorkspaceAction::Attach { .. } => {
+            unreachable!("setup handled before ordinary commands")
         }
         WorkspaceAction::Rename { workspace, name } => {
             let workspace = required(
@@ -263,74 +242,11 @@ fn run_inner(
                 Path::new("/"),
             )?,
         ),
-        WorkspaceAction::Repair {
-            manifest,
-            local_user_id,
-        } => {
-            let interactive_repair = !manifest && local_user_id.is_none();
-            repair(
-                store,
-                selection.raw_selector()?,
-                *manifest || interactive_repair,
-                local_user_id
-                    .as_deref()
-                    .or_else(|| answers.value(prompt::PromptField::LocalUserId)),
-            )
-        }
+        WorkspaceAction::Repair { .. } => unreachable!("setup handled before ordinary commands"),
         WorkspaceAction::Migrate { .. } => {
             anyhow::bail!("internal workspace migration expected a ready command context")
         }
     }
-}
-
-fn repair(
-    store: &RegistryStore,
-    selector: Option<&str>,
-    repair_manifest: bool,
-    local_user_id: Option<&str>,
-) -> Result<()> {
-    if local_user_id.is_some_and(|value| value.trim().is_empty()) {
-        anyhow::bail!("local user ID cannot be empty");
-    }
-    let local_user_id = local_user_id.map(str::trim).map(str::to_owned);
-    store.transaction(|transaction| -> Result<()> {
-        let mut registry = transaction.load()?;
-        let selected = registry.select(selector)?;
-        let canonical_name = selected.canonical_name().clone();
-        let root = selected.record().root.clone();
-        let workspace_id = selected.record().workspace_id;
-        if repair_manifest {
-            match crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION")) {
-                Ok(manifest) if manifest.workspace_id() == workspace_id => {}
-                Ok(manifest) => anyhow::bail!(
-                    "workspace manifest UUID {} does not match registry UUID {}",
-                    manifest.workspace_id(),
-                    workspace_id
-                ),
-                Err(crate::workspace::ManifestError::Io {
-                    kind: std::io::ErrorKind::NotFound,
-                    ..
-                }) => {
-                    crate::workspace::WorkspaceManifest::new(workspace_id).write_new(&root)?;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        if let Some(local_user_id) = local_user_id.as_deref() {
-            transaction.update(&mut registry, |candidate| {
-                let target = &mut candidate
-                    .workspaces
-                    .get_mut(&canonical_name)
-                    .expect("selected canonical workspace remains present")
-                    .local_user_id;
-                local_user_id.clone_into(target);
-                Ok(())
-            })?;
-        }
-        Ok(())
-    })?;
-    println!("{}", Theme::active().success("Workspace setup repaired"));
-    Ok(())
 }
 
 fn required<'a>(value: Option<&'a str>, label: &str) -> Result<&'a str> {

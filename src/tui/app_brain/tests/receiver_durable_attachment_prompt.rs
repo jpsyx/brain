@@ -171,9 +171,9 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
                 }
                 if kind == AgentKind::Pi {
                     pi_sessions = Some(create_pi_session(&temporary, &native_id));
-                    pi_override = pi_sessions.as_deref().map(|sessions| {
-                        crate::agent::override_pi_sessions_dir_for_test(sessions)
-                    });
+                    pi_override = pi_sessions
+                        .as_deref()
+                        .map(crate::agent::override_pi_sessions_dir_for_test);
                 }
             }
             let accepted = db

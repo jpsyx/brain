@@ -116,6 +116,21 @@ fn setup_only_directories_are_empty() {
 }
 
 #[test]
+fn managed_skill_registry_alone_is_empty_and_user_content_still_prevents_seeding() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join(".agents/skills/todo")).unwrap();
+    std::fs::write(
+        root.path().join(".agents/skills/todo/SKILL.md"),
+        "# Managed todo\n",
+    )
+    .unwrap();
+    assert!(is_empty_workspace_inner(root.path()).unwrap());
+    std::fs::create_dir(root.path().join("capture")).unwrap();
+    std::fs::write(root.path().join("capture/idea.md"), "user content").unwrap();
+    assert!(!is_empty_workspace_inner(root.path()).unwrap());
+}
+
+#[test]
 fn a_user_file_prevents_initialization() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("areas")).unwrap();

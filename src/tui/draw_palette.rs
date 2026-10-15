@@ -61,20 +61,16 @@ pub(crate) fn palette_width(entries: &[(String, Option<&'static str>)], availabl
         })
         .max()
         .unwrap_or(0);
-    widest
-        .saturating_add(CHROME)
-        .max(FOOTER_MIN)
-        .min(available)
+    widest.saturating_add(CHROME).max(FOOTER_MIN).min(available)
 }
 
 /// The tallest a list modal may be on a terminal `available` rows high. Falls
 /// back to the whole terminal when even the minimum doesn't fit.
 pub(crate) fn height_cap(available: u16) -> u16 {
     let ceiling = available.max(1);
-    let proportional = u16::try_from(
-        u32::from(available) * MAX_HEIGHT_NUMERATOR / MAX_HEIGHT_DENOMINATOR,
-    )
-    .unwrap_or(ceiling);
+    let proportional =
+        u16::try_from(u32::from(available) * MAX_HEIGHT_NUMERATOR / MAX_HEIGHT_DENOMINATOR)
+            .unwrap_or(ceiling);
     proportional
         .max(MIN_CAPPED_HEIGHT.min(ceiling))
         .min(ceiling)
@@ -108,7 +104,11 @@ pub(crate) const fn viewport_start(selected: usize, total: usize, height: usize)
         return 0;
     }
     let start = selected + 1 - height;
-    if start > last_start { last_start } else { start }
+    if start > last_start {
+        last_start
+    } else {
+        start
+    }
 }
 
 fn text_width(value: &str) -> u16 {
@@ -117,7 +117,10 @@ fn text_width(value: &str) -> u16 {
 
 pub(crate) fn draw_palette(f: &mut Frame, state: &CommandPaletteState, area: Rect) {
     let entries = state.numbered_entries();
-    let subtitle = state.task_actions_modal().then(|| state.subtitle()).flatten();
+    let subtitle = state
+        .task_actions_modal()
+        .then(|| state.subtitle())
+        .flatten();
     draw_palette_view(
         f,
         &PaletteView {
@@ -220,7 +223,10 @@ pub(crate) fn draw_palette_view(f: &mut Frame, view: &PaletteView, area: Rect) {
     render_palette_list(f, view.entries, view.selected, list);
 
     let position = scroll_position(view.selected, view.entries.len(), usize::from(list.height));
-    f.render_widget(Paragraph::new(palette_footer(position.as_deref())), chunks[index]);
+    f.render_widget(
+        Paragraph::new(palette_footer(position.as_deref())),
+        chunks[index],
+    );
 }
 
 fn bordered(title: &str) -> Block<'static> {
@@ -429,7 +435,10 @@ mod tests {
         let width = palette_width(&rows, 200);
         let widest = GUTTER + text_width("Mark T123 as complete") + HINT_FRAME + text_width("^D");
 
-        assert!(width >= widest + 2, "{width} must fit {widest} plus borders");
+        assert!(
+            width >= widest + 2,
+            "{width} must fit {widest} plus borders"
+        );
         assert!(width >= FOOTER_MIN);
     }
 

@@ -321,3 +321,6 @@ fn redirected_task_lock_rejects_before_recovery_opens_sqlite() {
     assert!(!output.status.success());
     assert!(fs::read(outside).unwrap().is_empty());
 }
+
+#[path = "task_deletion_skill_refresh/acceptance.rs"]
+mod acceptance;

@@ -117,7 +117,8 @@ argv
 
 Empty-workspace startup is handled at `command::tasks::prepare_empty_workspace`.
 It waits for a configured pull when the selected root contains only setup
-metadata, initializes the portable config, task stores, lookup CSVs, counters,
+metadata (including the managed `.agents/skills` registry), initializes the portable
+config, task stores, lookup CSVs, counters,
 and the scaffold directories (`capture/` plus the four PARA buckets and
 `tasks/`), then publishes the initialized tree with a configured
 push before the task CSVs are loaded. The `capture/` in-basket is additionally
@@ -482,6 +483,16 @@ submodule.
 ### `startup_migration/`
 
 `startup_migration/mod.rs` owns a small ordered table of version boundaries.
+`workspace/setup.rs` owns the four explicit preparatory routes: Repair,
+Create, Attach and Migrate. The first three reuse registry-only preflight and
+transactions; Migrate reuses migration-only bootstrap and the complete rollout
+coordinator. An invocation-owned `startup_migration/setup.rs` callback is
+consumed once just before managed-skill compatibility, or after a successful
+traversal that omitted that entry. Earlier migration failure leaves it
+unconsumed. Setup and compatibility must both succeed before the machine stamp
+advances or the deferred setup result is printed; a later failure reports
+committed local work and exits without redispatch or rollback.
+
 Each migration supplies `up` and `down`; `version.rs` provides the three-part
 semantic comparison, and a focused module such as `lifecycle.rs` owns the
 actual cleanup, transformation, and target-state reconciliation. Ordinary
@@ -2893,3 +2904,10 @@ Supported profiles are the audited 0.101.0 target and the running coordinator's
 exact current version. Unknown target versions fail before replacement. These
 trusted-build profiles are not executable authentication or an OS sandbox; the
 digest detects changed bytes, not adversarial same-user hash/exec races.
+
+Automatic skill reconciliation owns its bounded contention policy in
+`skills/reconcile/lock.rs`: thirty seconds per root, monotonic deadline, at most
+25ms polling, and typed `InstallBusy` retries only. Direct install acquisition
+remains fail-fast and reuses root/portable validation before and after obtaining
+ownership. Recovery, inspection, receipt reads, rendering, and publication follow
+ownership; timeout cannot authorize a stale receipt.

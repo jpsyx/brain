@@ -151,7 +151,10 @@ fn a_settled_turn_produces_one_response_artifact_through_the_real_bridges() {
     let artifacts = std::fs::read_dir(&response_dir)
         .expect("response directory")
         .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .collect::<Vec<_>>();
     assert_eq!(artifacts.len(), 1, "{artifacts:?}");
     let artifact: serde_json::Value =

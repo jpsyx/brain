@@ -460,7 +460,12 @@ already-valid current-schema selected record, manifest, portable users, persiste
 intent, and any existing generation snapshot without invoking recovery or
 write-capable command stores. The earlier migration may clean obsolete global
 hooks, reconcile workspace lifecycle artifacts, and update the machine migration
-stamp. After that common boundary, status preserves the four-field receiver projection
+stamp. Explicit workspace Create/Attach/Repair preparation, or the complete
+explicit workspace migration coordinator, runs once before managed compatibility
+requires portable identity. The machine stamp advances only after the prepared
+operation and required traversal succeed; a partial committed setup remains
+committed when later compatibility fails.
+After that common boundary, status preserves the four-field receiver projection
 (`Receiver`, `TUI`, `Server`, `Accepting`) without changing bytes or process
 state. One generation-bound control response carries the process lease count
 and exact-workspace lease state. The underlying lease-table view filters

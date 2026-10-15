@@ -1,4 +1,5 @@
 //! Receipt-aware reconciliation without selected workspace bootstrap.
+mod lock;
 use super::{
     install,
     install_transaction::{Currentness, InstallIdentity, InstallVersion, LockedInstall},
@@ -132,8 +133,11 @@ pub(crate) fn refresh(
     stamp: &mut WorkspaceStamp,
     mode: RefreshMode,
 ) -> Result<bool> {
-    let mut locked =
-        LockedInstall::acquire(identity).context("acquire managed skill install lock")?;
+    let mut locked = match mode {
+        RefreshMode::Compatibility => lock::acquire(identity),
+        RefreshMode::Explicit => LockedInstall::acquire(identity),
+    }
+    .context("acquire managed skill install lock")?;
     let recovered = locked
         .recover(stamp)
         .context("recover managed skill installation")?

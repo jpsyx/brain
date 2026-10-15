@@ -210,14 +210,10 @@ impl RuntimeBuilder {
             initial_search,
             skip_daily_triage_check,
         } = launch;
-        let configured = crate::env::resolve_one(
-            &command_context,
-            crate::main_view::STARTUP_VIEW_ENV_VAR,
-        );
-        let startup_destination = crate::main_view::startup_destination(
-            configured.as_deref(),
-            !all_tasks.is_empty(),
-        );
+        let configured =
+            crate::env::resolve_one(&command_context, crate::main_view::STARTUP_VIEW_ENV_VAR);
+        let startup_destination =
+            crate::main_view::startup_destination(configured.as_deref(), !all_tasks.is_empty());
         let db = Db::open(&command_context.workspace)?;
         let config = load_startup_config(&command_context.workspace)?;
         let _ = crate::agent::SessionStore::reap_dead_locks(&db);

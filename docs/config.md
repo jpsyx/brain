@@ -167,6 +167,19 @@ the `markdown-to-pdf` gate; on a genuinely fresh machine, first
 `create`/`attach` can therefore establish the initial schema-v4 registry
 without migration inventing a competing default.
 
+`workspace repair`, `workspace create`, and `workspace attach` prepare their
+complete request without registry mutation, then execute it once after earlier
+machine migrations and immediately before managed-skill compatibility. The
+explicit `workspace migrate` route runs its existing full rollout coordinator
+at that same boundary, retaining mapping preflight, sync acknowledgement,
+identity validation, locks and backups. This ordering lets setup establish the
+strict identity that compatibility requires. If version traversal omits that
+managed entry, the prepared operation and compatibility run once before the
+machine stamp can advance. An earlier failure prevents setup; a later failure
+reports already committed setup, returns nonzero and preserves the old stamp.
+Success is reported after the complete startup barrier, with no ordinary
+redispatch. Other command families keep their existing fail-fast ordering.
+
 ### Portable manifest and readiness
 
 Each workspace root carries `<brain-root>/.config/workspace.json`. Schema `1`
@@ -232,7 +245,10 @@ the deliberate exception, and only for the receiver's own published addresses:
 asking what address the receiver answers on is a request to see it. They still
 never print a provider credential. Every incomplete row supplies noninteractive repair syntax;
 interactive prompt metadata records which inputs are secret without carrying
-their current values.
+their current values. Receiver queue observation uses a coordinated
+read-only SQLite connection. For an existing state database, SQLite may create or
+refresh its shared-memory coordination file and create an empty WAL file; durable
+queue, task, receipt, and configuration data remain unchanged.
 
 ### Access policy status
 
@@ -914,6 +930,14 @@ machine and managed-skill compatibility migrations run before every non-help/ver
 invocation, including read-only operation status, regardless of that preference.
 They verify the committed receipt and managed artifacts, repairing missing output
 without rewriting the preference or user extension/plugin sources.
+
+Automatic managed-skill compatibility waits at most thirty seconds per workspace
+for an active installer, with polling sleeps capped at 25 milliseconds.
+Only install-lock contention is retried; identity, ownership, SQLite, and other
+errors still fail startup. The check validates identity again under ownership
+and reads currentness there. Expiry preserves the prior machine migration stamp.
+Explicit skill repair and installer/downgrade lock acquisition remain fail-fast. A contended automatic
+wait prints one plain progress notice on stderr, preserving JSON stdout.
 
 ## Persistent state (`~/.cache/brain/workspaces/<workspace-id>/state.db`)
 

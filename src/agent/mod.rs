@@ -51,14 +51,14 @@ pub(crate) use frontend::{AgentAction, AgentFrontend};
 pub(crate) use opencode::DEFAULT_COMMAND as DEFAULT_OPENCODE_COMMAND;
 pub(crate) use opencode::OpenCodeFrontend;
 pub(crate) use opencode::compatibility_version as opencode_compatibility_version;
+pub(crate) use pi::DEFAULT_COMMAND as DEFAULT_PI_COMMAND;
+pub(crate) use pi::PiFrontend;
+pub(crate) use pi::compatibility_version as pi_compatibility_version;
 #[cfg(test)]
 pub(crate) use pi::sessions::{
     override_sessions_dir_for_test as override_pi_sessions_dir_for_test,
     session_file_name as pi_session_file_name,
 };
-pub(crate) use pi::DEFAULT_COMMAND as DEFAULT_PI_COMMAND;
-pub(crate) use pi::PiFrontend;
-pub(crate) use pi::compatibility_version as pi_compatibility_version;
 pub(crate) use registry::{
     HealthCheckDescriptor, HealthCheckExpectation, HookCommandStyle, LifecycleInstallation,
     LifecyclePayload, primary_session_health_check, registration, registrations,

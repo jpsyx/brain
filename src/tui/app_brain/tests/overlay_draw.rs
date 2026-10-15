@@ -46,12 +46,10 @@ fn rendered_modal_right_edge(overlay: Overlay, title: &str) -> u16 {
 
 #[test]
 fn search_modals_stay_inside_the_search_half_when_the_brain_panel_is_open() {
-    let overlays = [
-        (
-            Overlay::SearchConfirmation(crate::confirm::Confirm::pdf(PathBuf::from("plan.md"))),
-            "Create PDF",
-        ),
-    ];
+    let overlays = [(
+        Overlay::SearchConfirmation(crate::confirm::Confirm::pdf(PathBuf::from("plan.md"))),
+        "Create PDF",
+    )];
 
     for (overlay, title) in overlays {
         let right_edge = rendered_modal_right_edge(overlay, title);

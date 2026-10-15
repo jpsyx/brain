@@ -242,7 +242,14 @@ fn first_tasks_command_initializes_an_empty_workspace() {
     ] {
         assert!(family.join(path).is_file(), "missing {path}");
     }
-    for directory in ["capture", "projects", "areas", "resources", "archive", "tasks"] {
+    for directory in [
+        "capture",
+        "projects",
+        "areas",
+        "resources",
+        "archive",
+        "tasks",
+    ] {
         assert!(family.join(directory).is_dir(), "missing {directory}");
     }
     // AGENTS.md is the only orientation document Brain writes; a second copy of

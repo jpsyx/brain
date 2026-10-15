@@ -111,10 +111,7 @@ fn facade_drives_a_real_fake_pi_process_with_semantic_input() {
     // and Brain's chosen session id identifies the conversation.
     assert!(log.contains("arg|0|--no-approve"), "{log}");
     assert!(log.contains("arg|1|--extension"), "{log}");
-    assert!(
-        log.contains(".brain/hooks/pi_brain_extension.ts"),
-        "{log}"
-    );
+    assert!(log.contains(".brain/hooks/pi_brain_extension.ts"), "{log}");
     assert!(log.contains("arg|3|--session-id"), "{log}");
     assert!(log.contains("arg|4|fresh-pi-session"), "{log}");
     // `--` keeps an option-looking prompt one argument.

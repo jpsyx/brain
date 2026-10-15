@@ -28,7 +28,7 @@ fn receiver_status_reads_four_fields_without_mutating_workspace_or_machine_state
     let (pid, output) = run(home.path(), &["-b", "brain", "receiver", "status"]);
 
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(snapshot(home.path()), before);
+    assert_receiver_state_unchanged(&before, &snapshot(home.path()), &[selected_status_workspace()]);
     assert_eq!(
         pid_run_logs(pid, &run_log_snapshot()),
         pid_run_logs(pid, &before_logs),
@@ -51,7 +51,7 @@ fn receiver_status_reads_four_fields_without_mutating_workspace_or_machine_state
 }
 
 #[test]
-fn the_receiver_details_listing_and_both_addresses_write_nothing() {
+fn the_receiver_details_listing_and_both_addresses_preserve_durable_state() {
     let home = tempfile::tempdir().expect("temporary home");
     seed_ready_workspace(home.path());
     set_workspace_env(home.path(), "resend_from_email", "brain@example.test");
@@ -70,7 +70,7 @@ fn the_receiver_details_listing_and_both_addresses_write_nothing() {
         let (pid, output) = run(home.path(), &arguments);
 
         assert!(output.status.success(), "{arguments:?}: {output:?}");
-        assert_eq!(snapshot(home.path()), before, "{arguments:?} wrote state");
+        assert_receiver_state_unchanged(&before, &snapshot(home.path()), &[selected_status_workspace()]);
         assert_eq!(
             pid_run_logs(pid, &run_log_snapshot()),
             pid_run_logs(pid, &before_logs),
@@ -126,7 +126,12 @@ fn sync_status_reports_partial_configuration_without_writing_any_state() {
     assert!(stdout.contains("Workspace brain"), "{stdout}");
     assert!(stdout.contains("cloud sync: incomplete"), "{stdout}");
     assert!(!stdout.contains("private-bucket"), "{stdout}");
-    assert!(!home.path().join(".cache/brain").exists());
+    // The pre-existing receipt cache is unrelated to sync/server state.
+    assert!(!home.path().join(".cache/brain/server").exists());
+    let id = brain::workspace::WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap();
+    let paths = brain::workspace::WorkspacePaths::new(home.path(), id);
+    assert!(!paths.sync_dir().exists());
+    assert!(!paths.sync_journal().exists());
     assert!(!home.path().join("brain/.config/config.json").exists());
 }
 

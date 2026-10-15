@@ -144,7 +144,11 @@ fn the_quit_row_leaves_the_shell_the_same_way_the_chord_does() {
     assert!(!press(&mut app, KeyCode::Char('p'), KeyModifiers::CONTROL));
     assert!(matches!(app.overlay, Some(Overlay::CommandPalette(_))));
     for character in "quit brain".chars() {
-        assert!(!press(&mut app, KeyCode::Char(character), KeyModifiers::NONE));
+        assert!(!press(
+            &mut app,
+            KeyCode::Char(character),
+            KeyModifiers::NONE
+        ));
     }
 
     assert!(press(&mut app, KeyCode::Enter, KeyModifiers::NONE));

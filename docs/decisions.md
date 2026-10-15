@@ -1902,6 +1902,16 @@ failed results before they can propagate, so the managed-skills migration callba
 hook error is reported separately from successful skill installation; JSON is
 one aggregate even with verbose logging or logger initialization failure.
 
+Strict managed-skill identity validation also needs an ordering boundary for
+explicit setup. Repair/Create/Attach use their existing prepared registry
+transactions, and explicit workspace migration uses its complete existing
+coordinator. One invocation-owned callback consumes that work immediately
+before managed compatibility, or completes the omitted-entry path before
+stamping. This avoids a repair deadlock without relaxing identity or retrying
+failed startup. Earlier errors prevent preparation; later errors report local
+completion separately from failed overall startup. The independent aggregate
+semantics of explicit all-workspace skills repair remain unchanged.
+
 ## Why extensions inject at named hooks (not append-only, not runtime lookup)
 
 A user must be able to personalize a bundled skill without forking it — and

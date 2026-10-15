@@ -62,8 +62,9 @@ impl App {
             GlobalAction::ToggleDailyTriageAlert => self.toggle_daily_triage_alert(),
             GlobalAction::RunSkillSession(key) => self.run_skill_session(key),
             GlobalAction::AddTask => {
-                let message =
-                    super::commands::add_task_prompt(self.tasks.assignment_snapshot().actor_id.as_str());
+                let message = super::commands::add_task_prompt(
+                    self.tasks.assignment_snapshot().actor_id.as_str(),
+                );
                 self.send_brain_prompt(&message);
             }
             GlobalAction::ChooseAssigneeFilter => {
@@ -111,7 +112,8 @@ impl App {
     /// and show the view so the change is visible.
     fn rescope_search(&mut self, bucket: Option<Bucket>) {
         let root = self.context.workspace_root().to_path_buf();
-        let roots = bucket.map_or_else(|| all_bucket_roots(&root), |b| single_bucket_root(&root, b));
+        let roots =
+            bucket.map_or_else(|| all_bucket_roots(&root), |b| single_bucket_root(&root, b));
         self.search_rescope(&roots);
         self.shell.show_main_view(MainView::BrainSearch);
         self.shell.focus_tasks();

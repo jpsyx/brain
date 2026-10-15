@@ -15,8 +15,7 @@ fn app(temporary: &tempfile::TempDir) -> App {
 /// The whole terminal as one string, so a single-line assertion can look for
 /// text the modal drew.
 fn rendered(app: &mut App) -> String {
-    let mut terminal =
-        ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
     terminal
         .draw(|frame| crate::tui::draw::draw(frame, app))
         .unwrap();

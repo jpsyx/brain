@@ -38,7 +38,11 @@ fn a_plain_invocation_of_the_named_executable_is_direct() {
 #[test]
 fn each_frontend_owns_its_own_flag_set() {
     // `--skill` is Brain's to supply for pi, but means nothing for Claude.
-    assert!(!is_direct_invocation("pi --skill ~/skills", "pi", &PI_FLAGS));
+    assert!(!is_direct_invocation(
+        "pi --skill ~/skills",
+        "pi",
+        &PI_FLAGS
+    ));
     assert!(is_direct_invocation(
         "claude --skill ~/skills",
         "claude",

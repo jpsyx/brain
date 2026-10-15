@@ -218,10 +218,11 @@ impl TreeView {
         if self.is_parent_row(&path) {
             return render::tree_row_selected_style(FileKind::ParentRow, false);
         }
-        self.nodes.get(&path).map_or_else(
-            render::selected_row_background,
-            |node| render::tree_row_selected_style(classify(&path, node.is_dir), node.hidden),
-        )
+        self.nodes
+            .get(&path)
+            .map_or_else(render::selected_row_background, |node| {
+                render::tree_row_selected_style(classify(&path, node.is_dir), node.hidden)
+            })
     }
 }
 
@@ -478,7 +479,8 @@ mod tests {
 
         // At the top level the `../` row is genuinely the first row of the
         // list, so that is where the jump lands.
-        view.state.select(vec![PathBuf::from("/brain/projects/loose.md")]);
+        view.state
+            .select(vec![PathBuf::from("/brain/projects/loose.md")]);
         view.select_first_sibling();
         assert_eq!(view.selected_path(), Some(PathBuf::from("/brain")));
     }

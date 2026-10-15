@@ -14,11 +14,7 @@ mod tests;
 ///
 /// `--` is treated as owned whenever it appears in `owned_flags`: a command
 /// that already ends option parsing cannot receive Brain's own arguments.
-pub(super) fn is_direct_invocation(
-    command: &str,
-    executable: &str,
-    owned_flags: &[&str],
-) -> bool {
+pub(super) fn is_direct_invocation(command: &str, executable: &str, owned_flags: &[&str]) -> bool {
     let Some(arguments) = parse(command) else {
         return false;
     };

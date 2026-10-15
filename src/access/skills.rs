@@ -288,5 +288,5 @@ impl CapabilityPlan {
 /// Returns a capability configuration error when logical or machine names are
 /// ambiguous.
 mod capability_plan;
-use capability_plan::{enforcement_entries, unsupported_entries};
 pub use capability_plan::{capability_plan, capability_plan_for};
+use capability_plan::{enforcement_entries, unsupported_entries};

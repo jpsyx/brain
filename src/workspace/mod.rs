@@ -15,6 +15,7 @@ pub mod registry;
 mod requirements;
 mod secure_remove;
 mod selector;
+pub mod setup;
 mod templates;
 
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};

@@ -5,6 +5,11 @@ use serde_json::{Value, json};
 
 const BRAIN: &str = env!("CARGO_BIN_EXE_brain");
 
+#[path = "startup_migration/legacy_state.rs"]
+mod legacy_state;
+#[path = "startup_migration/receipt.rs"]
+mod receipt;
+
 fn workspace_record(root: &Path, workspace_id: &str) -> Value {
     json!({
         "workspace_id": workspace_id,
@@ -34,6 +39,16 @@ impl Fixture {
         for path in [&home, &family, &work] {
             std::fs::create_dir_all(path).expect("fixture directory");
         }
+        for (root, id) in [
+            (&family, "11111111-1111-4111-8111-111111111111"),
+            (&work, "22222222-2222-4222-8222-222222222222"),
+        ] {
+            brain::workspace::WorkspaceManifest::new(
+                brain::workspace::WorkspaceId::parse(id).unwrap(),
+            )
+            .write_new(root)
+            .unwrap();
+        }
         std::fs::create_dir_all(xdg_config.join("brain")).expect("brain config directory");
         std::fs::write(
             xdg_config.join("brain/env.json"),
@@ -61,6 +76,18 @@ impl Fixture {
             family,
             work,
         }
+    }
+
+    fn acknowledged_down(&self, target: &str) -> Output {
+        self.run(&[
+            "__migrate",
+            "--from-version",
+            env!("CARGO_PKG_VERSION"),
+            "--to-version",
+            target,
+            "--installer-refresh-protocol",
+            "1",
+        ])
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
@@ -268,13 +295,7 @@ fn explicit_down_migration_restores_the_previous_frontend_lifecycle() {
         String::from_utf8_lossy(&up.stderr)
     );
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.70.0",
-    ]);
+    let down = fixture.acknowledged_down("0.70.0");
 
     assert!(
         down.status.success(),
@@ -360,13 +381,7 @@ fn task_two_down_migration_removes_only_receiver_observation_producers() {
         }
     }
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.80.2",
-    ]);
+    let down = fixture.acknowledged_down("0.80.2");
 
     assert!(
         down.status.success(),

@@ -16,7 +16,7 @@ use crate::workspace::{
     WorkspaceId, WorkspaceName, WorkspaceRecord,
 };
 
-pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Result<()> {
+pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Result<String> {
     let Mutation::Create {
         canonical_name,
         root,
@@ -61,13 +61,12 @@ pub(super) fn create(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
     })?;
 
     let theme = Theme::active();
-    println!(
+    Ok(format!(
         "{} {} {}",
         theme.success("Registered workspace"),
         theme.accent(canonical_name.as_str()),
         theme.muted(&format!("at {}", root.display()))
-    );
-    Ok(())
+    ))
 }
 
 fn create_missing_directory_chain(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -165,7 +164,7 @@ fn manual_cleanup_required(
     })
 }
 
-pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Result<()> {
+pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Result<String> {
     let Mutation::Attach {
         canonical_name,
         root,
@@ -204,13 +203,12 @@ pub(super) fn attach(store: &RegistryStore, decision: Mutation) -> anyhow::Resul
     })?;
 
     let theme = Theme::active();
-    println!(
+    Ok(format!(
         "{} {} {}",
         theme.success("Attached workspace"),
         theme.accent(canonical_name.as_str()),
         theme.muted(&format!("at {}", root.display()))
-    );
-    Ok(())
+    ))
 }
 
 fn fresh_record(root: PathBuf, workspace_id: WorkspaceId) -> WorkspaceRecord {

@@ -4,8 +4,7 @@ use super::{compatibility, lists_a_model, parse_version};
 
 const FULL_HELP: &str = "Usage:\n  pi [options] [--] [@files...] [messages...]\n\nOptions:\n  --append-system-prompt <text>  Append text to the system prompt\n  --session-id <id>              Use exact project session ID, creating it if missing\n  --extension, -e <path>         Load an extension file\n  --skill <path>                 Load a skill file or directory\n  --no-skills, -ns               Disable skills discovery\n  --no-approve, -na              Ignore project-local files for this run\n";
 
-const HEALTHY_MODELS: &str =
-    "provider      model          context  max-out  thinking  images\nexample       example-model  1M       16.4K    yes       no\n";
+const HEALTHY_MODELS: &str = "provider      model          context  max-out  thinking  images\nexample       example-model  1M       16.4K    yes       no\n";
 
 struct FakePi {
     _directory: tempfile::TempDir,
@@ -75,7 +74,10 @@ fn a_version_below_the_floor_is_rejected_and_names_the_floor() {
 
     let message = failure(&fake);
 
-    assert!(message.contains("version 0.84.0 is older than the 0.84.1"), "{message}");
+    assert!(
+        message.contains("version 0.84.0 is older than the 0.84.1"),
+        "{message}"
+    );
     assert!(message.contains("brain env set pi_cmd"), "{message}");
 }
 
@@ -106,12 +108,18 @@ fn output_from_some_other_program_is_not_a_pi_version() {
 
 #[test]
 fn a_build_missing_a_flag_brain_appends_names_that_flag() {
-    let help = FULL_HELP.replace("  --no-approve, -na              Ignore project-local files for this run\n", "");
+    let help = FULL_HELP.replace(
+        "  --no-approve, -na              Ignore project-local files for this run\n",
+        "",
+    );
     let fake = fake_pi("0.85.1\n", &help, HEALTHY_MODELS, 0);
 
     let message = failure(&fake);
 
-    assert!(message.contains("does not advertise `--no-approve`"), "{message}");
+    assert!(
+        message.contains("does not advertise `--no-approve`"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -123,7 +131,10 @@ fn a_pi_with_no_resolvable_provider_credentials_is_reported_as_unconfigured() {
         0,
     );
 
-    assert_eq!(failure(&fake), format!("frontend error: {}", super::NO_MODELS));
+    assert_eq!(
+        failure(&fake),
+        format!("frontend error: {}", super::NO_MODELS)
+    );
 }
 
 #[test]

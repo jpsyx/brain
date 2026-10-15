@@ -1,7 +1,7 @@
 # Deterministic task deletion
 
 **Date:** 2026-10-14
-**Status:** Core implementation complete; final acceptance and private deployment pending.
+**Status:** Core implementation and acceptance complete. Integration deployment is a separate workspace-owned step.
 **Source baseline:** `fe477ec` (`0.101.0`).
 **Implementation plan:** [Deterministic task deletion](../plans/2026-10-14-deterministic-task-deletion.md).
 

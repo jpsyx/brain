@@ -1,3 +1,6 @@
+#[path = "../support/workspace_startup_support.rs"]
+mod startup;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -97,6 +100,7 @@ impl ServerFixture {
         RegistryStore::from_path(home.path().join(".config/brain/env.json"))
             .replace(&registry)
             .expect("write workspace registry");
+        startup::prepare(home.path());
 
         let personal_workspace = workspace(home.path(), "personal", PERSONAL_ID, &personal_root);
         let family_workspace = workspace(home.path(), "family", FAMILY_ID, &family_root);

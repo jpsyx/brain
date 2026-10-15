@@ -37,8 +37,9 @@ const SCAFFOLD_DIRECTORIES: [&str; 6] = [
 /// Brain or an agent organizes: the user dumps notes, photos, and files into
 /// it, and a later pass files them. Brain only guarantees it exists.
 pub(crate) const CAPTURE_DIRECTORY: &str = "capture";
-const INFRASTRUCTURE_DIRECTORIES: [&str; 6] = [
+const INFRASTRUCTURE_DIRECTORIES: [&str; 7] = [
     ".brain",
+    ".agents",
     ".config",
     ".claude",
     ".codex",

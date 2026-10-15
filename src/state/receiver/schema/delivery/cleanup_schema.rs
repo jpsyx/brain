@@ -6,8 +6,7 @@ use rusqlite::Connection;
 const AGENT_KINDS_PLACEHOLDER: &str = "%AGENT_KINDS%";
 
 pub(in crate::state) const TABLE: &str = "receiver_answer_cleanups";
-pub(in crate::state) const COLUMNS: &str =
-    "job_id, job_token, workspace_id, conversation_id, brain_instance_id, agent_kind, actor_id, \
+pub(in crate::state) const COLUMNS: &str = "job_id, job_token, workspace_id, conversation_id, brain_instance_id, agent_kind, actor_id, \
      channel, registered_session_id, actual_session_id, controller_shutdown_acknowledged, \
      session_released, artifacts_removed, created_at_unix_ms, updated_at_unix_ms";
 

@@ -209,11 +209,8 @@ pub enum AgentSelectionError {
 impl std::fmt::Display for AgentSelectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ConflictingFrontends => {
-                formatter.write_str(
-                    "Choose one agent frontend: --claude, --codex, --open-code, or --pi.",
-                )
-            }
+            Self::ConflictingFrontends => formatter
+                .write_str("Choose one agent frontend: --claude, --codex, --open-code, or --pi."),
         }
     }
 }

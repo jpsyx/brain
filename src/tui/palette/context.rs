@@ -188,7 +188,11 @@ mod tests {
         assert!(directory.entry_target(EntryCommand::CopyFilePath).is_none());
         assert!(directory.entry_target(EntryCommand::CreatePdf).is_none());
 
-        assert!(plain_file.entry_target(EntryCommand::CopyFilePath).is_some());
+        assert!(
+            plain_file
+                .entry_target(EntryCommand::CopyFilePath)
+                .is_some()
+        );
         assert!(plain_file.entry_target(EntryCommand::CreatePdf).is_none());
 
         assert!(markdown.entry_target(EntryCommand::CreatePdf).is_some());

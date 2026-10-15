@@ -426,3 +426,6 @@ fn removal_status_classifier_accepts_aliases_and_normalized_workspace_flags() {
         );
     }
 }
+
+#[path = "task_removal_cli/canonical.rs"]
+mod canonical;

@@ -79,18 +79,22 @@ pub(super) fn session_directory(
 ) -> Option<PathBuf> {
     // An explicit session directory is flat: pi stores every session in it and
     // filters by the working directory recorded in each file's header.
-    if let Some(session_dir) = overrides.session_dir.map(str::trim).filter(|raw| !raw.is_empty()) {
+    if let Some(session_dir) = overrides
+        .session_dir
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+    {
         return Some(expand(session_dir, home));
     }
-    let agent_dir = match overrides.agent_dir.map(str::trim).filter(|raw| !raw.is_empty()) {
+    let agent_dir = match overrides
+        .agent_dir
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+    {
         Some(raw) => expand(raw, home),
         None => home?.join(".pi").join("agent"),
     };
-    Some(
-        agent_dir
-            .join("sessions")
-            .join(encoded_directory_name(cwd)),
-    )
+    Some(agent_dir.join("sessions").join(encoded_directory_name(cwd)))
 }
 
 /// Whether one session file name belongs to exactly this session id.

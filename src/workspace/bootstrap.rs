@@ -104,36 +104,7 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
             cli,
             store,
             crate::workspace::command::preflight_registry_only,
-            |prepared| {
-                let invocation = invocation_for(prepared);
-                debug_assert_eq!(
-                    registry_only_prompt_order(invocation),
-                    Some(RegistryOnlyPromptOrder::BeforeMigration)
-                );
-                let should_migrate = match invocation {
-                    Invocation::WorkspaceCreate | Invocation::WorkspaceAttach => {
-                        crate::env::registry_setup_needs_migration()?
-                    }
-                    Invocation::WorkspaceRemove | Invocation::WorkspaceRepair => {
-                        !crate::env::registry_is_current()?
-                    }
-                    Invocation::User => !crate::env::registry_is_current()?,
-                    _ => false,
-                };
-                if should_migrate {
-                    crate::env::migrate_checked()?;
-                }
-                if !matches!(
-                    invocation,
-                    Invocation::WorkspaceCreate | Invocation::WorkspaceAttach
-                ) {
-                    ensure_selected_registry_access_mode(
-                        &access_store,
-                        prepared.workspace_selector.as_deref(),
-                    )?;
-                }
-                Ok(())
-            },
+            |prepared| registry_only_after_preflight(prepared, &access_store),
         );
     }
 
@@ -260,6 +231,50 @@ pub fn bootstrap_with_io(
         writer,
         || Ok(()),
     )
+}
+
+/// Validate setup without migrating the registry or creating workspace state.
+pub(crate) fn prepare_setup_request(cli: &mut crate::cli::Cli) -> Result<()> {
+    enforce_strict_selector(cli)?;
+    let store = RegistryStore::real();
+    let current_dir = std::env::current_dir().context("read current directory")?;
+    resolve_workspace_selector(cli, &store, &current_dir);
+    crate::workspace::command::preflight_registry_only(cli)
+}
+
+/// Apply the same registry-only bootstrap after the request was prepared once.
+pub(crate) fn prepared_setup_store(cli: &crate::cli::Cli) -> Result<RegistryStore> {
+    let store = RegistryStore::real();
+    registry_only_after_preflight(cli, &store)?;
+    Ok(store)
+}
+
+fn registry_only_after_preflight(prepared: &crate::cli::Cli, store: &RegistryStore) -> Result<()> {
+    let invocation = invocation_for(prepared);
+    debug_assert_eq!(
+        registry_only_prompt_order(invocation),
+        Some(RegistryOnlyPromptOrder::BeforeMigration)
+    );
+    let should_migrate = match invocation {
+        Invocation::WorkspaceCreate | Invocation::WorkspaceAttach => {
+            crate::env::registry_setup_needs_migration()?
+        }
+        Invocation::WorkspaceRemove | Invocation::WorkspaceRepair => {
+            !crate::env::registry_is_current()?
+        }
+        Invocation::User => !crate::env::registry_is_current()?,
+        _ => false,
+    };
+    if should_migrate {
+        crate::env::migrate_checked()?;
+    }
+    if !matches!(
+        invocation,
+        Invocation::WorkspaceCreate | Invocation::WorkspaceAttach
+    ) {
+        ensure_selected_registry_access_mode(store, prepared.workspace_selector.as_deref())?;
+    }
+    Ok(())
 }
 
 fn registry_only_bootstrap_with(

@@ -581,7 +581,10 @@ mod tests {
 
         let visible = group_children(&entries, root, false);
         assert_eq!(
-            visible[root].keys().map(PathBuf::as_path).collect::<Vec<_>>(),
+            visible[root]
+                .keys()
+                .map(PathBuf::as_path)
+                .collect::<Vec<_>>(),
             vec![Path::new("/brain/projects/plan.md")],
             "the dotfile and the whole dotted directory drop out together"
         );
@@ -663,7 +666,10 @@ mod tests {
             false,
         );
 
-        assert!(tree.nodes.contains_key(Path::new("/brain/projects/plan.md")));
+        assert!(
+            tree.nodes
+                .contains_key(Path::new("/brain/projects/plan.md"))
+        );
         assert!(
             !tree
                 .nodes

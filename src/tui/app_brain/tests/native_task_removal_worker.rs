@@ -86,3 +86,72 @@ fn native_task_removal_preview_and_apply_wait_for_ownership_off_the_event_loop()
         matches!(receive(&mut service), (5, Response::Operation(Err(problem))) if problem.code == "already_committed")
     );
 }
+
+#[path = "../../../../tests/support/task_removal_canonical.rs"]
+mod canonical;
+
+#[test]
+fn canonical_middle_removal_tui_matches_cli_after_images_without_agent_prompt() {
+    use crate::tui::{overlay::Overlay, task_removal::RemovalScreen};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let temporary = tempfile::tempdir().unwrap();
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let context = app.context.command().clone();
+    let date = chrono::Local::now().date_naive().to_string();
+    let directory = temporary.path().join("agendas");
+    let agenda = directory.join(format!("{date}.md"));
+    crate::env::set(&context, "agenda_markdown_dir", directory.to_str().unwrap()).unwrap();
+    crate::settings::set(
+        &context.workspace,
+        "agenda_dir",
+        directory.to_str().unwrap(),
+    )
+    .unwrap();
+    crate::env::set(&context, "markdown_to_pdf_path", "/usr/bin/true").unwrap();
+    canonical::seed(context.workspace.root(), &agenda);
+    let before = canonical::images(context.workspace.root(), &agenda);
+    let recording = TransportRecording::default();
+    app.brain.replace_brain_transport(recording.transport());
+    app.run_remove("T2");
+    // The default service performs actual native IO; the modal owns consent.
+    for key in [None, Some('d'), Some('d')] {
+        if let Some(key) = key {
+            crate::tui::task_removal::handle_key(
+                &mut app,
+                &KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+            );
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            app.tick_removal();
+            if matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(state.screen, RemovalScreen::Preview(_)))
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "preview timed out");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(canonical::images(context.workspace.root(), &agenda), before);
+    }
+    assert!(
+        matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(&state.screen, RemovalScreen::Preview(plan) if plan.blockers.is_empty() && plan.options.dependents == crate::tasks::removal::model::Dependents::Rewire))
+    );
+    crate::tui::task_removal::handle_key(
+        &mut app,
+        &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        app.tick_removal();
+        if matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(state.screen, RemovalScreen::Finished(_)))
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "apply timed out");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    canonical::assert_after(context.workspace.root(), &agenda, &date);
+    assert!(recording.launch_specs().is_empty());
+    assert!(recording.inputs().is_empty());
+}

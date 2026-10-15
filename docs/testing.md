@@ -1155,7 +1155,14 @@ first move is a failing test that reproduces it, *then* the fix.
   `brain workspace list`, and `brain tasks doctor` commands. It
   snapshots every file type, Unix mode, regular-file byte sequence and SHA-256,
   symlink target, and recursively traversed referent before and after. Referent
-  traversal records cycles rather than following them forever. The suite covers
+  traversal records cycles rather than following them forever. Receiver status,
+  details, and address observations allow only regular `state.db-shm` creation or
+  coordination-byte refresh beside a selected or enumerated UUID database already
+  present in the baseline, and a newly created zero-byte matching `state.db-wal`.
+  Existing WAL bytes and all durable state remain exact. A shared observer rejects
+  off-UUID changes, main database changes, nonempty new WALs, missing baseline
+  databases, mode changes, and directory/symlink replacements. First observations
+  are not prewarmed. Other status probes retain exact snapshots. The suite covers
   absent and active servers, symlinked machine/workspace paths, eight concurrent
   status commands, live control failure, and generation replacement. Socket and
   other entries include Unix type, device, inode, ownership, size, link count,
@@ -1561,8 +1568,8 @@ nested siblings, proving every current and future split part enters the guard.
 | `state::receiver::tests` + `state::database::configuration_tests` | Durable job/conversation identity, semantic UUID token canonicalization and collision-safe bounded reconciliation with full transaction rollback, lifecycle evidence, pure recovery decisions at exact deadline boundaries, separate launch/recovery budgets, authorization-time and saturated deadline arithmetic, lifetime versus current-attempt observation evidence, non-destructive FIFO claim bundles, queued-restart claim exclusion, post-spawn replay fencing, one live workspace claim shared by ordinary and recovery paths with exact-expiry release and rejected-call preservation, globally oldest recovery gating, exact cleanup-pending acknowledgement including complete-tuple frontend/actor/channel mismatch rejection and dead-PID restart proof, ownerless recovery expiry after reopen, exact recovery-failure terminalization, automatic BR-16 notice migration into the generic outbox with cleanup independence, deterministic separate-handle writer serialization, exact-owner launch CAS, atomic claim of an already-persisted recovery plus failed-CAS preservation, exact live-session observation transactions, generic-transition rejection of progressed retry origins, bounded ordinary planning-only retry, unified terminal evidence and artifact completion, future-skew monotonicity, complete receiver-registration tuple attribution, crossed-placeholder and crossed-conversation rejection, Claude equal-ID proof versus rotated Codex/OpenCode binding, provider-first deduplication, atomic queued capacity, concurrent final-slot admission, transcript preservation, scope checks, numeric safety, foreign keys, reopen persistence, conservative mixed-provenance v9-to-v10 repair, v12 semantic-delivery repair and v12-to-v11 no-replay downgrade, v10 recovery down to v9, v9 down to v8, and receiver-specific pre-migration SQLite lock budgeting. |
 | `tui::receiver::planning_tests` + `tui::app_brain::tests::receiver_durable_attachment_prompt` + `agent::adapter_tests::contract` | Table-driven Claude/Codex/OpenCode/pi rendering from an already-authorized Fresh/Resume choice: empty transcript, UTF-8-safe newest-context truncation, complete localized path records with honest omission, composed post-staging prompt and shell-command bounds, and both fresh/resume command translations with a non-blank initial prompt. The all-frontend matrix also proves no transport input follows launch and a busy main controller remains untouched. |
 | `tui::receiver::{session_tests,failure_tests}` | Unique isolated-run identities distinct from the main TUI, exact fresh/resume session ownership, explicit fallible registration cleanup with best-effort Drop fallback, main-lineage preservation, concrete shutdown diagnostics, and controller/session/durable retry rollback for planning, registration, and proved synchronous spawn failure. The retryable failure type excludes post-spawn allocation. |
-| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9/v10/v11 across every registered workspace that already has a state DB, including damaged-state repair; absent DBs remain absent until first `Db::open`, and help/version remain side-effect free. Adjacent 0.84.7/0.84.8 tests prove upgrade reconstructs either missing cleanup identifier only from one exact registration/session and conversation/job attribution match, preserves terminal redrive and exact acknowledgement across reopen, refuses wrong acknowledgement, and releases the exact registration and lock only after the right acknowledgement. Ambiguity, effective-session mismatch, and every unique frontend, actor, or channel mismatch for both missing halves fail closed without redrive or resource release. Downgrade makes cleanup-pending recovery non-replayable while retaining its exact tuple and locks. The adjacent 0.84.11/0.84.12 boundary owns only the finite notice lease columns. The state receiver suite separately proves v11 notice down to v10, v10 recovery down to v9, and the v9 every-state down-to-v8 old-claim round trip. |
-| `tests/startup_migration/manual_session.rs` | Real installer dispatch for v14 upgrade, current-version table/index repair, byte-identical healthy-state reconciliation, idempotent v14-to-v13 downgrade, preserved native history and receiver v13 DDL, composition with the receiver v13-to-v12 chain, and absent workspace DB preservation. |
+| `tests/startup_migration.rs` | Compiled ordinary-startup reconciliation plus explicit downgrade for lifecycle integrations and receiver schemas v6/v7/v8/v9/v10/v11 across every registered workspace that already has a state DB, including damaged-state repair; receiver migration alone targets existing DBs, while full current startup may create an empty managed-skill receipt DB; tests require that it invents no sessions or jobs. Help/version remain side-effect free. Adjacent 0.84.7/0.84.8 tests prove upgrade reconstructs either missing cleanup identifier only from one exact registration/session and conversation/job attribution match, preserves terminal redrive and exact acknowledgement across reopen, refuses wrong acknowledgement, and releases the exact registration and lock only after the right acknowledgement. Ambiguity, effective-session mismatch, and every unique frontend, actor, or channel mismatch for both missing halves fail closed without redrive or resource release. Downgrade makes cleanup-pending recovery non-replayable while retaining its exact tuple and locks. The adjacent 0.84.11/0.84.12 boundary owns only the finite notice lease columns. The state receiver suite separately proves v11 notice down to v10, v10 recovery down to v9, and the v9 every-state down-to-v8 old-claim round trip. |
+| `tests/startup_migration/manual_session.rs` | Real installer dispatch for v14 upgrade, current-version table/index repair, byte-identical healthy-state reconciliation, idempotent v14-to-v13 downgrade, preserved native history and receiver v13 DDL, composition with the receiver v13-to-v12 chain, and receipt-created peer DBs without manual/native sessions. |
 | `tests/entry_collect.rs` | `entry::collect` against real temp directory trees, including the `capture/` in-basket, walked like any other bucket and **verbatim**, so a user's spaces, capitals, and nesting survive into the match text, and the opt-in `collect_with(Hidden::Include)` walk that the tree's hidden-files toggle uses. |
 | `tests/root_resolution.rs` | `parse_config_root` + `expand_tilde_with_home` composed the way `brain_root` relies on. |
 | `tests/receiver_url_cli.rs` + `command::server::receiver::{url,details}::tests` | Compiled-binary webhook-URL reporting with no server ever started: both channels by default, `--sms`/`--email` narrowing (`--sms --email` means all, not a conflict), **every `-w` printing the same machine-wide URL** with no ingress in it, a machine-global write under `-w` saying so and then being visible everywhere, a missing `brain_receiver_public_url` naming both ways to set it instead of printing a headless URL, and bare receiver plus `receiver status` reporting the same redacted durable summary. Missing peer state renders unavailable and an available seeded database remains byte-identical. Pure tests cover channel selection, semantic-theme and deterministic plain work rendering, TUI flash parity, privacy, the routing rule, and trailing-slash normalization. |
@@ -1574,7 +1581,7 @@ nested siblings, proving every current and future split part enters the guard.
 | `tests/workspace_cli.rs` | Compiled-binary workspace registry behavior with isolated `HOME`, `XDG_CONFIG_HOME`, current directory, and roots: manifest-aware create/attach, persistence failures, record-preserving mutations, selector/validation errors, deterministic `NO_COLOR` list output, and non-destructive removal. `workspace list` reports feature health for every registered workspace, `-w` narrows it to one, and a workspace still needing setup renders a note instead of failing the listing. |
 | `tests/workspace_readiness.rs` | Exhaustive bootstrap policy, strict manifest validation, interactive/headless readiness, repair, and first-create-to-next-command flow. |
 | `tests/workspace_requirements.rs` + `tests/workspace_requirements/` | Central required/optional matrix, fail-closed malformed sync/receiver fields, portable receiver mappings, advisory capability health, redaction, exact selected-record isolation, and focused shared fixtures. |
-| `tests/status_read_only.rs` | After priming the common automatic migration, filesystem snapshots prove workspace list, sync status, receiver status, tasks doctor, and server status do not create or mutate further machine/workspace state, including symlink and live-process cases. |
+| `tests/status_read_only.rs` | After priming the common automatic migration, filesystem snapshots prove workspace list, sync status, tasks doctor, and server status remain exact, while receiver observations allow only the documented UUID-scoped SQLite coordination artifacts and preserve durable state, including symlink and live-process cases. |
 | `tests/workspace_registry_migration.rs` | Legacy flat-env conversion, exact backups, matching first manifest, idempotence, valid-registry portable-policy upgrade, and persistence-failure preservation. Plus the **machine-global hoist upgrades (v2 → v3 → v4)**: an ordinary command hoists `markdown_to_pdf_path` and then `brain_receiver_public_url` into the machine-global map and strips every record copy, several configured paths collapse onto the first canonical workspace, a machine that never set one gains no global map, the exact previous bytes are backed up once and a rerun is a no-op, every workspace then resolves the one value, and a read-only `workspace list` reads an old schema without rewriting it. The `receiver_origin_upgrade` section proves the **v3 → v4 receiver-origin hoist**: a machine that already configured a receiver has its per-workspace origin hoisted by the next ordinary command, credentials and each workspace's routing number stay in their records, the exact previous bytes are backed up once, and afterwards every `-w` prints the same machine-wide `/sms` URL with no doubled slash and no ingress. The pure rewrite is unit-tested in `workspace::registry::upgrade`. |
 | `tests/workspace_access_policy.rs` + `tests/access_boundary.rs` + `tests/agent_access_adapter.rs` + `tui::app_brain::tests` | Portable mode ownership/defaults, strict and atomic persistence, exact advisory contract, real App launch-context parity, adapter mechanisms, option-terminated prompt argv, selected cwd, honest typed status, naive warning limits, and minimal environment. |
 | `tests/opencode_smoke.rs` + `tests/opencode_acceptance.rs` | Selector, command, session, semantic-input, facade, and deterministic fake-process acceptance for OpenCode without a live provider call. |
@@ -1774,6 +1781,33 @@ legacy canonical bytes, and missing-notes crash recovery. All workspaces and
 agent transports in these tests are synthetic.
 
 
+### Composite removal acceptance
+
+The actual CLI and the App's default native removal worker consume the same
+persisted UUIDs and three-task dependency chain. Both preview without writes,
+confirm an explicit middle-task rewire, and compare CSV, archived project
+metadata and agenda output against shared, hand-derived after-images. The App
+fixture also records zero agent launches or prompts through confirmation and
+commit. Fake-adapter acceptance combines a partial cancellation failure,
+status-based reconciliation, one canonical commit, a committed PDF warning and
+repeated receipt replay that preserves later task and agenda edits.
+
+The two-root compatibility sequence upgrades distinct extensions with routine
+auto-sync disabled, parks and remounts one root, then performs acknowledged
+downgrade through an old target stub and repeats after remount. The stub itself
+supplies the rendered bytes; both roots retain their own source customization
+and revision-0 receipts. Actual historical-binary replica tests and installer
+protocol tests remain separate evidence, as described below.
+
+`workspace_setup_startup` covers the preparation boundary through actual CLI
+calls: legacy and current identity repair, Create/Attach migration, reached and
+omitted managed entries, earlier failures, strict invalid target refusal,
+committed local setup followed by a foreign refresh failure, unchanged failed
+stamps, cancellation and unavailable peer roots. Existing workspace migration
+acceptance retains unresolved-assignment no-write refusal and full idempotent
+rollout. First-run coverage explicitly treats a managed `.agents` registry as
+infrastructure while captured user content still prevents seeding.
+
 ### Managed-skill compatibility repair
 
 `tests/task_deletion_skill_migration.rs` runs the actual binary with isolated
@@ -1809,3 +1843,23 @@ inputs. It verifies actual target bytes, extension application, nested binary
 plugin data, unchanged real configuration/sources, absent missing roots and
 revision-0 DB receipts. Removal unit fixtures verify local committed-journal
 settlement and refusal of unresolved/running operations without adapters.
+
+Automatic compatibility lock coverage uses an injected monotonic clock and poll
+callback to prove release before the deadline, refreshed publication visibility,
+identity changes during contention, capped polling, elapsed and success-boundary
+expiry, immediate nonbusy errors, and unchanged explicit busy behavior. A real
+CLI held-lock case preserves the old machine stamp and managed/receipt bytes on
+timeout. The original eight concurrent status probes and twenty simultaneous
+workspace creates retain their concurrency and behavioral assertions.
+
+Concurrent cache creation revalidates an AlreadyExists winner as a genuine
+non-symlink directory. Deterministic tests preserve file, symlink and socket
+collisions, refuse a vanished winner and propagate other IO errors. Compatibility
+wait notice tests pin first-busy-only emission, plain NO_COLOR stderr, and one JSON
+stdout object through actual CLI dispatch.
+
+Receiver server fixtures acquire their existing single-process lifetime permit
+before real CLI startup preparation, and carry that same RAII permit through
+election, spawn and cleanup. This bounds cold setup IO under the existing
+resource policy while preserving worker/request concurrency and the original
+three-second readiness deadline; preparation/election unwind releases ownership.

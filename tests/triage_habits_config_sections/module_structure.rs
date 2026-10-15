@@ -52,8 +52,9 @@ fn triage_transaction_is_split_into_small_cohesive_modules() {
     assert!(!root.join("src/tasks/triage_habits/transaction.rs").exists());
     for relative in [
         "src/tasks/triage_habits/transaction/mod.rs",
-        "src/tasks/triage_habits/transaction/journal.rs",
-        "src/tasks/triage_habits/transaction/artifacts.rs",
+        "src/tasks/store_transaction/mod.rs",
+        "src/tasks/store_transaction/journal.rs",
+        "src/tasks/store_transaction/artifacts.rs",
     ] {
         let source = std::fs::read_to_string(root.join(relative)).unwrap();
         let production_lines = source

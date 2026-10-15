@@ -80,7 +80,8 @@ fn name(value: &str) -> WorkspaceName {
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
-        "command failed\nstdout: {}\nstderr: {}",
+        "command failed ({})\nstdout: {}\nstderr: {}",
+        output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

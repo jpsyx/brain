@@ -8,10 +8,12 @@ fn v3_registry(config_dir: &Path, roots: &[(&str, &Path)], origin: &str) {
     let workspaces = roots
         .iter()
         .map(|(name, root)| {
+            let workspace_id = WorkspaceId::new();
+            WorkspaceManifest::new(workspace_id).write_new(root).expect("matching fixture manifest");
             (
                 (*name).to_owned(),
                 json!({
-                    "workspace_id": WorkspaceId::new().to_string(),
+                    "workspace_id": workspace_id.to_string(),
                     "root": root,
                     "aliases": [],
                     "local_user_id": "migration-user",

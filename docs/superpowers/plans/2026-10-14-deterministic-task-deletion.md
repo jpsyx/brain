@@ -12,7 +12,7 @@
 
 **Baseline:** `fe477ec`, version `0.101.0`. Reconcile paths with the execution checkout before starting; do not overwrite intervening work.
 
-**Status:** Core implementation complete. Behavior documentation and installed-output coverage are implemented; final acceptance and private deployment remain pending. The checklist below records the approved plan, not a claim that final gates or deployment have completed.
+**Status:** Core implementation and acceptance complete. Required release checks and canonical, fake-adapter, and upgrade/downgrade acceptance passed. Integration deployment is a separate workspace-owned step. The checklist below records the approved plan; Task 20 records completed core acceptance.
 
 ---
 
@@ -844,10 +844,10 @@ and mandatory compatibility refresh despite routine auto-sync opt-out.
 
 **Files:** `tests/task_removal_cli.rs`, `tests/task_removal_sync.rs`, `tests/task_deletion_skill_migration.rs`, existing transaction/TUI/install suites; version files and relevant docs for any final fixes.
 
-- [ ] **Run the canonical acceptance scenario** in an isolated workspace: create three chained tasks plus an archived project, preview deleting the middle task, confirm rewire, verify task CSV/project metadata/agenda, then exercise the same plan through the TUI service fixture. Compare canonical after-images and assert no agent prompt was sent.
-- [ ] **Run the integration scenario** with a fake adapter: partial remote failure leaves local rows; resume recognizes earlier cancellation; canonical commit occurs once; PDF failure reports a committed warning; repeated resume returns the stored receipt.
-- [ ] **Run upgrade/downgrade acceptance** with two registered roots, different extensions, routine auto-sync disabled, one temporarily missing root, and older target CLI stubs. Verify the target binary supplies the actual rendered content on downgrade and each workspace retains its own customization.
-- [ ] **Run required checks**:
+- [x] **Run the canonical acceptance scenario** in an isolated workspace: create three chained tasks plus an archived project, preview deleting the middle task, confirm rewire, verify task CSV/project metadata/agenda, then exercise the same plan through the TUI service fixture. Compare canonical after-images and assert no agent prompt was sent.
+- [x] **Run the integration scenario** with a fake adapter: partial remote failure leaves local rows; resume recognizes earlier cancellation; canonical commit occurs once; PDF failure reports a committed warning; repeated resume returns the stored receipt.
+- [x] **Run upgrade/downgrade acceptance** with two registered roots, different extensions, routine auto-sync disabled, one temporarily missing root, and older target CLI stubs. Verify the target binary supplies the actual rendered content on downgrade and each workspace retains its own customization.
+- [x] **Run required checks**:
 
 ```sh
 cargo fmt --check
@@ -863,7 +863,7 @@ do not invent a successful guard command. Locate the actual configured hook
 before publication, and if absent record that fact for the release owner.
 Review the diff for machine paths, private extensions, tokens, and live data.
 
-- [ ] **Review requirement coverage** using the matrix below, inspect the final diff, and confirm no removal path still emits `Remove ... via the /todo remove path` or offers `status=dropped`. Distinguish fake-adapter acceptance from provider deployment. Follow repository release/installation authorization only after all required checks pass.
+- [x] **Review requirement coverage** using the matrix below, inspect the final diff, and confirm no removal path still emits `Remove ... via the /todo remove path` or offers `status=dropped`. Distinguish fake-adapter acceptance from provider deployment. Follow repository release/installation authorization only after all required checks pass.
 
 ## Task 21: Deploy an existing tracker integration through the adapter contract
 

@@ -86,13 +86,7 @@ fn adjacent_cleanup_fence_down_migration_terminalizes_without_losing_exact_clean
     let family = fixture.state_db("11111111-1111-4111-8111-111111111111");
     seed_cleanup_pending_recovery(&family);
 
-    let down = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.84.7",
-    ]);
+    let down = fixture.acknowledged_down("0.84.7");
 
     assert!(
         down.status.success(),

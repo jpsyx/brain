@@ -16,6 +16,37 @@ pub(crate) struct InstallIdentity {
     portable: bool,
 }
 impl InstallIdentity {
+    pub(crate) fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            fs::canonicalize(&self.root)? == self.root,
+            "skills root identity changed"
+        );
+        ensure!(self.root.is_dir(), "skills root is not a directory");
+        snapshot::check_parent(&self.root, ".config/workspace.json")?;
+        if self.portable {
+            ensure!(
+                matches!(
+                    snapshot::read(&WorkspaceManifest::path(&self.root))?,
+                    snapshot::Snapshot::File { .. }
+                ),
+                "invalid portable skills identity"
+            );
+            let manifest = WorkspaceManifest::load(&self.root, super::super::current_version())?;
+            ensure!(
+                manifest.workspace_id().to_string() == self.workspace_id,
+                "skills workspace identity changed"
+            );
+        } else {
+            ensure!(
+                snapshot::read(&WorkspaceManifest::path(&self.root))? == snapshot::Snapshot::Absent,
+                "sandbox gained a portable identity; resolve it again"
+            );
+        }
+        Ok(())
+    }
     /// Validate/create the same cache ancestry before local migration recovery.
     pub(crate) fn prepare_cache(&self) -> Result<()> {
         snapshot::ensure_absolute_directory(&self.cache)
@@ -92,33 +123,7 @@ impl InstallIdentity {
 
 impl LockedInstall {
     pub(crate) fn acquire(identity: &InstallIdentity) -> Result<Self> {
-        ensure!(
-            fs::canonicalize(&identity.root)? == identity.root,
-            "skills root identity changed"
-        );
-        ensure!(identity.root.is_dir(), "skills root is not a directory");
-        snapshot::check_parent(&identity.root, ".config/workspace.json")?;
-        if identity.portable {
-            ensure!(
-                matches!(
-                    snapshot::read(&WorkspaceManifest::path(&identity.root))?,
-                    snapshot::Snapshot::File { .. }
-                ),
-                "invalid portable skills identity"
-            );
-            let manifest =
-                WorkspaceManifest::load(&identity.root, super::super::current_version())?;
-            ensure!(
-                manifest.workspace_id().to_string() == identity.workspace_id,
-                "skills workspace identity changed"
-            );
-        } else {
-            ensure!(
-                snapshot::read(&WorkspaceManifest::path(&identity.root))?
-                    == snapshot::Snapshot::Absent,
-                "sandbox gained a portable identity; resolve it again"
-            );
-        }
+        identity.validate()?;
         identity.prepare_cache()?;
         let lock_path = identity.cache.join("install.lock");
         ensure!(
@@ -145,6 +150,7 @@ impl LockedInstall {
                     error.into()
                 }
             })?;
+        identity.validate()?;
         Ok(Self {
             identity: identity.clone(),
             _lock: lock,

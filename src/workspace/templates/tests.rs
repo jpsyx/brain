@@ -149,7 +149,13 @@ fn the_agent_instructions_describe_the_layout_themselves() {
         "`capture/`",
         "`tasks/`",
     ] {
-        assert!(AGENTS.contains(directory), "AGENTS.md never names {directory}");
+        assert!(
+            AGENTS.contains(directory),
+            "AGENTS.md never names {directory}"
+        );
     }
-    assert!(!AGENTS.contains("README.md"), "AGENTS.md links a document brain no longer seeds");
+    assert!(
+        !AGENTS.contains("README.md"),
+        "AGENTS.md links a document brain no longer seeds"
+    );
 }

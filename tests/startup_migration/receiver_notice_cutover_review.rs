@@ -1,5 +1,5 @@
 #[test]
-fn receiver_notice_cutover_errors_never_disclose_private_state_paths() {
+fn receiver_migration_errors_never_disclose_private_state_paths() {
     for direction in ["upgrade", "downgrade"] {
         let fixture = Fixture::new();
         fixture.seed_pre_receiver_state();
@@ -11,13 +11,7 @@ fn receiver_notice_cutover_errors_never_disclose_private_state_paths() {
         );
         let state = fixture.state_db("11111111-1111-4111-8111-111111111111");
         if direction == "upgrade" {
-            let down = fixture.run(&[
-                "__migrate",
-                "--from-version",
-                env!("CARGO_PKG_VERSION"),
-                "--to-version",
-                "0.85.28",
-            ]);
+            let down = fixture.acknowledged_down("0.85.28");
             assert!(
                 down.status.success(),
                 "{}",
@@ -31,29 +25,27 @@ fn receiver_notice_cutover_errors_never_disclose_private_state_paths() {
                  CREATE TABLE receiver_jobs (damaged TEXT);",
             )
             .expect("stage cutover failure");
-        let arguments = if direction == "upgrade" {
-            [
+        let output = if direction == "upgrade" {
+            fixture.run(&[
                 "__migrate",
                 "--from-version",
                 "0.85.28",
                 "--to-version",
                 env!("CARGO_PKG_VERSION"),
-            ]
+            ])
         } else {
-            [
-                "__migrate",
-                "--from-version",
-                env!("CARGO_PKG_VERSION"),
-                "--to-version",
-                "0.85.28",
-            ]
+            fixture.acknowledged_down("0.85.28")
         };
-
-        let output = fixture.run(&arguments);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         assert!(!output.status.success());
-        assert!(stderr.contains(&format!("{direction} receiver notice state")));
+        if direction == "upgrade" {
+            assert!(stderr.contains("upgrade receiver notice state"), "{stderr}");
+        } else {
+            // Receipt invalidation now opens damaged state before this older
+            // downgrade. Exact notice-wrapper coverage lives beside that seam.
+            assert!(stderr.contains("no such column"), "{stderr}");
+        }
         assert!(
             !stderr.contains(state.to_string_lossy().as_ref()),
             "{direction} disclosed private receiver state path: {stderr}"

@@ -143,6 +143,9 @@ fn authenticated_inbound_actor_drives_default_task_assignment() {
     let cache = temporary.path().join("xdg-cache");
     let root = temporary.path().join("family");
     std::fs::create_dir_all(root.join("tasks")).unwrap();
+    WorkspaceManifest::new(WorkspaceId::parse(WORKSPACE_ID).unwrap())
+        .write_new(&root)
+        .unwrap();
     let context = workspace(&home, &root, "local-member");
     let users = portable_users();
     UsersStore::save(&context, &users).unwrap();

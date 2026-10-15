@@ -30,8 +30,7 @@ pub(in crate::state) const fn answer_cleanup_columns() -> &'static str {
 pub(in crate::state) fn answer_cleanup_table_with(agent_kinds: &str) -> String {
     delivery::answer_cleanup_table_with(agent_kinds)
 }
-pub(in crate::state) const REGISTRATION_COLUMNS: &str =
-    "workspace_id, conversation_id, agent_kind, actor_id, channel, \
+pub(in crate::state) const REGISTRATION_COLUMNS: &str = "workspace_id, conversation_id, agent_kind, actor_id, channel, \
      brain_instance_id, registered_session_id, actual_session_id";
 
 fn registration_table() -> String {

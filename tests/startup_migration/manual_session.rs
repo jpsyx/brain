@@ -33,13 +33,7 @@ fn manual_session_downgrade_preserves_native_history_and_composes_with_receiver_
         .unwrap();
 
     for target in ["0.86.15", "0.86.15", "0.85.28"] {
-        let output = fixture.run(&[
-            "__migrate",
-            "--from-version",
-            env!("CARGO_PKG_VERSION"),
-            "--to-version",
-            target,
-        ]);
+        let output = fixture.acknowledged_down(target);
         assert!(
             output.status.success(),
             "{}",
@@ -90,15 +84,10 @@ fn manual_session_current_reconciliation_preserves_a_healthy_database_byte_for_b
         "pablo",
     )
     .unwrap();
+    assert!(fixture.run(&["server", "status"]).status.success());
     let before = std::fs::read(&state).unwrap();
 
-    let output = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        env!("CARGO_PKG_VERSION"),
-    ]);
+    let output = fixture.run(&["__migrate", "--from-version", env!("CARGO_PKG_VERSION"), "--to-version", env!("CARGO_PKG_VERSION")]);
 
     assert!(
         output.status.success(),
@@ -160,5 +149,6 @@ fn manual_session_upgrade_and_current_reconciliation_restore_missing_managed_sch
             .unwrap();
         assert_eq!(version, 14);
     }
-    assert!(!fixture.state_db("22222222-2222-4222-8222-222222222222").exists());
+    // Compatibility may create the peer's receipt store, without sessions.
+    super::receipt::assert_empty(&fixture.state_db("22222222-2222-4222-8222-222222222222"));
 }

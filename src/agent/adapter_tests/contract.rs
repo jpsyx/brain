@@ -141,10 +141,8 @@ fn frontend_contracts() -> [FrontendContract; 4] {
             new_session: b"/new\r",
             fresh_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1'",
             resume_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1'",
-            fresh_prompt_command:
-                "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1' -- 'receiver prompt'",
-            resume_prompt_command:
-                "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1' -- 'receiver prompt'",
+            fresh_prompt_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'fresh-1' -- 'receiver prompt'",
+            resume_prompt_command: "pi-contract --no-approve --extension '/workspaces/family brain/.brain/hooks/pi_brain_extension.ts' --session-id 'resume-1' -- 'receiver prompt'",
             completion: CompletionStrategy::Hook,
             receiver_resume: Some(false),
         },

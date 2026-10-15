@@ -38,6 +38,14 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if brain::workspace::setup::is_requested(&cli) {
+        validate_selected_agent(selected_agent);
+        if let Err(error) = brain::workspace::setup::run(&mut cli) {
+            exit_with_error(&error, None, false);
+        }
+        return Ok(());
+    }
+
     let removal_json = brain::command::tasks::removal_mode(&cli).unwrap_or(false);
 
     if let Err(error) = brain::startup_migration::run_current() {
@@ -47,15 +55,7 @@ fn main() -> Result<()> {
     // An explicitly selected frontend is validated before any workspace, TUI,
     // hook, server, or PTY setup. A frontend that comes from workspace env can
     // only be known after bootstrap, so it is validated inside dispatch.
-    if let Some(agent_kind) = selected_agent
-        && let Err(error) = brain::command::dispatch::validate_agent_kind(agent_kind)
-    {
-        eprintln!(
-            "{}",
-            brain::theme::Theme::active().error_line("🔴", &error.to_string())
-        );
-        std::process::exit(2);
-    }
+    validate_selected_agent(selected_agent);
 
     let read_only_status = brain::workspace::is_read_only_status(&cli);
     let log_guard = match (!read_only_status)
@@ -84,6 +84,18 @@ fn main() -> Result<()> {
         exit_with_error(&error, log_guard, removal_json);
     }
     Ok(())
+}
+
+fn validate_selected_agent(selected_agent: Option<brain::agent::AgentKind>) {
+    if let Some(agent_kind) = selected_agent
+        && let Err(error) = brain::command::dispatch::validate_agent_kind(agent_kind)
+    {
+        eprintln!(
+            "{}",
+            brain::theme::Theme::active().error_line("🔴", &error.to_string())
+        );
+        std::process::exit(2);
+    }
 }
 
 fn exit_with_error(

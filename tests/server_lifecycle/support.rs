@@ -1,3 +1,6 @@
+#[path = "../support/workspace_startup_support.rs"]
+mod startup;
+
 use brain::server::control::{LeaseRegistration, ServerClient};
 use brain::server::lifecycle::{ElectionGuard, IngressId, LeaseId, ServerGeneration, ServerPaths};
 use brain::workspace::{WorkspaceId, WorkspaceName};
@@ -155,6 +158,7 @@ impl RunningServer {
                 "0",
             ])
             .env("HOME", home.path())
+            .env_remove("XDG_CONFIG_HOME")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -294,4 +298,5 @@ pub(super) fn prepare_workspace_registry(home: &std::path::Path) {
         serde_json::to_vec_pretty(&registry).expect("registry JSON"),
     )
     .expect("machine registry");
+    startup::prepare(home);
 }

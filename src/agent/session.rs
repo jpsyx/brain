@@ -229,7 +229,11 @@ mod tests {
     #[test]
     fn the_exact_parser_round_trips_every_frontend_and_rejects_anything_else() {
         for kind in AgentKind::ALL {
-            assert_eq!(AgentKind::parse_exact(kind.as_str()), Some(kind), "{kind:?}");
+            assert_eq!(
+                AgentKind::parse_exact(kind.as_str()),
+                Some(kind),
+                "{kind:?}"
+            );
         }
         for unknown in ["", "Claude", "open-code", "gemini", " pi"] {
             assert_eq!(AgentKind::parse_exact(unknown), None, "{unknown:?}");

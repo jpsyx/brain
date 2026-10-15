@@ -32,13 +32,7 @@ fn opening_a_pre_pi_database_widens_every_stored_frontend_contract() {
     )
     .unwrap();
 
-    let output = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.90.1",
-    ]);
+    let output = fixture.acknowledged_down("0.90.1");
     assert!(
         output.status.success(),
         "{}",
@@ -125,13 +119,7 @@ fn downgrading_drops_pi_rows_and_restores_the_previous_contract() {
         .unwrap();
     drop(connection);
 
-    let output = fixture.run(&[
-        "__migrate",
-        "--from-version",
-        env!("CARGO_PKG_VERSION"),
-        "--to-version",
-        "0.90.1",
-    ]);
+    let output = fixture.acknowledged_down("0.90.1");
     assert!(
         output.status.success(),
         "{}",

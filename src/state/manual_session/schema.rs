@@ -4,8 +4,7 @@ use rusqlite::Connection;
 pub(super) const VERSION: i32 = 14;
 
 pub(in crate::state) const TABLE: &str = "manual_sessions";
-pub(in crate::state) const COLUMNS: &str =
-    "manual_session_id, agent_kind, agent_session_id, workspace_id, actor_id, \
+pub(in crate::state) const COLUMNS: &str = "manual_session_id, agent_kind, agent_session_id, workspace_id, actor_id, \
      channel, title, position, role";
 pub(in crate::state) const ONE_MAIN_INDEX: &str =
     "CREATE UNIQUE INDEX IF NOT EXISTS manual_sessions_one_main

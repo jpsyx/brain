@@ -600,8 +600,19 @@ delegated task values.
   created, deepest first, for manual inspection and cleanup. An
   `AlreadyExists` path belongs to the competing actor and is preserved without
   being listed as invocation-created.
+- Explicit create, attach, repair and workspace migration complete their
+  requested setup once before managed-skill compatibility validates every
+  available registered root. Strict identity validation remains required.
+  Earlier migration failure prevents setup; later compatibility failure
+  reports committed local setup and a nonzero overall outcome, keeping the
+  previous machine stamp. Workspace migration retains its complete mapping,
+  sync, backup and recovery workflow.
+- Automatic managed-skill compatibility tolerates an active installer with a
+  bounded thirty-second wait per workspace. It retries only typed install-lock
+  contention, validates identity under ownership, and fails startup on expiry.
+  Explicit repair and installer/downgrade acquisition retain fail-fast behavior.
 - When the selected workspace contains only Brain setup metadata (including
-  `.brain/`, `.claude/`, `.codex/`, and `.opencode/` lifecycle artifacts) and
+  `.brain/`, `.agents/`, `.claude/`, `.codex/`, and `.opencode/` managed artifacts) and
   empty scaffold directories, the first tasks launch completes initialization
   before loading the task view. It creates the portable config, task and habit
   CSVs, task counters, lookup CSVs, and `capture/`, `projects/`, `areas/`,
@@ -2134,13 +2145,16 @@ does for a missing public base URL, and exits non-zero.
 
 `brain server status`, `brain receiver status -w <workspace>`,
 `brain receiver url -w <workspace>`, bare `brain receiver`, and
-`brain receiver email` / `brain receiver phone` are literal
-read-only probes. They do not write a diagnostic run log, migrate or repair
+`brain receiver email` / `brain receiver phone` preserve durable state. They do
+not write a diagnostic run log, migrate or repair
 configuration, create a users transaction lock, refresh installed skills,
 write the skill render stamp, or elect/start/churn the shared process. Receiver
 status uses one generation-bound control response for both server and exact
 workspace facts. A live control failure is reported, and neither status request
-expires leases or changes server lifecycle state.
+expires leases or changes server lifecycle state. Receiver queue reads use SQLite's
+coordinated read-only connection: an existing state database may gain a shared-memory
+coordination file or an empty WAL file. These files do not change durable queue,
+task, receipt, or configuration data.
 
 Receiver status preserves its four lifecycle rows, then adds receiver, SMS,
 and email health for the selected workspace. Persisted receiver intent is the
