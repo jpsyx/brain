@@ -92,20 +92,33 @@ pub(crate) fn sync_identity(
 pub(crate) fn render_sources(sources: &Sources) -> Result<RenderedInstall> {
     let mut skills = embed::bundled_skills();
     if let Some(dir) = &sources.plugins_dir {
-        skills.extend(plugin::discover_checked(dir)?);
+        skills.extend(
+            plugin::discover_checked(dir).map_err(|error| {
+                super::diagnostic::Diagnostic::source(&error, ".config/plugins")
+            })?,
+        );
     }
     let mut output = RenderedInstall::new();
     for skill in skills {
         anyhow::ensure!(
             !output.contains_key(&skill.name),
-            "core/plugin skill name collision: {}",
-            skill.name
+            super::diagnostic::Diagnostic::new(
+                super::diagnostic::Category::CorePluginOverride,
+                "render_sources",
+                Some(&format!(".config/plugins/{}", skill.name))
+            )
         );
         let ext = sources
             .extensions_dir
             .as_deref()
             .map(|dir| extension::load_checked(&skill.name, dir))
-            .transpose()?
+            .transpose()
+            .map_err(|error| {
+                super::diagnostic::Diagnostic::source(
+                    &error,
+                    &format!(".config/extensions/{}.md", skill.name),
+                )
+            })?
             .flatten();
         let mut files = std::collections::BTreeMap::new();
         for file in render::render(&skill, ext.as_ref()) {

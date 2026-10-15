@@ -13,6 +13,7 @@
 //! workspace skill writes.
 
 pub mod command;
+pub(crate) mod diagnostic;
 pub mod embed;
 pub mod extension;
 pub mod install;

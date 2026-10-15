@@ -942,7 +942,7 @@ managed-triage and removal transactions before reading canonical data. Project
 create/set/archive, derived reindex, and both sync publication lanes participate
 in that same ownership boundary. Python writers also verify the exact
 bytes they read before atomically replacing a CSV, and `/todo remove` uses the
-protected removal script instead of editing a row directly.
+native `brain tasks remove` planner and executor.
 
 `brain config set enable_triage_habits=false` stages config, both task CSVs,
 and affected derived references as one recoverable transaction. It removes
@@ -1576,6 +1576,14 @@ top-level diagnostic make the exit nonzero. Mandatory startup still runs once;
 if an earlier hook migration fails, independent skill repair completes and its
 truthful outcomes are reported while the machine migration stamp stays unchanged.
 Ordinary commands and installer migrations continue to stop at startup failure.
+Managed failures identify the workspace name/UUID and a safe category, relative
+artifact, and corrective hint. Failed JSON rows add `diagnostic` with `category`,
+`stage`, `artifact` and `hint`, while retaining `message`. Categories distinguish
+modified managed content, ownership conflicts, core/plugin overrides, target
+minimum-version and membership problems, unreadable or invalid sources, and
+other refresh failures. Source bodies, parser values and target child output are
+never diagnostic content. Preserve edits before restoring a modified generated
+file; rename conflicting plugins or use the matching extension, then retry.
 
 Bundled today: `article-summarizer`, `triage`, `brain-knowledge-capture`,
 `second-brain`, `contacts`, and `todo`. See [config.md](config.md) and the
@@ -2145,10 +2153,12 @@ does for a missing public base URL, and exits non-zero.
 
 `brain server status`, `brain receiver status -w <workspace>`,
 `brain receiver url -w <workspace>`, bare `brain receiver`, and
-`brain receiver email` / `brain receiver phone` preserve durable state. They do
-not write a diagnostic run log, migrate or repair
-configuration, create a users transaction lock, refresh installed skills,
-write the skill render stamp, or elect/start/churn the shared process. Receiver
+`brain receiver email` / `brain receiver phone` preserve durable state after
+mandatory startup compatibility and selected-workspace readiness have completed.
+Those startup gates may migrate machine state or refresh managed skills. The
+status observations themselves do not write a diagnostic run log, repair
+configuration, create a users transaction lock, refresh skills, write the skill
+render stamp, or elect/start/churn the shared process. Receiver
 status uses one generation-bound control response for both server and exact
 workspace facts. A live control failure is reported, and neither status request
 expires leases or changes server lifecycle state. Receiver queue reads use SQLite's
@@ -2985,13 +2995,17 @@ keeps the edit and records a soft conflict.
 
 Ctrl+Backspace and the Remove palette command open a native preview with the
 same task-only picker. No agent frontend is required. The modal shows resolved
-targets, changed paths and relationships, linked-issue actions, blockers, warnings, and the saved
+targets, changed paths and named before/after dependencies, task references,
+project memberships and successor handoffs, linked-issue actions, blockers,
+warnings, and the saved
 fingerprint. Dependency and linked-issue choices rebuild the preview. Confirmation
 uses that fingerprint and the current date; stale inputs rebuild the preview for
 fresh consent. Preview, apply, status, resume, and abandon run in background
 workers. Closing the modal does not cancel an executing operation. Reopening
 Remove returns to its running or recoverable operation, with saved status,
-resume, and explicitly confirmed abandonment. Abandon preserves local rows and
+resume, and explicitly confirmed abandonment once its worker is idle. A saved
+operation hides new-plan policy/confirm controls; running work offers close and
+scroll only. Abandon preserves local rows and
 does not undo external cancellations; unknown outcomes must first be reconciled.
 A completed removal refreshes tasks without moving main view or panel focus and
 retains a surviving selection, otherwise the nearest row.

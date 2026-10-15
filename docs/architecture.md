@@ -1777,8 +1777,9 @@ UUID-pinned selected registry adapter map, then supplies a secret-free snapshot.
 and transfers an unreaped child to a worker allocated before adapter spawn.
 That worker owns eventual signal/reap retries and is never joined by invocation.
 The only credential read occurs at invocation through the explicit OS environment
-allowlist. Preview uses file metadata only. The execution guard for nonempty
-external plans remains until external operation progress is connected.
+allowlist. Preview uses file metadata only. External execution records durable
+progress, releases task ownership during adapter calls, and revalidates consent
+before canonical commit.
 
 `TaskStoreOwner::acquire` recovers both grouped journals before returning to a
 native writer. Existing-owner entry points verify and recover without acquiring
@@ -2918,3 +2919,22 @@ Automatic skill reconciliation owns its bounded contention policy in
 remains fail-fast and reuses root/portable validation before and after obtaining
 ownership. Recovery, inspection, receipt reads, rendering, and publication follow
 ownership; timeout cannot authorize a stale receipt.
+
+
+### Safe removal consent and managed-repair diagnostics
+
+`tasks/removal/presentation` projects captured plan edits into named task edges,
+project memberships and successor handoffs. CLI JSON/human output and the native
+modal consume that same projection without rereading files or exposing snapshot
+bytes. The planner captures only the labels needed by affected relationships,
+including names in an unchanged other-kind store, and enriches rejected dependency
+edges before discarding edits. Saved plans default missing display labels for
+compatibility; execution equality excludes only that label map.
+Dependency expansion memoizes completed removed-node results across the batch;
+visiting state still rejects cycles and missing nodes only in traversed paths.
+
+`skills/diagnostic` carries closed repair categories and validated relative
+artifacts through ownership checks, reconciliation, mandatory startup and target
+refresh. A retained failed report preserves workspace name/UUID without rerunning
+its attempt. Target plugin collisions are checked against the actual target core
+inventory before customized rendering; child output remains private.

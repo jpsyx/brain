@@ -30,7 +30,7 @@ pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
         app.overlay = Some(Overlay::TaskRemoval(state));
         return;
     }
-    if matches!(state.screen, RemovalScreen::Running { .. }) {
+    if state.running() {
         return;
     }
     if state.abandon_confirm {
@@ -44,7 +44,8 @@ pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
         }
         return;
     }
-    if let Some(id) = state.operation_id.clone() {
+    if state.recovery_available() {
+        let id = state.operation_id.clone().expect("recovery operation");
         match key.code {
             KeyCode::Char('s') => app.removal_request(state, Request::Status(id)),
             KeyCode::Char('r') => app.removal_request(state, Request::Resume(id)),
@@ -54,6 +55,9 @@ pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
             }
             _ => {}
         }
+        return;
+    }
+    if !state.preview_actions_available() {
         return;
     }
     match (&state.screen, key.code) {

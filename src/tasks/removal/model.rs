@@ -84,6 +84,8 @@ pub(crate) struct ExternalAction {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RemovalPlan {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub presentation_labels: std::collections::BTreeMap<String, super::presentation::Task>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maintenance: Option<super::maintenance::MaintenanceIntent>,
     pub fingerprint: String,
@@ -94,6 +96,17 @@ pub(crate) struct RemovalPlan {
     pub successors: std::collections::BTreeMap<String, String>,
     pub blockers: Vec<Problem>,
     pub warnings: Vec<Problem>,
+}
+
+impl RemovalPlan {
+    /// Compare every executable field, ignoring only captured display labels.
+    pub(super) fn same_execution(&self, other: &Self) -> bool {
+        let mut candidate = self.clone();
+        candidate
+            .presentation_labels
+            .clone_from(&other.presentation_labels);
+        candidate == *other
+    }
 }
 
 mod csv_kind {

@@ -12,6 +12,7 @@ pub(super) fn preview(plan: &RemovalPlan) -> Value {
         "effects": {
             "updated": plan.edits.iter().map(|edit| edit.relative.to_string_lossy()).collect::<Vec<_>>(),
             "external": plan.external, "successors": plan.successors,
+            "relationships": crate::tasks::removal::presentation::project(plan),
         },
         "blockers": plan.blockers, "warnings": plan.warnings,
         "options": plan.options,
@@ -75,6 +76,12 @@ pub(super) fn human(value: &Value, theme: Theme) -> String {
                         action["adapter"].as_str().unwrap_or_default()
                     ));
                 }
+            }
+            if let Ok(projection) = serde_json::from_value::<
+                crate::tasks::removal::presentation::Projection,
+            >(value["effects"]["relationships"].clone())
+            {
+                lines.extend(projection.lines());
             }
             append_problems(&mut lines, &value["blockers"], theme);
         }

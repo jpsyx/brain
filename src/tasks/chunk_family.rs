@@ -12,7 +12,7 @@ pub(crate) struct Chunk {
 
 use std::collections::BTreeSet;
 
-use super::complete::{Row, field, parse_chunk_name};
+use super::complete::{Row, field, normalize_id, parse_chunk_name};
 
 /// Parse one CSV row using the existing numbered-session name grammar.
 pub(crate) fn parse(row: &Row) -> Option<Chunk> {
@@ -53,7 +53,10 @@ pub(crate) fn validate(anchor: &Chunk, rows: &[Row]) -> Result<Vec<Chunk>, Strin
             continue;
         }
         for dependency in field(row, "blocked_by").split('|').map(str::trim) {
-            for target in chunks.iter().filter(|chunk| chunk.id == dependency) {
+            let dependency = normalize_id(dependency).unwrap_or_else(|_| dependency.to_owned());
+            for target in chunks.iter().filter(|chunk| {
+                normalize_id(&chunk.id).unwrap_or_else(|_| chunk.id.clone()) == dependency
+            }) {
                 if target.base == anchor.base
                     && (same_family(anchor, &source) || same_family(anchor, target))
                     && !same_family(&source, target)
@@ -209,6 +212,29 @@ mod tests {
         assert_eq!(
             successor(&rows[0], &rows).unwrap().unwrap()["task_id"],
             "T3"
+        );
+    }
+    #[test]
+    fn aliases_cannot_hide_cross_family_evidence_or_rewrite_display_ids() {
+        for (target, dependency) in [("T9", "t009"), ("t009", "T9")] {
+            for (name, project) in [("Read spec (2/4)", "beta"), ("Read spec (2/5)", "alpha")] {
+                let rows = [
+                    row("T1", "Read spec (1/4)", "alpha", dependency),
+                    row(target, name, project, ""),
+                ];
+                assert_eq!(
+                    successor(&rows[0], &rows).unwrap_err(),
+                    "ambiguous_chunk_family"
+                );
+            }
+        }
+        let rows = [
+            row("T1", "Read spec (1/4)", "alpha", ""),
+            row("t009", "Read spec (3/4)", "alpha", "t001"),
+        ];
+        assert_eq!(
+            successor(&rows[0], &rows).unwrap().unwrap()["task_id"],
+            "t009"
         );
     }
 }

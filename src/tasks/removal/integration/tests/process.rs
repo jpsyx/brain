@@ -37,7 +37,10 @@ fn removal_integration_process_success_preserves_metacharacters_as_data() {
 #[test]
 fn removal_integration_process_rejects_malformed_wrong_identity_and_nonzero_exit() {
     for (body, expected) in [
-        ("print('not JSON')".to_owned(), ErrorKind::Protocol),
+        (
+            "import sys\nsys.stdin.read()\nprint('not JSON')".to_owned(),
+            ErrorKind::Protocol,
+        ),
         (
             REPLY.replace("r['action_id']", "'wrong'"),
             ErrorKind::Protocol,
@@ -45,8 +48,10 @@ fn removal_integration_process_rejects_malformed_wrong_identity_and_nonzero_exit
         (format!("{REPLY}\nsys.exit(2)"), ErrorKind::Exit),
     ] {
         let (_dir, adapter) = script(&body);
+        let mut payload = request();
+        payload.issue = "x".repeat(60_000);
         assert_eq!(
-            invoke_with_environment(&adapter, &request(), |_| None)
+            invoke_with_environment(&adapter, &payload, |_| None)
                 .unwrap_err()
                 .kind,
             expected

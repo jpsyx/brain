@@ -6204,3 +6204,24 @@ Profiles deliberately support only audited 0.101.0 and the running coordinator's
 exact current version. New target profiles require source and actual-binary
 acceptance evidence. The guarantee ends at installer refresh; an older release's
 later commands retain their historical limitations.
+
+
+### Consent and recovery diagnostics share safe projections
+
+Deletion consent needs the surviving task identities and relationship changes,
+not only changed file paths. A pure projection of captured plan edits supplies
+both CLI and TUI, excluding private columns, reference prose and metadata fields.
+Saved plans retain only the captured labels needed by those effects, including
+prerequisites in an unchanged task or habit store. Older records default this
+field to empty. Execution comparison ignores only these display labels; every
+executable field remains compared, and canonical source bytes in the fingerprint
+still invalidate consent when names change.
+Post-persistence failures retain the original operation ID without changing their
+typed cause, so receipt-read failures remain discoverable after effects.
+
+Managed skill ownership failures can block mandatory startup, so the repair
+surface retains their typed category, workspace identity and relative artifact.
+Only validated diagnostic data crosses this boundary; arbitrary error chains,
+source bodies, parser values and child output remain excluded. The installer
+checks plugin names against the actual target's inventory before the customized
+child, preserving the same diagnostic without trusting child error text.

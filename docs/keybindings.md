@@ -372,7 +372,9 @@ copies the link to the clipboard; Enter retries copying and Esc closes it.
 
 These captive controls are available after Ctrl+Backspace or the Remove palette
 command; they do not add global shortcuts. Confirmation executes the native
-service without handing the task to an agent.
+service without handing the task to an agent. Policy and plan confirmation apply
+only without a saved operation. Recovery controls appear only when its worker is
+idle; running work accepts close and scrolling.
 
 | Key | Action |
 | --- | --- |

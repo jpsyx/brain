@@ -99,6 +99,7 @@ pub(super) fn validate(
     output: &RenderedInstall,
     sources: &Sources,
 ) -> Result<()> {
+    validate_plugins(core, sources)?;
     let mut expected = core.clone();
     let prefix = ".config/plugins/";
     for (path, bytes) in &sources.files {
@@ -108,10 +109,6 @@ pub(super) fn validate(
         let (name, relative) = relative
             .split_once('/')
             .ok_or_else(|| anyhow::anyhow!("plugin files must belong to a skill directory"))?;
-        ensure!(
-            !core.contains_key(name),
-            "plugin collides with target core skill"
-        );
         ensure!(
             relative != ".brain-rendered",
             "plugin uses reserved rendered marker"
@@ -143,5 +140,23 @@ pub(super) fn validate(
         actual == expected,
         "target generated incomplete or unexpected skill content"
     );
+    Ok(())
+}
+
+pub(super) fn validate_plugins(core: &RenderedInstall, sources: &Sources) -> Result<()> {
+    for path in sources.files.keys() {
+        if let Some(relative) = path.strip_prefix(".config/plugins/") {
+            if let Some((name, _)) = relative.split_once('/') {
+                ensure!(
+                    !core.contains_key(name),
+                    crate::skills::diagnostic::Diagnostic::new(
+                        crate::skills::diagnostic::Category::CorePluginOverride,
+                        "validate_target_plugins",
+                        Some(&format!(".config/plugins/{name}"))
+                    )
+                );
+            }
+        }
+    }
     Ok(())
 }

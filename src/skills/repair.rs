@@ -94,7 +94,30 @@ pub fn run(cli: &crate::cli::Cli) -> Result<i32> {
         println!("{}", serde_json::to_string(&report)?);
     } else {
         for row in &report.refresh.workspaces {
-            eprintln!("{}: {:?}", row.name, row.outcome);
+            let message = match &row.outcome {
+                reconcile::WorkspaceRefresh::Current { workspace_id } => {
+                    format!("{} ({workspace_id}): current", row.name)
+                }
+                reconcile::WorkspaceRefresh::Updated { workspace_id } => {
+                    format!("{} ({workspace_id}): updated", row.name)
+                }
+                reconcile::WorkspaceRefresh::PendingUnavailable { workspace_id, .. } => {
+                    format!("{} ({workspace_id}): pending_unavailable", row.name)
+                }
+                reconcile::WorkspaceRefresh::Failed {
+                    workspace_id,
+                    diagnostic,
+                    ..
+                } => format!("{} ({workspace_id}): {diagnostic}", row.name),
+            };
+            let theme = crate::theme::Theme::active();
+            let message = match &row.outcome {
+                reconcile::WorkspaceRefresh::Failed { .. } => theme.error(&message),
+                reconcile::WorkspaceRefresh::PendingUnavailable { .. } => theme.warning(&message),
+                reconcile::WorkspaceRefresh::Updated { .. } => theme.success(&message),
+                reconcile::WorkspaceRefresh::Current { .. } => theme.info(&message),
+            };
+            eprintln!("{message}");
         }
         for message in [
             &report.startup_error,
@@ -119,7 +142,8 @@ fn finish_report(
     startup: Result<()>,
     logger: std::io::Result<crate::logging::Guard>,
 ) -> (RepairReport, Option<crate::logging::Guard>) {
-    let startup_error = startup.err().map(|_| "mandatory startup migrations failed; inspect workspace hooks and machine migration state".into());
+    let startup_error = startup.err().map(|error| error.downcast_ref::<super::diagnostic::RefreshFailure>().map_or_else(
+        || "mandatory startup migrations failed; inspect workspace hooks and machine migration state".into(), ToString::to_string));
     let (guard, logger_error) = match logger {
         Ok(guard) => (Some(guard), None),
         Err(error) => (None, Some(error.to_string())),

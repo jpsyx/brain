@@ -52,11 +52,6 @@ fn lines(state: &RemovalState) -> Vec<String> {
                     .map(|effect| format!("Cancel {} issue {}", effect.adapter, effect.issue)),
             );
             lines.extend(
-                plan.successors
-                    .iter()
-                    .map(|(id, successor)| format!("Agenda handoff {id} to {successor}")),
-            );
-            lines.extend(
                 plan.blockers
                     .iter()
                     .map(|p| format!("Blocked ({}): {}", p.code, p.message)),
@@ -66,8 +61,13 @@ fn lines(state: &RemovalState) -> Vec<String> {
                     .iter()
                     .map(|p| format!("Warning ({}): {}", p.code, p.message)),
             );
-            lines.push("[d] dependency policy: Reject / Keep prerequisites (rewire) / Remove dependency links (unlink)".into());
-            lines.push("[i] issue policy  [Enter] confirm when ready  [Esc] cancel".into());
+            if state.preview_actions_available() {
+                lines.push("[d] dependency policy: Reject / Keep prerequisites (rewire) / Remove dependency links (unlink)".into());
+                lines.push("[i] issue policy  [Esc] cancel".into());
+                if plan.blockers.is_empty() {
+                    lines.push("[Enter] confirm".into());
+                }
+            }
         }
         RemovalScreen::Running { operation_id } => {
             lines.push(format!(
@@ -80,7 +80,9 @@ fn lines(state: &RemovalState) -> Vec<String> {
         }
         RemovalScreen::Failed(problem) => {
             lines.push(format!("{}: {}", problem.code, problem.message));
-            lines.push("[p] preview again".into());
+            if state.preview_actions_available() {
+                lines.push("[p] preview again".into());
+            }
         }
         RemovalScreen::Finished(receipt) => {
             lines.push(format!(
@@ -106,7 +108,7 @@ fn lines(state: &RemovalState) -> Vec<String> {
             );
         }
     }
-    if state.operation_id.is_some() {
+    if state.recovery_available() {
         lines.push("[s] saved status  [r] resume  [a] abandon".into());
     }
     if state.abandon_confirm {

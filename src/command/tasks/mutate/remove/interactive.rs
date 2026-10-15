@@ -138,6 +138,7 @@ mod tests {
         };
         let mut options = Options::default();
         let mut plan = RemovalPlan {
+            presentation_labels: std::collections::BTreeMap::new(),
             maintenance: None,
             fingerprint: "hash".into(),
             targets: vec![],

@@ -6,6 +6,7 @@ pub(crate) mod fingerprint;
 pub(crate) mod integration;
 pub(crate) mod model;
 pub(crate) mod plan;
+pub(crate) mod presentation;
 pub(crate) mod projects;
 pub(crate) mod references;
 pub(crate) mod resolve;

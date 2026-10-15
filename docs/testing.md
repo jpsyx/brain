@@ -1863,3 +1863,11 @@ before real CLI startup preparation, and carry that same RAII permit through
 election, spawn and cleanup. This bounds cold setup IO under the existing
 resource policy while preserving worker/request concurrency and the original
 three-second readiness deadline; preparation/election unwind releases ownership.
+
+
+Removal regression coverage bounds shared-DAG expansion by instrumented visits,
+checks named consent relationships and private-data exclusion, injects unreadable
+receipts after local and external effects, and checks actual modal danger styling
+and available controls. Managed-repair command fixtures cover modified generated
+content, core overrides and target input categories while preserving user bytes.
+Installer stage cleanup is exercised with an injected chmod failure.

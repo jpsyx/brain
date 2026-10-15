@@ -196,3 +196,55 @@ fn dependency_csv_tokens_use_normalized_numeric_order() {
         .collect();
     assert_eq!(ordered_prerequisites(&ids), ["T1", "T2", "t003", "T10"]);
 }
+
+thread_local! {
+    static EXPANSION_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn record_expansion() {
+    EXPANSION_BUDGET.with(|budget| {
+        if let Some(left) = budget.get() {
+            assert!(
+                left > 0,
+                "shared DAG expansion exceeded linear visit budget"
+            );
+            budget.set(Some(left - 1));
+        }
+    });
+}
+
+#[test]
+fn dependency_layered_dag_expands_once_across_surviving_roots() {
+    use super::super::{dependencies::rewrite, model::Dependents};
+    let mut graph = dependency_graph(&[("T0", &[]), ("T1", &["T0"])]);
+    for index in 2..=45 {
+        graph.insert(
+            format!("T{index}"),
+            [format!("T{}", index - 1), format!("T{}", index - 2)]
+                .into_iter()
+                .collect(),
+        );
+    }
+    graph.insert("T46".into(), std::iter::once("T45".into()).collect());
+    graph.insert("T47".into(), std::iter::once("T44".into()).collect());
+    let removed = (1..=45).map(|index| format!("T{index}")).collect();
+    EXPANSION_BUDGET.with(|budget| budget.set(Some(100)));
+    let result = rewrite(&graph, &removed, Dependents::Rewire).unwrap();
+    EXPANSION_BUDGET.with(|budget| budget.set(None));
+    assert_eq!(
+        result,
+        dependency_graph(&[("T0", &[]), ("T46", &["T0"]), ("T47", &["T0"])])
+    );
+}
+
+#[test]
+fn dependency_csv_tokens_keep_malformed_and_overflow_lexical_fallback() {
+    let ids = ["T10", "T2", "t003", "T4294967296", "bad", "T?", "T0002"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        super::ordered_prerequisites(&ids),
+        ["T0002", "T2", "t003", "T10", "T4294967296", "T?", "bad"]
+    );
+}

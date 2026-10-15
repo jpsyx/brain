@@ -72,14 +72,17 @@ pub(super) fn apply_with_hook(
     ownership
         .save(&context.workspace, &operation)
         .map_err(|error| operational("operation_unavailable", &error))?;
-    if operation.external.is_empty() {
-        commit(context, &mut operation, &owner, hook)?;
-        drop(owner);
-    } else {
-        drop(owner);
-        external_commit(context, &ownership, &mut operation, hook)?;
-    }
-    finish(context, &ownership, &mut operation)
+    let result = (|| {
+        if operation.external.is_empty() {
+            commit(context, &mut operation, &owner, hook)?;
+            drop(owner);
+        } else {
+            drop(owner);
+            external_commit(context, &ownership, &mut operation, hook)?;
+        }
+        finish(context, &ownership, &mut operation)
+    })();
+    result.map_err(|error| super::external::identified(&operation, error))
 }
 
 /// Network invocations hold operation ownership only. Reacquire task ownership
@@ -257,7 +260,7 @@ pub(super) fn validate(
         &plan.options,
         plan.maintenance.clone(),
     );
-    if plan.fingerprint != expected || &current != plan {
+    if plan.fingerprint != expected || !current.same_execution(plan) {
         return Err(problem(
             "stale_plan",
             "Task removal inputs changed; preview and confirm again",

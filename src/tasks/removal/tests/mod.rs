@@ -31,3 +31,7 @@ mod agenda;
 mod maintenance;
 
 mod maintenance_contracts;
+
+mod recovery_identity;
+
+mod presentation;

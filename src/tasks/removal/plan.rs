@@ -18,6 +18,7 @@ pub(crate) fn plan_with_maintenance(
     maintenance: Option<super::maintenance::MaintenanceIntent>,
 ) -> RemovalPlan {
     let mut preview = RemovalPlan {
+        presentation_labels: std::collections::BTreeMap::new(),
         maintenance,
         fingerprint: String::new(),
         targets: Vec::new(),
@@ -52,7 +53,9 @@ pub(crate) fn plan_with_maintenance(
             serde_json::json!({}),
         )),
     }
-    if !preview.blockers.is_empty() {
+    if preview.blockers.is_empty() {
+        super::presentation::capture_labels(snapshot, &mut preview);
+    } else {
         preview.edits.clear();
         preview.external.clear();
         preview.successors.clear();
@@ -92,7 +95,8 @@ fn compose(snapshot: &Snapshot, preview: &mut RemovalPlan) -> Result<(), Problem
         .collect();
     let replacements = super::maintenance::replacements(preview.maintenance.as_ref());
     let rewritten = if replacements.is_empty() {
-        super::dependencies::rewrite(&graph, &removed, preview.options.dependents)?
+        super::dependencies::rewrite(&graph, &removed, preview.options.dependents)
+            .map_err(|problem| super::presentation::enrich_dependency(problem, &originals))?
     } else {
         super::dependencies::substitute(
             &graph,

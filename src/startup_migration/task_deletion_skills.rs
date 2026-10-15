@@ -8,7 +8,7 @@ use crate::{
     },
     workspace::{RegistryStore, WorkspaceContext},
 };
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use std::path::Path;
 
 pub(super) fn up(home: &Path) -> Result<()> {
@@ -24,10 +24,9 @@ fn up_with_store(
 ) -> Result<()> {
     let mut ordinary = RefreshAttempt::new(RefreshMode::Compatibility);
     let report = attempt.unwrap_or(&mut ordinary).run(Some(home), store);
-    ensure!(
-        !report.failed(),
-        "managed workspace skill compatibility refresh failed"
-    );
+    if report.failed() {
+        return Err(crate::skills::diagnostic::RefreshFailure(report.clone()).into());
+    }
     Ok(())
 }
 pub(super) fn down(home: &Path) -> Result<()> {

@@ -163,14 +163,6 @@ fn mark_complete_is_a_success_intent() {
 }
 
 #[test]
-fn remove_is_a_danger_intent() {
-    assert_eq!(
-        ConfirmIntent::Danger.accent(),
-        ratatui::style::Color::Rgb(247, 118, 142)
-    );
-}
-
-#[test]
 fn agenda_and_triage_are_success_intents() {
     assert_eq!(
         ConfirmState::generate_agenda().intent,

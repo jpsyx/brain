@@ -240,3 +240,15 @@ fn downgrade_retains_helper_for_post_replacement_target_refresh() {
 
 #[path = "install_script/refresh.rs"]
 mod refresh;
+
+#[test]
+fn stage_permission_failure_cleans_private_stage_before_exit() {
+    let fixture = Fixture::new(Some("0.71.0"), "0.71.0");
+    let before = std::fs::read(fixture.bin.join("brain")).unwrap();
+    executable(&fixture.tools.join("chmod"), "#!/bin/sh\nexit 73\n");
+    let output = fixture.run();
+    assert_eq!(output.status.code(), Some(73));
+    assert_eq!(std::fs::read_dir(&fixture.bin).unwrap().count(), 1);
+    assert_eq!(std::fs::read(fixture.bin.join("brain")).unwrap(), before);
+    assert!(fixture.migration_log().is_empty());
+}

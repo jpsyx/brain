@@ -68,6 +68,13 @@ fn observe(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
 }
 
 pub(crate) fn resume(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
+    resume_inner(context, id).map_err(|mut error| {
+        error.details["operation_id"] = serde_json::json!(id);
+        error
+    })
+}
+
+fn resume_inner(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
     let status = observe(context, id)?;
     actor(context, &status)?;
     if status.phase == Phase::Complete {

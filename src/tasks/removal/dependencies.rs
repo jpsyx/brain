@@ -18,6 +18,7 @@ pub(crate) fn rewrite(
 ) -> Result<Graph, Problem> {
     let mut result = Graph::new();
     let mut changed = BTreeSet::new();
+    let mut expanded = Graph::new();
     for (id, prerequisites) in graph {
         if removed.contains(id) {
             continue;
@@ -39,7 +40,13 @@ pub(crate) fn rewrite(
                 }
                 Dependents::Unlink => {}
                 Dependents::Rewire => {
-                    next.extend(expand(prerequisite, graph, removed, &mut BTreeSet::new())?);
+                    next.extend(expand(
+                        prerequisite,
+                        graph,
+                        removed,
+                        &mut BTreeSet::new(),
+                        &mut expanded,
+                    )?);
                 }
             }
         }
@@ -58,7 +65,13 @@ fn expand(
     graph: &Graph,
     removed: &BTreeSet<String>,
     visiting: &mut BTreeSet<String>,
+    expanded: &mut Graph,
 ) -> Result<BTreeSet<String>, Problem> {
+    if let Some(result) = expanded.get(id) {
+        return Ok(result.clone());
+    }
+    #[cfg(test)]
+    tests::record_expansion();
     let prerequisites = graph.get(id).ok_or_else(|| missing(id))?;
     if !removed.contains(id) {
         return Ok(BTreeSet::from([id.to_owned()]));
@@ -68,9 +81,10 @@ fn expand(
     }
     let mut result = BTreeSet::new();
     for prerequisite in prerequisites {
-        result.extend(expand(prerequisite, graph, removed, visiting)?);
+        result.extend(expand(prerequisite, graph, removed, visiting, expanded)?);
     }
     visiting.remove(id);
+    expanded.insert(id.to_owned(), result.clone());
     Ok(result)
 }
 

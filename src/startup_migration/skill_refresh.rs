@@ -55,7 +55,15 @@ pub fn refresh_workspace_skills(args: &RefreshWorkspaceSkillsArgs) -> Result<()>
             ),
             Err(error) => {
                 failures = true;
-                eprintln!("{name}: pending_failed: {error}");
+                let diagnostic = crate::skills::diagnostic::Diagnostic::from_error(
+                    &error,
+                    "target_refresh",
+                    None,
+                );
+                eprintln!(
+                    "{name}: pending_failed ({}): {diagnostic}",
+                    record.workspace_id
+                );
             }
         }
     }
@@ -101,6 +109,7 @@ fn refresh(
                 .context("render target core inventory")?,
         );
     }
+    replica::validate_plugins(core.as_ref().expect("core rendered"), &sources)?;
     let output = replica::render(target, name, record, &sources, true)
         .context("render target workspace skills")?;
     replica::validate(core.as_ref().expect("core rendered"), &output, &sources)

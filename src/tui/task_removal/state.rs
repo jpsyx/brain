@@ -22,3 +22,15 @@ pub(crate) struct RemovalState {
     pub abandon_confirm: bool,
     pub scroll: u16,
 }
+
+impl RemovalState {
+    pub(super) const fn running(&self) -> bool {
+        matches!(self.screen, RemovalScreen::Running { .. })
+    }
+    pub(super) const fn recovery_available(&self) -> bool {
+        !self.running() && !self.abandon_confirm && self.operation_id.is_some()
+    }
+    pub(super) const fn preview_actions_available(&self) -> bool {
+        !self.running() && !self.abandon_confirm && self.operation_id.is_none()
+    }
+}

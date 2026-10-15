@@ -392,3 +392,6 @@ fn callback_failure_retains_first_attempt_and_untraversed_callback_falls_back() 
         );
     }
 }
+
+#[path = "task_deletion_skill_migration/diagnostics.rs"]
+mod diagnostics;

@@ -1105,14 +1105,26 @@ the service and private snapshot types remain crate-private.
 
 CLI JSON envelopes use `schema_version: 1` and `kind`. Preview contains
 `fingerprint`, `ready`, `targets`, `effects` (workspace-relative updated paths,
-external actions, successor identities), `blockers`, `warnings`, selected
+external actions, successor identities, and a `relationships` projection),
+`blockers`, `warnings`, selected
 `options`, and fixed `available_options`. Result contains `operation_id`,
 `status` (`committed` or `committed_with_warnings`), `committed`, `removed`,
 `updated`, typed `external` progress, and `warnings`. Error contains stable
 `code`, `message`, and structured `details`. Operation contains `operation_id`,
 `phase`, `fingerprint`, selected `targets`, typed `external` progress, and an
 optional result envelope in `receipt`. No public DTO includes file before/after
-bytes, adapter environment values, or canonical input snapshots.
+bytes, adapter environment values, or canonical input snapshots. The projection
+contains `tasks` (named task, relationship `field`, and named `previous`/`next`
+IDs), `projects` (relative metadata path and named memberships), and `handoffs`
+(named removed/successor tasks). It excludes reference URLs/prose, notes, unknown
+CSV columns and unrelated metadata. Blocked previews have no executable edits;
+`dependents_exist` includes `task_id`, `task_name`, `prerequisite` and
+`prerequisite_name`. Every apply error after durable operation persistence, and
+resume errors, retain `details.operation_id` for recovery. Private saved plans
+add a default-empty `presentation_labels` map containing only named IDs used by
+affected relationships. This map is not executable input: comparison ignores
+only this field, while the canonical fingerprint still binds all source names.
+Older saved plans without the field remain valid for the same canonical state.
 
 The pure `dependencies::rewrite` transforms an ID-to-prerequisite-set graph for
 one complete removal batch. Removed rows disappear; `reject` refuses any surviving

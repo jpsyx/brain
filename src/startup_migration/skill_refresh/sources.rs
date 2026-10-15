@@ -1,4 +1,5 @@
 //! Complete no-follow input snapshots for the audited renderer.
+use crate::skills::diagnostic::{Category, Diagnostic};
 use crate::workspace::{
     InteractionMode, MachineRegistry, WorkspaceManifest, WorkspaceName, WorkspaceRecord,
     readiness_action_with_users,
@@ -24,10 +25,12 @@ impl Sources {
         version: &str,
     ) -> Result<Self> {
         let root = &record.root;
-        let manifest = read_file(&root.join(".config/workspace.json"))?;
+        let manifest = read_file(&root.join(".config/workspace.json"))
+            .map_err(|error| Diagnostic::source(&error, ".config/workspace.json"))?;
         let validated = WorkspaceManifest::parse(&manifest, version)?;
         let users_path = root.join(".config/users.json");
-        let users = optional_file(&users_path)?;
+        let users = optional_file(&users_path)
+            .map_err(|error| Diagnostic::source(&error, ".config/users.json"))?;
         let readiness = readiness_action_with_users(
             name,
             record,
@@ -37,14 +40,27 @@ impl Sources {
         )?;
         ensure!(
             matches!(readiness, crate::workspace::ReadinessAction::Ready(_)),
-            "workspace membership requires setup"
+            Diagnostic::new(
+                Category::Membership,
+                "validate_target_inputs",
+                Some(".config/users.json")
+            )
         );
-        let config: serde_json::Value = optional_file(&root.join(".config/config.json"))?
+        let config: serde_json::Value = optional_file(&root.join(".config/config.json"))
+            .map_err(|error| Diagnostic::source(&error, ".config/config.json"))?
             .as_deref()
             .map(serde_json::from_slice)
-            .transpose()?
+            .transpose()
+            .map_err(|error| Diagnostic::source(&error.into(), ".config/config.json"))?
             .unwrap_or_else(|| serde_json::json!({}));
-        ensure!(config.is_object(), "workspace config must be an object");
+        ensure!(
+            config.is_object(),
+            Diagnostic::new(
+                Category::InvalidSource,
+                "validate_target_inputs",
+                Some(".config/config.json")
+            )
+        );
         let default = if name == &registry.default_workspace {
             "unrestricted"
         } else {
@@ -55,7 +71,13 @@ impl Sources {
             Some(value) => value
                 .as_str()
                 .filter(|v| matches!(*v, "unrestricted" | "workspace_only"))
-                .ok_or_else(|| anyhow::anyhow!("invalid portable access mode"))?,
+                .ok_or_else(|| {
+                    Diagnostic::new(
+                        Category::InvalidSource,
+                        "validate_target_inputs",
+                        Some(".config/config.json"),
+                    )
+                })?,
         }
         .to_owned();
         let mut files = BTreeMap::from([(".config/workspace.json".into(), manifest)]);
@@ -70,7 +92,8 @@ impl Sources {
                 &mut files,
                 &mut directories,
                 true,
-            )?;
+            )
+            .map_err(|error| Diagnostic::source(&error, relative))?;
         }
         Ok(Self {
             files,
@@ -162,7 +185,13 @@ pub(super) fn walk(
                 .ok_or_else(|| anyhow::anyhow!("invalid source path"))?
                 .to_owned();
             ensure!(
-                files.insert(key, fs::read(entry.path())?).is_none(),
+                files
+                    .insert(
+                        key.clone(),
+                        fs::read(entry.path())
+                            .map_err(|error| Diagnostic::source(&error.into(), &key))?
+                    )
+                    .is_none(),
                 "duplicate source path"
             );
         }

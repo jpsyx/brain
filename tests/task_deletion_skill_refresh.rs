@@ -120,8 +120,20 @@ fn protected_owned_edit_remains_protected_after_acknowledged_down() {
     fs::write(support::todo(&root), "edited owned bytes").unwrap();
     let executable = f.root("old target");
     target(&executable);
-    assert!(!refresh(&f, &executable, "preflight").status.success());
-    assert!(!refresh(&f, &executable, "apply").status.success());
+    for phase in ["preflight", "apply"] {
+        let output = refresh(&f, &executable, phase);
+        assert!(!output.status.success());
+        let text = String::from_utf8_lossy(&output.stderr);
+        for expected in [
+            "alpha",
+            "managed_content_modified",
+            ".agents/skills/todo/SKILL.md",
+            "retry",
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(!text.contains("edited owned bytes"));
+    }
     assert_eq!(
         fs::read_to_string(support::todo(&root)).unwrap(),
         "edited owned bytes"
@@ -327,3 +339,6 @@ mod acceptance;
 
 #[path = "task_deletion_skill_refresh/ordinary_patch.rs"]
 mod ordinary_patch;
+
+#[path = "task_deletion_skill_refresh/diagnostics.rs"]
+mod diagnostics;

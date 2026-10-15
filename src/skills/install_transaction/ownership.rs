@@ -4,6 +4,7 @@ use super::{
     journal::Entry,
     snapshot::{self, Snapshot},
 };
+use crate::skills::diagnostic::{Category, Diagnostic};
 use anyhow::{Result, ensure};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -36,9 +37,23 @@ pub(super) fn check_owned(
         match snapshot::read(&identity.root.join(path))? {
             Snapshot::Absent => missing.push(path.clone()),
             Snapshot::File { sha256, .. } => {
-                ensure!(&sha256 == expected, "edited managed skill file: {path}");
+                ensure!(
+                    &sha256 == expected,
+                    Diagnostic::new(
+                        Category::ManagedContentModified,
+                        "verify_ownership",
+                        Some(path)
+                    )
+                );
             }
-            _ => anyhow::bail!("managed skill file changed type: {path}"),
+            _ => {
+                return Err(Diagnostic::new(
+                    Category::OwnershipConflict,
+                    "verify_ownership",
+                    Some(path),
+                )
+                .into());
+            }
         }
     }
     Ok(missing)

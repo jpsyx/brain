@@ -133,8 +133,8 @@ BUILD_DIR="$SOURCE_DIR/target"
 (cd "$SOURCE_DIR" && cargo build --release --bin brain --target-dir "$BUILD_DIR") >&2
 
 stage="$(mktemp -d "$BIN_DIR/.brain-install.XXXXXXXX")"
-chmod 0700 "$stage"
 trap 'rm -rf -- "$stage"' EXIT
+chmod 0700 "$stage"
 trap 'exit 130' INT
 trap 'exit 143' TERM
 install -m 0755 "$BUILD_DIR/release/brain" "$stage/target"

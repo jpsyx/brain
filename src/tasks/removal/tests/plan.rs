@@ -319,3 +319,14 @@ fn removal_plan_visibility_uses_existing_datetime_and_malformed_date_semantics()
         );
     }
 }
+
+#[test]
+fn blocked_dependency_plan_names_both_ends_without_executable_edits() {
+    let fixture = WorkspaceFixture::new();
+    fixture.write("tasks/tasks.csv", b"task_id,task_name,blocked_by,last_touched\nT1,First,,2026-01-01\nT2,Middle,T1,2026-01-01\nT3,Last,T2,2026-01-01\n");
+    let plan = preview(&fixture, &["T2"], &Options::default());
+    assert!(plan.edits.is_empty());
+    assert_eq!(plan.blockers[0].details["task_name"], "Last");
+    assert_eq!(plan.blockers[0].details["prerequisite_name"], "Middle");
+    assert!(plan.blockers[0].message.contains("Last"));
+}

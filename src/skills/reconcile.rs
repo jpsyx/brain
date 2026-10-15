@@ -1,5 +1,6 @@
 //! Receipt-aware reconciliation without selected workspace bootstrap.
 mod lock;
+use super::diagnostic::Diagnostic;
 use super::{
     install,
     install_transaction::{Currentness, InstallIdentity, InstallVersion, LockedInstall},
@@ -26,6 +27,7 @@ pub(crate) enum WorkspaceRefresh {
     Failed {
         workspace_id: String,
         message: String,
+        diagnostic: Diagnostic,
     },
 }
 #[derive(Clone, Debug, Serialize)]
@@ -63,7 +65,7 @@ pub(crate) fn all(home: &Path, store: &RegistryStore, mode: RefreshMode) -> Refr
         },
         Err(error) => RefreshReport {
             workspaces: Vec::new(),
-            refresh_error: Some(format!("{error}")),
+            refresh_error: Some(Diagnostic::from_error(&error, "read_registry", None).to_string()),
         },
     }
 }
@@ -94,10 +96,10 @@ fn refresh_record(home: &Path, record: &WorkspaceRecord, mode: RefreshMode) -> W
             };
         }
         Err(error) => {
-            return WorkspaceRefresh::Failed {
+            return failure(
                 workspace_id,
-                message: format!("inspect workspace root: {error}"),
-            };
+                Diagnostic::from_error(&error.into(), "inspect_workspace", None),
+            );
         }
         Ok(_) => {}
     }
@@ -115,10 +117,10 @@ fn refresh_record(home: &Path, record: &WorkspaceRecord, mode: RefreshMode) -> W
     match result {
         Ok(true) => WorkspaceRefresh::Updated { workspace_id },
         Ok(false) => WorkspaceRefresh::Current { workspace_id },
-        Err(error) => WorkspaceRefresh::Failed {
+        Err(error) => failure(
             workspace_id,
-            message: format!("{error}"),
-        },
+            Diagnostic::from_error(&error, "reconcile", None),
+        ),
     }
 }
 pub(crate) fn sources(root: &Path) -> install::Sources {
@@ -177,4 +179,12 @@ pub(crate) fn refresh(
         .install(rendered, &version, stamp)
         .context("publish managed skills and persist receipt")?;
     Ok(true)
+}
+
+fn failure(workspace_id: String, diagnostic: Diagnostic) -> WorkspaceRefresh {
+    WorkspaceRefresh::Failed {
+        workspace_id,
+        message: diagnostic.to_string(),
+        diagnostic,
+    }
 }
