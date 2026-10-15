@@ -324,3 +324,6 @@ fn redirected_task_lock_rejects_before_recovery_opens_sqlite() {
 
 #[path = "task_deletion_skill_refresh/acceptance.rs"]
 mod acceptance;
+
+#[path = "task_deletion_skill_refresh/ordinary_patch.rs"]
+mod ordinary_patch;

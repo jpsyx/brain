@@ -176,8 +176,11 @@ fn run_current_prepared(
         && preparation.pending()
     {
         preparation.run()?;
-        task_deletion_skills::up_with_attempt(&home, Some(attempt))?;
     }
+    // A patch upgrade can omit the already-crossed managed migration entry.
+    // Reuse this invocation's retained attempt before stamping or dispatch,
+    // whether traversal reached that entry or setup required a preparation.
+    task_deletion_skills::up_with_attempt(&home, Some(attempt))?;
     if recorded != Some(current) {
         // Reconciliation is idempotent, so an unwritable stamp only means the
         // next ordinary command will repeat it. Do not mask that command's own

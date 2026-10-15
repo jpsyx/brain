@@ -2881,6 +2881,13 @@ operation ownership before task ownership, settles authenticated local journals
 without adapters, recovers managed installation, and invalidates only DB success
 receipts. The ownership manifest and immutable removal receipts remain intact.
 
+Ordinary startup completes mandatory managed-skill compatibility before machine
+version stamping and command dispatch, including patch upgrades that do not
+cross the managed migration boundary. The traversal callback and final check
+share one invocation-owned attempt, so successful or failed work is retained
+without a second refresh. An earlier migration failure returns before this
+final check; setup preparation, when pending, completes before compatibility.
+
 `install.sh --target-source CHECKOUT` builds a selected local Brain package while
 the current installer owns the transition. It freezes one executable in a private
 same-filesystem stage, carries its SHA-256 through preflight/apply, and renames

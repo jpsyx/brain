@@ -374,7 +374,7 @@ fn callback_failure_retains_first_attempt_and_untraversed_callback_falls_back() 
         f.add("broken");
         fs::create_dir_all(f.cache("broken").join("state.db")).unwrap();
         let recorded = if traversal == "not-traversed" {
-            "99.0.0"
+            "0.102.26"
         } else {
             "0.102.24"
         };
@@ -385,12 +385,10 @@ fn callback_failure_retains_first_attempt_and_untraversed_callback_falls_back() 
         assert_eq!(report["workspaces"][0]["status"], "updated", "{report}");
         assert_eq!(report["workspaces"][1]["status"], "failed");
         assert!(todo(&alpha).exists());
-        assert_eq!(report["startup_error"].is_string(), traversal == "reached");
-        if traversal == "reached" {
-            assert_eq!(
-                fs::read_to_string(f.root("config/brain/migrations/version")).unwrap(),
-                recorded
-            );
-        }
+        assert!(report["startup_error"].is_string());
+        assert_eq!(
+            fs::read_to_string(f.root("config/brain/migrations/version")).unwrap(),
+            recorded
+        );
     }
 }
