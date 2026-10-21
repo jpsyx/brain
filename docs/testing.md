@@ -1871,3 +1871,9 @@ receipts after local and external effects, and checks actual modal danger stylin
 and available controls. Managed-repair command fixtures cover modified generated
 content, core overrides and target input categories while preserving user bytes.
 Installer stage cleanup is exercised with an injected chmod failure.
+
+Native deletion dialog regressions exercise default cancellation, deliberate
+selection, dependency preview refresh without execution, stale-plan consent,
+running/recovery fencing, and the real native deletion worker. Focused Ratatui
+checks cover hidden internal identifiers, affected relationships, danger styling,
+and navigation/scroll help remaining visible in a narrow viewport.

@@ -6225,3 +6225,13 @@ Only validated diagnostic data crosses this boundary; arbitrary error chains,
 source bodies, parser values and child output remain excluded. The installer
 checks plugin names against the actual target's inventory before the customized
 child, preserving the same diagnostic without trusting child error text.
+
+### Task deletion uses explicit choices, not internal policy controls
+
+The native deletion dialog describes consequences and offers selectable actions.
+A plan fingerprint still binds confirmation to the reviewed inputs, but is not
+useful information for the person deciding whether to delete. Dependency choices
+name what waiting tasks will do; issue choices name whether linked issues will
+be canceled. Changing either rebuilds the plan and resets selection to Cancel.
+The action list is derived from the same state for both input and rendering, so
+hidden or blocked actions cannot execute through an unadvertised letter key.

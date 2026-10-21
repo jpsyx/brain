@@ -370,19 +370,21 @@ copies the link to the clipboard; Enter retries copying and Esc closes it.
 
 ### Native removal modal
 
-These captive controls are available after Ctrl+Backspace or the Remove palette
-command; they do not add global shortcuts. Confirmation executes the native
-service without handing the task to an agent. Policy and plan confirmation apply
-only without a saved operation. Recovery controls appear only when its worker is
-idle; running work accepts close and scrolling.
+These are captive selection controls after Ctrl+Backspace or the Remove palette
+command. Both entry points use the same native dialog. Cancel starts selected;
+choosing a dependency or linked-issue option rebuilds the preview and returns to
+Cancel. Delete appears only for an unblocked plan with no saved operation.
+Recovery uses the same action list, and running work offers only Close.
 
 | Key | Action |
 | --- | --- |
-| `d` | Cycle Reject, Unlink, Rewire dependency policy and rebuild preview |
-| `i` | Cycle Configured, Keep, Cancel linked-issue policy and rebuild preview |
-| `Enter` or `y` | Confirm the displayed, unblocked plan |
-| `s` / `r` / `a` | Inspect saved status, resume, or request abandonment for the failed operation |
-| `y` after abandonment warning | Confirm abandon; other input dismisses this confirmation |
-| `p` | Rebuild a failed preview when no saved operation remains |
+| `Up` / `Down`, `Left` / `Right` | Move between the displayed choices |
+| `Tab` / `Shift+Tab` | Move to the next / previous choice |
+| `Enter` | Select the highlighted choice; only Delete task confirms deletion |
+| `PageUp` / `PageDown` | Scroll long details without changing the selected choice |
 | `Esc` / `Ctrl+C` | Close the modal; running native execution continues |
-| `Up` / `Down` / `PageUp` / `PageDown` | Scroll the preview and diagnostics |
+
+There are no single-letter deletion or policy shortcuts. Recovery offers Check
+progress, Retry deletion, and Stop trying to delete. The last opens a second
+confirmation with Go back selected, explaining that already canceled linked
+issues will stay canceled.

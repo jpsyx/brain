@@ -115,12 +115,14 @@ fn canonical_middle_removal_tui_matches_cli_after_images_without_agent_prompt() 
     app.brain.replace_brain_transport(recording.transport());
     app.run_remove("T2");
     // The default service performs actual native IO; the modal owns consent.
-    for key in [None, Some('d'), Some('d')] {
-        if let Some(key) = key {
-            crate::tui::task_removal::handle_key(
-                &mut app,
-                &KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
-            );
+    for choose in [false, true] {
+        if choose {
+            for code in [KeyCode::Down, KeyCode::Enter] {
+                crate::tui::task_removal::handle_key(
+                    &mut app,
+                    &KeyEvent::new(code, KeyModifiers::NONE),
+                );
+            }
         }
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -137,10 +139,9 @@ fn canonical_middle_removal_tui_matches_cli_after_images_without_agent_prompt() 
     assert!(
         matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(&state.screen, RemovalScreen::Preview(plan) if plan.blockers.is_empty() && plan.options.dependents == crate::tasks::removal::model::Dependents::Rewire))
     );
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-    );
+    for code in [KeyCode::Down, KeyCode::Enter] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         app.tick_removal();

@@ -21,6 +21,7 @@ pub(crate) struct RemovalState {
     pub notice: String,
     pub abandon_confirm: bool,
     pub scroll: u16,
+    pub selected: usize,
 }
 
 impl RemovalState {
@@ -29,8 +30,5 @@ impl RemovalState {
     }
     pub(super) const fn recovery_available(&self) -> bool {
         !self.running() && !self.abandon_confirm && self.operation_id.is_some()
-    }
-    pub(super) const fn preview_actions_available(&self) -> bool {
-        !self.running() && !self.abandon_confirm && self.operation_id.is_none()
     }
 }

@@ -1,4 +1,5 @@
 //! Removal display and request coordination; workers outlive their modal.
+mod actions;
 mod effects;
 mod input;
 mod render;
@@ -54,6 +55,7 @@ impl Coordinator {
         };
         state.abandon_confirm = false;
         state.scroll = 0;
+        state.selected = 0;
         self.executing = !matches!(request, Request::Preview { .. });
         self.service.start(context, state.generation, request);
         self.state = Some(state.clone());
@@ -90,6 +92,7 @@ impl App {
             notice: String::new(),
             abandon_confirm: false,
             scroll: 0,
+            selected: 0,
         };
         self.removal_preview(state);
     }
@@ -132,10 +135,15 @@ impl App {
                         }
                         RemovalScreen::Failed(crate::tasks::removal::model::Problem::new(
                             "operation_status",
-                            &format!(
-                                "Operation {:?}; external effects: {:?}",
-                                operation.phase, operation.external
-                            ),
+                            match operation.phase {
+                                crate::tasks::removal::operations::Phase::Prepared => "Deletion is prepared. Retry to continue.",
+                                crate::tasks::removal::operations::Phase::ExternalPending => "Linked issues still need checking. Retry to check their status and continue.",
+                                crate::tasks::removal::operations::Phase::ExternalComplete => "Linked issues were canceled. Retry to finish deleting the task.",
+                                crate::tasks::removal::operations::Phase::LocalCommitted => "The task was deleted. Retry to finish the remaining updates.",
+                                crate::tasks::removal::operations::Phase::Complete => "Deletion finished.",
+                                crate::tasks::removal::operations::Phase::NeedsReconfirmation => "Task details changed. Stop this attempt before reviewing a new deletion.",
+                                crate::tasks::removal::operations::Phase::Abandoned => "Deletion stopped. The task remains in Brain.",
+                            },
                             serde_json::json!({"operation_id": operation.operation_id}),
                         ))
                     }
@@ -153,9 +161,10 @@ impl App {
                     }
                     if problem.code == "stale_plan" {
                         state.notice =
-                            "Inputs changed. Review the new preview and confirm again.".into();
+                            "Task details changed. Review the updated preview before deleting."
+                                .into();
                         if state.operation_id.is_some() {
-                            state.notice.push_str(" Resume the saved operation with its original consent, or abandon it before starting a new removal.");
+                            state.notice.push_str(" An earlier deletion still needs attention. Retry it or stop that attempt before starting again.");
                         }
                         if visible {
                             self.removal_preview(state);
@@ -170,25 +179,23 @@ impl App {
                 if receipt.committed {
                     let selected = self.tasks.selected_identity().map(|(id, _)| id);
                     if let Err(error) = self.reload_tasks() {
-                        state.notice = format!("Removal committed; task refresh failed: {error}");
+                        state.notice =
+                            format!("Task deleted, but refreshing the list failed: {error}");
                     }
                     self.tasks.restore_removal_selection(selected.as_deref());
                 }
-                self.status.set_flash(FlashKind::Info(format!(
-                    "Removal {}: {}",
-                    receipt.operation_id,
+                self.status.set_flash(FlashKind::Info(
                     if receipt.committed {
-                        "committed"
+                        "Task deleted"
                     } else {
-                        "not committed"
+                        "Task was not deleted"
                     }
-                )));
-            } else if !visible {
-                if let Some(id) = &state.operation_id {
-                    self.status.set_flash(FlashKind::Error(format!(
-                        "Removal {id} needs attention; open Remove for recovery"
-                    )));
-                }
+                    .into(),
+                ));
+            } else if !visible && state.operation_id.is_some() {
+                self.status.set_flash(FlashKind::Error(
+                    "Task deletion needs attention; open Remove to continue".into(),
+                ));
             }
             self.services.remember_removal(state.clone());
             if visible {

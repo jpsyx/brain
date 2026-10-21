@@ -1,12 +1,14 @@
-use super::{RemovalScreen, worker::Request};
-use crate::{
-    tasks::removal::model::{Dependents, LinkedIssue},
-    tui::{
-        App,
-        overlay::{Overlay, close_overlay},
-    },
+use super::{
+    RemovalScreen,
+    actions::{Action, choices},
+    worker::Request,
+};
+use crate::tui::{
+    App,
+    overlay::{Overlay, close_overlay},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
 pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
     if key.code == KeyCode::Esc
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
@@ -18,76 +20,64 @@ pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
         return;
     };
     let mut state = state.clone();
-    if matches!(
-        key.code,
-        KeyCode::Down | KeyCode::PageDown | KeyCode::Up | KeyCode::PageUp
-    ) {
-        state.scroll = if matches!(key.code, KeyCode::Down | KeyCode::PageDown) {
-            state.scroll.saturating_add(1)
-        } else {
-            state.scroll.saturating_sub(1)
-        };
-        app.overlay = Some(Overlay::TaskRemoval(state));
-        return;
+    let rows = choices(&state);
+    match key.code {
+        KeyCode::PageDown => state.scroll = state.scroll.saturating_add(5),
+        KeyCode::PageUp => state.scroll = state.scroll.saturating_sub(5),
+        KeyCode::Down | KeyCode::Right | KeyCode::Tab => {
+            state.selected = (state.selected + 1) % rows.len();
+        }
+        KeyCode::Up | KeyCode::Left | KeyCode::BackTab => {
+            state.selected = (state.selected + rows.len() - 1) % rows.len();
+        }
+        KeyCode::Enter => {
+            let action = rows[state.selected.min(rows.len() - 1)].0;
+            execute(app, state, action);
+            return;
+        }
+        _ => return,
     }
-    if state.running() {
-        return;
-    }
-    if state.abandon_confirm {
-        if key.code == KeyCode::Char('y') {
-            if let Some(id) = state.operation_id.clone() {
-                app.removal_request(state, Request::Abandon(id));
+    app.overlay = Some(Overlay::TaskRemoval(state));
+}
+
+fn execute(app: &mut App, mut state: super::RemovalState, action: Action) {
+    match action {
+        Action::Close => {
+            close_overlay(&mut app.overlay);
+        }
+        Action::Delete => {
+            if let RemovalScreen::Preview(plan) = &state.screen {
+                let request = Request::Apply {
+                    plan: Box::new(plan.clone()),
+                    expected: plan.fingerprint.clone(),
+                    today: chrono::Local::now().date_naive(),
+                };
+                app.removal_request(state, request);
             }
-        } else {
-            state.abandon_confirm = false;
+        }
+        Action::Dependencies(value) => {
+            state.options.dependents = value;
+            app.removal_preview(state);
+        }
+        Action::Issue(value) => {
+            state.options.linked_issue = value;
+            app.removal_preview(state);
+        }
+        Action::Preview => app.removal_preview(state),
+        Action::Abandon | Action::Back => {
+            state.abandon_confirm = action == Action::Abandon;
+            state.selected = 0;
             app.overlay = Some(Overlay::TaskRemoval(state));
         }
-        return;
-    }
-    if state.recovery_available() {
-        let id = state.operation_id.clone().expect("recovery operation");
-        match key.code {
-            KeyCode::Char('s') => app.removal_request(state, Request::Status(id)),
-            KeyCode::Char('r') => app.removal_request(state, Request::Resume(id)),
-            KeyCode::Char('a') => {
-                state.abandon_confirm = true;
-                app.overlay = Some(Overlay::TaskRemoval(state));
+        Action::Status | Action::Resume | Action::ConfirmAbandon => {
+            if let Some(id) = state.operation_id.clone() {
+                let request = match action {
+                    Action::Status => Request::Status(id),
+                    Action::Resume => Request::Resume(id),
+                    _ => Request::Abandon(id),
+                };
+                app.removal_request(state, request);
             }
-            _ => {}
         }
-        return;
-    }
-    if !state.preview_actions_available() {
-        return;
-    }
-    match (&state.screen, key.code) {
-        (RemovalScreen::Preview(plan), KeyCode::Enter | KeyCode::Char('y'))
-            if plan.blockers.is_empty() =>
-        {
-            let request = Request::Apply {
-                plan: Box::new(plan.clone()),
-                expected: plan.fingerprint.clone(),
-                today: chrono::Local::now().date_naive(),
-            };
-            app.removal_request(state, request);
-        }
-        (RemovalScreen::Preview(_), KeyCode::Char('d')) => {
-            state.options.dependents = match state.options.dependents {
-                Dependents::Reject => Dependents::Unlink,
-                Dependents::Unlink => Dependents::Rewire,
-                Dependents::Rewire => Dependents::Reject,
-            };
-            app.removal_preview(state);
-        }
-        (RemovalScreen::Preview(_), KeyCode::Char('i')) => {
-            state.options.linked_issue = match state.options.linked_issue {
-                LinkedIssue::Configured => LinkedIssue::Keep,
-                LinkedIssue::Keep => LinkedIssue::Cancel,
-                LinkedIssue::Cancel => LinkedIssue::Configured,
-            };
-            app.removal_preview(state);
-        }
-        (RemovalScreen::Failed(_), KeyCode::Char('p')) => app.removal_preview(state),
-        _ => {}
     }
 }

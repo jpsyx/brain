@@ -1,8 +1,7 @@
 use super::{RemovalScreen, RemovalState, lines};
 use crate::tasks::removal::model::{FileEdit, Options, RemovalPlan};
-#[test]
-fn native_task_removal_preview_shows_relationship_effects_and_plain_policy_choices() {
-    let mut state = RemovalState {
+pub(in crate::tui::task_removal) fn preview_state() -> RemovalState {
+    RemovalState {
         generation: 1,
         targets: vec!["T1".into()],
         options: Options::default(),
@@ -10,6 +9,7 @@ fn native_task_removal_preview_shows_relationship_effects_and_plain_policy_choic
         notice: String::new(),
         abandon_confirm: false,
         scroll: 0,
+        selected: 0,
         screen: RemovalScreen::Preview(RemovalPlan {
             presentation_labels: std::collections::BTreeMap::new(),
             maintenance: None,
@@ -26,17 +26,32 @@ fn native_task_removal_preview_shows_relationship_effects_and_plain_policy_choic
             blockers: vec![],
             warnings: vec![],
         }),
-    };
+    }
+}
+
+#[test]
+fn native_task_removal_preview_shows_relationship_effects_and_plain_policy_choices() {
+    let mut state = preview_state();
     let text = lines(&state).join("\n");
-    assert!(text.contains("Dependencies T2: T1 -> T3"), "{text}");
-    assert!(text.contains("References T2: T1|T9 -> T9"), "{text}");
-    assert!(text.contains("Keep prerequisites (rewire)"));
-    assert!(text.contains("Remove dependency links (unlink)"));
+    assert!(
+        text.contains("T2 will wait for T3 (previously T1)."),
+        "{text}"
+    );
+    assert!(
+        text.contains("T2 will link to T9 (previously T1, T9)."),
+        "{text}"
+    );
+    assert!(!text.contains("Consent:"), "{text}");
+    assert!(!text.contains("tasks/tasks.csv"), "{text}");
     state.operation_id = Some("saved-operation".into());
     let text = lines(&state).join("\n");
     assert!(!text.contains("[Enter]"), "{text}");
     assert!(!text.contains("[d]"), "{text}");
-    assert!(text.contains("[r] resume"), "{text}");
+    assert!(
+        super::choices(&state)
+            .iter()
+            .any(|(_, label)| label == "Retry deletion")
+    );
     state.screen = RemovalScreen::Failed(crate::tasks::removal::model::Problem::new(
         "failed",
         "failed",
@@ -50,7 +65,7 @@ fn native_task_removal_preview_shows_relationship_effects_and_plain_policy_choic
     let backend = ratatui::backend::TestBackend::new(100, 30);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal
-        .draw(|frame| super::draw(frame, &state, frame.area()))
+        .draw(|frame| super::draw(frame, &mut state, frame.area()))
         .unwrap();
     assert!(
         terminal
@@ -73,6 +88,7 @@ fn blocked_modal_identifies_the_named_dependent_edge_without_confirm() {
         notice: String::new(),
         abandon_confirm: false,
         scroll: 0,
+        selected: 0,
         screen: RemovalScreen::Preview(RemovalPlan {
             presentation_labels: std::collections::BTreeMap::new(),
             maintenance: None,
@@ -91,8 +107,38 @@ fn blocked_modal_identifies_the_named_dependent_edge_without_confirm() {
         }),
     };
     let text = lines(&state).join("\n");
-    for expected in ["T3", "Last", "T2", "Middle", "[d]"] {
+    for expected in ["T3", "Last", "T2", "Middle", "waiting"] {
         assert!(text.contains(expected), "{text}");
     }
     assert!(!text.contains("[Enter]"), "{text}");
+}
+
+#[test]
+fn native_task_removal_narrow_window_keeps_selection_and_scroll_help_visible() {
+    let mut state = preview_state();
+    state.notice = "Long detail ".repeat(40);
+    state.scroll = u16::MAX;
+    state.selected = 3;
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 16)).unwrap();
+    terminal
+        .draw(|frame| super::draw(frame, &mut state, frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let text: String = buffer
+        .content
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect();
+    assert!(text.contains("PgUp/PgDn"), "{text}");
+    assert!(
+        state.scroll < u16::MAX,
+        "scroll must clamp at the end so PageUp responds immediately"
+    );
+    assert!(text.contains("Esc close"), "{text}");
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|c| c.bg == crate::render::ACCENT_RED)
+    );
 }

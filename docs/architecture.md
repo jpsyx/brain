@@ -2853,7 +2853,7 @@ external zip/Python prerequisite or a hand-written archive format.
 
 ### Native removal UI and maintenance composition
 
-`tui/task_removal/{state,worker,input,render,effects}` separates modal display from native
+`tui/task_removal/{state,worker,input,render,effects,actions}` separates modal display from native
 IO. `AppServices` owns the injected removal coordinator and worker runtime;
 `Overlay::TaskRemoval` is a generation-tagged display snapshot. Tick polling
 updates only the matching request generation. Closing an overlay leaves execution
@@ -2864,6 +2864,10 @@ queued previews coalesce to the latest generation. Accepted non-preview requests
 retain FIFO order. The Running UI and recoverable coordinator admit no second
 execution or recovery request while one is pending, including after close/reopen.
 Relationship effects are rendered from captured plan bytes without filesystem IO.
+`actions` derives the available captive choices once for both input and rendering.
+The renderer keeps the action list and footer separate from scrollable details;
+selection resets to Cancel on each new request, including stale-plan refreshes.
+The plan fingerprint remains internal to confirmation and execution.
 
 `tasks/removal/maintenance/{preview,validate,history}` freezes pure backlog
 candidates into typed intent. The planner composes dependency substitution,

@@ -2998,22 +2998,32 @@ keeps the edit and records a soft conflict.
 
 ### Native removal from the tasks view and backlog maintenance
 
-Ctrl+Backspace and the Remove palette command open a native preview with the
-same task-only picker. No agent frontend is required. The modal shows resolved
-targets, changed paths and named before/after dependencies, task references,
-project memberships and successor handoffs, linked-issue actions, blockers,
-warnings, and the saved
-fingerprint. Dependency and linked-issue choices rebuild the preview. Confirmation
-uses that fingerprint and the current date; stale inputs rebuild the preview for
-fresh consent. Preview, apply, status, resume, and abandon run in background
-workers. Closing the modal does not cancel an executing operation. Reopening
-Remove returns to its running or recoverable operation, with saved status,
-resume, and explicitly confirmed abandonment once its worker is idle. A saved
-operation hides new-plan policy/confirm controls; running work offers close and
-scroll only. Abandon preserves local rows and
-does not undo external cancellations; unknown outcomes must first be reconciled.
-A completed removal refreshes tasks without moving main view or panel focus and
-retains a surviving selection, otherwise the nearest row.
+Ctrl+Backspace and the Remove palette command open a native deletion dialog with
+the same task-only picker. No agent frontend is required. The dialog uses rounded
+red chrome, padded and wrapped content, highlighted action rows, and one fixed
+navigation footer. Cancel is selected by default. Use arrows or Tab to choose an
+action and Enter to select it; typing `y` does not bypass the selection.
+
+The dialog names the task and explains that deletion has no undo. It shows named
+changes to related tasks and projects, linked issues that will be canceled, and
+any blockers or warnings. Internal fingerprints and CSV update paths stay out of
+the interface. When other tasks wait on the selected task, choose whether they
+should keep waiting for its prerequisites or stop waiting for it. Those other
+tasks are not deleted. Linked-issue choices say whether to leave issues unchanged
+or cancel them too, and appear only when relevant. Choosing either kind of option
+rebuilds the preview and returns selection to Cancel; it never deletes immediately.
+Delete is unavailable while a blocker remains.
+
+Confirmation still uses the captured fingerprint and current date. Stale inputs
+rebuild the preview for fresh consent. Preview, apply, status, resume, and abandon
+run in background workers. Closing does not cancel executing work. Reopening
+Remove returns to running or recoverable work. Recovery offers Check progress,
+Retry deletion, and Stop trying to delete, using the same selection controls.
+Stopping requires a second confirmation, defaults to Go back, preserves local
+rows, and cannot undo external cancellations. Unknown outcomes must first be
+reconciled. Running work offers only Close. PageUp/PageDown scroll long details
+without moving the action selection. A completed removal refreshes tasks without
+moving the main view or panel focus, retaining a surviving selection or the nearest row.
 
 Backlog purge and dedupe use the same grouped removal transaction and recovery
 records, with no habit opt-in and linked issues kept. Purge rewires dependent

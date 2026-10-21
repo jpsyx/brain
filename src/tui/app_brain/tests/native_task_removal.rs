@@ -84,6 +84,10 @@ fn native_task_removal_invokes_native_service_without_a_brain_prompt() {
         );
         crate::tui::task_removal::handle_key(
             &mut app,
+            &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        crate::tui::task_removal::handle_key(
+            &mut app,
             &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         );
         app.tick_removal();
@@ -104,41 +108,39 @@ fn native_task_removal_invokes_native_service_without_a_brain_prompt() {
 }
 
 #[test]
-fn native_task_removal_cancel_and_policy_rebuild_do_not_apply() {
+fn native_task_removal_dependency_choice_rebuilds_without_applying() {
     let tmp = tempfile::tempdir().unwrap();
     let cli = Cli::parse_from(["tasks"]);
     let mut app = test_app(&tmp, &cli, AgentKind::Claude);
     let calls = Arc::new(Mutex::new(Vec::new()));
-    app.services
-        .replace_removal_service(Box::new(NativeRecorder {
-            calls: calls.clone(),
-            results: VecDeque::new(),
-        }));
+    let replies = Arc::new(Mutex::new(VecDeque::new()));
+    app.services.replace_removal_service(Box::new(Controlled {
+        calls: calls.clone(),
+        replies: replies.clone(),
+    }));
     app.run_remove("T1");
+    let generation = calls.lock().unwrap()[0].0;
+    let mut preview = plan();
+    preview
+        .blockers
+        .push(crate::tasks::removal::model::Problem::new(
+            "dependents_exist",
+            "T2 needs T1",
+            serde_json::json!({"task_id":"T2"}),
+        ));
+    replies
+        .lock()
+        .unwrap()
+        .push_back((generation, Response::Preview(Ok(preview))));
     app.tick_removal();
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
-    );
-    app.tick_removal();
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
-    );
-    app.tick_removal();
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-    );
-    assert!(app.overlay.is_none());
+    // Cancel is first; the next row chooses how waiting tasks should behave.
+    for code in [KeyCode::Down, KeyCode::Enter] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
     let calls = calls.lock().unwrap().clone();
-    assert_eq!(calls.len(), 3);
-    assert!(
-        matches!(&calls[1], Request::Preview { options, .. } if options.dependents == crate::tasks::removal::model::Dependents::Unlink)
-    );
-    assert!(
-        matches!(&calls[2], Request::Preview { options, .. } if options.linked_issue == crate::tasks::removal::model::LinkedIssue::Keep)
-    );
+    assert_eq!(calls.len(), 2);
+    assert!(matches!(&calls[1].1, Request::Preview { options, .. }
+        if options.dependents == crate::tasks::removal::model::Dependents::Rewire));
 }
 
 struct Controlled {
@@ -201,6 +203,10 @@ fn native_task_removal_fences_late_previews_and_retains_closed_execution_recover
     app.tick_removal();
     crate::tui::task_removal::handle_key(
         &mut app,
+        &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    );
+    crate::tui::task_removal::handle_key(
+        &mut app,
         &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
     );
     let third = calls.lock().unwrap()[2].0;
@@ -246,15 +252,13 @@ fn native_task_removal_fences_late_previews_and_retains_closed_execution_recover
     assert!(
         matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if state.operation_id.as_deref() == Some("saved-operation"))
     );
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
-    );
+    for code in [KeyCode::Up, KeyCode::Enter] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
     assert_eq!(calls.lock().unwrap().len(), 3);
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
-    );
+    for code in [KeyCode::Down, KeyCode::Enter] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
     assert!(matches!(&calls.lock().unwrap()[3].1, Request::Abandon(id) if id == "saved-operation"));
     for code in [
         KeyCode::Char('s'),
@@ -285,6 +289,10 @@ fn native_task_removal_stale_preview_rebuilds_without_confirming_and_confirmatio
         .unwrap()
         .push_back((first, Response::Preview(Ok(plan()))));
     app.tick_removal();
+    crate::tui::task_removal::handle_key(
+        &mut app,
+        &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+    );
     crate::tui::task_removal::handle_key(
         &mut app,
         &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
@@ -354,10 +362,9 @@ fn native_task_removal_keeps_task_only_picker_and_renders_abandon_consequence() 
         ))),
     ));
     app.tick_removal();
-    crate::tui::task_removal::handle_key(
-        &mut app,
-        &KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
-    );
+    for code in [KeyCode::Up, KeyCode::Enter] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(110, 30)).unwrap();
     terminal
         .draw(|frame| crate::tui::draw::draw(frame, &mut app))
@@ -369,11 +376,40 @@ fn native_task_removal_keeps_task_only_picker_and_renders_abandon_consequence() 
         .iter()
         .map(ratatui::buffer::Cell::symbol)
         .collect();
-    assert!(text.contains("recover-me"));
-    assert!(text.contains("Abandon keeps local rows"));
-    assert!(text.contains("does not undo external cancellations"));
+    assert!(text.contains("The task stays in Brain."));
+    assert!(
+        text.contains("Any linked issues already canceled stay"),
+        "{text}"
+    );
+    assert!(text.contains("canceled."), "{text}");
     assert_eq!(
         app.shell.main_view(),
         crate::main_view::MainView::BrainSearch
     );
+}
+
+#[test]
+fn native_task_removal_enter_defaults_to_cancel() {
+    let tmp = tempfile::tempdir().unwrap();
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&tmp, &cli, AgentKind::Claude);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    app.services
+        .replace_removal_service(Box::new(NativeRecorder {
+            calls: calls.clone(),
+            results: VecDeque::new(),
+        }));
+    app.run_remove("T1");
+    app.tick_removal();
+    for code in [KeyCode::Char('y'), KeyCode::Char('d'), KeyCode::Char('i')] {
+        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
+    }
+    assert!(app.overlay.is_some());
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    crate::tui::task_removal::handle_key(
+        &mut app,
+        &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    );
+    assert!(app.overlay.is_none());
+    assert_eq!(calls.lock().unwrap().len(), 1);
 }
