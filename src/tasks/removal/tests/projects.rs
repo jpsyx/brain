@@ -138,3 +138,38 @@ fn project_cleanup_uses_snapshot_symlink_exclusion() {
     );
     assert_eq!(std::fs::read(&external).unwrap(), before);
 }
+
+#[test]
+fn project_cleanup_ignores_nested_resource_and_backup_metadata() {
+    let fixture = WorkspaceFixture::new();
+    let mut nested = Vec::new();
+    for directory in ["projects/team__current", "archive/projects/team__old"] {
+        fixture.project(directory);
+        for (suffix, bytes) in [
+            ("resources/article/.METADATA.json", br#"{"title":"Article","tasks":["T17"]}"#.as_slice()),
+            ("backups/project/.METADATA.json", br#"{"name":"team__backup","namespace":"team","title":"Backup","status":"done","priority":"p2","due":"none","directory":"projects/team__backup","tasks":["T17"]}"#.as_slice()),
+            ("notes/.METADATA.json", b"{invalid".as_slice()),
+        ] {
+            let path = format!("{directory}/{suffix}");
+            fixture.write(&path, bytes);
+            nested.push((path, bytes));
+        }
+    }
+    let snapshot = Snapshot::read(&fixture.context(), today()).unwrap();
+    let after = clean(&snapshot.projects, &removed()).unwrap();
+    assert_eq!(snapshot.projects.len(), 2);
+    assert_eq!(after.len(), 2);
+    for directory in ["projects/team__current", "archive/projects/team__old"] {
+        let path = format!("{directory}/.METADATA.json");
+        let value: Value = serde_json::from_slice(&after[&path]).unwrap();
+        assert_eq!(value["tasks"], json!([]));
+    }
+    for (path, bytes) in nested {
+        assert!(!snapshot.projects.contains_key(&path));
+        assert!(!after.contains_key(&path));
+        assert_eq!(
+            std::fs::read(fixture.workspace.root().join(path)).unwrap(),
+            bytes
+        );
+    }
+}

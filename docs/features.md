@@ -2902,6 +2902,11 @@ references with surviving prerequisites. There is no recursive cascade deletion.
 Habit intent does not expand to completed history, and managed triage habits
 remain protected.
 
+Project-reference cleanup scans the metadata directly inside each active or
+archived project folder, including projects inside archive grouping folders.
+Nested resource and backup metadata inside a project are left untouched
+and cannot block removal; malformed project-root metadata still blocks it.
+
 `brain tasks remove T17 --dry-run --json` returns a versioned preview with
 its fingerprint, resolved targets, effects, and typed blockers. Targets are
 resolved together, deduplicated, and sorted; inherited listing filters and

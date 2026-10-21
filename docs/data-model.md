@@ -1150,8 +1150,11 @@ Absence differs from an empty file. Every row is validated for duplicate display
 IDs and UUIDs, including collisions between persisted and derived legacy UUIDs.
 Legacy UUIDs use the existing workspace/kind/display-ID derivation without schema
 or counter writes. Metadata scans cover `projects/` and `archive/projects/`,
-retain exact bytes plus typed metadata, and do not follow symlinks. Malformed
-metadata fails; missing referenced projects produce structured warnings.
+including grouping folders, and stop descending beneath a folder containing
+`.METADATA.json`. They retain exact bytes plus typed metadata and do not follow
+symlinks. Nested resource and backup metadata inside a project are excluded.
+Malformed project-root metadata fails; missing referenced projects produce
+structured warnings.
 
 The version-1 canonical fingerprint binds workspace UUID, actor ID, execution
 date, options, both complete CSV before-images, sorted project metadata

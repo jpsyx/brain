@@ -288,6 +288,14 @@ fn read_projects(root: &Path) -> Result<BTreeMap<String, ProjectSnapshot>, Probl
         for entry in walkdir::WalkDir::new(&directory)
             .follow_links(false)
             .sort_by_file_name()
+            .into_iter()
+            .filter_entry(|entry| {
+                !entry.file_type().is_dir()
+                    || entry.depth() == 0
+                    || !entry.path().parent().is_some_and(|parent| {
+                        parent.join(".METADATA.json").symlink_metadata().is_ok()
+                    })
+            })
         {
             let entry = entry.map_err(|error| problem("snapshot_read_failed", &error, relative))?;
             if entry.file_type().is_symlink() || entry.file_name() != ".METADATA.json" {
