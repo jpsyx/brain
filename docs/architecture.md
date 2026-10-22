@@ -1351,8 +1351,8 @@ post-pass → verify → journal**: `config` (`SyncConfig`, parsed from the brai
 block) feeds `remote::build_remote` (the B2 remote as `RCLONE_CONFIG_*` env
 vars, never on argv) and `args::bisync_args` (the full `rclone bisync` argv:
 conflict resolution bias for the direction, keep-both flags, `--max-delete`,
-default excludes (including machine-local dependency trees and Python
-bytecode), `--check-access --check-filename RCLONE_TEST`, plus
+default excludes (including machine-local dependency trees, Python
+bytecode, and workspace-root generated skill trees), `--check-access --check-filename RCLONE_TEST`, plus
 `--stats 10s --stats-one-line` for live progress and `--resilient --recover`
 for resumability). Before any remote or portable mutation,
 `identity/` validates the selected root's existing portable manifest, probes
@@ -1446,6 +1446,16 @@ counts for the themed summary. The command prints default progress before the
 rclone dry-run and before the CSV baseline pass. No journal entry, no conflict post-pass, no
 baseline mutation: it never calls `rclone bisync` without `--dry-run`, and
 its CSV pass never writes local files, remotes, or baselines.
+
+`skill_outputs.rs` defines the four workspace-root generated skill directories
+shared by the argument builders, watcher, and baseline reconciliation. Before
+an ordinary bisync, `sync_once` filters only those records from existing rclone
+v1 active/recovery listings while holding the workspace sync lock. It validates
+all listings first, durably backs up their original bytes, then replaces each
+changed file atomically. Partial replacement is retryable without resetting
+user-content baselines. Unknown formats and nonregular listings refuse before
+replacement. `brain check` uses a private disposable filtered copy instead;
+absolute watcher events become workspace-relative before the shared predicate.
 
 **The auto-sync trigger layer** (`lock.rs`/`watch.rs`/`periodic.rs`/`trigger.rs`, wired
 into the shell lifecycle and receiver dispatch) makes sync automatic while keeping the pure/impure

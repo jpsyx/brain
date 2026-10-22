@@ -39,6 +39,9 @@ pub const CONFLICT_MARKER: &str = "__brainconflict__";
 /// the max-merge in `counters` (bisync's newer-wins would regress a counter and
 /// cause id collisions), not by bisync.
 ///
+/// Generated skill trees and frontend links are also excluded by
+/// `skill_outputs::DIRECTORIES`; their plugin and extension sources still sync.
+///
 /// Also every in-root transaction artifact: the portable-user, triage-habit, and
 /// task-schema journals plus their staged/backup/restore scratch (`.brain-*`, and
 /// the `.<live-name>.brain-triage-…` siblings written beside a live file), and any
@@ -122,6 +125,9 @@ pub fn bisync_args(
     for ex in EXCLUDES {
         a.extend(["--exclude".into(), ex.into()]);
     }
+    for directory in super::skill_outputs::DIRECTORIES {
+        a.extend(["--exclude".into(), format!("/{directory}/**")]);
+    }
     for ex in &cfg.exclude {
         a.extend(["--exclude".into(), ex.clone()]);
     }
@@ -153,6 +159,9 @@ pub fn push_args(cfg: &SyncConfig, local: &str, remote_arg: &str) -> Vec<String>
     ];
     for exclude in EXCLUDES {
         args.extend(["--exclude".to_owned(), exclude.to_owned()]);
+    }
+    for directory in super::skill_outputs::DIRECTORIES {
+        args.extend(["--exclude".to_owned(), format!("/{directory}/**")]);
     }
     for exclude in &cfg.exclude {
         args.extend(["--exclude".to_owned(), exclude.clone()]);

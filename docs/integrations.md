@@ -2110,7 +2110,9 @@ brain-root lookup.
   `--resync`), `--check-access --check-filename RCLONE_TEST`, and default
   excludes (`.git/**`, `.DS_Store`, `.cache/**`, the remote identity manifest
   `.config/workspace.json`, setup claims `.config/workspace-claims/**`, Python
-  bytecode (`__pycache__/**`, `*.pyc`), task
+  bytecode (`__pycache__/**`, `*.pyc`), workspace-root generated skill trees
+  (`/.agents/skills/**`, `/.claude/skills/**`, `/.codex/skills/**`,
+  `/.opencode/skills/**`), task
   schema metadata `tasks/SCHEMA.json`, friendly conflict copies `*(conflict *)*`, raw
   markers `*.__brainconflict__*`, and every in-root transaction artifact:
   journals plus their staged/backup/restore scratch (`.brain-*`, and the
@@ -2121,6 +2123,14 @@ brain-root lookup.
   `src/sync/run.rs` (`run_rclone`) spawns `rclone` with that argv and the
   env-var remote, and parses its captured stderr into transferred / deleted /
   error counts plus an abort reason.
+- **Generated-skill exclusions preserve existing sync history.** Plain rclone
+  `--exclude` changes do not have the filter-file checksum guard. Brain removes
+  only newly excluded generated-skill records from its cached v1 listings before
+  bisync can mistake them for deletions. Original listings are retained under
+  `sync/bisync/skill-output-backups/`; active and recovery listings are replaced
+  atomically after all backups are durable. The normal deletion limit and
+  keep-both conflict behavior still apply to user files. Read-only checks use
+  a temporary filtered copy; plugin and extension sources still transfer.
 - **Remote ownership is proved before remote data work.**
   `src/sync/identity/mod.rs` strictly loads the selected root's existing
   `.config/workspace.json`, requires its UUID to equal the selected

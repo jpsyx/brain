@@ -5033,11 +5033,12 @@ flocks with nothing portable in them). `watch::is_watch_relevant` mirrors them:
 mid-transaction is the worst moment to fire a push, since the only thing such a
 push could carry is a half-applied group.
 
-Changing the filter set makes rclone bisync demand `--resync`, which brain already
-handles: the run aborts with `PriorListingMissing` and `should_auto_resync` retries
-once with a fresh baseline. Nothing is lost, because the newly excluded paths are
-scratch by definition. Objects a previous version already uploaded stay on the
-remote as inert junk; `rclone delete` on the remote path removes them.
+Plain `--exclude` changes do not make rclone demand `--resync`; that checksum
+safety check belongs to `--filters-file`. Newly hidden records in older listings
+can instead look like deletions and trip the deletion guard. The generated-skill
+boundary below therefore updates only its excluded records in cached listings,
+without resetting user-file history. Previously uploaded excluded objects stay
+on the remote and are no longer transferred.
 
 ## Managed lifecycle hooks belong to workspaces, and migrations are invisible
 
@@ -6297,3 +6298,27 @@ its pending start notice is attempted before the final answer.
 An idle receiver that needs a freshness pull reports sync preparation immediately.
 If older agent work is ahead of this message, it reports queued instead; a
 future freshness pull must not disguise the current agent wait.
+
+## Generated skill builds never cross the cloud boundary
+
+A workspace's skill receipt records the exact bytes installed on that machine.
+Cloud sync previously included `.agents/skills`, so a peer's older or differently
+rendered copy could overwrite an owned file and make the next startup refuse
+with a managed-content mismatch. Frontend links are outputs of the same local
+installation. All four root-level skill trees now stay local. Extensions and
+plugins are portable sources; nested project or plugin asset trees are not
+mistaken for the workspace's generated output.
+
+Adding exclusions alone is insufficient for an existing bisync baseline.
+Rclone's ordinary `--exclude` flags hide files from new listings without
+invalidating old ones, making generated records appear deleted. Resetting the
+entire baseline would also discard pending note deletions and conflict history.
+Instead Brain recognizes rclone's documented v1 listing records and removes
+only generated-skill entries, preserving every other line verbatim. The ASCII
+root prefixes remain literal in Go-quoted paths, so unrelated quoted filenames
+and escaped newlines require no reinterpretation. Unknown formats and nonregular
+listing files are refused before replacement. Original listings are durably
+backed up before any atomic replacement; interrupted transitions retry the
+remaining records. The existing deletion limit and conflict rules are unchanged.
+Read-only previews filter a disposable copy, so previewing cannot consume this
+transition or change the next real sync's history.

@@ -59,11 +59,15 @@ impl Debouncer {
     }
 }
 
-/// Whether a changed path should trigger a sync. Mirrors the bisync exclude set
-/// (spec §6): VCS/cache/OS cruft, existing conflict copies, and transaction
+/// Whether a workspace-relative changed path should trigger a sync.
+///
+/// Mirrors the bisync exclude set (spec §6): VCS/cache/OS cruft, existing conflict copies, and transaction
 /// journals/scratch/locks never trigger.
 #[must_use]
 pub fn is_watch_relevant(path: &Path) -> bool {
+    if super::skill_outputs::is_skill_output(path) {
+        return false;
+    }
     for comp in path.components() {
         if let Component::Normal(os) = comp {
             let s = os.to_string_lossy();
@@ -178,11 +182,18 @@ pub fn spawn_watcher_with<F>(
 where
     F: Fn() + Send + 'static,
 {
+    let root = root.canonicalize()?;
+    let event_root = root.clone();
     let (tx, rx) = mpsc::channel::<WatchInput>();
     let event_tx = tx.clone();
     let handler = move |res: notify::Result<notify::Event>| {
         if let Ok(event) = res {
-            let _ = event_tx.send(WatchInput::Paths(event.paths));
+            let paths = event
+                .paths
+                .iter()
+                .filter_map(|path| path.strip_prefix(&event_root).ok().map(Path::to_path_buf))
+                .collect();
+            let _ = event_tx.send(WatchInput::Paths(paths));
         }
     };
     // FSEvents can silently omit changes in otherwise valid user-owned trees
@@ -195,7 +206,7 @@ where
     )?;
     #[cfg(not(target_os = "macos"))]
     let mut watcher = notify::RecommendedWatcher::new(handler, notify::Config::default())?;
-    watcher.watch(root, RecursiveMode::Recursive)?;
+    watcher.watch(&root, RecursiveMode::Recursive)?;
 
     let worker = std::thread::spawn(move || run_watcher_loop(&rx, window, on_fire, Instant::now));
 

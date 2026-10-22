@@ -185,3 +185,29 @@ fn stopping_one_clock_driven_watcher_loop_does_not_stop_its_peer() {
     family_tx.send(WatchInput::Stop).unwrap();
     family.join().unwrap();
 }
+
+#[test]
+fn skill_builds_and_frontend_links_do_not_trigger_uploads() {
+    for directory in [".agents", ".claude", ".codex", ".opencode"] {
+        for suffix in [
+            "skills",
+            "skills/custom",
+            "skills/custom/SKILL.md",
+            "skills/custom/.brain-rendered",
+        ] {
+            let path = format!("{directory}/{suffix}");
+            assert!(!is_watch_relevant(Path::new(&path)), "{path}");
+        }
+    }
+    for path in [
+        ".config/plugins/custom/SKILL.md",
+        ".config/extensions/todo.md",
+        ".opencode/plugins/brain.js",
+        "notes/skills/custom.md",
+        ".agents/skills-notes.md",
+        ".config/plugins/custom/.agents/skills/example/SKILL.md",
+        "projects/example/.agents/skills/custom/SKILL.md",
+    ] {
+        assert!(is_watch_relevant(Path::new(path)), "{path}");
+    }
+}

@@ -15,6 +15,8 @@ mod manifest_adoption;
 mod multi_workspace;
 #[path = "sync_local/schema_transition.rs"]
 mod schema_transition;
+#[path = "sync_local/skills.rs"]
+mod skills;
 #[path = "sync_local/transport.rs"]
 mod transport;
 

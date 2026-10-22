@@ -127,6 +127,10 @@ fn sync_once_with_task_state(
     let task_owner = crate::tasks::store_lock::TaskStoreOwner::acquire(workspace)?;
     let workdir = crate::sync::run::bisync_workdir(paths);
     let _ = std::fs::create_dir_all(&workdir);
+    if !matches!(dir, Direction::Push | Direction::Resync) {
+        reporter.line(&theme.info("Checking cached sync listings for generated skills…"));
+        crate::sync::skill_outputs::reconcile_baselines(&workdir)?;
+    }
     let workdir_arg = workdir.to_string_lossy().into_owned();
     let argv = if dir == Direction::Push {
         args::push_args(cfg, &local, &remote.arg)

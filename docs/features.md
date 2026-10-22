@@ -1339,6 +1339,22 @@ syncs. This is guarded by the `--max-delete` safety check (see
 can't wipe out the other; short of tripping that guard, delete is a real,
 bidirectional operation, not just a local one.
 
+**Generated skills stay on their own machine.** Sync and automatic uploads
+exclude the workspace-root `.agents/skills`, `.claude/skills`, `.codex/skills`,
+and `.opencode/skills` trees. Their edits do not trigger uploads. Portable
+customizations in `.config/extensions` and `.config/plugins` continue to sync,
+including nested assets; Brain rebuilds each machine's generated skills from
+those sources. Old cloud copies remain untouched and cannot replace local
+builds. Handwritten skills placed directly in the generated trees also remain
+local; use `.config/plugins` for portable skill sources.
+
+Existing sync baselines are updated automatically by removing only generated
+skill entries. Brain retains the original cached listings under
+`<workspace-cache>/sync/bisync/skill-output-backups/` before replacing them.
+Ordinary note deletion and conflict history remain intact, without a full
+resync or a weaker deletion guard. `brain check` filters a disposable copy,
+leaving the live listings unchanged.
+
 **Selective sync (optional, off by default).** `sync.exclude` (extra rclone
 exclude patterns) and `sync.max_size` (skip files above a size cap) let you
 keep large or unwanted paths out of the bucket entirely — e.g. bulky media or

@@ -70,3 +70,29 @@ fn stopping_one_workspace_watcher_leaves_the_peer_running() {
     assert!(personal_rx.recv_timeout(Duration::from_millis(20)).is_err());
     drop(family_handle);
 }
+
+#[test]
+fn generated_skill_edits_stay_local_but_source_edits_trigger_uploads() {
+    let root = tempfile::tempdir().unwrap();
+    let generated = root.path().join(".agents/skills/custom/SKILL.md");
+    let source = root.path().join(".config/extensions/custom.md");
+    for path in [&generated, &source] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "initial").unwrap();
+    }
+    let (sent, received) = mpsc::channel();
+    let handle = spawn_watcher_with(root.path(), Duration::from_millis(20), move || {
+        let _ = sent.send(());
+    })
+    .unwrap();
+    std::fs::write(&generated, "new generated content").unwrap();
+    assert!(
+        received.recv_timeout(Duration::from_millis(1400)).is_err(),
+        "generated skill fired a sync"
+    );
+    std::fs::write(&source, "new extension content").unwrap();
+    received
+        .recv_timeout(Duration::from_secs(15))
+        .expect("portable source triggers sync");
+    drop(handle);
+}

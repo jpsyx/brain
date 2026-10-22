@@ -2459,6 +2459,14 @@ Two derived predicates:
   remote layered over the B2 remote instead of the raw `BRAIN:<bucket>/<path>`
   target.
 
+Generated workspace skills (`.agents/skills`) and their `.claude/skills`,
+`.codex/skills`, and `.opencode/skills` frontend trees are machine-local outputs,
+excluded only at the workspace root. Their portable inputs remain
+`.config/extensions` and `.config/plugins`. The rclone baseline cache retains
+original v1 listing backups under `sync/bisync/skill-output-backups/<id>/` when
+removing generated-skill records; all user-file baseline records remain
+byte-identical. Preview listings are temporary and never replace the live cache.
+
 The sync transport executable is not part of this data model. `brain sync`
 checks for external `rclone` before invoking the configured remote.
 
