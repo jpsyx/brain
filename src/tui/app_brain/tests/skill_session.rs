@@ -256,8 +256,8 @@ fn skip_button_marks_managed_daily_triage_done_without_launching_an_agent() {
     let habits_path = app.context.workspace().root().join("tasks/habits.csv");
     std::fs::write(
         &habits_path,
-        "task_uuid,task_id,task_name,status,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched,assigned_to,system_key\n\
-         u1,H35,Morning Triage,not_started,2026-08-04,1,days,2026-08-04,,,pablo,brain.triage.daily\n",
+        "task_uuid,task_id,task_name,status,due_date,recur_interval,recur_unit,created_date,completed_date,last_touched,assigned_to,system_key,priority,hard_deadline,see_also,notes,project,energy_level,context,estimated_duration,ideal_time\n\
+         b3e6a475-9f8d-4cba-8e4d-e7eab4a30a6c,H35,Morning Triage,not_started,2026-08-04,1,days,2026-08-04,,,pablo,brain.triage.daily,p2,false,,,,,,,\n",
     )
     .expect("write managed daily triage habit");
     app.reload_tasks()
