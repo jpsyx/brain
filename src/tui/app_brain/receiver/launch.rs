@@ -172,7 +172,8 @@ impl App {
             claimed.claim.job(),
             claimed.claim.conversation(),
             &local_attachment_paths,
-            claimed.identity.placeholder().clone(),
+            crate::agent::AgentSession::new(uuid::Uuid::new_v4().to_string())
+                .expect("a fresh native session UUID is non-blank"),
             resume_session,
         ) else {
             if let Some(registration) = resume_registration {

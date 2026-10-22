@@ -2926,9 +2926,11 @@ observation directly to the transaction. The old owner cannot bind, finish, or
 deliver after expiry or replacement.
 
 The registered ID has two meanings that the durable conversation distinguishes.
-A fresh run registers Brain's launch ID: Claude may use it directly, while
-Codex and OpenCode must replace their placeholder. A resumed run registers the
-same native ID that the exact conversation already binds, so equality confirms
+A fresh run registers Brain's internal placeholder. Its launch plan supplies
+a separate UUID, because Claude rejects the placeholder as an invalid native
+session ID before any lifecycle hook can run. Every fresh receiver run waits
+for the frontend's SessionStart identity before recording acceptance. A resumed
+run registers the same native ID that the exact conversation already binds, so equality confirms
 resume for every frontend. Terminal completion also carries the session ID
 validated against the artifact into the immediate transaction. That transaction
 requires the same lifecycle row to remain locked and `completed`; a concurrent
@@ -2944,6 +2946,14 @@ it and `launched`, `accepted`, and `processing` remain fenced with exact
 correlation unchanged. Erasing or reclaiming those states would prevent BR-16
 from deciding whether same-session recovery is safe. Failed and done remain
 terminal.
+
+An ordinary child exit keeps its exact stopped controller tab reachable until
+deadline reconciliation authorizes cleanup. Discarding it immediately loses
+local shutdown proof: the restart cleanup path correctly rejects the still-live
+TUI PID, leaving the unavailable notice permanently cleanup-gated. Retaining
+that local capability preserves the strict restart proof and lets the existing
+exact cleanup acknowledgement release the notice. Exit alone still does not
+change durable acceptance, retry counts, or conversation binding.
 
 Orderly shutdown uses the same authority rule. The receiver-specific stage runs
 before generic controller shutdown and cancels claimed staging. Proved pre-spawn

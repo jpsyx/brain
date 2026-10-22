@@ -104,7 +104,7 @@ impl App {
             Ok((poll, _)) if !poll.observation.has_updates() => {
                 if poll.exited {
                     self.log_receiver_observation(&active, None, "child-exit");
-                    self.clean_exited_receiver_run_locally(&active);
+                    self.clean_exited_receiver_run_locally(active);
                 } else {
                     self.log_receiver_observation(&active, None, "pending");
                     self.receiver.store_durable_run(
@@ -128,7 +128,7 @@ impl App {
             Err(ReceiverRunPollError::Observation(error)) => {
                 if tab.exited {
                     self.log_receiver_observation(&active, None, "child-exit");
-                    self.clean_exited_receiver_run_locally(&active);
+                    self.clean_exited_receiver_run_locally(active);
                     return;
                 }
                 self.log_receiver_observation(&active, None, observation_error_category(error));

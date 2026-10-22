@@ -1992,8 +1992,10 @@ binding replacement, cleanup-fence insert, and agent-claim release share one
 immediate transaction that reads the exact locked remote instance. It verifies
 the durable registration's workspace, logical conversation, frontend, actor,
 channel, instance, and original registered ID.
-Claude may report that Brain-supplied ID as its native session ID, so equality
-is accepted for a fresh Claude launch with exact locked lifecycle evidence.
+The store permits equality for a fresh Claude registration with exact locked
+lifecycle evidence. The receiver launch coordinator uses a separate native
+UUID and internal `pending-receiver-…` placeholder, so its fresh SessionStart
+rotates the registered placeholder before observations can advance.
 Fresh Codex and OpenCode launches must rotate their placeholder to a distinct
 lifecycle-reported native ID. A resumed launch is different: its registered ID
 already equals the exact same-frontend durable conversation binding, so that

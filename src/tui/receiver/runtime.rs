@@ -328,6 +328,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
+            | DurableReceiverRun::Exited(_)
             | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
@@ -342,6 +343,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::RecoverySpawned(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::Exited(_)
             | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }
@@ -356,6 +358,7 @@ impl ReceiverRuntime {
             | DurableReceiverRun::RecoveryClaimed(_)
             | DurableReceiverRun::RecoveryPreSpawnCleanup(_)
             | DurableReceiverRun::Active(_)
+            | DurableReceiverRun::Exited(_)
             | DurableReceiverRun::AnswerCleanupPending(_)
             | DurableReceiverRun::CleanupPending(_) => None,
         }

@@ -84,7 +84,7 @@ impl App {
         self.begin_receiver_answer_cleanup(active);
     }
 
-    pub(super) fn clean_exited_receiver_run_locally(&mut self, active: &ActiveReceiverRun) {
+    pub(super) fn clean_exited_receiver_run_locally(&mut self, active: ActiveReceiverRun) {
         if active.claim.job().attempt_kind() == crate::state::ReceiverAttemptKind::Recovery {
             let now = self.receiver_now_unix_ms();
             let pid = i32::try_from(std::process::id()).unwrap_or(0);
@@ -112,7 +112,7 @@ impl App {
                     return;
                 }
                 Ok(crate::state::ReceiverRecoveryCleanupOutcome::Changed) => {
-                    self.preserve_recovery_active(active);
+                    self.preserve_recovery_active(&active);
                     return;
                 }
                 Err(_) => {
@@ -120,14 +120,48 @@ impl App {
                         "receiver recovery failed job={} boundary=process-exit-store",
                         active.claim.job().id()
                     ));
-                    self.preserve_recovery_active(active);
+                    self.preserve_recovery_active(&active);
                     return;
                 }
             }
         }
-        self.remove_exact_receiver_tab(active);
+        if self.brain.shutdown_receiver_run(
+            active.tab_id,
+            active.claim.job().id(),
+            active.attribution.instance(),
+        ) != Ok(true)
+        {
+            self.receiver
+                .store_durable_run(crate::tui::receiver::DurableReceiverRun::Active(active));
+            return;
+        }
         self.cleanup_receiver_instance_files(active.attribution.instance());
-        crate::logging::log("receiver exited after launch; durable evidence remains unchanged");
+        self.receiver
+            .store_durable_run(crate::tui::receiver::DurableReceiverRun::Exited(active));
+        crate::logging::log("receiver exited after launch; retaining exact cleanup authority");
+    }
+
+    pub(in crate::tui::app_brain::receiver) fn hold_exited_receiver_run(
+        &mut self,
+        active: ActiveReceiverRun,
+    ) {
+        if matches!(
+            self.services.receiver_run_retains_cleanup_authority(
+                active.claim.job().id(),
+                active.claim.job().token(),
+                active.attribution.instance(),
+            ),
+            Ok(false)
+        ) {
+            let _ = self.brain.remove_shutdown_receiver_run(
+                active.tab_id,
+                active.claim.job().id(),
+                active.attribution.instance(),
+            );
+            return;
+        }
+        self.receiver
+            .store_durable_run(crate::tui::receiver::DurableReceiverRun::Exited(active));
     }
 
     fn preserve_recovery_active(&mut self, active: &ActiveReceiverRun) {

@@ -20,6 +20,15 @@ impl App {
     fn execute_receiver_reconciliation_effect(&mut self, effect: &ReceiverReconciliationEffect) {
         let run = self.receiver.take_durable_run();
         match run {
+            DurableReceiverRun::Exited(active) if self.effect_matches_active(effect, &active) => {
+                self.continue_receiver_cleanup(CleanupPendingReceiverRun {
+                    active,
+                    effect: effect.clone(),
+                    shutdown_complete: true,
+                    artifacts_removed: false,
+                    defer_once: false,
+                });
+            }
             DurableReceiverRun::Active(active) if self.effect_matches_active(effect, &active) => {
                 self.continue_receiver_cleanup(CleanupPendingReceiverRun {
                     active,

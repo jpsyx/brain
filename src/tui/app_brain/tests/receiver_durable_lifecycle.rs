@@ -154,7 +154,9 @@ fn child_exit_after_launch_cleans_locally_without_replaying_or_changing_correlat
 
     app.tick_receiver();
 
-    assert!(app.brain.receiver_run_observations().is_empty());
+    let tabs = app.brain.receiver_run_observations();
+    assert_eq!(tabs.len(), 1, "retain the stopped tab until exact cleanup");
+    assert!(tabs[0].exited);
     assert_eq!(transport.shutdowns(), 1);
     assert_eq!(
         db.receiver_job(accepted.job_id()).unwrap().unwrap(),

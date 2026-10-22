@@ -328,10 +328,11 @@ frontend/native-session binding. Native resume is valid only for that same
 frontend; another frontend starts fresh from the portable transcript.
 Receiver-session registration rows preserve the exact workspace, logical
 conversation, actor, channel, frontend, remote instance, registered launch ID,
-and lifecycle-reported actual native ID. A fresh Claude run may use its
-registered ID as the native ID; fresh Codex and OpenCode runs must rotate their
-placeholder. A resumed run instead registers the conversation's already-bound
-native ID, so every frontend may confirm that same ID when the exact durable
+and lifecycle-reported actual native ID. Fresh runs register an internal
+placeholder, while the launch plan supplies a separate UUID to frontends that
+accept a native-session ID. SessionStart replaces the placeholder with the
+frontend-reported native ID. A resumed run instead registers the conversation's
+already-bound native ID, so every frontend may confirm that same ID when the exact durable
 conversation binding proves the resume lineage.
 Registration and session ownership are created in one transaction, and binding
 replacement must match that complete durable tuple. Reconciliation applies the
@@ -363,6 +364,10 @@ native-conversation requirement. Cleanup tracks successful shutdown and artifact
 removal independently, so a later tick
 resumes only the remaining step before FIFO advances. The response remains
 `cleanup-gated` until exact cleanup acknowledgement promotes it to `ready`.
+An observed ordinary child exit retains a stopped tab and exact local run in
+`DurableReceiverRun::Exited` until reconciliation authorizes retry or terminal
+cleanup. This local proof allows cleanup acknowledgement while the owning TUI
+is still alive; an absent run still requires the existing dead-PID proof.
 Provider acknowledgement is independent and cannot invalidate cleanup authority. Controller
 cleanup, validation, launch, and notice delivery remain outside the state layer.
 The state layer separately leases a pending terminal notice to one finite writer

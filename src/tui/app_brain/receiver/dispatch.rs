@@ -37,6 +37,7 @@ impl App {
         self.continue_oldest_receiver_answer_cleanup();
         match run {
             DurableReceiverRun::Active(active) => self.tick_active_receiver_run(active),
+            DurableReceiverRun::Exited(active) => self.hold_exited_receiver_run(active),
             DurableReceiverRun::AnswerCleanupPending(_) => unreachable!(),
             DurableReceiverRun::Claimed(claimed) => self.continue_claimed_receiver_run(claimed),
             DurableReceiverRun::RecoveryClaimed(claimed) if receiver_enabled => {

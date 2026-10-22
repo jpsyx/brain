@@ -291,8 +291,11 @@ free session as claimed. If the later transport launch fails, Brain releases
 the instance claim and clears the response identity for the attempted
 interactive launch.
 
-The isolated receiver-run path uses a frontend-neutral planning seam. A
-matching durable conversation binding is
+The isolated receiver-run path uses a frontend-neutral planning seam. Fresh
+launches receive a valid UUID native-session ID, separate from the internal
+`pending-receiver-…` registration placeholder. The placeholder never enters
+frontend command arguments; SessionStart supplies the actual native ID before
+acceptance can be recorded. A matching durable conversation binding is
 offered only to the selected `AgentController`; `Resume(session_id)` is chosen
 only when the adapter confirms that native history and an exact-session claim
 succeeds. After native validation, and again after exact resume registration,
@@ -1283,10 +1286,11 @@ binding says which adapter may attempt an opaque native resume. A same-frontend
 request returns that native ID; a different frontend receives a fresh-session
 plan seeded from the Brain-owned markdown transcript. Brain never asks Claude,
 Codex, or OpenCode to interpret another frontend's native history.
-For a fresh launch, Claude may confirm the registered ID while Codex and
-OpenCode must replace their registered placeholders. For a resumed launch, the
-registered ID is already the exact durable conversation binding, so equality
-is a valid resume confirmation for all three frontends.
+Fresh receiver launches keep their internal placeholder separate from the
+native UUID supplied to Claude and pi; Codex and OpenCode choose their native
+identity. All four replace the placeholder through SessionStart. For a resumed
+launch, the registered ID is already the exact durable conversation binding,
+so equality is a valid resume confirmation for all four frontends.
 
 Receiver jobs use the same UUID-scoped database but a separate leased queue
 contract. Acceptance stores the immutable inbound frame before a later ingress

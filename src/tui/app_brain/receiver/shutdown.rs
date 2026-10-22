@@ -47,6 +47,13 @@ impl App {
                 self.shutdown_spawned_recovery_run(spawned);
             }
             DurableReceiverRun::Active(active) => self.shutdown_active_receiver_run(active),
+            DurableReceiverRun::Exited(active) => {
+                let _ = self.brain.remove_shutdown_receiver_run(
+                    active.tab_id,
+                    active.claim.job().id(),
+                    active.attribution.instance(),
+                );
+            }
             DurableReceiverRun::AnswerCleanupPending(active) => {
                 self.shutdown_answer_cleanup_pending_receiver_run(&active);
             }

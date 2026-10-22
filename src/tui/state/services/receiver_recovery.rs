@@ -5,6 +5,19 @@ use anyhow::Result;
 use super::AppServices;
 
 impl AppServices {
+    pub(crate) fn receiver_run_retains_cleanup_authority(
+        &self,
+        job_id: crate::state::ReceiverJobId,
+        token: crate::state::ReceiverJobToken,
+        instance: &str,
+    ) -> Result<bool> {
+        Ok(self.db.receiver_job(job_id)?.is_some_and(|job| {
+            job.token() == token
+                && (job.observation_instance() == Some(instance)
+                    || job.recovery_cleanup_instance() == Some(instance))
+        }))
+    }
+
     pub(crate) fn claim_receiver_recovery_run(
         &self,
         owner: &str,

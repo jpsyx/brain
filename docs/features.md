@@ -1920,6 +1920,12 @@ recovery, and immutable 30-minute accepted-work deadlines. The renewable
 acceptance, and every exact progress pulse establish or renew the corresponding
 lifecycle limits from trusted local authorization time, never from a
 future-skewed producer timestamp.
+
+If a receiver frontend exits before accepting a request, Brain retries within
+the existing bounded policy. Once retries are exhausted, it finishes exact
+local cleanup and sends an unavailable notice without requiring the TUI to
+close. An exited receiver tab stays until that cleanup is authorized.
+
 The pure policy can classify a durable snapshot as wait, safe pre-acceptance
 requeue, one same-session recovery, terminal failure, or an incomplete legacy
 completion state. Recovery count and attempt kind remain separate from the
