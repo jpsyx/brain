@@ -325,6 +325,7 @@ workspace.
 | --- | --- | --- | --- |
 | `markdown_to_pdf_path` | machine-global | *(auto-discovered)* | Path to the `markdown-to-pdf` command on **this machine**, shared by every workspace registered here. Lives in brain env (not brain config) because it's a machine-specific binary path, never "right" on every machine. See below. |
 | `default_tui_view` | machine-global | `tasks` | TUI startup target on **this machine**. Exactly one of `tasks`, `brain_dir`, or `brain_llm`. `tasks` and an unset value focus the tasks view when tasks exist; an empty task store shows the brain-directory view instead. `brain_dir` focuses that view. `brain_llm` focuses the brain panel while leaving tasks on the main-view side, or brain directory there when the task store is empty. |
+| `resend_recipient_domain` | machine-global | *(unset)* | Optional inbound email domain policy for this machine's shared `/email` endpoint. An exact domain accepts only that domain; `*.example.com` accepts subdomains, including nested ones, but excludes `example.com`. Empty disables the extra filter. Exact configured recipient routing and signature verification still apply. |
 | `agenda_markdown_dir` | workspace record | `/tmp` | Directory the day's agenda markdown (`<YYYY-MM-DD>.md`) lives in on **this machine**, tilde-expanded. Machine-local because it is a path on one filesystem, and per-workspace so two workspaces can keep separate agendas if they want. `/tmp` by default: the agenda is a disposable daily snapshot of the CSVs, so it must not land inside (and sync out of) a workspace root. Read by the agenda sync — see [features.md](features.md). |
 | `claude_cmd` | workspace record | `claude --dangerously-skip-permissions` | Command that launches the brain panel's default Claude frontend on **this machine**. brain appends `--resume`/`--session-id` after it, so the value is the base command plus any of its own flags. Blank falls back to the default. If unset, a legacy `brain config claude_cmd` value is honored for back-compat. |
 | `codex_cmd` | workspace record | `codex` | Base command that launches the brain panel's Codex frontend on **this machine**. Brain appends `--dangerously-bypass-hook-trust` for its vetted workspace lifecycle hooks. It uses `resume <id>` when the exact session rollout remains on disk and starts fresh when that rollout is missing. Blank falls back to `codex`. |
@@ -696,6 +697,14 @@ and stores them only in that record. Ordinary provider lookup never reads
 `TWILIO_*`, `RESEND_*`, or `BRAIN_RECEIVER_PUBLIC_URL` from Brain's process
 environment, so a workspace cannot inherit another workspace's shell values.
 `brain env list` and `brain env get` redact secret values.
+
+Set the shared email domain policy with
+`brain env set 'resend_recipient_domain=*.example.com'`, or omit the value to
+use the existing interactive env prompt. The policy is reloaded per request,
+applies to both `to` and `cc`, and is independent of sender authorization.
+Mail with no eligible destination is acknowledged with HTTP 200 and the
+`recipient_domain_not_allowed` error code. Invalid policy configuration fails
+closed with an operational error. No domain is hardcoded in Brain.
 
 The setup prompt asks for one public base URL, such as
 `https://brain.example.com`, and derives the machine's two webhook endpoints

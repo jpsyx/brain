@@ -569,8 +569,16 @@ answers, never a guess:
   rather than looking like a URL nobody serves.
 - **`Ambiguous`** — two workspaces publish the same address. Refused (503):
   delivering to either would hand one workspace another's private message.
-- **`Unknown`** — no workspace publishes any named destination. A plain 404 that
-  confirms nothing to whoever probed it.
+- **`Unknown`**: no workspace publishes any named destination. Email returns
+  HTTP 200 with `unknown_recipient`; SMS returns an empty 404. Neither response
+  lists configured addresses.
+
+Before email selection, `resend_recipient_domain` optionally filters destinations
+by an exact domain or a `*.example.com` subdomain pattern. Wildcards require a
+nonempty subdomain, match at label boundaries, and exclude the bare base domain.
+Only eligible destinations participate in workspace selection, so a permitted
+unrelated CC cannot authorize a workspace addressed on a forbidden domain.
+Unset or empty policy preserves exact-address routing without an extra filter.
 
 Routing reads the payload *before* any signature is verified, which is safe
 because the destination only decides **whose** signing credential the request is
@@ -614,6 +622,11 @@ answer. It is optional and omitted when empty. `crate::env` routes a declared
 variable to this map or to the selected record by
 `env::schema::MACHINE_GLOBAL_VARS`, which is the single source of truth for the
 scope; `brain env get/set` uses the same bare name either way.
+
+`resend_recipient_domain` is an optional machine-global string, reloaded for
+each email request. Invalid configured types or domain patterns are configuration
+failures, not permission to accept all domains. Webhook rejection envelopes carry
+`ok: false`, `queued: false`, a stable `error_code`, and a readable `error`.
 
 **Schema 1 → 2 → 3 → 4.** v2 introduced the record map; v3 added the
 machine-global `env` and hoisted `markdown_to_pdf_path` into it; v4 hoists

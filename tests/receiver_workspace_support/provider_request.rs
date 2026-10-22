@@ -61,25 +61,7 @@ pub fn signed_email_event(
     let body = format!(
         r#"{{"type":"{event_type}","data":{{"from":"member@example.test","to":["{destination}"]}}}}"#
     );
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        .to_string();
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret).unwrap();
-    mac.update(webhook_id.as_bytes());
-    mac.update(b".");
-    mac.update(timestamp.as_bytes());
-    mac.update(b".");
-    mac.update(body.as_bytes());
-    let signature = format!("v1,{}", STANDARD.encode(mac.finalize().into_bytes()));
-    ProviderPost {
-        path: "/email".to_owned(),
-        headers: format!(
-            "svix-id: {webhook_id}\r\nsvix-timestamp: {timestamp}\r\nsvix-signature: {signature}\r\n"
-        ),
-        body,
-    }
+    signed_email_payload(secret, webhook_id, body)
 }
 
 pub fn signed_received_email_event(
@@ -91,6 +73,10 @@ pub fn signed_received_email_event(
     let body = format!(
         r#"{{"type":"email.received","data":{{"from":"member@example.test","to":["{destination}"],"email_id":"{email_id}"}}}}"#
     );
+    signed_email_payload(secret, webhook_id, body)
+}
+
+pub fn signed_email_payload(secret: &[u8], webhook_id: &str, body: String) -> ProviderPost {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

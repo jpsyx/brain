@@ -296,4 +296,5 @@ fn dotted_paths_read_and_write_without_losing_siblings() {
     assert_eq!(map["sync"]["remote"]["key_id"], Value::from("abc"));
 }
 
+mod recipient_domain;
 mod secrets;

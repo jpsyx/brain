@@ -16,6 +16,9 @@ use super::{FAMILY_ID, PERSONAL_ID, ProcessFixtureProcess, poll_until};
 mod fixture_support;
 use fixture_support::*;
 
+#[path = "email_policy_fixture.rs"]
+mod email_policy_fixture;
+
 pub struct SharedReceiverFixture {
     home: tempfile::TempDir,
     pub workspace: WorkspaceContext,

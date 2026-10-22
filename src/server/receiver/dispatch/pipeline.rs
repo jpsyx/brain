@@ -82,7 +82,8 @@ impl DispatchPipeline for SharedReceiverPipeline<'_> {
             .map_err(|error| {
                 DispatchHttpError {
                     status: error.status(),
-                    unavailable: error.unavailable(),
+                    unavailable: self.channel != crate::server::receiver::Channel::Email
+                        && error.unavailable(),
                     message: error.to_string(),
                 }
                 .into()

@@ -1669,8 +1669,11 @@ two paths for the whole machine, naming no workspace. Brain reads the webhook
 body first, takes the destination the provider named (Twilio's `To`, a Resend
 payload's `to`/`cc`), and selects the workspace that publishes that number or
 address as its own `twilio_from_number` / `resend_from_email`. An address no
-registered workspace publishes is a plain 404; two workspaces publishing one
-address is refused as ambiguous rather than delivered to a guess. The selected
+registered workspace publishes receives HTTP 200 with `unknown_recipient` for
+email, or an empty 404 for SMS. Email recipients must also satisfy the optional
+machine-global `resend_recipient_domain` policy before workspace selection.
+Two workspaces publishing one address are refused as ambiguous rather than
+delivered to a guess. The selected
 workspace then serves the request only while it has receiver enablement and a
 live TUI lease, resolving its remembered ingress before loading provider
 credentials, users, prompt content, or the UUID-scoped state DB. Brain verifies
@@ -1689,7 +1692,11 @@ Each Resend received-email or attachment-metadata response is also capped at
 events receive HTTP success, except that an exact in-flight unavailable
 duplicate receives 503 until the pending admission resolves and remembers its
 deferred discard. Invalid signatures remain authentication errors. Receiving
-API failures return 502.
+API failures return 502. Email rejections include JSON `ok: false`,
+`queued: false`, `error_code`, and `error`, with the same code and message in
+the server log. HTTP 200 acknowledges webhook delivery, not acceptance into
+the queue. Shared-account events for other apps never cause a retry just
+because Brain does not serve their recipients.
 Email addresses are matched as bare addresses, so the usual
 `Display Name <someone@example.com>` header form authenticates normally and
 still reaches the reply thread. An email with no plain-text part is reduced

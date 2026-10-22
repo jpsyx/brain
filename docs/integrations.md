@@ -817,8 +817,10 @@ monotonic instant inside the lock, revalidates exact route and admission
 identity, and performs the admission CAS before unlocking. The SQLite
 transaction then accepts or deduplicates the complete immutable job while
 revocation waits on that linearized admission outside the control mutex.
-Unknown ingress returns 404. Receiver-disabled or no-live-TUI ingress returns
-503 for provider-facing receiver dispatch. Local capability routes remain
+Unknown email recipients receive HTTP 200 with `unknown_recipient`; unknown
+SMS recipients and local routes retain 404. Receiver-disabled or no-live-TUI
+email receives the verified unavailable acknowledgement described below.
+Local capability routes remain
 available to a live TUI or browser-only habits lease even when inbound
 receiver intent is disabled.
 
@@ -1877,6 +1879,28 @@ IDs, then the TUI's single bounded staging worker downloads and validates each
 local inbox file before its durable launch planner can start an agent. The
 event loop polls this worker without waiting, renews the staged job ahead of
 later FIFO work, and revalidates fresh ownership and intent after the result.
+Email rejection JSON has `ok: false`, `queued: false`, `error_code`, and `error`.
+The shared server log records the same stable code and readable message, without
+the message body, credentials, or configured recipient list. Routing rejections
+never authorize a provider fetch or a job. The optional machine-global
+`resend_recipient_domain` filters `to`/`cc` before exact workspace selection;
+`*.example.com` matches subdomains only. The server reloads it per request.
+
+| Outcome | HTTP status | Error code |
+| --- | --- | --- |
+| No registered recipient | 200 | `unknown_recipient` |
+| No recipient satisfies the domain policy | 200 | `recipient_domain_not_allowed` |
+| Ignored provider event | 200 | `ignored_event` |
+| Invalid email input | 200 | `invalid_request` |
+| Sender is not allowed | 200 | `sender_not_allowed` |
+| Oversized webhook body | 200 | `body_too_large` |
+| Deliberately unavailable receiver | 200 | `receiver_unavailable` |
+| Invalid signature | 401 | `invalid_signature` |
+| Receiving API failure | 502 | `upstream_error` |
+
+Registry/configuration failures, ambiguous routing, unexpected processing
+failures, and pending admission retries retain non-success statuses.
+
 The staging worker passes one race-safe cancellation authority through Resend
 attachment refresh and every media download. It publishes at most one curl
 process group at a time; cancel-before-publication refuses or immediately kills

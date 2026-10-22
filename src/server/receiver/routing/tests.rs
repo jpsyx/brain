@@ -59,10 +59,10 @@ fn two_workspaces() -> MachineRegistry {
     ])
 }
 
-/// A provider gets an empty 404 so a prober learns nothing, which leaves
+/// A provider gets no configured addresses, which leaves
 /// the local log as the only place the owner can find out *why*. Naming the
 /// address that arrived beside the addresses actually configured turns a
-/// bare 404 into an obvious one-line fix.
+/// generic routing rejection into an obvious one-line fix.
 #[test]
 fn an_unrouted_address_is_explained_against_what_is_configured() {
     let registry = two_workspaces();

@@ -19,10 +19,11 @@ pub(super) struct VarSpec {
 /// could sensibly differ between two workspaces on one machine: the path to a
 /// binary cannot, and neither can the public receiver origin, since one machine
 /// serves one URL per channel and providers sign the literal URL.
-pub(crate) const MACHINE_GLOBAL_VARS: [&str; 3] = [
+pub(crate) const MACHINE_GLOBAL_VARS: [&str; 4] = [
     "markdown_to_pdf_path",
     "brain_receiver_public_url",
     crate::main_view::STARTUP_VIEW_ENV_VAR,
+    crate::server::receiver::email_policy::ENV_VAR,
 ];
 
 /// Whether `name` is stored once for the whole machine.
@@ -38,7 +39,7 @@ pub(super) use crate::agent::{
 
 /// The declared scalar brain-env schema, in `brain env list` order. Nested
 /// values from the raw env object are listed after these rows.
-pub(super) const VARS: [VarSpec; 20] = [
+pub(super) const VARS: [VarSpec; 21] = [
     VarSpec {
         name: "task_removal_adapters",
         description: "Selected workspace removal adapters: argv, env_names, timeout_seconds.",
@@ -144,6 +145,12 @@ pub(super) const VARS: [VarSpec; 20] = [
     VarSpec {
         name: "resend_full_access_api_key",
         description: "Machine-local Resend API key with FULL ACCESS, used only to retrieve inbound email. The receiving API cannot be read by a sending-only key, which is why this is separate from resend_sending_api_key.",
+        default: None,
+        legacy_config_fallback: false,
+    },
+    VarSpec {
+        name: crate::server::receiver::email_policy::ENV_VAR,
+        description: "Machine-global inbound email domain policy. Use an exact domain or *.example.com for subdomains only. Empty or unset disables the extra filter; exact recipient routing still applies. Reloaded on every request.",
         default: None,
         legacy_config_fallback: false,
     },

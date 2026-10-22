@@ -5,6 +5,8 @@ use anyhow::Result;
 use super::{IngressId, control, http, lifecycle, receiver, router, routes, workspace_route};
 use router::Route;
 
+mod email_response;
+
 const LOCAL_ACTION_BODY_LIMIT_BYTES: usize = 16 * 1024;
 
 /// Build the response for a single request. The routing decision itself is the
@@ -99,10 +101,7 @@ fn receiver_response(
             // Same provider-facing status translation an authentication failure
             // gets: Resend must not be told to retry a body it will resend
             // identically.
-            return http::Response::text(
-                provider_http_status(error.status(), error.unavailable(), channel),
-                error.to_string(),
-            );
+            return provider_error_response(error.status(), error.unavailable(), channel, &error);
         }
     };
     let workspace_id = match addressed_workspace(control, channel, &body) {
@@ -112,8 +111,9 @@ fn receiver_response(
                 "receiver request unrouted channel={channel:?} status={} error={error}",
                 error.status()
             ));
-            // An address nobody serves is answered like any unknown URL: an
-            // empty 404 that confirms nothing to whoever probed it.
+            if channel == receiver::Channel::Email {
+                return email_response::unrouted(error.status());
+            }
             if error.status() == 404 {
                 return http::Response::empty(404);
             }
@@ -122,7 +122,13 @@ fn receiver_response(
     };
     let route = match resolve_receiver_route(control, workspace_id, now) {
         Ok(route) => route,
-        Err(error) if error.status() == 404 => return http::Response::empty(404),
+        Err(error) if error.status() == 404 => {
+            return if channel == receiver::Channel::Email {
+                email_response::rejected("unknown_recipient", "no receiver accepts this recipient")
+            } else {
+                http::Response::empty(404)
+            };
+        }
         Err(error) => {
             crate::logging::log(format!(
                 "receiver request unavailable channel={channel:?} status={} error={error}",
@@ -164,20 +170,14 @@ fn receiver_response(
                     "receiver event accepted without enqueue channel={channel:?} status={}",
                     error.status()
                 ));
-                http::Response::text(
-                    provider_http_status(error.status(), error.unavailable(), channel),
-                    error.to_string(),
-                )
+                provider_error_response(error.status(), error.unavailable(), channel, &error)
             }
             ReceiverFailureLog::Rejected => {
                 crate::logging::log(format!(
                     "receiver request rejected channel={channel:?} status={} error={error}",
                     error.status()
                 ));
-                http::Response::text(
-                    provider_http_status(error.status(), error.unavailable(), channel),
-                    error.to_string(),
-                )
+                provider_error_response(error.status(), error.unavailable(), channel, &error)
             }
         },
     }
@@ -203,6 +203,14 @@ fn addressed_workspace(
         )
     })?;
     let destinations = receiver::http::destinations(channel, body);
+    let destinations = if channel == receiver::Channel::Email {
+        receiver::email_policy::filter_destinations(
+            registry.env.get(receiver::email_policy::ENV_VAR),
+            destinations,
+        )?
+    } else {
+        destinations
+    };
     match receiver::routing::select_workspace(&registry, channel, &destinations) {
         receiver::routing::ReceiverRoute::Workspace(workspace_id) => Ok(workspace_id),
         // Two workspaces publishing one address is a fixable misconfiguration,
@@ -213,8 +221,8 @@ fn addressed_workspace(
                 "several workspaces publish this receiver address",
             ))
         }
-        // The provider is answered with an empty 404 either way, so this text
-        // exists for the machine owner's log: it is the only place a wrong or
+        // The provider never sees configured addresses, so this text exists
+        // for the machine owner's run log: it is the only place a wrong or
         // stale configured address can be spotted.
         receiver::routing::ReceiverRoute::Unknown => {
             Err(workspace_route::WorkspaceRouteError::new(
@@ -264,10 +272,7 @@ fn unavailable_email_response(
                 receiver::dispatch::remember_verified_unavailable_email(workspace_id, provider_id);
             verified_unavailable_email_response(acknowledge)
         }
-        Err(error) => http::Response::text(
-            provider_http_status(error.status(), false, receiver::Channel::Email),
-            error.to_string(),
-        ),
+        Err(error) => email_response::failure(error.status(), false),
     }
 }
 
@@ -303,10 +308,20 @@ fn unavailable_receiver_response(channel: receiver::Channel) -> http::Response {
             200,
             format!("<Response><Message>{message}</Message></Response>"),
         ),
-        receiver::Channel::Email => http::Response::json(
-            200,
-            serde_json::json!({"ok": false, "error": message}).to_string(),
-        ),
+        receiver::Channel::Email => email_response::rejected("receiver_unavailable", message),
+    }
+}
+
+fn provider_error_response(
+    status: u16,
+    unavailable: bool,
+    channel: receiver::Channel,
+    error: &impl std::fmt::Display,
+) -> http::Response {
+    if channel == receiver::Channel::Email {
+        email_response::failure(status, unavailable)
+    } else {
+        http::Response::text(status, error.to_string())
     }
 }
 

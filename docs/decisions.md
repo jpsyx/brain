@@ -4951,18 +4951,16 @@ lifecycle state. BR-14 removed screen sampling and interactive activity waits;
 the isolated durable run now relies on exact lifecycle completion, claim
 ownership, and child exit. Progressed-run recovery remains deferred to BR-16.
 
-## An empty 404 to the provider, a specific one to the log
+## Recipient rejection acknowledges email without exposing configured addresses
 
-An inbound message whose destination matches no workspace is answered with an
-empty 404, so whoever probed the URL learns nothing about which addresses this
-machine serves. That is the right answer to a stranger and the wrong one to the
-owner: when a real message bounces because a configured address is stale, the
-only visible evidence is a bare "404" in a provider dashboard, and the value that
-needs changing is the one value the operator cannot see.
+Resend delivers shared-account events to webhooks used by different apps.
+An unrelated recipient is an expected routing outcome, so the email endpoint
+acknowledges it with HTTP 200 and `unknown_recipient`. SMS retains its empty
+404. Neither public response lists addresses this machine serves. Operational
+failures and invalid signatures retain their error statuses; deliberate email
+discards carry stable codes and readable messages in JSON and the server log.
 
-So the two audiences are separated. The provider still gets `Response::empty(404)`
-— unchanged, and the reason the response body is not where this belongs. The
-local log gets the address that arrived, every address this machine has
+The detailed run log gets the address that arrived, every address this machine has
 configured for that channel, and the `brain env set` command that fixes it. A
 mismatch is then obvious on sight (`brain@new.example` arrived, this machine
 publishes `brain@old.example`) instead of requiring the operator to guess which
@@ -4973,6 +4971,16 @@ is stripped of control characters and truncated: an unrouted request must not be
 able to forge log lines or flood the log. A payload that names no destination at
 all is reported as its own fault rather than as a configuration mismatch, since
 nothing about the configuration is wrong in that case.
+
+An optional machine-global `resend_recipient_domain` filters email recipients
+before exact workspace selection. This deployment policy belongs to the shared
+endpoint, while each workspace still owns its exact address and credentials.
+Keeping the domain in runtime configuration avoids embedding one installation's
+domain in shared source. Wildcards match complete subdomain labels and exclude
+the base domain. Only eligible recipients may select a workspace; an unrelated
+permitted CC must not authorize a forbidden recipient. No eligible recipient
+means HTTP 200 with `recipient_domain_not_allowed`, without provider fetches,
+queue writes, or agent work. The acknowledgement grants no processing authority.
 
 ## Two Resend keys, because one key cannot hold two permissions
 

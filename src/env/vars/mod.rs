@@ -173,6 +173,11 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
 /// Enum-valued variables are normalized here so every reader sees one spelling
 /// and a typo fails at the CLI rather than silently degrading a later launch.
 fn declared_value(name: &str, value: &str) -> Result<Value> {
+    if name == crate::server::receiver::email_policy::ENV_VAR {
+        return Ok(Value::String(
+            crate::server::receiver::email_policy::canonicalize(value)?,
+        ));
+    }
     if name == crate::agent::default_frontend::ENV_VAR {
         return Ok(Value::from(crate::agent::default_frontend::canonicalize(
             value,

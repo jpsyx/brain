@@ -2,6 +2,8 @@
 mod complete_lifecycle;
 #[path = "receiver_workspace_isolation/durable_ingress.rs"]
 mod durable_ingress;
+#[path = "receiver_workspace_isolation/email_outcomes.rs"]
+mod email_outcomes;
 #[path = "receiver_workspace_isolation/persisted_disable.rs"]
 mod persisted_disable;
 mod receiver_workspace_support;

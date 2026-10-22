@@ -2368,7 +2368,10 @@ consumer, or agent launcher.
 - `server/request.rs`: the HTTP facade after pure routing. It resolves local
   capabilities or provider destinations, applies body limits, dispatches the
   selected route, and translates receiver failures to provider-facing
-  responses. `server/mod.rs` remains the thin lifecycle and URL entry point.
+  responses. `request/email_response.rs` renders coded email JSON outcomes and
+  logs the same code and message. `receiver/email_policy.rs` owns the pure,
+  machine-configured recipient domain validation and filtering before address
+  selection. `server/mod.rs` remains the thin lifecycle and URL entry point.
 - `server/http/` — the shared process's bounded, connection-closing HTTP/1.x
   request parser and response writer. Request heads are capped at 16 KiB, IO
   starts with one absolute two-second monotonic parse deadline, and each

@@ -3,6 +3,7 @@
 mod attachments;
 mod control;
 pub(crate) mod dispatch;
+pub(crate) mod email_policy;
 pub(crate) mod http;
 mod job;
 pub(crate) mod routing;

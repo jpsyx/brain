@@ -5,7 +5,7 @@ mod dual_fixture;
 mod fixture;
 mod model;
 mod process_fixture;
-mod provider_request;
+pub(crate) mod provider_request;
 
 pub use dual_fixture::DualWorkspaceReceiverFixture;
 pub use fixture::SharedReceiverFixture;

@@ -124,8 +124,8 @@ fn loggable(raw: &str) -> String {
 
 /// Why a message routed nowhere, phrased for the machine owner's log.
 ///
-/// The provider only ever gets an empty 404, so a prober cannot learn which
-/// addresses this machine serves. That makes the local log the one place the
+/// The provider response never lists addresses this machine serves. That makes
+/// the detailed run log the one place the
 /// owner can find out what went wrong, and a bare "not found" leaves them
 /// guessing at a value they cannot see. Naming the address that arrived beside
 /// the ones actually configured turns it into a one-line fix.
