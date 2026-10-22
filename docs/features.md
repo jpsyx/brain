@@ -3098,3 +3098,9 @@ Historical installers fail safely when the installed modern binary detects an
 incomplete downgrade protocol. Direct Cargo replacement, manual copying, old
 run wrappers and installation managers without this modern handoff are outside
 this guarantee.
+
+After a task change saves, sufficiently fresh canonical rows take precedence over
+its temporary projection. A later external reopen or restoration becomes visible;
+refresh errors keep the saved change projected until fresh evidence arrives.
+Contradictory deletion recovery records remain explicitly uncertain and retain
+the operation's recovery controls.

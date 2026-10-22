@@ -273,6 +273,57 @@ mod tests {
     }
 
     #[test]
+    fn disconnected_removal_preserves_integrity_rejection_without_replay() {
+        use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        std::fs::create_dir_all(root.join("tasks")).unwrap();
+        std::fs::write(
+            root.join("tasks/tasks.csv"),
+            "task_id,task_name\nT1,Example\n",
+        )
+        .unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::new(),
+            WorkspaceName::parse("test").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+        let context = CommandContext::for_test(
+            std::sync::Arc::new(workspace),
+            RegistryStore::from_path(temporary.path().join("env.json")),
+            "member",
+        );
+        let date = chrono::Local::now().date_naive();
+        let plan = removal::preview(
+            &context,
+            &["T1".into()],
+            removal::model::Options::default(),
+            date,
+        )
+        .unwrap();
+        let receipt = removal::apply(&context, &plan, &plan.fingerprint, date).unwrap();
+        let path = context
+            .workspace
+            .paths()
+            .task_removals_dir()
+            .join(format!("{}.json", receipt.operation_id));
+        let mut operation: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        operation["fingerprint"] = serde_json::json!("inconsistent-restoration");
+        operation["plan"]["fingerprint"] = serde_json::json!("inconsistent-restoration");
+        std::fs::write(&path, serde_json::to_vec(&operation).unwrap()).unwrap();
+        let before = std::fs::read(root.join("tasks/tasks.csv")).unwrap();
+        let response = reconcile(&context, &Request::Resume(receipt.operation_id));
+        assert!(matches!(response, Response::Settled(response, Ok(_))
+            if matches!(&*response, Response::Warning(response, _) if matches!(**response, Response::Disconnected))));
+        assert_eq!(std::fs::read(root.join("tasks/tasks.csv")).unwrap(), before);
+    }
+
+    #[test]
     fn disconnected_completion_reconciles_not_done_without_replaying() {
         use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};
         let temporary = tempfile::tempdir().unwrap();

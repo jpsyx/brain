@@ -2968,7 +2968,7 @@ confirmation date. Deletion requests bind the reviewed plan, fingerprint and a
 preallocated operation UUID; no consent is regenerated during execution.
 Per-job effects project completion dates/status or hide removed targets over
 separate authoritative task/habit rows. Failed jobs drop only their own effect.
-Committed effects remain until canonical rows represent the commit. If worker
+Committed effects remain until evidence is known to follow the commit. If worker
 evidence cannot be read, the effect is explicitly uncertain until the next
 successful authoritative refresh, with a persistent diagnostic. The accepted-job
 count is distinct from modal generations, read-only previews, and retained
@@ -2980,3 +2980,10 @@ newer independent row replacement. Each queued job carries that revision and
 whether its removal ID was newly preallocated. Rejected snapshots trigger one
 coalesced asynchronous fresh snapshot; accepted-job settlement remains independent
 of snapshot adoption. These revisions and refresh requests are process-local.
+
+Effect state includes a FIFO snapshot coverage watermark. Accepted snapshot job
+IDs prove which prior jobs their rows follow, independently of the refresh
+revision fence. Covered settled effects retire even when newer canonical rows
+reopen or restore their target. An independent refresh retires effects already
+settled before that refresh, while pending effects remain. Snapshot failure or
+rejection never advances coverage.

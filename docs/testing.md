@@ -1900,3 +1900,10 @@ Queue settlement regressions also cover failed status checks retaining recovery,
 revision-fenced worker snapshots preserving newer edits and external deletions,
 and asynchronous reconciliation revealing committed habit recurrence. Pure
 snapshot-order tests cover revision invalidation and recaptured evidence.
+
+Post-commit projection tests cover reopened completions and restored removals,
+worker snapshots both before and after settlement, rejected snapshots followed
+by fresh FIFO evidence, and independent refreshes that preserve pending effects.
+Removal reconciliation tests reject contradictory fingerprints and unreadable
+operation records without replay, and explicitly cover the missing-operation
+receipt fallback.

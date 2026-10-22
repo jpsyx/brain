@@ -15,11 +15,13 @@ impl TasksState {
     pub(crate) fn adopt_task_snapshot(
         &mut self,
         revision: u64,
+        through: u64,
         rows: crate::tui::task_mutation::Rows,
     ) -> bool {
         if !self.snapshot_order.accepts(revision) {
             return false;
         }
+        self.effects.observe_snapshot(through);
         self.adopt_rows(rows.0, rows.1);
         true
     }
@@ -56,6 +58,7 @@ impl TasksState {
     }
     pub(crate) fn mark_task_change_uncertain(&mut self, job: u64) {
         self.effects.uncertain(job);
+        self.project_changes();
     }
     pub(crate) fn settle_task_change(&mut self, job: u64, committed: bool) {
         self.effects.settle(job, committed);
@@ -76,10 +79,6 @@ impl TasksState {
                 }
             }
         }
-        self.effects
-            .reconcile(CsvKind::Tasks, &self.authoritative_tasks);
-        self.effects
-            .reconcile(CsvKind::Habits, &self.authoritative_habits);
         self.all_tasks = self
             .effects
             .project(CsvKind::Tasks, &self.authoritative_tasks);

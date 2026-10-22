@@ -216,34 +216,36 @@ fn actor(context: &CommandContext, operation: &Operation) -> Result<(), Problem>
 
 /// Inspect a disconnected executor without replaying any external or local write.
 pub(crate) fn interrupted(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
-    if let Ok(operation) = operation_status(context, id) {
-        if let Some(receipt) = operation.receipt {
-            return Ok(receipt);
-        }
-        return Err(Problem::new(
-            "worker_failed",
-            "Worker stopped before deletion committed. Check saved progress before continuing.",
+    let unknown = |message: &str| {
+        Problem::new(
+            "outcome_unknown",
+            &format!("Could not determine whether deletion committed: {message}"),
             serde_json::json!({"operation_id":id}),
-        ));
-    }
-    match operations::load_commit(&context.workspace, id) {
-        Ok(Some(record)) => Ok(record.receipt),
-        Ok(None)
-            if operations::load(&context.workspace, id).is_err_and(|error| {
-                error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
-            }) =>
-        {
-            Err(problem(
+        )
+    };
+    let operation_missing = operations::load(&context.workspace, id).is_err_and(|error| {
+        error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+    });
+    if operation_missing {
+        return match operations::load_commit(&context.workspace, id) {
+            Ok(Some(record)) => Ok(record.receipt),
+            Ok(None) => Err(problem(
                 "worker_failed",
                 "Worker stopped before deletion was prepared. Review and confirm again.",
-            ))
-        }
-        _ => Err(Problem::new(
-            "outcome_unknown",
-            "Could not determine whether deletion committed",
-            serde_json::json!({"operation_id":id}),
-        )),
+            )),
+            Err(error) => Err(unknown(&error.to_string())),
+        };
+    }
+    match operation_status(context, id) {
+        Ok(operation) => operation.receipt.ok_or_else(|| {
+            Problem::new(
+                "worker_failed",
+                "Worker stopped before deletion committed. Check saved progress before continuing.",
+                serde_json::json!({"operation_id":id}),
+            )
+        }),
+        Err(error) => Err(unknown(&error.message)),
     }
 }

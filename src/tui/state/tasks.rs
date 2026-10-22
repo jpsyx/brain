@@ -218,11 +218,11 @@ impl TasksState {
 
     pub(crate) fn replace_rows(&mut self, all_tasks: Vec<Task>, all_habits: Vec<Task>) {
         self.snapshot_order.refreshed();
+        self.effects.observe_refresh();
         self.adopt_rows(all_tasks, all_habits);
     }
 
     fn adopt_rows(&mut self, all_tasks: Vec<Task>, all_habits: Vec<Task>) {
-        self.effects.reconcile_uncertain();
         self.authoritative_tasks = all_tasks;
         self.authoritative_habits = all_habits;
         self.project_changes();

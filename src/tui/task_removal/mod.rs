@@ -108,7 +108,10 @@ impl App {
                 Response::Settled(response, rows) => {
                     match rows {
                         Ok(rows) => {
-                            if !self.tasks.adopt_task_snapshot(job.revision, rows) {
+                            if !self
+                                .tasks
+                                .adopt_task_snapshot(job.revision, generation, rows)
+                            {
                                 self.services.refresh_task_snapshot(
                                     self.context.command().clone(),
                                     self.tasks.snapshot_revision(),

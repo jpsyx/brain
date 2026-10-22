@@ -6261,3 +6261,11 @@ fresh evidence through the same FIFO. This avoids both stale row resurrection an
 permanent suppression of committed derived rows, such as the next habit occurrence.
 Read failures for existing deletion operations retain their captured recovery ID;
 absence of an ID in an error is only evidence about a newly submitted Apply.
+
+Canonical values alone cannot establish projection freshness: a later writer may
+legitimately reopen a completed UUID or restore a deleted one. FIFO snapshot
+coverage and refresh-after-settlement ordering retire committed overlays based
+on evidence timing, rather than waiting forever to see the original outcome.
+Evidence-only disconnect recovery also respects ordinary status integrity checks.
+A valid receipt cannot override a contradictory existing operation fingerprint;
+only a proven missing operation record permits the receipt-only fallback.

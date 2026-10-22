@@ -113,8 +113,9 @@ queued changes; external writers may still invalidate any preview.
 | Worker disconnect | Reconcile commit evidence without replay; retain an explicitly uncertain effect until a successful authoritative refresh when evidence cannot be read |
 
 Refresh errors must not resurrect a known committed deletion or undo a known
-completion. Preserve a committed projection until an authoritative refresh can
-represent it, and show the refresh problem. Worker-side refresh work must not
+completion. Preserve a committed projection until evidence known to follow that
+commit arrives, and show the refresh problem. Such evidence wins even if another
+writer has legitimately reopened or restored the same UUID. Worker-side refresh work must not
 introduce a lock wait or agenda subprocess on the event loop. A later unrelated
 success must not silently erase an unresolved failure or recovery obligation.
 
@@ -150,3 +151,16 @@ reconciliation exposes derived rows without replacing newer edits with old rows.
 Existing operation requests retain their captured recovery identity on read or
 retry errors. Only a new Apply known to fail before operation creation releases
 its preallocated operation identity.
+
+Accepted FIFO snapshots carry coverage through their request's job ID, proving
+which mutation jobs precede their row reads. A covered committed effect retires
+regardless of whether the canonical value still matches the original mutation.
+An independent refresh retires effects that were already settled before it began,
+while pending effects remain. Failed or revision-fenced snapshots do not advance
+coverage. This freshness distinction applies whether rows arrive before or after
+the matching result settles.
+
+Disconnect reconciliation must preserve ordinary operation/receipt fingerprint
+integrity failures as unknown outcomes with their recovery identity. Receipt-only
+fallback is permitted only after proving the operation record is missing; an
+unreadable or contradictory existing record cannot become successful recovery.

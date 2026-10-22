@@ -2866,7 +2866,7 @@ order, so a later deletion preview sees earlier native mutations.
 UUID-scoped completion and removal effects are applied whenever rows change;
 views, target pickers and logical state consume that projection. Settlement
 removes only its own failed effect. Known committed effects survive refresh
-errors until canonical rows represent them. Selection follows immutable identity,
+errors until accepted evidence is known to follow their commit. Selection follows immutable identity,
 with the nearest surviving row as fallback. Completion captures identity and date
 when its confirmation opens, resolves UUID under task-store ownership, and treats
 an already-done occurrence as an idempotent result. Legacy rows use the existing
@@ -2971,3 +2971,11 @@ UI thread. Worker snapshots remain ordered relative to each other and do not
 invalidate later FIFO results. Existing deletion operation IDs survive failed
 status, resume and abandon requests; only a new Apply failure known to precede
 operation creation clears its preallocated ID.
+
+Accepted FIFO snapshots also record the last job they follow. A settled effect
+retires once that coverage reaches its job, even if the canonical UUID has since
+been reopened or restored. Independent refreshes retire already settled effects;
+pending effects remain projected. Rejected or failed snapshots provide no coverage.
+Disconnect reconciliation preserves operation/receipt fingerprint contradictions
+as unknown outcomes with recovery identity; receipt-only fallback requires a
+proven missing operation record.
