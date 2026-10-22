@@ -308,7 +308,7 @@ fn session_unlock_between_observation_and_commit_rejects_stored_session_continui
     assert_eq!(durable.progressing_at_unix_ms(), None);
 }
 
-fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {
+pub(super) fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {
     let active = app.receiver.active_durable_run().expect("active receiver");
     let session = AgentSession::new(session_id).expect("native session");
     rusqlite::Connection::open(app.context.state_db_path())
@@ -321,7 +321,7 @@ fn rotate_active_session(app: &App, session_id: &str) -> AgentSession {
     session
 }
 
-fn write_active_snapshot(
+pub(super) fn write_active_snapshot(
     app: &App,
     session: &AgentSession,
     revision: u64,

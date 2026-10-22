@@ -111,3 +111,22 @@ fn in_flight_verified_unavailable_email_retries_until_discard_is_ready() {
     assert!(retry.starts_with(b"HTTP/1.1 503 Service Unavailable"));
     assert!(acknowledge.starts_with(b"HTTP/1.1 200 OK"));
 }
+
+#[test]
+fn sms_ingress_reports_sync_or_queue_without_claiming_agent_acceptance() {
+    for (syncing, expected) in [
+        (false, "Received. The message has been queued."),
+        (
+            true,
+            "Received. I am currently re-syncing all documents first before I can process requests, I will let you know once I can work on your message.",
+        ),
+    ] {
+        let mut response = Vec::new();
+        super::reply::queued_sms_response(syncing)
+            .write_to(&mut response)
+            .unwrap();
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.contains(expected));
+        assert!(!response.contains("shortly"));
+    }
+}

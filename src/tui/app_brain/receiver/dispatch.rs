@@ -12,7 +12,12 @@ impl App {
     pub(crate) fn tick_receiver(&mut self) {
         let receiver_enabled = self.receiver.is_enabled();
         if receiver_enabled {
-            self.tick_receiver_delivery();
+            if !self
+                .services
+                .tick_receiver_start_notice(self.context.command())
+            {
+                self.tick_receiver_delivery();
+            }
             self.reconcile_receiver_job();
             self.apply_receiver_restarts();
             #[cfg(test)]

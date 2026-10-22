@@ -17,6 +17,7 @@ mod observation;
 mod reconciliation;
 pub(in crate::state::receiver) mod response_intent;
 mod session;
+mod start_notice;
 mod work_summary;
 
 use load::{load_receiver_conversation, load_receiver_job};
@@ -155,6 +156,14 @@ impl Db {
                 received_at,
             ],
         )?;
+        if inbound.channel == crate::server::receiver::Channel::Sms
+            && crate::server::receiver::parse_control_command(&inbound.prompt).is_none()
+        {
+            transaction.execute(
+                "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                rusqlite::params![format!("receiver-start:{job_id}"), token.to_string()],
+            )?;
+        }
         transaction.commit()?;
         self.log_receiver_summary(|summary| {
             crate::logging::ReceiverLifecycleEvent::ingress(

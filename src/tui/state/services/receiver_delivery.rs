@@ -79,6 +79,7 @@ impl AppServices {
 
     pub(crate) fn cancel_receiver_delivery(&mut self) {
         self.receiver_delivery_execution.cancel();
+        self.receiver_start_execution.cancel();
     }
 
     pub(crate) fn tick_receiver_delivery(
@@ -255,6 +256,17 @@ fn receiver_delivery_state_diagnostic(
         counts.idempotency_window_expired(),
         counts.no_safe_fallback(),
     )
+}
+
+pub(super) fn new_execution() -> Box<dyn ReceiverDeliveryExecution> {
+    #[cfg(not(test))]
+    match crate::server::delivery::SystemReceiverDeliveryExecution::new() {
+        Ok(execution) => return Box::new(execution),
+        Err(error) => {
+            crate::logging::log(format!("receiver delivery worker start failed: {error}"));
+        }
+    }
+    Box::new(UnavailableReceiverDeliveryExecution::default())
 }
 
 #[cfg(test)]

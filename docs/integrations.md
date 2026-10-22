@@ -2654,3 +2654,19 @@ workspace and actor IDs and only an exactly matching selected integration snapsh
 old external history after local edits, but a complete snapshot check then
 blocks further cancellation and local commit until original consent matches.
 Abandon can preserve a reconciled partial history without deleting local rows.
+
+
+## SMS queue and start receipts
+
+SMS webhook success means durable queue admission, not frontend acceptance.
+It reports queued work or the selected workspace's running/required sync. The same
+validated acceptance evidence from Claude, Codex, OpenCode, and pi enables a
+separate “Started working on your request.” SMS. Spawn alone is insufficient.
+A bounded worker sends this progress message without changing job state or
+blocking the event loop. Final-answer delivery waits for that attempt to settle.
+Progress notices are best-effort: Brain consumes their receipt before provider
+publication and does not replay an ambiguous send after a crash. Final answers
+retain their existing durable retry policy. Control commands have no start SMS.
+
+A verified final completion also proves receipt when the submit hook was missed;
+its pending start notice is attempted before the final answer.

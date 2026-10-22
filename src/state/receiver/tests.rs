@@ -176,3 +176,5 @@ mod schema {
     include!("tests/schema_sections/v13_notice_cutover.rs");
     include!("tests/schema_sections/v13_notice_cutover_review.rs");
 }
+
+mod start_notice;

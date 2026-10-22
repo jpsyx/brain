@@ -134,6 +134,8 @@ fn receiver_response(
             return unavailable_receiver_response(channel);
         }
     };
+    let workspace = std::sync::Arc::new(route.context().clone());
+    let registry_store = route.registry_store().clone();
     match receiver::dispatch::dispatch_http(route, request, &body, control, channel) {
         Ok(job) => {
             crate::logging::log(format!(
@@ -141,10 +143,9 @@ fn receiver_response(
                 job.workspace_id, job.job_id, job.channel
             ));
             match channel {
-                receiver::Channel::Sms => http::Response::xml(
-                    200,
-                    "<Response><Message>Received. I’ll get back to you shortly.</Message></Response>",
-                ),
+                receiver::Channel::Sms => {
+                    super::reply::sms_receipt(workspace, registry_store, &job)
+                }
                 receiver::Channel::Email => {
                     http::Response::json(200, r#"{"ok":true,"queued":true}"#)
                 }

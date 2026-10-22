@@ -6269,3 +6269,21 @@ on evidence timing, rather than waiting forever to see the original outcome.
 Evidence-only disconnect recovery also respects ordinary status integrity checks.
 A valid receipt cannot override a contradictory existing operation fingerprint;
 only a proven missing operation record permits the receipt-only fallback.
+
+
+## SMS queue and start receipts
+
+The HTTP ingress boundary only stores a job, so its acknowledgement must say
+queued or syncing rather than imply the frontend received the prompt. Start
+notifications use persisted frontend acceptance, not process spawn. They have
+a separate best-effort receipt and bounded worker because they are progress
+updates, not terminal answers: sending one must never finish the job or release
+agent ownership. Consume-before-send favors avoiding duplicate SMS on ambiguous
+provider failures; a crash at that boundary can omit a progress notice.
+
+A verified final completion also proves receipt when the submit hook was missed;
+its pending start notice is attempted before the final answer.
+
+An idle receiver that needs a freshness pull reports sync preparation immediately.
+If older agent work is ahead of this message, it reports queued instead; a
+future freshness pull must not disguise the current agent wait.

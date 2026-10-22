@@ -2095,6 +2095,15 @@ reply quotes message text a stranger wrote: raw HTML in the answer is shown as
 the text it looks like rather than passed through as markup, and a link
 destination that is not `https:`, `http:`, or `mailto:` is dropped.
 
+SMS receipt messages describe admission accurately: ordinary inbound work is
+stored in the durable queue and replies “Received. The message has been queued.”
+If that workspace has a live sync, or this message is next and requires a freshness pull, the receipt instead says “Received. I am
+currently re-syncing all documents first before I can process requests, I will
+let you know once I can work on your message.” Once the frontend records exact
+acceptance, Brain sends “Started working on your request.” Launching a process
+alone does not count. This works for Claude, Codex, OpenCode, and pi; `/new` and
+`/restart` retain their control responses without an agent-start notice.
+
 When cloud sync is configured, receiver dispatch also applies the two-hour
 freshness gate described above. The HTTP acknowledgement remains immediate,
 but stale local state is pulled before the queued message reaches the selected

@@ -2979,3 +2979,19 @@ pending effects remain projected. Rejected or failed snapshots provide no covera
 Disconnect reconciliation preserves operation/receipt fingerprint contradictions
 as unknown outcomes with recovery identity; receipt-only fallback requires a
 proven missing operation record.
+
+
+## SMS queue and start receipts
+
+`server/request.rs` reports queue admission or running/required workspace sync in the SMS
+receipt. `state/receiver/store/start_notice.rs` selects pending SMS receipts
+only after persisted frontend acceptance. The App services start-notice worker
+uses the bounded provider executor independently of agent ownership. The
+receiver tick settles this progress attempt before starting terminal answer
+delivery, while continuing agent work. Shutdown cancels both provider workers.
+
+A verified final completion also proves receipt when the submit hook was missed;
+its pending start notice is attempted before the final answer.
+
+The receipt checks the same two-hour freshness rule as dispatch using a
+non-creating, zero-wait journal reader that includes committed WAL data.

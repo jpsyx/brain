@@ -2987,3 +2987,16 @@ revision fence. Covered settled effects retire even when newer canonical rows
 reopen or restore their target. An independent refresh retires effects already
 settled before that refresh, while pending effects remain. Snapshot failure or
 rejection never advances coverage.
+
+
+## SMS queue and start receipts
+
+New non-control SMS admission atomically stores a `meta` entry keyed by
+`receiver-start:<job-id>` whose value is the exact job token. Selection joins
+this receipt to a same-workspace SMS job with `accepted_at_unix_ms` present.
+Consuming it is an exact job/token CAS before provider publication. Duplicate
+admission does not recreate receipts, and pending receipts survive restart.
+No historical jobs are backfilled and no schema change is required.
+
+A verified final completion also proves receipt when the submit hook was missed;
+its pending start notice is attempted before the final answer.

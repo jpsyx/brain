@@ -14,6 +14,7 @@ use crate::workspace::{CommandContext, ReceiverAction};
 mod manual_sessions;
 mod receiver_delivery;
 mod receiver_recovery;
+mod receiver_start_notice;
 mod removal;
 
 pub(crate) struct AppServicesInit {
@@ -33,6 +34,8 @@ pub(crate) struct AppServices {
     receiver_sync_runtime: Box<dyn ReceiverSyncRuntime>,
     receiver_attachment_coordinator: ReceiverAttachmentCoordinator,
     receiver_delivery_execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    receiver_start_execution: Box<dyn crate::server::delivery::ReceiverDeliveryExecution>,
+    receiver_start_active: bool,
     receiver_delivery_active: Option<crate::state::ReceiverDeliveryClaim>,
     #[cfg(test)]
     receiver_recovery_commit_visible_error: std::cell::Cell<bool>,
@@ -40,20 +43,8 @@ pub(crate) struct AppServices {
 
 impl AppServices {
     pub(crate) fn new(init: AppServicesInit) -> Self {
-        #[cfg(not(test))]
-        let receiver_delivery_execution: Box<
-            dyn crate::server::delivery::ReceiverDeliveryExecution,
-        > = match crate::server::delivery::SystemReceiverDeliveryExecution::new() {
-            Ok(execution) => Box::new(execution),
-            Err(error) => {
-                crate::logging::log(format!("receiver delivery worker start failed: {error}"));
-                Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default())
-            }
-        };
-        #[cfg(test)]
-        let receiver_delivery_execution: Box<
-            dyn crate::server::delivery::ReceiverDeliveryExecution,
-        > = Box::new(receiver_delivery::UnavailableReceiverDeliveryExecution::default());
+        let receiver_delivery_execution = receiver_delivery::new_execution();
+        let receiver_start_execution = receiver_delivery::new_execution();
         Self {
             removal: crate::tui::task_mutation::Coordinator::default(),
             agenda_runner: init.agenda_runner,
@@ -63,6 +54,8 @@ impl AppServices {
             receiver_sync_runtime: init.receiver_sync_runtime,
             receiver_attachment_coordinator: ReceiverAttachmentCoordinator::system(),
             receiver_delivery_execution,
+            receiver_start_execution,
+            receiver_start_active: false,
             receiver_delivery_active: None,
             #[cfg(test)]
             receiver_recovery_commit_visible_error: std::cell::Cell::new(false),

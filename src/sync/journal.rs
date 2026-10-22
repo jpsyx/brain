@@ -53,6 +53,16 @@ impl Journal {
         journal.recent(limit)
     }
 
+    /// Read receiver freshness without creating state or waiting on a writer.
+    pub fn downstream_completion_read_only(path: &Path) -> Result<Option<String>> {
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.busy_timeout(std::time::Duration::ZERO)?;
+        Self { conn }.latest_downstream_completion()
+    }
+
     fn configure(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -245,5 +255,26 @@ mod tests {
 
         j.record(&run("both")).unwrap();
         assert_eq!(j.latest_successful_downstream_id().unwrap(), Some(3));
+    }
+    #[test]
+    fn receipt_freshness_reader_sees_wal_and_does_not_create_a_missing_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.db");
+        assert_eq!(
+            Journal::downstream_completion_read_only(&path).unwrap(),
+            None
+        );
+        assert!(!path.exists());
+        let journal = Journal::open(&path).unwrap();
+        let mut pulled = run("pull");
+        pulled.finished_at = "2026-07-30T10:00:00Z".into();
+        journal.record(&pulled).unwrap();
+        journal.record(&run("push")).unwrap();
+        assert_eq!(
+            Journal::downstream_completion_read_only(&path)
+                .unwrap()
+                .as_deref(),
+            Some("2026-07-30T10:00:00Z")
+        );
     }
 }

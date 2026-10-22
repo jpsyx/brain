@@ -2,6 +2,10 @@
 
 mod html;
 mod plain_text;
+mod receipt;
+#[cfg(test)]
+pub(in crate::server) use receipt::queued_sms_response;
+pub(in crate::server) use receipt::sms_receipt;
 
 pub use html::email_html;
 pub use plain_text::strip_markdown;
