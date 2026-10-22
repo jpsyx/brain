@@ -129,6 +129,14 @@ pub(crate) const ALL: &[Shortcut] = &[
         commands: &[Task(TaskCommand::Remove)],
     },
     Shortcut {
+        keys: "d (delete modal)",
+        label: "delete",
+        desc: "Confirm the displayed task deletion when Delete task is available; Cancel remains the default",
+        group: Group::TaskActions,
+        in_footer: false,
+        commands: &[Task(TaskCommand::Remove)],
+    },
+    Shortcut {
         keys: "^O",
         label: "links",
         desc: "Open the selected entry's links (Linear + notes URLs)",

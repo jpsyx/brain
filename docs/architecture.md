@@ -2868,6 +2868,12 @@ Relationship effects are rendered from captured plan bytes without filesystem IO
 The renderer keeps the action list and footer separate from scrollable details;
 selection resets to Cancel on each new request, including stale-plan refreshes.
 The plan fingerprint remains internal to confirmation and execution.
+The captive `d` shortcut and the Delete task choice dispatch the existing Remove
+command through `App::execute_command`. With a removal overlay present, that
+command confirms only an available Delete action against the captured preview;
+otherwise it retains its task-target picker and preview behavior. A successful
+receipt closes only its matching modal generation when there are no warnings or
+refresh errors to review.
 
 `tasks/removal/maintenance/{preview,validate,history}` freezes pure backlog
 candidates into typed intent. The planner composes dependency substitution,

@@ -337,3 +337,9 @@ pub(crate) fn ctrl_messages_brain_about_task(code: KeyCode, ctrl: bool, shift: b
 pub(crate) fn ctrl_removes_task(code: KeyCode, ctrl: bool) -> bool {
     ctrl && matches!(code, KeyCode::Backspace)
 }
+
+pub(crate) fn confirms_task_removal(key: &crossterm::event::KeyEvent) -> bool {
+    key.code == KeyCode::Char('d')
+        && key.modifiers.is_empty()
+        && key.kind == crossterm::event::KeyEventKind::Press
+}

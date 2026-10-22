@@ -139,15 +139,22 @@ fn canonical_middle_removal_tui_matches_cli_after_images_without_agent_prompt() 
     assert!(
         matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(&state.screen, RemovalScreen::Preview(plan) if plan.blockers.is_empty() && plan.options.dependents == crate::tasks::removal::model::Dependents::Rewire))
     );
-    for code in [KeyCode::Down, KeyCode::Enter] {
-        crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
-    }
+    crate::tui::task_removal::handle_key(
+        &mut app,
+        &KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+    );
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         app.tick_removal();
-        if matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(state.screen, RemovalScreen::Finished(_)))
-        {
+        if app.overlay.is_none() {
             break;
+        }
+        if let Some(Overlay::TaskRemoval(state)) = &app.overlay {
+            if let RemovalScreen::Finished(receipt) = &state.screen {
+                assert!(receipt.committed);
+                assert!(!receipt.warnings.is_empty() || !state.notice.is_empty());
+                break;
+            }
         }
         assert!(Instant::now() < deadline, "apply timed out");
         std::thread::sleep(Duration::from_millis(1));

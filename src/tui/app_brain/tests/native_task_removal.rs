@@ -401,7 +401,7 @@ fn native_task_removal_enter_defaults_to_cancel() {
         }));
     app.run_remove("T1");
     app.tick_removal();
-    for code in [KeyCode::Char('y'), KeyCode::Char('d'), KeyCode::Char('i')] {
+    for code in [KeyCode::Char('y'), KeyCode::Char('i')] {
         crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
     }
     assert!(app.overlay.is_some());
@@ -413,3 +413,6 @@ fn native_task_removal_enter_defaults_to_cancel() {
     assert!(app.overlay.is_none());
     assert_eq!(calls.lock().unwrap().len(), 1);
 }
+
+#[path = "native_task_removal_hotkey.rs"]
+mod hotkey;

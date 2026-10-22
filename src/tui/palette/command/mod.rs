@@ -81,7 +81,7 @@ impl TaskCommand {
             Self::MessageBrainAbout => Some("^⇧M"),
             Self::ToggleNotes => Some("l"),
             Self::OpenLinks => Some("^O"),
-            Self::Remove => Some("^⌫"),
+            Self::Remove => Some("^⌫; d in modal"),
             Self::Start | Self::Reassign | Self::Defer(_) => None,
         }
     }

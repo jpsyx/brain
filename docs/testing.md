@@ -1774,6 +1774,10 @@ waits occur off the event loop, then checks status/resume/abandon results. Queue
 coverage proves one executing worker, latest-preview coalescing, and preservation
 of apply/status/resume/abandon requests. UI coverage rejects repeated execution
 keys while Running, including close/reopen, and checks relationship previews.
+The modal's `d` shortcut confirms the captured preview from either selection,
+while Enter still defaults to Cancel. Modified keys and unavailable deletion
+states cannot confirm. Successful deletion dismisses only its own modal; warnings
+and errors remain visible.
 Maintenance command tests verify dependency and survivor cleanup through actual
 canonical files. Planner/executor cases cover scoped notes, archive ambiguity,
 invalid history, frozen scope and survivor UUIDs, reference collision handling,

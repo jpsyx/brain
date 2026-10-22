@@ -1,11 +1,11 @@
 use super::{
-    RemovalScreen,
     actions::{Action, choices},
     worker::Request,
 };
 use crate::tui::{
     App,
     overlay::{Overlay, close_overlay},
+    palette::{Command, TaskCommand},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -19,6 +19,10 @@ pub(crate) fn handle_key(app: &mut App, key: &KeyEvent) {
     let Some(Overlay::TaskRemoval(state)) = &app.overlay else {
         return;
     };
+    if crate::tui::keymap::confirms_task_removal(key) {
+        app.execute_command(Command::Task(TaskCommand::Remove));
+        return;
+    }
     let mut state = state.clone();
     let rows = choices(&state);
     match key.code {
@@ -45,16 +49,7 @@ fn execute(app: &mut App, mut state: super::RemovalState, action: Action) {
         Action::Close => {
             close_overlay(&mut app.overlay);
         }
-        Action::Delete => {
-            if let RemovalScreen::Preview(plan) = &state.screen {
-                let request = Request::Apply {
-                    plan: Box::new(plan.clone()),
-                    expected: plan.fingerprint.clone(),
-                    today: chrono::Local::now().date_naive(),
-                };
-                app.removal_request(state, request);
-            }
-        }
+        Action::Delete => app.execute_command(Command::Task(TaskCommand::Remove)),
         Action::Dependencies(value) => {
             state.options.dependents = value;
             app.removal_preview(state);

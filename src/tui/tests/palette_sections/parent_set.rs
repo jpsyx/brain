@@ -106,7 +106,7 @@ fn direct_shortcuts_are_advertised_next_to_their_rows() {
     let cases = [
         (Command::Task(TaskCommand::MarkComplete), Some("^D")),
         (Command::Task(TaskCommand::OpenLinks), Some("^O")),
-        (Command::Task(TaskCommand::Remove), Some("^⌫")),
+        (Command::Task(TaskCommand::Remove), Some("^⌫; d in modal")),
         (Command::Entry(EntryCommand::CreatePdf), Some("^G")),
         (Command::Entry(EntryCommand::Delete), Some("^D")),
         (Command::Global(GlobalAction::ShowShortcuts), Some("⌥S")),

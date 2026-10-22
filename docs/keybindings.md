@@ -381,10 +381,14 @@ Recovery uses the same action list, and running work offers only Close.
 | `Up` / `Down`, `Left` / `Right` | Move between the displayed choices |
 | `Tab` / `Shift+Tab` | Move to the next / previous choice |
 | `Enter` | Select the highlighted choice; only Delete task confirms deletion |
+| `d` | Confirm Delete task from any selected choice, only when deletion is available |
 | `PageUp` / `PageDown` | Scroll long details without changing the selected choice |
 | `Esc` / `Ctrl+C` | Close the modal; running native execution continues |
 
-There are no single-letter deletion or policy shortcuts. Recovery offers Check
+`d` uses the same Remove command and captured preview as selecting Delete task.
+It does nothing while blocked, running, or recovering a saved operation. Successful
+deletion closes the modal; errors and warnings remain visible for review.
+There are no single-letter policy shortcuts. Recovery offers Check
 progress, Retry deletion, and Stop trying to delete. The last opens a second
 confirmation with Go back selected, explaining that already canceled linked
 issues will stay canceled.

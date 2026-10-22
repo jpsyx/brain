@@ -9,7 +9,7 @@ use crate::tasks::removal::model::Options;
 use crate::tui::{
     App,
     modal_state::FlashKind,
-    overlay::{Overlay, replace_overlay},
+    overlay::{Overlay, close_overlay, replace_overlay},
 };
 pub(crate) use input::handle_key;
 pub(crate) use render::draw;
@@ -79,6 +79,27 @@ impl Coordinator {
     }
 }
 impl App {
+    pub(crate) fn confirm_removal(&mut self) -> bool {
+        let Some(Overlay::TaskRemoval(state)) = &self.overlay else {
+            return false;
+        };
+        if !actions::choices(state)
+            .iter()
+            .any(|(action, _)| *action == actions::Action::Delete)
+        {
+            return true;
+        }
+        if let RemovalScreen::Preview(plan) = &state.screen {
+            let request = Request::Apply {
+                plan: Box::new(plan.clone()),
+                expected: plan.fingerprint.clone(),
+                today: chrono::Local::now().date_naive(),
+            };
+            self.removal_request(state.clone(), request);
+        }
+        true
+    }
+
     pub(crate) fn run_remove(&mut self, raw_id: &str) {
         if self.reopen_removal() {
             return;
@@ -174,11 +195,14 @@ impl App {
                     state.screen = RemovalScreen::Failed(problem);
                 }
             }
+            let mut dismiss = false;
             if let RemovalScreen::Finished(receipt) = &state.screen {
+                dismiss = receipt.committed && receipt.warnings.is_empty();
                 state.operation_id = None;
                 if receipt.committed {
                     let selected = self.tasks.selected_identity().map(|(id, _)| id);
                     if let Err(error) = self.reload_tasks() {
+                        dismiss = false;
                         state.notice =
                             format!("Task deleted, but refreshing the list failed: {error}");
                     }
@@ -199,7 +223,11 @@ impl App {
             }
             self.services.remember_removal(state.clone());
             if visible {
-                replace_overlay(&mut self.overlay, Overlay::TaskRemoval(state));
+                if dismiss {
+                    close_overlay(&mut self.overlay);
+                } else {
+                    replace_overlay(&mut self.overlay, Overlay::TaskRemoval(state));
+                }
             }
         }
     }

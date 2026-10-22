@@ -19,6 +19,11 @@ impl App {
     /// command from every view, so "no task highlighted" is a question to ask,
     /// not a reason to do nothing.
     pub(crate) fn execute_command(&mut self, command: Command) {
+        if command == Command::Task(crate::tui::palette::TaskCommand::Remove)
+            && self.confirm_removal()
+        {
+            return;
+        }
         close_overlay(&mut self.overlay);
         if command == Command::Task(crate::tui::palette::TaskCommand::Remove)
             && self.reopen_removal()

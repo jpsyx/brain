@@ -3002,7 +3002,9 @@ Ctrl+Backspace and the Remove palette command open a native deletion dialog with
 the same task-only picker. No agent frontend is required. The dialog uses rounded
 red chrome, padded and wrapped content, highlighted action rows, and one fixed
 navigation footer. Cancel is selected by default. Use arrows or Tab to choose an
-action and Enter to select it; typing `y` does not bypass the selection.
+action and Enter to select it, or press `d` to confirm Delete task directly from
+any selected choice. The Delete task row shows `[d]`, and the Remove palette row
+advertises the modal shortcut. Typing `y` does not bypass the selection.
 
 The dialog names the task and explains that deletion has no undo. It shows named
 changes to related tasks and projects, linked issues that will be canceled, and
@@ -3012,7 +3014,8 @@ should keep waiting for its prerequisites or stop waiting for it. Those other
 tasks are not deleted. Linked-issue choices say whether to leave issues unchanged
 or cancel them too, and appear only when relevant. Choosing either kind of option
 rebuilds the preview and returns selection to Cancel; it never deletes immediately.
-Delete is unavailable while a blocker remains.
+Delete and its `d` shortcut are unavailable while a blocker remains, during
+running work, or when recovering a saved operation.
 
 Confirmation still uses the captured fingerprint and current date. Stale inputs
 rebuild the preview for fresh consent. Preview, apply, status, resume, and abandon
@@ -3024,6 +3027,8 @@ rows, and cannot undo external cancellations. Unknown outcomes must first be
 reconciled. Running work offers only Close. PageUp/PageDown scroll long details
 without moving the action selection. A completed removal refreshes tasks without
 moving the main view or panel focus, retaining a surviving selection or the nearest row.
+Successful deletion closes the modal automatically. Errors, receipt warnings,
+and refresh failures keep their details visible for review.
 
 Backlog purge and dedupe use the same grouped removal transaction and recovery
 records, with no habit opt-in and linked issues kept. Purge rewires dependent

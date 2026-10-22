@@ -38,7 +38,7 @@ pub(super) fn choices(state: &RemovalState) -> Vec<(Action, String)> {
     match &state.screen {
         RemovalScreen::Preview(plan) => {
             if plan.blockers.is_empty() {
-                rows.push((Action::Delete, "Delete task".into()));
+                rows.push((Action::Delete, "Delete task [d]".into()));
             }
             let affected = plan.options.dependents != Dependents::Reject
                 || plan.blockers.iter().any(|p| p.code == "dependents_exist")
