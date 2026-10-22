@@ -1,5 +1,5 @@
 //! The event loop: run one runtime tick, draw, poll for input, and dispatch
-//! each keystroke through the fixed precedence: unconditional quit → modal
+//! each keystroke through the fixed precedence: app-level quit request → modal
 //! overlays → panel-close/new chords → focus/scroll chords → app-level view
 //! switches → palette/brain/agenda accelerators → the focused panel/view.
 //!
@@ -82,22 +82,18 @@ pub(crate) fn update_application(app: &mut App, event: &Event) -> bool {
         ApplicationEvent::Key(key) => key,
     };
 
-    // Ctrl+Q is the unconditional "quit the whole shell" accelerator,
-    // resolved before modal routing and panel dispatch so nothing can
-    // swallow it: it quits from either panel and even while a modal is
-    // open. (Bare `q` / `Ctrl+C` stay contextual: they dismiss modals,
-    // quit only from the tasks panel's normal mode, and are forwarded to
-    // the agent in the brain panel.) 0x11, so no kitty-protocol dependency;
-    // the caller releases the session lock and tears down the terminal on
-    // this return.
+    // App-level quit is available from every surface, including modals.
+    // All exit routes still wait for accepted task changes to settle.
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl_quits(k.code, ctrl) {
-        return true;
+        return app.task_changes_allow_quit();
     }
 
     // The palette's "Quit brain" row sets the same flag the chord returns, so
     // either route leaves through one door.
-    dispatch_key(app, &k) || app.shell.take_quit_request()
+    let requested = dispatch_key(app, &k);
+    let palette_requested = app.shell.take_quit_request();
+    (requested || palette_requested) && app.task_changes_allow_quit()
 }
 
 fn dispatch_key(app: &mut App, k: &KeyEvent) -> bool {

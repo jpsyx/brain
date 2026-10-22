@@ -210,28 +210,13 @@ fn native_task_removal_fences_late_previews_and_retains_closed_execution_recover
         &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
     );
     let third = calls.lock().unwrap()[2].0;
-    // Running admits no second execution, even after close/reopen.
-    for _ in 0..2 {
-        for code in [
-            KeyCode::Enter,
-            KeyCode::Char('r'),
-            KeyCode::Char('s'),
-            KeyCode::Char('a'),
-            KeyCode::Char('y'),
-            KeyCode::Char('p'),
-        ] {
-            crate::tui::task_removal::handle_key(
-                &mut app,
-                &KeyEvent::new(code, KeyModifiers::NONE),
-            );
-        }
-        crate::tui::task_removal::handle_key(
-            &mut app,
-            &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
-        app.run_remove("T3");
-        assert_eq!(calls.lock().unwrap().len(), 3);
-    }
+    assert!(
+        app.overlay.is_none(),
+        "accepted deletion closes immediately"
+    );
+    // A later preview has its own lifetime and cannot discard this result.
+    app.run_remove("T3");
+    assert_eq!(calls.lock().unwrap().len(), 4);
     crate::tui::task_removal::handle_key(
         &mut app,
         &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
@@ -248,18 +233,18 @@ fn native_task_removal_fences_late_previews_and_retains_closed_execution_recover
     assert!(app.overlay.is_none());
     app.tasks.replace_rows(vec![], vec![]);
     app.execute_command(Command::Task(TaskCommand::Remove));
-    assert_eq!(calls.lock().unwrap().len(), 3);
+    assert_eq!(calls.lock().unwrap().len(), 4);
     assert!(
         matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if state.operation_id.as_deref() == Some("saved-operation"))
     );
     for code in [KeyCode::Up, KeyCode::Enter] {
         crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
     }
-    assert_eq!(calls.lock().unwrap().len(), 3);
+    assert_eq!(calls.lock().unwrap().len(), 4);
     for code in [KeyCode::Down, KeyCode::Enter] {
         crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
     }
-    assert!(matches!(&calls.lock().unwrap()[3].1, Request::Abandon(id) if id == "saved-operation"));
+    assert!(matches!(&calls.lock().unwrap()[4].1, Request::Abandon(id) if id == "saved-operation"));
     for code in [
         KeyCode::Char('s'),
         KeyCode::Char('r'),
@@ -268,7 +253,7 @@ fn native_task_removal_fences_late_previews_and_retains_closed_execution_recover
     ] {
         crate::tui::task_removal::handle_key(&mut app, &KeyEvent::new(code, KeyModifiers::NONE));
     }
-    assert_eq!(calls.lock().unwrap().len(), 4);
+    assert_eq!(calls.lock().unwrap().len(), 5);
 }
 #[test]
 fn native_task_removal_stale_preview_rebuilds_without_confirming_and_confirmation_reads_fresh_date()
@@ -310,6 +295,13 @@ fn native_task_removal_stale_preview_rebuilds_without_confirming_and_confirmatio
         ))),
     ));
     app.tick_removal();
+    assert_eq!(
+        calls.lock().unwrap().len(),
+        2,
+        "stale consent cannot silently retry"
+    );
+    assert!(app.status.error().is_some());
+    app.run_remove("T1");
     assert!(matches!(
         &calls.lock().unwrap()[2].1,
         Request::Preview { .. }
@@ -322,7 +314,7 @@ fn native_task_removal_stale_preview_rebuilds_without_confirming_and_confirmatio
     app.tick_removal();
     assert_eq!(calls.lock().unwrap().len(), 3);
     assert!(
-        matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(state.screen, RemovalScreen::Preview(_)) && !state.notice.is_empty())
+        matches!(app.overlay, Some(Overlay::TaskRemoval(ref state)) if matches!(state.screen, RemovalScreen::Preview(_)))
     );
 }
 
@@ -416,3 +408,6 @@ fn native_task_removal_enter_defaults_to_cancel() {
 
 #[path = "native_task_removal_hotkey.rs"]
 mod hotkey;
+
+#[path = "task_mutation_settlement.rs"]
+mod settlement;

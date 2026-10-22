@@ -8,6 +8,16 @@ use crate::{
     workspace::CommandContext,
 };
 impl AppServices {
+    pub(crate) fn pending_task_changes(&self) -> usize {
+        self.removal.pending()
+    }
+    pub(crate) fn start_task_completion(
+        &mut self,
+        context: CommandContext,
+        request: Request,
+    ) -> Option<u64> {
+        self.removal.start_completion(context, request)
+    }
     pub(crate) fn recoverable_removal(&self) -> Option<&RemovalState> {
         self.removal.recoverable()
     }
@@ -19,7 +29,7 @@ impl AppServices {
     ) -> RemovalState {
         self.removal.start(context, state, request)
     }
-    pub(crate) fn poll_removal(&mut self) -> Option<(RemovalState, Response)> {
+    pub(crate) fn poll_removal(&mut self) -> Option<(u64, Option<RemovalState>, Response)> {
         self.removal.poll()
     }
     pub(crate) fn remember_removal(&mut self, state: RemovalState) {

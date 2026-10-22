@@ -388,7 +388,7 @@ pub(crate) const ALL: &[Shortcut] = &[
     Shortcut {
         keys: "^Q",
         label: "quit",
-        desc: "Unconditional quit from either panel — works while the brain panel is focused or a modal is open",
+        desc: "Quit from either panel or a modal after pending task changes finish saving",
         group: Group::Global,
         in_footer: false,
         commands: &[Global(GlobalAction::Quit)],

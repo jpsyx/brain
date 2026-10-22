@@ -76,6 +76,7 @@ pub(crate) struct ConfirmState {
     pub(super) prompt: String,
     /// Task ID this confirmation operates on. Captured at construction.
     pub(super) task_id: String,
+    pub(crate) completion: Option<(crate::tasks::removal::model::Identity, chrono::NaiveDate)>,
     /// Task name, shown in a dimmer second line so the user can sanity-
     /// check what they're about to mutate without context-switching to
     /// the list behind the modal.

@@ -222,7 +222,16 @@ pub(crate) fn run_confirm_yes(app: &mut App) {
         return;
     };
     match c.kind {
-        ConfirmKind::MarkComplete => app.run_mark_complete(&c.task_id),
+        ConfirmKind::MarkComplete => {
+            if let Some((identity, today)) = c.completion {
+                app.queue_completion(identity, today);
+            } else {
+                app.task_change_error(format!(
+                    "{} confirmation has no captured identity; confirm again",
+                    c.task_id
+                ));
+            }
+        }
         ConfirmKind::GenerateAgenda => app.run_generate_agenda(),
         ConfirmKind::RunTriage => app.run_triage(),
     }

@@ -22,15 +22,22 @@ impl App {
                 self.send_brain_prompt(&message);
             }
             TaskCommand::MarkComplete => {
-                // A confirmation rather than an immediate write: this mutates
-                // tasks.csv. The Yes path calls `run_mark_complete`.
-                open_overlay(
-                    &mut self.overlay,
-                    Overlay::TaskConfirmation(ConfirmState::mark_complete(
-                        target.id.clone(),
-                        target.label.clone(),
-                    )),
-                );
+                let Some((identity, done)) = self
+                    .tasks
+                    .completion_identity(id, self.context.workspace().id())
+                else {
+                    return;
+                };
+                if done {
+                    self.status.set_flash(FlashKind::Info(format!(
+                        "{id} is already complete or saving"
+                    )));
+                    return;
+                }
+                let mut confirmation =
+                    ConfirmState::mark_complete(target.id.clone(), target.label.clone());
+                confirmation.completion = Some((identity, chrono::Local::now().date_naive()));
+                open_overlay(&mut self.overlay, Overlay::TaskConfirmation(confirmation));
             }
             TaskCommand::MessageBrainAbout => {
                 open_overlay(

@@ -6235,3 +6235,22 @@ name what waiting tasks will do; issue choices name whether linked issues will
 be canceled. Changing either rebuilds the plan and resets selection to Cancel.
 The action list is derived from the same state for both input and rendering, so
 hidden or blocked actions cannot execute through an unadvertised letter key.
+
+
+### Native task mutations share a FIFO and project optimistic effects
+
+A synchronous completion can wait behind sync ownership and freeze terminal
+input. Running native work on one FIFO keeps that wait, recurrence, agenda work
+and refresh IO off the event loop. Previews share the FIFO so they observe prior
+queued changes without weakening deletion fingerprints. A changed external
+snapshot still invalidates consent and requires confirmation again.
+
+Optimism is a job-scoped projection over current authoritative rows, never a
+saved list to restore. This lets one failed mutation roll back without losing a
+new sync edit or another queued mutation. Known commits survive refresh errors;
+unreadable disconnected outcomes remain uncertain and are reconciled against
+fresh evidence without replay. UUID capture prevents a refreshed display ID from
+redirecting completion, and native already-done checks prevent repeated habit
+recurrence. The in-memory queue deliberately guards normal quit instead of
+claiming durable delivery across crashes. CLI operations retain bounded lock
+waiting; workers retry only typed acquisition contention before ownership.

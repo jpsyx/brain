@@ -117,7 +117,7 @@ impl App {
         let sync_status_next_poll = receiver_sync_runtime.monotonic_now();
         let last_seen_downstream_id = receiver_sync_runtime
             .latest_successful_downstream_id(command_context.workspace.paths());
-        let tasks = TasksState::new(TasksStateInit {
+        let mut tasks = TasksState::new(TasksStateInit {
             view,
             task_options,
             today,
@@ -129,6 +129,7 @@ impl App {
             initial_search,
             tag_styles: crate::personalization::load_tag_styles(&command_context.workspace),
         });
+        tasks.bind_workspace(command_context.workspace.id());
         // The workspace root is read here, before `command_context` moves into
         // the context below: the shell's tree sub-view is rooted at it.
         let shell = ShellState::new(

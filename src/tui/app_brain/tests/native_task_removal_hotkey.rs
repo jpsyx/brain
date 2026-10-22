@@ -155,30 +155,26 @@ fn native_task_removal_completion_preserves_details_and_newer_modals() {
             })
         };
         if case == "newer-modal" {
-            let Some(Overlay::TaskRemoval(state)) = &mut app.overlay else {
-                unreachable!();
-            };
-            state.generation = generation + 1;
+            app.execute_command(Command::Global(
+                crate::tui::action::GlobalAction::ShowShortcuts,
+            ));
         }
-        if case == "refresh-failure" {
-            std::fs::write(app.context.tasks_csv_path(), "task_id\nT1\n").unwrap();
-        }
-        replies
-            .lock()
-            .unwrap()
-            .push_back((generation, Response::Receipt(response)));
-        app.tick_removal();
-        let Some(Overlay::TaskRemoval(state)) = &app.overlay else {
-            panic!("{case} must keep its modal");
+        let response = Response::Receipt(response);
+        let response = if case == "refresh-failure" {
+            Response::Settled(Box::new(response), Err("reading tasks.csv failed".into()))
+        } else {
+            response
         };
-        match case {
-            "warning" => assert!(
-                matches!(&state.screen, RemovalScreen::Finished(receipt) if !receipt.warnings.is_empty())
-            ),
-            "failure" => assert!(matches!(state.screen, RemovalScreen::Failed(_))),
-            "newer-modal" => assert_eq!(state.generation, generation + 1),
-            "refresh-failure" => assert!(state.notice.contains("refreshing the list failed")),
-            _ => unreachable!(),
+        replies.lock().unwrap().push_back((generation, response));
+        app.tick_removal();
+        if case == "newer-modal" {
+            assert!(matches!(app.overlay, Some(Overlay::Help(_))));
+        } else {
+            assert!(app.overlay.is_none());
+            assert!(
+                app.status.error().is_some(),
+                "{case} must retain details outside the closed modal"
+            );
         }
     }
 }

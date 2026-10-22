@@ -163,12 +163,19 @@ fn lines(state: &RemovalState) -> Vec<String> {
                 if operation_id.is_some() {
                     "Checking saved deletion..."
                 } else {
-                    "Working on task deletion..."
+                    "Checking deletion details..."
                 }
                 .into(),
             );
             lines.push(String::new());
-            lines.push("You can close this window. Work already started will continue.".into());
+            lines.push(
+                if operation_id.is_some() {
+                    "You can close this window. Checking saved progress will continue."
+                } else {
+                    "Nothing has been deleted. You can cancel this check."
+                }
+                .into(),
+            );
         }
         RemovalScreen::Failed(problem) => {
             lines.push("Deletion needs attention".into());

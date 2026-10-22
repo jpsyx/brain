@@ -18,10 +18,12 @@ mod tests;
 mod execute;
 mod external;
 pub(crate) mod maintenance;
-pub(crate) use execute::{apply, preview};
+pub(crate) use execute::{apply, apply_queued, preview, preview_with};
 
 mod downgrade;
 mod lifecycle;
 pub(crate) use downgrade::prepare_downgrade;
 pub(crate) mod operations;
-pub(crate) use lifecycle::{abandon, operation_status, resume};
+pub(crate) use lifecycle::{
+    abandon, abandon_with, interrupted, operation_status, resume, resume_with,
+};

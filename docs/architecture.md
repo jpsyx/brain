@@ -2853,27 +2853,42 @@ external zip/Python prerequisite or a hand-written archive format.
 
 ### Native removal UI and maintenance composition
 
-`tui/task_removal/{state,worker,input,render,effects,actions}` separates modal display from native
-IO. `AppServices` owns the injected removal coordinator and worker runtime;
-`Overlay::TaskRemoval` is a generation-tagged display snapshot. Tick polling
-updates only the matching request generation. Closing an overlay leaves execution
-and its recovery identity in the service owner. Workers own a cloned, immutable
-`CommandContext`, never a frontend or the application. Selection restoration is
-specific to the removal refresh. One native worker executes at a time; adjacent
-queued previews coalesce to the latest generation. Accepted non-preview requests
-retain FIFO order. The Running UI and recoverable coordinator admit no second
-execution or recovery request while one is pending, including after close/reopen.
-Relationship effects are rendered from captured plan bytes without filesystem IO.
-`actions` derives the available captive choices once for both input and rendering.
-The renderer keeps the action list and footer separate from scrollable details;
-selection resets to Cancel on each new request, including stale-plan refreshes.
-The plan fingerprint remains internal to confirmation and execution.
-The captive `d` shortcut and the Delete task choice dispatch the existing Remove
-command through `App::execute_command`. With a removal overlay present, that
-command confirms only an available Delete action against the captured preview;
-otherwise it retains its task-target picker and preview behavior. A successful
-receipt closes only its matching modal generation when there are no warnings or
-refresh errors to review.
+`tui/task_mutation/{worker,native,coordinator,projection}` owns one process-local
+FIFO for native completion, deletion, read-only previews, and recovery. The
+worker receives owned requests and pinned `CommandContext` values, never App,
+terminal, service aggregates or agent controllers. It reaps finished handles
+without blocking the event loop. `AppServices` owns the coordinator: every
+accepted job retains its own monotonic identity and recovery metadata, while a
+modal generation fences only display updates. All requests preserve submission
+order, so a later deletion preview sees earlier native mutations.
+
+`TasksState` keeps authoritative task/habit rows separately from projected rows.
+UUID-scoped completion and removal effects are applied whenever rows change;
+views, target pickers and logical state consume that projection. Settlement
+removes only its own failed effect. Known committed effects survive refresh
+errors until canonical rows represent them. Selection follows immutable identity,
+with the nearest surviving row as fallback. Completion captures identity and date
+when its confirmation opens, resolves UUID under task-store ownership, and treats
+an already-done occurrence as an idempotent result. Legacy rows use the existing
+workspace-scoped deterministic UUID.
+
+`tui/task_removal/{state,input,render,effects,actions}` owns consent display and
+choices. A ready Apply closes immediately and hides its targets. Read-only
+preview text explicitly says nothing has been deleted; Cancel remains selected
+and `d` confirms only an available Delete action. Full fingerprints, native
+revalidation and durable receipts remain authoritative. Stale consent restores
+visibility and requires another explicit preview and confirmation. Recovery
+records outlive newer jobs and remain available through Remove. Errors and
+warnings use the persistent error banner without replacing a newer modal.
+
+Queued task ownership retries only typed SQLite busy/locked acquisition errors;
+ordinary CLI ownership retains its bounded timeout. No mutation or external
+operation is replayed as a lock retry. Worker results include refreshed rows and
+separate committed outcomes from downstream warnings. A disconnect triggers an
+evidence-only worker reconciliation; unreadable outcomes remain explicitly
+unknown until a later authoritative refresh. A persistent saving line appears
+across main views. Every normal exit route passes the same accepted-job guard;
+read-only previews alone do not prevent exit.
 
 `tasks/removal/maintenance/{preview,validate,history}` freezes pure backlog
 candidates into typed intent. The planner composes dependency substitution,

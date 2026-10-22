@@ -127,6 +127,7 @@ impl SessionClosePickerState {
 impl ConfirmState {
     pub(crate) fn mark_complete(task_id: String, task_label: String) -> Self {
         Self {
+            completion: None,
             kind: ConfirmKind::MarkComplete,
             // Completing a task is constructive — green, not the destructive red.
             intent: ConfirmIntent::Success,
@@ -142,6 +143,7 @@ impl ConfirmState {
     /// generate today's agenda before opening it.
     pub(crate) fn generate_agenda() -> Self {
         Self {
+            completion: None,
             kind: ConfirmKind::GenerateAgenda,
             // Generating an agenda is constructive.
             intent: ConfirmIntent::Success,
@@ -158,6 +160,7 @@ impl ConfirmState {
     /// `/triage` message regardless of which habit is wired in.
     pub(crate) fn run_triage(task_id: String, task_label: String) -> Self {
         Self {
+            completion: None,
             kind: ConfirmKind::RunTriage,
             // Running triage is constructive.
             intent: ConfirmIntent::Success,

@@ -14,70 +14,8 @@ use crate::tui::{
 pub(crate) use input::handle_key;
 pub(crate) use render::draw;
 pub(crate) use state::{RemovalScreen, RemovalState};
-use worker::{RemovalService, Request, Response};
+use worker::{Request, Response};
 
-pub(crate) struct Coordinator {
-    service: Box<dyn RemovalService>,
-    next_generation: u64,
-    state: Option<RemovalState>,
-    executing: bool,
-}
-impl Default for Coordinator {
-    fn default() -> Self {
-        Self {
-            service: Box::<worker::NativeService>::default(),
-            next_generation: 0,
-            state: None,
-            executing: false,
-        }
-    }
-}
-impl Coordinator {
-    #[cfg(test)]
-    pub(crate) fn replace_service(&mut self, service: Box<dyn RemovalService>) {
-        self.service = service;
-    }
-    pub(crate) fn recoverable(&self) -> Option<&RemovalState> {
-        self.state
-            .as_ref()
-            .filter(|state| self.executing || state.operation_id.is_some())
-    }
-    pub(crate) fn start(
-        &mut self,
-        context: crate::workspace::CommandContext,
-        mut state: RemovalState,
-        request: Request,
-    ) -> RemovalState {
-        self.next_generation += 1;
-        state.generation = self.next_generation;
-        state.screen = RemovalScreen::Running {
-            operation_id: state.operation_id.clone(),
-        };
-        state.abandon_confirm = false;
-        state.scroll = 0;
-        state.selected = 0;
-        self.executing = !matches!(request, Request::Preview { .. });
-        self.service.start(context, state.generation, request);
-        self.state = Some(state.clone());
-        state
-    }
-    pub(crate) fn poll(&mut self) -> Option<(RemovalState, Response)> {
-        while let Some((generation, response)) = self.service.poll() {
-            if let Some(state) = self
-                .state
-                .as_ref()
-                .filter(|state| state.generation == generation)
-            {
-                self.executing = false;
-                return Some((state.clone(), response));
-            }
-        }
-        None
-    }
-    pub(crate) fn remember(&mut self, state: RemovalState) {
-        self.state = Some(state);
-    }
-}
 impl App {
     pub(crate) fn confirm_removal(&mut self) -> bool {
         let Some(Overlay::TaskRemoval(state)) = &self.overlay else {
@@ -91,6 +29,7 @@ impl App {
         }
         if let RemovalScreen::Preview(plan) = &state.screen {
             let request = Request::Apply {
+                operation_id: uuid::Uuid::new_v4().to_string(),
                 plan: Box::new(plan.clone()),
                 expected: plan.fingerprint.clone(),
                 today: chrono::Local::now().date_naive(),
@@ -134,16 +73,83 @@ impl App {
         }
     }
     pub(super) fn removal_request(&mut self, state: RemovalState, request: Request) {
+        let targets = match &request {
+            Request::Apply { plan, .. } => Some(plan.targets.clone()),
+            _ => None,
+        };
+        let accepted = matches!(
+            request,
+            Request::Apply { .. } | Request::Resume(_) | Request::Abandon(_)
+        );
         let state = self
             .services
             .start_removal(self.context.command().clone(), state, request);
-        replace_overlay(&mut self.overlay, Overlay::TaskRemoval(state));
+        if let Some(targets) = targets {
+            self.tasks.bind_workspace(self.context.workspace().id());
+            self.tasks.project_task_change(
+                state.generation,
+                targets,
+                crate::tui::task_mutation::projection::Change::Remove,
+            );
+        }
+        if accepted {
+            close_overlay(&mut self.overlay);
+        } else {
+            replace_overlay(&mut self.overlay, Overlay::TaskRemoval(state));
+        }
     }
+
     pub(crate) fn tick_removal(&mut self) {
-        while let Some((mut state, response)) = self.services.poll_removal() {
-            let generation = state.generation;
+        while let Some((generation, state, response)) = self.services.poll_removal() {
+            let response = match response {
+                Response::Settled(response, rows) => {
+                    match rows {
+                        Ok((tasks, habits)) => self.tasks.replace_rows(tasks, habits),
+                        Err(error) => self.task_change_error(format!(
+                            "Saved task result could not refresh: {error}"
+                        )),
+                    }
+                    *response
+                }
+                response => response,
+            };
+            let response = if let Response::Warning(response, warning) = response {
+                self.task_change_error(warning);
+                *response
+            } else {
+                response
+            };
+            if let Response::Complete(result) = response {
+                self.tasks.settle_task_change(generation, result.is_ok());
+                match result {
+                    Ok(result) => self.status.set_flash(FlashKind::Info(format!(
+                        "✓ {} marked complete",
+                        result.task_id
+                    ))),
+                    Err(error) => self.task_change_error(error),
+                }
+                continue;
+            }
+            if matches!(response, Response::Disconnected) {
+                self.tasks.mark_task_change_uncertain(generation);
+                self.task_change_error("Task worker stopped. Save outcome is unknown; refresh and inspect deletion status before retrying.".into());
+                if let Some(mut state) = state {
+                    state.screen =
+                        RemovalScreen::Failed(crate::tasks::removal::model::Problem::new(
+                            "worker_failed",
+                            "Worker stopped; check saved deletion status before retrying",
+                            serde_json::json!({}),
+                        ));
+                    self.services.remember_removal(state);
+                }
+                continue;
+            }
+            let Some(mut state) = state else {
+                continue;
+            };
             let visible = matches!(&self.overlay, Some(Overlay::TaskRemoval(modal)) if modal.generation == generation);
             let outcome = match response {
+                Response::Complete(_) | Response::Settled(_, _) | Response::Warning(_, _) | Response::Disconnected => unreachable!(),
                 Response::Preview(result) => result.map(RemovalScreen::Preview),
                 Response::Receipt(result) => result.map(RemovalScreen::Finished),
                 Response::Operation(result) => result.map(|operation| {
@@ -173,6 +179,9 @@ impl App {
             match outcome {
                 Ok(screen) => state.screen = screen,
                 Err(problem) => {
+                    if problem.details.get("operation_id").is_none() {
+                        state.operation_id = None;
+                    }
                     if let Some(id) = problem
                         .details
                         .get("operation_id")
@@ -181,6 +190,9 @@ impl App {
                         state.operation_id = Some(id.into());
                     }
                     if problem.code == "stale_plan" {
+                        if problem.details.get("operation_id").is_none() {
+                            state.operation_id = None;
+                        }
                         state.notice =
                             "Task details changed. Review the updated preview before deleting."
                                 .into();
@@ -188,6 +200,7 @@ impl App {
                             state.notice.push_str(" An earlier deletion still needs attention. Retry it or stop that attempt before starting again.");
                         }
                         if visible {
+                            self.tasks.settle_task_change(generation, false);
                             self.removal_preview(state);
                             continue;
                         }
@@ -200,13 +213,12 @@ impl App {
                 dismiss = receipt.committed && receipt.warnings.is_empty();
                 state.operation_id = None;
                 if receipt.committed {
-                    let selected = self.tasks.selected_identity().map(|(id, _)| id);
-                    if let Err(error) = self.reload_tasks() {
-                        dismiss = false;
-                        state.notice =
-                            format!("Task deleted, but refreshing the list failed: {error}");
-                    }
-                    self.tasks.restore_removal_selection(selected.as_deref());
+                    self.tasks.project_task_change(
+                        generation,
+                        receipt.removed.clone(),
+                        crate::tui::task_mutation::projection::Change::Remove,
+                    );
+                    self.tasks.settle_task_change(generation, true);
                 }
                 self.status.set_flash(FlashKind::Info(
                     if receipt.committed {
@@ -216,10 +228,29 @@ impl App {
                     }
                     .into(),
                 ));
-            } else if !visible && state.operation_id.is_some() {
-                self.status.set_flash(FlashKind::Error(
-                    "Task deletion needs attention; open Remove to continue".into(),
+            } else if let RemovalScreen::Failed(problem) = &state.screen {
+                self.tasks.settle_task_change(generation, false);
+                self.task_change_error(format!(
+                    "{}: {}. Open Remove to review or recover.",
+                    state.targets.join(", "),
+                    problem.message
                 ));
+            }
+            if let RemovalScreen::Finished(receipt) = &state.screen {
+                if !receipt.committed {
+                    self.tasks.settle_task_change(generation, false);
+                }
+                if !receipt.warnings.is_empty() {
+                    self.task_change_error(format!(
+                        "Task deleted with warnings: {}",
+                        receipt
+                            .warnings
+                            .iter()
+                            .map(|p| p.message.as_str())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ));
+                }
             }
             self.services.remember_removal(state.clone());
             if visible {

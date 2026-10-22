@@ -3017,18 +3017,35 @@ rebuilds the preview and returns selection to Cancel; it never deletes immediate
 Delete and its `d` shortcut are unavailable while a blocker remains, during
 running work, or when recovering a saved operation.
 
-Confirmation still uses the captured fingerprint and current date. Stale inputs
-rebuild the preview for fresh consent. Preview, apply, status, resume, and abandon
-run in background workers. Closing does not cancel executing work. Reopening
-Remove returns to running or recoverable work. Recovery offers Check progress,
-Retry deletion, and Stop trying to delete, using the same selection controls.
+Confirmation uses the captured fingerprint and current date. Once accepted, the
+modal closes immediately and its targets disappear from views and target
+pickers while the native write waits for ownership. Preview copy says Brain is
+checking deletion details and that nothing has been deleted. Stale inputs
+restore visibility and require another explicit preview and confirmation.
+
+Completion uses the same FIFO, captures UUID and date when confirmation opens,
+and immediately projects done state after confirmation. A persistent saving
+indicator stays visible while accepted changes are queued or running. Navigation,
+view switches and refreshes remain usable and retain pending effects. Failed
+changes remove only their own effect; successful results and later jobs cannot
+erase an earlier error or recovery obligation. Agenda and refresh warnings after
+a commit keep the saved change visible. Completing an already-done habit
+occurrence never creates another next occurrence.
+
+Remove reopens recoverable deletion work. Recovery offers Check progress,
+Retry deletion, and Stop trying to delete with the same selection controls.
 Stopping requires a second confirmation, defaults to Go back, preserves local
-rows, and cannot undo external cancellations. Unknown outcomes must first be
-reconciled. Running work offers only Close. PageUp/PageDown scroll long details
-without moving the action selection. A completed removal refreshes tasks without
-moving the main view or panel focus, retaining a surviving selection or the nearest row.
-Successful deletion closes the modal automatically. Errors, receipt warnings,
-and refresh failures keep their details visible for review.
+rows, and cannot undo external cancellations. Unknown external outcomes must
+first be reconciled. PageUp/PageDown scroll long details without moving action
+selection. Settlement preserves surviving task selection or its nearest row,
+main view, panel focus, and any newer modal. Errors and warnings remain in the
+persistent banner after the originating modal closes.
+
+Normal quit commands, including Ctrl+Q and the palette, wait for accepted task
+changes to settle and explain that saving is pending. Read-only previews alone
+do not block quit. The queue is local to the running TUI: forced termination can
+lose unstarted intents; durable removal receipts retain their existing recovery
+guarantees. CLI completion and removal remain synchronous.
 
 Backlog purge and dedupe use the same grouped removal transaction and recovery
 records, with no habit opt-in and linked issues kept. Purge rewires dependent

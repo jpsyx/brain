@@ -15,6 +15,7 @@ use crate::users::UserId;
 mod filter;
 mod interaction;
 mod links;
+mod mutation;
 mod panel;
 mod policy;
 mod targets;
@@ -38,6 +39,10 @@ pub(crate) struct TasksStateInit {
 
 pub(crate) struct TasksState {
     tag_styles: TagStyles,
+    workspace_id: Option<crate::workspace::WorkspaceId>,
+    authoritative_tasks: Vec<Task>,
+    authoritative_habits: Vec<Task>,
+    effects: crate::tui::task_mutation::projection::Effects,
     today: NaiveDate,
     full_notes: bool,
     expanded_notes: HashSet<String>,
@@ -89,6 +94,10 @@ impl TasksState {
         let header = header_lines(&view, &task_options, active_view);
         let mut state = Self {
             tag_styles,
+            workspace_id: None,
+            authoritative_tasks: all_tasks.clone(),
+            authoritative_habits: all_habits.clone(),
+            effects: crate::tui::task_mutation::projection::Effects::default(),
             today,
             full_notes: task_options.full_notes,
             expanded_notes: HashSet::new(),
@@ -206,9 +215,10 @@ impl TasksState {
     }
 
     pub(crate) fn replace_rows(&mut self, all_tasks: Vec<Task>, all_habits: Vec<Task>) {
-        self.all_tasks = all_tasks;
-        self.all_habits = all_habits;
-        self.rematerialize_active_view();
+        self.effects.reconcile_uncertain();
+        self.authoritative_tasks = all_tasks;
+        self.authoritative_habits = all_habits;
+        self.project_changes();
     }
 
     #[cfg(test)]

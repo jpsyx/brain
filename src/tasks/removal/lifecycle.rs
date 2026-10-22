@@ -4,7 +4,7 @@ use super::{
     model::Problem,
     operations::{self, Operation, OperationOwner, Phase, Receipt},
 };
-use crate::{tasks::store_lock::TaskStoreOwner, workspace::CommandContext};
+use crate::{tasks::store_lock::Acquisition, workspace::CommandContext};
 
 /// Atomic record reads only; status never takes task ownership or recovers.
 pub(crate) fn operation_status(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
@@ -68,13 +68,24 @@ fn observe(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
 }
 
 pub(crate) fn resume(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
-    resume_inner(context, id).map_err(|mut error| {
+    resume_with(context, id, Acquisition::Bounded)
+}
+pub(crate) fn resume_with(
+    context: &CommandContext,
+    id: &str,
+    acquisition: Acquisition,
+) -> Result<Receipt, Problem> {
+    resume_inner(context, id, acquisition).map_err(|mut error| {
         error.details["operation_id"] = serde_json::json!(id);
         error
     })
 }
 
-fn resume_inner(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
+fn resume_inner(
+    context: &CommandContext,
+    id: &str,
+    acquisition: Acquisition,
+) -> Result<Receipt, Problem> {
     let status = observe(context, id)?;
     actor(context, &status)?;
     if status.phase == Phase::Complete {
@@ -95,7 +106,7 @@ fn resume_inner(context: &CommandContext, id: &str) -> Result<Receipt, Problem> 
             "This removal operation was abandoned",
         ));
     }
-    let owner = match TaskStoreOwner::acquire(&context.workspace) {
+    let owner = match acquisition.acquire(&context.workspace) {
         Ok(owner) => owner,
         Err(error) => {
             let failure = operational("recovery_failed", &error);
@@ -120,15 +131,24 @@ fn resume_inner(context: &CommandContext, id: &str) -> Result<Receipt, Problem> 
     } else {
         drop(owner);
         super::external::reconcile(context, &ownership, &mut operation)?;
-        let owner = TaskStoreOwner::acquire(&context.workspace).map_err(unavailable)?;
+        let owner = acquisition
+            .acquire(&context.workspace)
+            .map_err(unavailable)?;
         revalidate(context, &ownership, &mut operation, &owner)?;
         drop(owner);
-        external_commit(context, &ownership, &mut operation, |_| Ok(()))?;
+        external_commit(context, &ownership, &mut operation, acquisition, |_| Ok(()))?;
     }
     finish(context, &ownership, &mut operation)
 }
 
 pub(crate) fn abandon(context: &CommandContext, id: &str) -> Result<Operation, Problem> {
+    abandon_with(context, id, Acquisition::Bounded)
+}
+pub(crate) fn abandon_with(
+    context: &CommandContext,
+    id: &str,
+    acquisition: Acquisition,
+) -> Result<Operation, Problem> {
     // Validate existence/scope before creating even a lock file.
     actor(context, &observe(context, id)?)?;
     let ownership = OperationOwner::try_acquire(&context.workspace, id)
@@ -146,7 +166,7 @@ pub(crate) fn abandon(context: &CommandContext, id: &str) -> Result<Operation, P
             "A committed removal cannot be abandoned",
         ));
     }
-    let recovery = TaskStoreOwner::acquire(&context.workspace);
+    let recovery = acquisition.acquire(&context.workspace);
     let mut operation = observe(context, id)?;
     if operation.receipt.is_some() {
         return Err(problem(
@@ -192,4 +212,38 @@ fn actor(context: &CommandContext, operation: &Operation) -> Result<(), Problem>
         ));
     }
     Ok(())
+}
+
+/// Inspect a disconnected executor without replaying any external or local write.
+pub(crate) fn interrupted(context: &CommandContext, id: &str) -> Result<Receipt, Problem> {
+    if let Ok(operation) = operation_status(context, id) {
+        if let Some(receipt) = operation.receipt {
+            return Ok(receipt);
+        }
+        return Err(Problem::new(
+            "worker_failed",
+            "Worker stopped before deletion committed. Check saved progress before continuing.",
+            serde_json::json!({"operation_id":id}),
+        ));
+    }
+    match operations::load_commit(&context.workspace, id) {
+        Ok(Some(record)) => Ok(record.receipt),
+        Ok(None)
+            if operations::load(&context.workspace, id).is_err_and(|error| {
+                error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+            }) =>
+        {
+            Err(problem(
+                "worker_failed",
+                "Worker stopped before deletion was prepared. Review and confirm again.",
+            ))
+        }
+        _ => Err(Problem::new(
+            "outcome_unknown",
+            "Could not determine whether deletion committed",
+            serde_json::json!({"operation_id":id}),
+        )),
+    }
 }

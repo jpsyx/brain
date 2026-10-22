@@ -3,9 +3,6 @@
 
 use std::path::Path;
 
-use anyhow::Result;
-
-use crate::tasks::complete;
 use crate::tui::App;
 use crate::tui::logs_view::{LogKind, LogsView};
 use crate::tui::modal_state::{ConfirmState, FlashKind, LinkPickerState};
@@ -47,16 +44,6 @@ impl App {
         crate::logging::log(format!("open logs view kind={kind:?}"));
         self.shell
             .show_logs(LogsView::load(kind, self.context.log_path()));
-    }
-
-    /// Wrap `mark_task_complete` with flash-message setting so both the
-    /// palette action and the confirm modal route through one place.
-    pub(crate) fn run_mark_complete(&mut self, raw_id: &str) {
-        let flash = match self.mark_task_complete(raw_id) {
-            Ok(()) => FlashKind::Info(format!("✓ {raw_id} marked complete")),
-            Err(e) => FlashKind::Error(format!("⚠ {e}")),
-        };
-        self.status.set_flash(flash);
     }
 
     /// Ctrl+A entry point. Calls the injected `agenda_runner`; on a
@@ -145,19 +132,6 @@ impl App {
         let message = "Generate today's agenda. Use the /todo skill's agenda flow to write \
              /tmp/<today>.md, then let me know it's ready so I can open it with Ctrl+A.";
         self.send_brain_prompt(message);
-    }
-
-    /// Complete a task or habit natively, re-sync the day's agenda, then
-    /// refresh from disk.
-    pub(crate) fn mark_task_complete(&mut self, raw_id: &str) -> Result<()> {
-        let id = complete::normalize_id(raw_id)?;
-        complete::complete_and_sync_agenda(
-            self.context.command(),
-            &id,
-            chrono::Local::now().date_naive(),
-        )?;
-        self.reload_tasks()?;
-        Ok(())
     }
 
     pub(super) fn open_url(&self, url: &str) -> FlashKind {

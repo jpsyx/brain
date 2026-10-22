@@ -1,5 +1,11 @@
 pub(crate) const TASKS_STATE_API: &[&str] = &[
     "active_view",
+    // Immutable confirmation capture and job-scoped projection keep raw rows private.
+    "bind_workspace",
+    "completion_identity",
+    "project_task_change",
+    "settle_task_change",
+    "mark_task_change_uncertain",
     "advance_day",
     "append_query",
     "assignment_snapshot",
@@ -29,7 +35,6 @@ pub(crate) const TASKS_STATE_API: &[&str] = &[
     "query_is_empty",
     "query_text",
     "replace_rows",
-    "restore_removal_selection",
     "scroll_offset",
     "select_first",
     "select_last",
@@ -61,6 +66,10 @@ pub(crate) const TASKS_STATE_TYPES: &[&str] = &[
 ];
 
 pub(crate) const TASK_FIELDS: &[&str] = &[
+    "workspace_id",
+    "authoritative_tasks",
+    "authoritative_habits",
+    "effects",
     "tag_styles",
     "today",
     "full_notes",

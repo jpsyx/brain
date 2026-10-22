@@ -2,7 +2,7 @@
 use super::model::{Options, Problem, RemovalPlan};
 use super::operations::{CommitRecord, Operation, OperationOwner, Phase, Receipt};
 use super::snapshot::{Snapshot, SnapshotContext};
-use crate::tasks::store_lock::TaskStoreOwner;
+use crate::tasks::store_lock::{Acquisition, TaskStoreOwner};
 use crate::workspace::CommandContext;
 use chrono::NaiveDate;
 
@@ -13,7 +13,18 @@ pub(crate) fn preview(
     options: Options,
     today: NaiveDate,
 ) -> Result<RemovalPlan, Problem> {
-    let owner = TaskStoreOwner::acquire_inspection(&context.workspace)
+    preview_with(context, needles, &options, today, Acquisition::Bounded)
+}
+
+pub(crate) fn preview_with(
+    context: &CommandContext,
+    needles: &[String],
+    options: &Options,
+    today: NaiveDate,
+    acquisition: Acquisition,
+) -> Result<RemovalPlan, Problem> {
+    let owner = acquisition
+        .inspect(&context.workspace)
         .map_err(|error| operational("snapshot_failed", &error))?;
     if crate::tasks::store_transaction::has_pending(&context.workspace, &owner)
         .map_err(|error| operational("snapshot_failed", &error))?
@@ -24,7 +35,7 @@ pub(crate) fn preview(
         ));
     }
     let snapshot = snapshot(context, today, &owner)?;
-    Ok(super::plan::plan(&snapshot, needles, &options))
+    Ok(super::plan::plan(&snapshot, needles, options))
 }
 
 pub(crate) fn apply(
@@ -43,10 +54,30 @@ pub(super) fn apply_with_hook(
     today: NaiveDate,
     hook: impl FnMut(crate::tasks::store_transaction::TransactionStep) -> std::io::Result<()>,
 ) -> Result<Receipt, Problem> {
-    let operation_id = uuid::Uuid::new_v4().to_string();
+    apply_queued(
+        context,
+        plan,
+        expected,
+        today,
+        uuid::Uuid::new_v4().to_string(),
+        Acquisition::Bounded,
+        hook,
+    )
+}
+
+pub(crate) fn apply_queued(
+    context: &CommandContext,
+    plan: &RemovalPlan,
+    expected: &str,
+    today: NaiveDate,
+    operation_id: String,
+    acquisition: Acquisition,
+    hook: impl FnMut(crate::tasks::store_transaction::TransactionStep) -> std::io::Result<()>,
+) -> Result<Receipt, Problem> {
     let ownership = OperationOwner::acquire(&context.workspace, &operation_id)
         .map_err(|error| operational("operation_unavailable", &error))?;
-    let owner = TaskStoreOwner::acquire(&context.workspace)
+    let owner = acquisition
+        .acquire(&context.workspace)
         .map_err(|error| operational("ownership_failed", &error))?;
     let snapshot = snapshot_for_plan(context, today, &owner, plan)?;
     validate(&snapshot, plan, expected)?;
@@ -78,7 +109,7 @@ pub(super) fn apply_with_hook(
             drop(owner);
         } else {
             drop(owner);
-            external_commit(context, &ownership, &mut operation, hook)?;
+            external_commit(context, &ownership, &mut operation, acquisition, hook)?;
         }
         finish(context, &ownership, &mut operation)
     })();
@@ -91,10 +122,11 @@ pub(super) fn external_commit(
     context: &CommandContext,
     ownership: &OperationOwner,
     operation: &mut Operation,
+    acquisition: Acquisition,
     hook: impl FnMut(crate::tasks::store_transaction::TransactionStep) -> std::io::Result<()>,
 ) -> Result<(), Problem> {
     super::external::cancel(context, ownership, operation)?;
-    let owner = TaskStoreOwner::acquire(&context.workspace).map_err(|error| {
+    let owner = acquisition.acquire(&context.workspace).map_err(|error| {
         super::external::identified(operation, operational("ownership_failed", &error))
     })?;
     revalidate(context, ownership, operation, &owner)?;

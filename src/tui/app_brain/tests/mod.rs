@@ -129,3 +129,5 @@ use fixtures::*;
 mod native_task_removal;
 
 mod native_task_removal_worker;
+
+mod task_mutation_queue;

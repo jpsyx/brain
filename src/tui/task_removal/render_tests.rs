@@ -142,3 +142,13 @@ fn native_task_removal_narrow_window_keeps_selection_and_scroll_help_visible() {
             .any(|c| c.bg == crate::render::ACCENT_RED)
     );
 }
+
+#[test]
+fn waiting_preview_is_explicitly_read_only() {
+    let mut state = preview_state();
+    state.screen = RemovalScreen::Running { operation_id: None };
+    let text = lines(&state).join("\n");
+    assert!(text.contains("Checking deletion details"));
+    assert!(text.contains("Nothing has been deleted"));
+    assert!(!text.contains("Work already started"));
+}

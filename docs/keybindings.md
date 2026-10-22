@@ -32,7 +32,7 @@ the parent set.
 
 Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 
-1. **Unconditional quit:** `Ctrl+Q` exits even while a modal is open.
+1. **App-level quit:** `Ctrl+Q` requests exit even while a modal is open; accepted task changes must finish saving first.
 2. **Modal overlays:** a captive modal (help, sync log, the command palette,
    the task or entry target picker, confirmation, brain input, session rename
    picker or input, link picker, or assignee filter) consumes the key before any
@@ -63,7 +63,7 @@ Keys are resolved in this precedence (see `tui/event_loop/run.rs`):
 | `Ctrl+X` | Close the selected Additional manual or skill-session tab | From either panel. Main is permanent and ignores this action; receiver runs are removed only by their lifecycle owner. Closing an Additional manual session removes its saved mapping, while shell shutdown preserves mappings. |
 | `Alt+S` | Open the keyboard-shortcuts help modal | Replaces the old bare `?`; bound to `Alt+S` so a literal `?` still types into the brain-search filter. Distinct Meta sequence on every terminal |
 | `Ctrl+P` | Open the global command palette | Main-panel focus only, from any main view; in the brain panel it stays the agent's own binding |
-| `Ctrl+Q` | Unconditional quit | Intercepted before modals/panels; quits even from the brain panel or a modal. `0x11`, no kitty protocol needed. The palette's **Quit brain** row leaves through the same door |
+| `Ctrl+Q` | Quit brain | Intercepted before modals/panels; works from the brain panel or a modal, but waits while accepted task changes are saving. `0x11`, no kitty protocol needed. The palette's **Quit brain** row leaves through the same door |
 
 **Panel focus vs. view switching** are two different axes: `Alt+H/L` move
 *focus* between the main view and the brain panel; `Ctrl+H/L` change *which
@@ -93,7 +93,7 @@ prefilled and accepts printable single-line text, Backspace, and `Ctrl+U`
 (clear). Enter validates and saves the trimmed title; invalid input remains
 visible with an inline error. Esc and `Ctrl+C` cancel these modals. Panel
 accelerators are captive while a picker or rename input is open; `Ctrl+Q`
-retains unconditional quit.
+retains app-level quit with the same pending-task save guard.
 Manual launch, persistence, and close errors remain in the shared banner until
 Esc acknowledges them. Other keystrokes and view or focus changes preserve the
 message, including input received before its first render.
@@ -368,6 +368,10 @@ in the input modal with an error. During sharing, the modal displays progress;
 Esc cancels the child process. The result shows the URL and exact expiry and
 copies the link to the clipboard; Enter retries copying and Esc closes it.
 
+All normal quit routes, including contextual Esc/Ctrl+C and the Quit brain
+palette command, wait while accepted task changes are saving. Read-only deletion
+previews alone do not prevent exit.
+
 ### Native removal modal
 
 These are captive selection controls after Ctrl+Backspace or the Remove palette
@@ -386,8 +390,8 @@ Recovery uses the same action list, and running work offers only Close.
 | `Esc` / `Ctrl+C` | Close the modal; running native execution continues |
 
 `d` uses the same Remove command and captured preview as selecting Delete task.
-It does nothing while blocked, running, or recovering a saved operation. Successful
-deletion closes the modal; errors and warnings remain visible for review.
+It does nothing while blocked, running, or recovering a saved operation. Accepting deletion closes the modal immediately and hides its targets while saving.
+Errors and warnings remain visible in the persistent banner for review.
 There are no single-letter policy shortcuts. Recovery offers Check
 progress, Retry deletion, and Stop trying to delete. The last opens a second
 confirmation with Go back selected, explaining that already canceled linked

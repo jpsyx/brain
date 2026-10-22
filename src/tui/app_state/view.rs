@@ -13,7 +13,12 @@ impl App {
         let all_tasks = task::load_tasks(self.context.tasks_csv_path())
             .with_context(|| format!("reading {}", self.context.tasks_csv_path().display()))?;
         let habits_path = self.context.tasks_csv_path().with_file_name("habits.csv");
-        let all_habits = task::load_habits(&habits_path).unwrap_or_default();
+        let all_habits = if habits_path.exists() {
+            task::load_habits(&habits_path)
+                .with_context(|| format!("reading {}", habits_path.display()))?
+        } else {
+            Vec::new()
+        };
         self.tasks.replace_rows(all_tasks, all_habits);
         Ok(())
     }

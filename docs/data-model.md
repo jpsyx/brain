@@ -2958,3 +2958,19 @@ writes a new ordinary receipt with the actual target version, manifest SHA-256
 and compatibility revision 0 for audited 0.101.0 (1 for the current coordinator
 version). Missing roots have no new receipt or cache created. No persistent
 installer ticket or target-digest manifest field is added.
+
+
+### Optimistic TUI task jobs
+
+Each running TUI assigns monotonic job IDs to owned FIFO requests. Completion
+requests bind workspace, actor, CSV kind, immutable task UUID, display label and
+confirmation date. Deletion requests bind the reviewed plan, fingerprint and a
+preallocated operation UUID; no consent is regenerated during execution.
+Per-job effects project completion dates/status or hide removed targets over
+separate authoritative task/habit rows. Failed jobs drop only their own effect.
+Committed effects remain until canonical rows represent the commit. If worker
+evidence cannot be read, the effect is explicitly uncertain until the next
+successful authoritative refresh, with a persistent diagnostic. The accepted-job
+count is distinct from modal generations, read-only previews, and retained
+recovery records. None of this process-local intent state adds a disk schema or
+promises crash replay.

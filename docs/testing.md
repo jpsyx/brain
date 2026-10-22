@@ -1881,3 +1881,17 @@ selection, dependency preview refresh without execution, stale-plan consent,
 running/recovery fencing, and the real native deletion worker. Focused Ratatui
 checks cover hidden internal identifiers, affected relationships, danger styling,
 and navigation/scroll help remaining visible in a narrow viewport.
+
+
+Optimistic task mutation coverage combines pure per-job projection tests with
+real temporary-workspace lock tests. Completion and deletion confirmations must
+close and project their effects while ownership is held, remain responsive to
+navigation and refresh, and persist after release. FIFO previews observe earlier
+mutations, UUID capture survives ID reassignment, duplicate habit completion is
+idempotent, and all accepted results settle despite newer modals. Controlled
+responses pin independent recovery retention, pre-creation failures, committed
+refresh warnings and stale consent. Disconnect tests reconcile canonical evidence
+without replay; typed SQLite tests distinguish contention from other failures.
+Ratatui checks verify a persistent saving indicator and read-only preview copy.
+The aggregate architecture guard explicitly permits immutable identity capture
+and semantic projection operations while retaining private row ownership.

@@ -39,6 +39,23 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
         f.area()
     };
 
+    let pending = app.services.pending_task_changes();
+    let area = if pending > 0 {
+        let [content, status] =
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
+        f.render_widget(
+            ratatui::widgets::Paragraph::new(format!(
+                " Saving {pending} task change{}…",
+                if pending == 1 { "" } else { "s" }
+            ))
+            .style(ratatui::style::Style::default().fg(crate::render::TEXT_DIM)),
+            status,
+        );
+        content
+    } else {
+        area
+    };
+
     // The permanent brain panel takes half the width on its configured side,
     // including while Main's controller is unavailable.
     let (main_area, brain_area) = if app.brain.any_panel_visible() {

@@ -7,7 +7,10 @@ fn receive(service: &mut NativeService) -> (u64, Response) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(result) = service.poll() {
-            return result;
+            return match result {
+                (id, Response::Settled(response, _)) => (id, *response),
+                other => other,
+            };
         }
         assert!(Instant::now() < deadline, "native worker timed out");
         std::thread::sleep(Duration::from_millis(1));
@@ -47,6 +50,7 @@ fn native_task_removal_preview_and_apply_wait_for_ownership_off_the_event_loop()
         context.clone(),
         2,
         Request::Apply {
+            operation_id: uuid::Uuid::new_v4().to_string(),
             expected: plan.fingerprint.clone(),
             plan: Box::new(plan),
             today: chrono::Local::now().date_naive(),
@@ -146,7 +150,7 @@ fn canonical_middle_removal_tui_matches_cli_after_images_without_agent_prompt() 
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         app.tick_removal();
-        if app.overlay.is_none() {
+        if app.services.pending_task_changes() == 0 {
             break;
         }
         if let Some(Overlay::TaskRemoval(state)) = &app.overlay {

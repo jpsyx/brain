@@ -219,7 +219,6 @@ fn native_task_removal_selection_keeps_surviving_identity_or_nearest_row() {
         vec![],
     );
     state.select_next(1);
-    let selected = state.selected_identity().map(|(id, _)| id);
     state.replace_rows(
         vec![
             test_task("T2", "not_started"),
@@ -227,9 +226,17 @@ fn native_task_removal_selection_keeps_surviving_identity_or_nearest_row() {
         ],
         vec![],
     );
-    state.restore_removal_selection(selected.as_deref());
     assert_eq!(state.selected_task().unwrap().id, "T2");
     state.replace_rows(vec![test_task("T3", "not_started")], vec![]);
-    state.restore_removal_selection(Some("T2"));
     assert_eq!(state.selected_task().unwrap().id, "T3");
+}
+
+#[test]
+fn binding_workspace_preserves_the_launch_selector() {
+    let mut state = state();
+    state.base_tasks = vec![test_task("T9", "not_started")];
+    state.rebuild_body();
+    state.bind_workspace(crate::workspace::WorkspaceId::new());
+    assert_eq!(state.selected_task().unwrap().id, "T9");
+    assert_eq!(state.visible_count(), 1);
 }
