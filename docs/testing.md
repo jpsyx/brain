@@ -1895,3 +1895,8 @@ without replay; typed SQLite tests distinguish contention from other failures.
 Ratatui checks verify a persistent saving indicator and read-only preview copy.
 The aggregate architecture guard explicitly permits immutable identity capture
 and semantic projection operations while retaining private row ownership.
+
+Queue settlement regressions also cover failed status checks retaining recovery,
+revision-fenced worker snapshots preserving newer edits and external deletions,
+and asynchronous reconciliation revealing committed habit recurrence. Pure
+snapshot-order tests cover revision invalidation and recaptured evidence.

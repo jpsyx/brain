@@ -139,3 +139,14 @@ rollback, UUID safety, idempotent habit completion, stale deletion consent,
 committed warnings, worker failure, and pending-work quit behavior. Maintain the
 existing shortcut/palette and architecture guards. Run release tests and Clippy
 before publication.
+
+### Snapshot ordering and retained recovery identity
+
+Each queued request captures an authoritative-refresh revision. If an independent
+refresh has replaced rows before its result is consumed, its snapshot is rejected
+and one coalesced asynchronous snapshot is queued through the same FIFO. Job
+settlement still completes, committed effects remain projected, and fresh
+reconciliation exposes derived rows without replacing newer edits with old rows.
+Existing operation requests retain their captured recovery identity on read or
+retry errors. Only a new Apply known to fail before operation creation releases
+its preallocated operation identity.

@@ -6254,3 +6254,10 @@ redirecting completion, and native already-done checks prevent repeated habit
 recurrence. The in-memory queue deliberately guards normal quit instead of
 claiming durable delivery across crashes. CLI operations retain bounded lock
 waiting; workers retry only typed acquisition contention before ownership.
+
+Delayed result snapshots must not undo an intervening authoritative refresh.
+Enqueue-time revisions conservatively reject ambiguous snapshots and request
+fresh evidence through the same FIFO. This avoids both stale row resurrection and
+permanent suppression of committed derived rows, such as the next habit occurrence.
+Read failures for existing deletion operations retain their captured recovery ID;
+absence of an ID in an error is only evidence about a newly submitted Apply.

@@ -22,6 +22,7 @@ pub(super) fn execute(context: &CommandContext, request: Request) -> Response {
     }
     let recover = !matches!(request, Request::Status(_));
     let response = match request {
+        Request::Refresh => Response::Refreshed,
         Request::Complete { identity, today } => {
             let result = crate::tasks::complete::queued::run(context, &identity, today);
             let mut warning = None;
@@ -63,15 +64,18 @@ pub(super) fn execute(context: &CommandContext, request: Request) -> Response {
             expected,
             today,
             operation_id,
-        } => Response::Receipt(removal::apply_queued(
-            context,
-            &plan,
-            &expected,
-            today,
-            operation_id,
-            Acquisition::Queued,
-            |_| Ok(()),
-        )),
+        } => {
+            let result = removal::apply_queued(
+                context,
+                &plan,
+                &expected,
+                today,
+                operation_id.clone(),
+                Acquisition::Queued,
+                |_| Ok(()),
+            );
+            Response::Receipt(apply_evidence(context, &operation_id, result))
+        }
         Request::Status(id) => {
             Response::Operation(removal::operation_status(context, &id).map(Box::new))
         }
@@ -96,6 +100,27 @@ pub(super) fn execute(context: &CommandContext, request: Request) -> Response {
         response
     };
     Response::Settled(Box::new(response), rows)
+}
+
+fn apply_evidence(
+    context: &CommandContext,
+    id: &str,
+    result: Result<removal::operations::Receipt, removal::model::Problem>,
+) -> Result<removal::operations::Receipt, removal::model::Problem> {
+    let Err(mut problem) = result else {
+        return result;
+    };
+    if problem.details.get("operation_id").is_none() {
+        // An initial operation save can fail after rename but before directory sync.
+        match removal::interrupted(context, id) {
+            Ok(receipt) => return Ok(receipt),
+            Err(evidence) if evidence.details.get("operation_id").is_some() => {
+                problem.details["operation_id"] = serde_json::json!(id);
+            }
+            Err(_) => {}
+        }
+    }
+    Err(problem)
 }
 
 fn load_rows(context: &CommandContext, recover: bool) -> Result<super::Rows, String> {
@@ -125,6 +150,7 @@ pub(super) fn reconcile(context: &CommandContext, request: &Request) -> Response
         !matches!(request, Request::Preview { .. } | Request::Status(_)),
     );
     let response = match request {
+        Request::Refresh => Response::Refreshed,
         Request::Apply { operation_id, .. }
         | Request::Resume(operation_id)
         | Request::Status(operation_id)
@@ -204,6 +230,48 @@ fn reconcile_removal(context: &CommandContext, id: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_apply_clears_identity_only_with_absent_durable_evidence() {
+        use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::new(),
+            WorkspaceName::parse("test").unwrap(),
+            &root,
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+        let context = CommandContext::for_test(
+            std::sync::Arc::new(workspace),
+            RegistryStore::from_path(temporary.path().join("env.json")),
+            "member",
+        );
+        let id = uuid::Uuid::new_v4().to_string();
+        let failure = || {
+            removal::model::Problem::new(
+                "operation_unavailable",
+                "save failed",
+                serde_json::json!({}),
+            )
+        };
+        let absent = apply_evidence(&context, &id, Err(failure())).unwrap_err();
+        assert!(absent.details.get("operation_id").is_none());
+        let directory = context.workspace.paths().task_removals_dir();
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join(format!("{id}.json")),
+            b"unreadable saved evidence",
+        )
+        .unwrap();
+        let uncertain = apply_evidence(&context, &id, Err(failure())).unwrap_err();
+        assert_eq!(uncertain.details["operation_id"], id);
+        assert_eq!(uncertain.message, "save failed");
+    }
+
     #[test]
     fn disconnected_completion_reconciles_not_done_without_replaying() {
         use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};

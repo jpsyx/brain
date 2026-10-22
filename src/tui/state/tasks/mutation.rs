@@ -9,6 +9,21 @@ use crate::{
     workspace::WorkspaceId,
 };
 impl TasksState {
+    pub(crate) fn snapshot_revision(&self) -> u64 {
+        self.snapshot_order.revision()
+    }
+    pub(crate) fn adopt_task_snapshot(
+        &mut self,
+        revision: u64,
+        rows: crate::tui::task_mutation::Rows,
+    ) -> bool {
+        if !self.snapshot_order.accepts(revision) {
+            return false;
+        }
+        self.adopt_rows(rows.0, rows.1);
+        true
+    }
+
     pub(crate) fn bind_workspace(&mut self, workspace: WorkspaceId) {
         self.workspace_id = Some(workspace);
     }

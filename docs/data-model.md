@@ -2974,3 +2974,9 @@ successful authoritative refresh, with a persistent diagnostic. The accepted-job
 count is distinct from modal generations, read-only previews, and retained
 recovery records. None of this process-local intent state adds a disk schema or
 promises crash replay.
+
+An authoritative-refresh revision fences worker snapshots captured before a
+newer independent row replacement. Each queued job carries that revision and
+whether its removal ID was newly preallocated. Rejected snapshots trigger one
+coalesced asynchronous fresh snapshot; accepted-job settlement remains independent
+of snapshot adoption. These revisions and refresh requests are process-local.

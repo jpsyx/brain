@@ -81,9 +81,12 @@ impl App {
             request,
             Request::Apply { .. } | Request::Resume(_) | Request::Abandon(_)
         );
-        let state = self
-            .services
-            .start_removal(self.context.command().clone(), state, request);
+        let state = self.services.start_removal(
+            self.context.command().clone(),
+            state,
+            request,
+            self.tasks.snapshot_revision(),
+        );
         if let Some(targets) = targets {
             self.tasks.bind_workspace(self.context.workspace().id());
             self.tasks.project_task_change(
@@ -100,11 +103,18 @@ impl App {
     }
 
     pub(crate) fn tick_removal(&mut self) {
-        while let Some((generation, state, response)) = self.services.poll_removal() {
+        while let Some((generation, job, response)) = self.services.poll_removal() {
             let response = match response {
                 Response::Settled(response, rows) => {
                     match rows {
-                        Ok((tasks, habits)) => self.tasks.replace_rows(tasks, habits),
+                        Ok(rows) => {
+                            if !self.tasks.adopt_task_snapshot(job.revision, rows) {
+                                self.services.refresh_task_snapshot(
+                                    self.context.command().clone(),
+                                    self.tasks.snapshot_revision(),
+                                );
+                            }
+                        }
                         Err(error) => self.task_change_error(format!(
                             "Saved task result could not refresh: {error}"
                         )),
@@ -113,6 +123,10 @@ impl App {
                 }
                 response => response,
             };
+            let state = job.state;
+            if matches!(response, Response::Refreshed) {
+                continue;
+            }
             let response = if let Response::Warning(response, warning) = response {
                 self.task_change_error(warning);
                 *response
@@ -149,7 +163,7 @@ impl App {
             };
             let visible = matches!(&self.overlay, Some(Overlay::TaskRemoval(modal)) if modal.generation == generation);
             let outcome = match response {
-                Response::Complete(_) | Response::Settled(_, _) | Response::Warning(_, _) | Response::Disconnected => unreachable!(),
+                Response::Refreshed | Response::Complete(_) | Response::Settled(_, _) | Response::Warning(_, _) | Response::Disconnected => unreachable!(),
                 Response::Preview(result) => result.map(RemovalScreen::Preview),
                 Response::Receipt(result) => result.map(RemovalScreen::Finished),
                 Response::Operation(result) => result.map(|operation| {
@@ -179,7 +193,7 @@ impl App {
             match outcome {
                 Ok(screen) => state.screen = screen,
                 Err(problem) => {
-                    if problem.details.get("operation_id").is_none() {
+                    if job.preallocated_apply && problem.details.get("operation_id").is_none() {
                         state.operation_id = None;
                     }
                     if let Some(id) = problem
@@ -190,9 +204,6 @@ impl App {
                         state.operation_id = Some(id.into());
                     }
                     if problem.code == "stale_plan" {
-                        if problem.details.get("operation_id").is_none() {
-                            state.operation_id = None;
-                        }
                         state.notice =
                             "Task details changed. Review the updated preview before deleting."
                                 .into();

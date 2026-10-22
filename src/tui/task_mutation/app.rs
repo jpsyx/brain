@@ -12,6 +12,7 @@ impl App {
                 identity: identity.clone(),
                 today,
             },
+            self.tasks.snapshot_revision(),
         ) else {
             return;
         };

@@ -1,6 +1,9 @@
 pub(crate) const TASKS_STATE_API: &[&str] = &[
     "active_view",
     // Immutable confirmation capture and job-scoped projection keep raw rows private.
+    // Revision-fenced snapshot adoption keeps authoritative rows inside the aggregate.
+    "snapshot_revision",
+    "adopt_task_snapshot",
     "bind_workspace",
     "completion_identity",
     "project_task_change",
@@ -66,6 +69,7 @@ pub(crate) const TASKS_STATE_TYPES: &[&str] = &[
 ];
 
 pub(crate) const TASK_FIELDS: &[&str] = &[
+    "snapshot_order",
     "workspace_id",
     "authoritative_tasks",
     "authoritative_habits",

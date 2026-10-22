@@ -2853,7 +2853,7 @@ external zip/Python prerequisite or a hand-written archive format.
 
 ### Native removal UI and maintenance composition
 
-`tui/task_mutation/{worker,native,coordinator,projection}` owns one process-local
+`tui/task_mutation/{worker,native,coordinator,projection,snapshot}` owns one process-local
 FIFO for native completion, deletion, read-only previews, and recovery. The
 worker receives owned requests and pinned `CommandContext` values, never App,
 terminal, service aggregates or agent controllers. It reaps finished handles
@@ -2963,3 +2963,11 @@ artifacts through ownership checks, reconciliation, mandatory startup and target
 refresh. A retained failed report preserves workspace name/UUID without rerunning
 its attempt. Target plugin collisions are checked against the actual target core
 inventory before customized rendering; child output remains private.
+
+Worker snapshots capture the current authoritative-refresh revision at enqueue.
+An intervening refresh fences the delayed snapshot; settlement still accounts for
+its job, while one coalesced FIFO snapshot request obtains fresh rows off the
+UI thread. Worker snapshots remain ordered relative to each other and do not
+invalidate later FIFO results. Existing deletion operation IDs survive failed
+status, resume and abandon requests; only a new Apply failure known to precede
+operation creation clears its preallocated ID.

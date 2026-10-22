@@ -14,6 +14,7 @@ use std::{
 
 #[derive(Clone)]
 pub(crate) enum Request {
+    Refresh,
     Preview {
         targets: Vec<String>,
         options: Options,
@@ -34,6 +35,7 @@ pub(crate) enum Request {
     Abandon(String),
 }
 pub(crate) enum Response {
+    Refreshed,
     Complete(Result<crate::tasks::complete::CompletionResult, String>),
     Settled(Box<Self>, Result<super::Rows, String>),
     Disconnected,

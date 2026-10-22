@@ -4,6 +4,8 @@ pub(crate) mod projection;
 pub(crate) mod worker;
 pub(crate) type Rows = (Vec<crate::tasks::task::Task>, Vec<crate::tasks::task::Task>);
 mod coordinator;
-pub(crate) use coordinator::Coordinator;
+pub(crate) use coordinator::{Coordinator, Settlement};
 
 mod app;
+
+pub(crate) mod snapshot;
