@@ -193,38 +193,23 @@ See [task-project-link.md](task-project-link.md) for the full doc.
   ETA.
 - **`/todo orphans`** — alias for `brain tasks lint` dry-run.
 
-## Linear linkage (code tasks)
+## External issue tracker (optional)
 
-See [linear-link.md](linear-link.md) for the full doc. The link is
-LLM-mediated (scripts can't reach the Linear MCP); placement/structure
-judgment is delegated to `/linear-pm`.
+A task may carry an external tracker issue identifier in the
+`linear_issue` column. Core treats it as inert local metadata: an empty
+link is always fine. Filing issues, syncing state with the tracker, and
+reconciling are the tracker workflow supplied by the `todo:linear`
+extension when one is installed; its commands are documented there.
 
-- **`/todo file-in-linear <task>`** — file a `code` task as a Linear
-  issue. Hands placement (Backlog / project / cycle) + priority + labels
-  to `/linear-pm`, confirms the draft (`AskUserQuestion`), creates the
-  issue (`save_issue`), then persists the link via
-  `brain tasks set`. Confirm before any Linear write.
-- **`/todo link-issue <task> <AVA-###> [url]`** — link an existing task
-  to an existing issue. Wraps
-  `brain tasks set`.
-- **`/todo unlink-issue <task>`** — clear the `linear_issue` link.
+- **`/todo link-issue <task> <issue-id>`** — link an existing task to an
+  existing issue. `brain tasks set <task> --linear-issue <issue-id>`.
+- **`/todo unlink-issue <task>`** — clear the link.
   `brain tasks set <task> --linear-issue ""`.
-- **`/todo sync-linear`** — reconcile linked code tasks with Linear on
-  demand (the same pass /triage runs daily):
-  `brain tasks linked --open-only` → `get_issue` each → sync **state
-  and properties** (status, `due_date`↔`dueDate`, `priority`,
-  `task_name`↔`title`; most-recently-edited wins, conflicts surfaced);
-  apply the **ownership filter** (mirror in the user's untracked code
-  issues via a **time-windowed** `list_issues` scan whose `updatedAt`
-  window is derived from the last completed Morning Triage — never the
-  whole workspace; drop ones reassigned to others); create
-  **PR-review tasks** for PRs awaiting the user's review (deduped on PR URL).
-  See [linear-link.md](linear-link.md) and
-  `brain tasks linked`.
+- **`brain tasks linked`** — list linked tasks (`--open-only`, `--json`).
 
-`/todo add` also accepts `--linear-issue AVA-###` to set the link at
+`/todo add` also accepts `--linear-issue <issue-id>` to set the link at
 creation (rare — the issue usually doesn't exist yet). `/todo done` on a
-linked task prints a reminder to close the Linear issue too. `/todo remove`
+linked task prints a reminder to close the linked issue too. `/todo remove`
 uses the configured deterministic adapter for cancellation. Explicit local-only
 removal uses `--linked-issue keep`; do not replace a failed adapter with an
 agent-tool cancellation. See [Remove tasks](../SKILL.md#remove-tasks).
@@ -257,6 +242,4 @@ name fragment.
 | "what's on my plate?" / "show me today" | `/todo today` |
 | "break X down" / "X should be a project" | `/todo turn-into-project` |
 | "how's project Y going?" | `/todo project-status` |
-| "add this to Linear" / "file X in Linear" / "make a Linear issue" | `/todo file-in-linear` |
-| "link T17 to AVA-123" / "this is AVA-123" | `/todo link-issue` |
-| "sync with Linear" / "did anything close in Linear?" | `/todo sync-linear` |
+| "link T17 to ABC-123" / "this is ABC-123" | `/todo link-issue` |

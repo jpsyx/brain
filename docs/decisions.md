@@ -1952,8 +1952,8 @@ an *identity fact* becomes a runtime `brain personalize show` lookup ("busy CEO"
 user's extension. So the whole email-triage-first pass, the Superhuman
 reply-reconcile, the Linear reconcile/mirror-in/grooming pass (it hardcodes an
 owner email — which personalization has no field for — plus an `AVA-###` prefix
-and a `/linear-pm` dependency), and the private Notion In-Basket URL all live in
-Pablo's `triage` extension, not the repo. The core declares seven hooks
+and a dependency on a personal Linear skill), and the private Notion In-Basket
+URL all live in Pablo's `triage` extension, not the repo. The core declares seven hooks
 (`triage:daily-open`, `triage:daily-subagents`, `triage:daily-linear`,
 `triage:daily-merge`, `triage:daily-required-outputs`, `triage:weekly-inboxes`,
 `triage:weekly-linear`) at the exact points those passes ran, so the rendered
@@ -6330,3 +6330,14 @@ backed up before any atomic replacement; interrupted transitions retry the
 remaining records. The existing deletion limit and conflict rules are unchanged.
 Read-only previews filter a disposable copy, so previewing cannot consume this
 transition or change the next real sync's history.
+
+## Bundled skills invoke only bundled skills
+
+Core todo's command catalog once kept a Linear section whose filing step handed
+placement to a user's personal Linear skill. Nothing guarantees a user has that
+skill, so core silently depended on one person's setup. The catalog now
+describes only the generic link column (`link-issue`, `unlink-issue`,
+`brain tasks linked`) and leaves filing and sync commands to the `todo:linear`
+extension. A guard test reads every bundled file and fails when a `` `/<name>` ``
+invocation names anything other than a bundled skill. Paths and backticks that
+close an inline span are not invocations, so the guard has no allowlist.

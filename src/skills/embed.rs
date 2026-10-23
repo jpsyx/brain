@@ -367,4 +367,51 @@ mod tests {
             }
         }
     }
+
+    /// The `/<name>` skill invocations a markdown text names, e.g. `/todo add`.
+    /// A backtick that closes an inline span (`` `id`/x ``) or a path
+    /// (`` `/tmp/x` ``) is not an invocation.
+    fn skill_invocations(text: &str) -> Vec<String> {
+        let bytes = text.as_bytes();
+        text.match_indices("`/")
+            .filter(|&(i, _)| i == 0 || !bytes[i - 1].is_ascii_alphanumeric())
+            .filter_map(|(i, _)| {
+                let rest = &text[i + 2..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                    .unwrap_or(rest.len());
+                let name = &rest[..end];
+                let terminator = rest[end..].chars().next();
+                (!name.is_empty() && matches!(terminator, Some(' ' | '`')))
+                    .then(|| name.to_owned())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn skill_invocations_skip_paths_and_closing_backticks() {
+        let text = "Run `/todo add` or [`/triage`](x); not `/tmp/x` or `id`/timestamp.";
+        assert_eq!(skill_invocations(text), ["todo", "triage"]);
+    }
+
+    /// Core skill text knows nothing about extensions, so it may hand work
+    /// only to another bundled skill, never to a user's own skill.
+    #[test]
+    fn bundled_skills_invoke_only_bundled_skills() {
+        let skills = bundled_skills();
+        let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+        for skill in &skills {
+            for file in &skill.files {
+                let text = String::from_utf8_lossy(&file.contents);
+                for invoked in skill_invocations(&text) {
+                    assert!(
+                        names.contains(&invoked.as_str()),
+                        "bundled skill `{}` invokes non-bundled skill `/{invoked}` in `{}`",
+                        skill.name,
+                        file.rel_path.display()
+                    );
+                }
+            }
+        }
+    }
 }

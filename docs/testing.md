@@ -1262,6 +1262,10 @@ first move is a failing test that reproduces it, *then* the fix.
 - **The bundled skills ship no executable code** (`skills::embed`). A skill
   carrying a script would be a second implementation nobody can test from here,
   so the bundle asserts no `.py`/`.sh`/`.js`/`.rb` file reaches it.
+- **The bundled skills invoke only bundled skills** (`skills::embed`). Every
+  `` `/<name>` `` invocation in a bundled file must name a bundled skill, so
+  core never hands work to a skill only one user's extensions provide. Paths
+  and backticks that close an inline span are not invocations.
 
 - **The bundled skills' command references** (`tests/bundled_skill_commands.rs`).
   Every `brain …` command named in any bundled skill is extracted — from code
