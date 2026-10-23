@@ -190,10 +190,24 @@ fn a_continuously_live_older_server_is_fenced_without_lease_mutation_or_election
         while !stop_server.load(Ordering::Acquire) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    let mut request = Vec::new();
                     stream
-                        .read_to_end(&mut request)
-                        .expect("legacy control request bytes");
+                        .set_nonblocking(true)
+                        .expect("nonblocking legacy control request");
+                    let mut request = Vec::new();
+                    let deadline = Instant::now() + Duration::from_secs(1);
+                    loop {
+                        match stream.read_to_end(&mut request) {
+                            Ok(_) => break,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(
+                                    Instant::now() < deadline,
+                                    "legacy control request timed out"
+                                );
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            Err(error) => panic!("legacy control request bytes: {error}"),
+                        }
+                    }
                     observed_requests.lock().expect("legacy requests").push(
                         serde_json::from_slice::<serde_json::Value>(&request)
                             .expect("request JSON"),

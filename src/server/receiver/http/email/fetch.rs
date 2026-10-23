@@ -235,7 +235,6 @@ pub(super) fn parse_received_email(
         },
         str::to_owned,
     );
-    let body = body::bounded_prompt(&body, body::MAX_PROMPT_BYTES);
     let sender = email
         .get("from")
         .and_then(serde_json::Value::as_str)
@@ -246,6 +245,12 @@ pub(super) fn parse_received_email(
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_owned();
+    let prompt = if body.trim().is_empty() {
+        &subject
+    } else {
+        &body
+    };
+    let body = body::bounded_prompt(prompt, body::MAX_PROMPT_BYTES);
     let message_id = email
         .get("message_id")
         .and_then(serde_json::Value::as_str)

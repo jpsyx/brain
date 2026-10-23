@@ -2397,7 +2397,8 @@ consumer, or agent launcher.
   `http/sms.rs` and `http/email/` return typed provider outcomes while they
   verify and normalize provider input; Resend retrieval is capped at 1 MiB per
   response and ten seconds per request; `http/email/body.rs` is the pure
-  prompt-shaping half: HTML-only mail becomes readable text and the result is
+  prompt-shaping half: HTML-only mail becomes readable text, `http/email/fetch.rs`
+  falls back to the fetched subject when no readable body remains, and the result is
   bounded at 16 KiB with an explicit truncation notice before it enters an
   isolated receiver launch prompt;
   `dispatch.rs` resolves the selected workspace's portable actor, while

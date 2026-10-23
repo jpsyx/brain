@@ -1868,7 +1868,11 @@ refreshes and rebinds the remainder before acceptance lock waiting, and the
 deadline is rechecked after commit; continuous progress cannot renew it.
 Resend's received-email and attachment-metadata calls each have a ten-second
 maximum and a 1 MiB response cap; an oversized stream is stopped after one
-proof byte beyond the cap, before JSON parsing. Verified unavailable, ignored,
+proof byte beyond the cap, before JSON parsing. Email prompt extraction prefers
+nonblank plain text, then readable HTML, then the fetched subject. This accepts
+subject-only messages, including absent, null, whitespace-only, and empty-markup
+bodies. The chosen text receives the same UTF-8-safe 16 KiB truncation and notice;
+the original subject remains intact for reply threading. Verified unavailable, ignored,
 and permanent discarded Resend events return provider success and remain
 outside the queue. The one exception is an exact in-flight unavailable
 duplicate, which receives 503 until pending acceptance resolves; invalid

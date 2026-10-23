@@ -2293,7 +2293,9 @@ least one TUI lease keeps that process alive. A selected workspace accepts
 receiver work only while its own lease is live and enabled; another live
 workspace cannot make that route accept. Email body and attachment content is
 retrieved through Resend's Receiving APIs; HTML-only messages and attachment
-download URLs are preserved for the agent.
+download URLs are preserved for the agent. Subject-only email is valid: when
+the plain-text body and readable HTML body are empty, the subject becomes the
+agent's prompt, with the same size limit as body text.
 
 `brain habits` elects a background process when none exists, then prints the
 local

@@ -7,6 +7,8 @@ use hmac::{Hmac, Mac as _};
 use serde_json::json;
 use sha2::Sha256;
 
+mod subject;
+
 #[test]
 fn authenticated_email_uses_injected_fetch_without_external_io() {
     let timestamp = std::time::SystemTime::now()
