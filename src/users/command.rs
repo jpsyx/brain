@@ -79,12 +79,6 @@ pub fn apply_mutation(users: &mut Users, mutation: UserMutation) -> Result<(), U
                     user_id: id.to_string(),
                     value,
                 })?;
-                if !user.emails.iter().any(|email| email.value == value) {
-                    user.emails.push(EmailIdentity {
-                        value: value.clone(),
-                        inbound_allowed: false,
-                    });
-                }
                 user.response_email = Some(value);
             }
         }

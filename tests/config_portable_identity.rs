@@ -101,7 +101,7 @@ fn config_names_the_store_that_owns_those_values_and_the_command_that_edits_them
 }
 
 #[test]
-fn an_unconfigured_workspace_still_reports_those_variables_as_unset() {
+fn user_emails_are_configured_even_before_receiver_setup() {
     let machine = Machine::new();
 
     let listing = machine.ok(&["config", "list", "-w", "family"]);
@@ -111,7 +111,7 @@ fn an_unconfigured_workspace_still_reports_those_variables_as_unset() {
         "{listing}"
     );
     assert!(
-        row(&listing, "allowed_email_senders").contains("(unset)"),
+        row(&listing, "allowed_email_senders").contains(EMAIL),
         "{listing}"
     );
 }

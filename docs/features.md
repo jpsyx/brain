@@ -842,19 +842,28 @@ Portable members live in `<brain-root>/.config/users.json` and travel with the
 workspace. IDs use exact lower-case kebab case and identify people, not devices
 or authorization roles. The same person may use the same ID on multiple
 computers; machines do not create distinct identities for that person.
-`brain user list` shows every member.
+`brain user list` shows every member with explicit **Inbound email (user -> brain)**
+and **Outbound email (brain -> user)** labels. Disabled identities are labeled separately.
 `brain user add` and `brain user update` accept a
 display name, repeatable `--phone`/`--email` or
-`--add-phone`/`--add-email` values, and an optional `--response-email`.
-Interactive invocations prompt for missing required values.
+`--add-phone`/`--add-email` values, and `--response-email` for outbound delivery.
+The flags and stored keys are unchanged. Creating or updating a user requires
+at least one enabled inbound email and one outbound email drawn from that list.
+Interactive creation asks for missing inbound emails, then offers a numbered
+outbound picker containing only those addresses. Headless creation supplies
+both `--email` and `--response-email`; updates can add an inbound email and
+select it for outbound delivery in one command. Invalid changes write nothing.
+Existing incomplete records remain readable and can be repaired with `user update`.
+Migration preflight collects missing email settings interactively or reports
+the required user command before writing portable state.
 
 Phones are stored as unambiguous E.164 values; common North American formatting
 is accepted only when it can be normalized without guessing. Emails are
 trimmed and ASCII-lowercased, with no provider-specific alias rewriting.
 Only contacts explicitly marked by the add/update commands are enabled for
 inbound identity resolution. An enabled phone or email may identify only one
-portable person. Compatibility setup offers an email only when the email
-receiver allowlist is configured. A legacy response email migrates to the first
+portable person. First-user setup also collects both email directions, even without an email
+receiver configured. A legacy response email migrates to the first
 person only when it matches that allowlist; otherwise it remains unresolved
 for explicit review.
 

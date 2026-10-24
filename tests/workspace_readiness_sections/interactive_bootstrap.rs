@@ -62,7 +62,7 @@ fn interactive_bootstrap_repairs_then_continues_the_original_command() {
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
     let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
-    let mut input = Cursor::new(b"Pablo\n\n".to_vec());
+    let mut input = Cursor::new(b"Pablo\n\npablo@example.com\n1\n".to_vec());
     let mut output = Vec::new();
 
     let outcome = bootstrap_with_io(
@@ -82,10 +82,7 @@ fn interactive_bootstrap_repairs_then_continues_the_original_command() {
     assert_eq!(context.workspace.local_user_id(), "pablo");
     assert_eq!(context.workspace.id(), workspace_id);
     assert!(WorkspaceManifest::path(&root).is_file());
-    assert_eq!(
-        String::from_utf8(output).unwrap(),
-        "Your display name: User ID [pablo]: "
-    );
+    assert!(String::from_utf8(output).unwrap().contains("Outbound email (brain -> user)"));
 }
 
 #[test]
@@ -118,7 +115,7 @@ fn interactive_first_user_setup_uses_display_name_and_accepts_the_proposed_id() 
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
     let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
-    let mut input = Cursor::new(b"Alex Smith\n\n".to_vec());
+    let mut input = Cursor::new(b"Alex Smith\n\nalex@example.com\n1\n".to_vec());
     let mut output = Vec::new();
 
     let outcome = bootstrap_with_io(
@@ -142,15 +139,13 @@ fn interactive_first_user_setup_uses_display_name_and_accepts_the_proposed_id() 
         .unwrap();
     assert_eq!(user.name, "Alex Smith");
     assert!(user.phones.is_empty());
-    assert!(user.emails.is_empty());
-    assert_eq!(
-        String::from_utf8(output).unwrap(),
-        "Your display name: User ID [alex-smith]: "
-    );
+    assert_eq!(user.emails[0].value, "alex@example.com");
+    assert_eq!(user.response_email.as_deref(), Some("alex@example.com"));
+    assert!(String::from_utf8(output).unwrap().contains("Outbound email (brain -> user)"));
 }
 
 #[test]
-fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
+fn first_user_setup_reuses_legacy_contact_defaults_and_selects_outbound() {
     let home = tempfile::tempdir().unwrap();
     let config_home = tempfile::tempdir().unwrap();
     let root = home.path().join("family");
@@ -184,7 +179,7 @@ fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
     let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
-    let mut input = Cursor::new(b"Alex Smith\n\n\n\n".to_vec());
+    let mut input = Cursor::new(b"Alex Smith\n\n\n\n1\n".to_vec());
     let mut output = Vec::new();
 
     let outcome = bootstrap_with_io(
@@ -208,7 +203,7 @@ fn first_user_setup_asks_for_contacts_only_for_configured_receiver_channels() {
     assert_eq!(user.response_email.as_deref(), Some("alex@example.com"));
     let prompts = String::from_utf8(output).unwrap();
     assert!(prompts.contains("Phone [+12125550100]:"));
-    assert!(prompts.contains("Email [alex@example.com]:"));
+    assert!(prompts.contains("Inbound email (user -> brain) [alex@example.com]:"));
     assert!(
         !user
             .emails

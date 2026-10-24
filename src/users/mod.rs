@@ -2,6 +2,7 @@
 
 mod assignment;
 mod command;
+mod email_setup;
 mod id;
 mod model;
 mod normalize;
@@ -15,6 +16,7 @@ pub use command::{
     LegacyUserMigration, UserMutation, apply_mutation, propose_legacy_user_migration,
     proposed_user_id,
 };
+pub(crate) use email_setup::complete_email_configuration;
 pub use id::{UserId, UserIdError};
 pub use model::{EmailIdentity, PhoneIdentity, USERS_SCHEMA_VERSION, User, Users};
 pub use normalize::{

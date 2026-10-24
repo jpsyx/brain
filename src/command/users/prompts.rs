@@ -76,7 +76,13 @@ pub(super) fn select_value(
 pub(super) fn needs_prompt(action: &UserAction) -> bool {
     match action {
         UserAction::List => false,
-        UserAction::Add { id, name, .. } => id.is_none() || name.is_none(),
+        UserAction::Add {
+            id,
+            name,
+            email,
+            response_email,
+            ..
+        } => id.is_none() || name.is_none() || email.is_empty() || response_email.is_none(),
         UserAction::Update {
             id,
             name,

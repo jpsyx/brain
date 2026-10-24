@@ -15,3 +15,15 @@ fn the_move_summary_counts_tasks_in_plain_singular_and_plural_english() {
         "Moved 4 tasks from me to pablo"
     );
 }
+
+#[test]
+fn adding_a_user_prompts_until_both_email_directions_are_supplied() {
+    let action = crate::cli::UserAction::Add {
+        id: Some("alex".into()),
+        name: Some("Alex".into()),
+        phone: vec![],
+        email: vec!["alex@example.com".into()],
+        response_email: None,
+    };
+    assert!(super::needs_prompt(&action));
+}

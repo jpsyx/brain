@@ -26,7 +26,7 @@ fn existing_user_mapping_updates_the_exact_address_allowed_state() {
         None,
         None,
         Some(("Pablo@Example.TEST".to_owned(), true)),
-        None,
+        Some("pablo@example.test"),
     )
     .unwrap();
 
@@ -55,8 +55,8 @@ fn new_user_mapping_requires_a_name_and_preserves_disallowed_phone_state() {
         "alex-smith",
         Some("Alex Smith"),
         Some(("646-555-0102".to_owned(), false)),
-        None,
-        None,
+        Some(("alex@example.test".to_owned(), true)),
+        Some("alex@example.test"),
     )
     .unwrap();
     let alex = users.user(&UserId::parse("alex-smith").unwrap()).unwrap();
@@ -88,4 +88,11 @@ fn interactive_mapping_selects_existing_or_create_and_prompts_only_for_selected_
         interactive_fields(ReceiverSetupChannels::Both),
         ["phone", "phone-allowed", "email", "email-allowed"]
     );
+}
+
+#[test]
+fn receiver_mapping_requires_outbound_to_be_an_enabled_inbound_email() {
+    for response in [None, Some("other@example.test"), Some("pablo@example.test")] {
+        assert!(apply_user_mapping(existing_users(), "pablo", None, None, None, response).is_err());
+    }
 }

@@ -178,7 +178,7 @@ fn write_workspace(root: &Path) {
     .unwrap();
     std::fs::write(
         root.join(".config/users.json"),
-        b"{\"schema_version\":1,\"users\":[{\"id\":\"pablo\",\"name\":\"Pablo\",\"phones\":[],\"emails\":[],\"response_email\":null}]}\n",
+        b"{\"schema_version\":1,\"users\":[{\"id\":\"pablo\",\"name\":\"Pablo\",\"phones\":[],\"emails\":[{\"value\":\"pablo@example.test\",\"inbound_allowed\":true}],\"response_email\":\"pablo@example.test\"}]}\n",
     )
     .unwrap();
     std::fs::write(

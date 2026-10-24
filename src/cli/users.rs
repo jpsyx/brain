@@ -23,10 +23,10 @@ pub enum UserAction {
         /// Enabled inbound phone identity. Repeat to add more than one.
         #[arg(long, action = ArgAction::Append)]
         phone: Vec<String>,
-        /// Enabled inbound email identity. Repeat to add more than one.
+        /// Inbound email (user -> brain). Repeat to add more than one.
         #[arg(long, action = ArgAction::Append)]
         email: Vec<String>,
-        /// Long-response email for this user.
+        /// Outbound email (brain -> user). Must be one of this user's enabled inbound emails.
         #[arg(long)]
         response_email: Option<String>,
     },
@@ -40,10 +40,10 @@ pub enum UserAction {
         /// Enabled inbound phone identity to append. Repeatable.
         #[arg(long, action = ArgAction::Append)]
         add_phone: Vec<String>,
-        /// Enabled inbound email identity to append. Repeatable.
+        /// Inbound email (user -> brain) to append. Repeatable.
         #[arg(long, action = ArgAction::Append)]
         add_email: Vec<String>,
-        /// Long-response email for this user.
+        /// Outbound email (brain -> user). Must be one of this user's enabled inbound emails.
         #[arg(long)]
         response_email: Option<String>,
     },

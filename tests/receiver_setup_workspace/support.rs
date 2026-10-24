@@ -113,8 +113,11 @@ fn users_fixture(id: &str, name: &str) -> Users {
             id: UserId::parse(id).unwrap(),
             name: name.to_owned(),
             phones: Vec::<PhoneIdentity>::new(),
-            emails: Vec::<EmailIdentity>::new(),
-            response_email: None,
+            emails: vec![EmailIdentity {
+                value: format!("{id}@example.test"),
+                inbound_allowed: true,
+            }],
+            response_email: Some(format!("{id}@example.test")),
         }],
     }
 }

@@ -108,13 +108,13 @@ pub struct ReceiverSetupArgs {
     /// Whether the supplied phone may initiate inbound work.
     #[arg(long, requires = "phone")]
     pub phone_allowed: Option<bool>,
-    /// Email identity to map when email is configured.
+    /// Inbound email (user -> brain) to map, including for SMS users.
     #[arg(long)]
     pub email: Option<String>,
     /// Whether the supplied email may initiate inbound work.
     #[arg(long, requires = "email")]
     pub email_allowed: Option<bool>,
-    /// Optional long-response address for this user.
+    /// Outbound email (brain -> user). Must be one of this user's enabled inbound emails.
     #[arg(long)]
     pub response_email: Option<String>,
 }

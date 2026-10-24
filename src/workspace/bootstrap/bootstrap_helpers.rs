@@ -252,23 +252,30 @@ pub(super) fn prompt_first_user(
     let email = if allowed_emails.is_empty() {
         None
     } else {
-        let value = read_prompt_value(reader, writer, "Email", email_default, theme)?;
+        let value = read_prompt_value(
+            reader,
+            writer,
+            "Inbound email (user -> brain)",
+            email_default,
+            theme,
+        )?;
         Some(crate::users::EmailIdentity {
             value: crate::users::normalize_email(&value)
                 .map_err(|_| anyhow!("email `{value}` is invalid"))?,
             inbound_allowed: true,
         })
     };
-    let response_email = email
-        .as_ref()
-        .and_then(|email| response_email.filter(|response| response == &email.value));
-    Ok(crate::users::User {
+    let mut user = crate::users::User {
         id,
         name,
         phones: phone.into_iter().collect(),
         emails: email.into_iter().collect(),
-        response_email,
-    })
+        response_email: None,
+    };
+    crate::users::complete_email_configuration(&mut user, &mut |label| {
+        read_prompt_value(reader, writer, label.trim_end_matches(':'), None, theme)
+    })?;
+    Ok(user)
 }
 
 pub(super) fn read_prompt_value(

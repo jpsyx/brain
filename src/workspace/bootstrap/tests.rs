@@ -320,3 +320,15 @@ fn a_row_number_nobody_offered_reasks_instead_of_failing_the_command() {
         "pablo"
     );
 }
+
+#[test]
+fn first_user_collects_both_email_directions_without_legacy_config() {
+    let root = tempfile::tempdir().unwrap();
+    let mut input = Cursor::new(b"Alex\nalex\nalex@example.com\n1\n");
+    let mut output = Vec::new();
+    let user =
+        super::bootstrap_helpers::prompt_first_user(root.path(), &mut input, &mut output).unwrap();
+    assert_eq!(user.response_email.as_deref(), Some("alex@example.com"));
+    assert_eq!(user.emails.len(), 1);
+    assert!(user.emails[0].inbound_allowed);
+}

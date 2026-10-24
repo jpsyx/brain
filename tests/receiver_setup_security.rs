@@ -88,7 +88,7 @@ fn setup_private_argv_values_never_reach_run_logs_or_verbose_output() {
             "--user-id=casey",
             "--email=actor-private@example.test",
             "--email-allowed=true",
-            "--response-email=response-private@example.test",
+            "--response-email=actor-private@example.test",
         ],
     );
     assert!(
@@ -141,7 +141,6 @@ fn setup_private_argv_values_never_reach_run_logs_or_verbose_output() {
         "sender-private@example.test",
         "SIGN_PRIVATE_SENTINEL",
         "actor-private@example.test",
-        "response-private@example.test",
         "SET_PRIVATE_SENTINEL",
     ] {
         assert!(

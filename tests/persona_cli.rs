@@ -60,7 +60,18 @@ fn ready_workspace() -> (TempDir, TempDir) {
     run(
         &home,
         &config_home,
-        &["user", "add", "--id", "pablo", "--name", "Pablo"],
+        &[
+            "user",
+            "add",
+            "--id",
+            "pablo",
+            "--name",
+            "Pablo",
+            "--email",
+            "pablo@example.test",
+            "--response-email",
+            "pablo@example.test",
+        ],
     );
     (home, config_home)
 }
@@ -75,7 +86,18 @@ fn a_persona_is_written_read_and_listed_under_its_own_user_id() {
     run(
         &home,
         &config_home,
-        &["user", "add", "--id", "sam", "--name", "Sam"],
+        &[
+            "user",
+            "add",
+            "--id",
+            "sam",
+            "--name",
+            "Sam",
+            "--email",
+            "sam@example.test",
+            "--response-email",
+            "sam@example.test",
+        ],
     );
 
     run(&home, &config_home, &["persona", "set", "role=CEO"]);
@@ -114,7 +136,18 @@ fn a_member_of_the_workspace_appears_in_the_list_before_they_personalize() {
     run(
         &home,
         &config_home,
-        &["user", "add", "--id", "sam", "--name", "Sam"],
+        &[
+            "user",
+            "add",
+            "--id",
+            "sam",
+            "--name",
+            "Sam",
+            "--email",
+            "sam@example.test",
+            "--response-email",
+            "sam@example.test",
+        ],
     );
     run(&home, &config_home, &["persona", "set", "role=CEO"]);
 

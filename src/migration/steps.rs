@@ -162,7 +162,7 @@ pub fn headless_mapping_remediation(workspace: &str, issues: &[MappingIssue]) ->
                 format!("brain user update <USER_ID> -w {workspace} --add-email {value}")
             }
             MappingIssue::Assignment(value) => format!(
-                "brain user add -w {workspace} --id {value} --name <DISPLAY_NAME>\nbrain user reassign {value} <EXISTING_USER_ID> -w {workspace}"
+                "brain user add -w {workspace} --id {value} --name <DISPLAY_NAME> --email <EMAIL> --response-email <EMAIL>\nbrain user reassign {value} <EXISTING_USER_ID> -w {workspace}"
             ),
         })
         .collect::<Vec<_>>()

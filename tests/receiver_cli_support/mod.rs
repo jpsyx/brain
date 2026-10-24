@@ -33,7 +33,18 @@ impl Machine {
                 root.to_str().expect("root path"),
             ]);
             machine.ok(&[
-                "user", "add", "-w", workspace, "--id", "pablo", "--name", "Pablo",
+                "user",
+                "add",
+                "-w",
+                workspace,
+                "--id",
+                "pablo",
+                "--name",
+                "Pablo",
+                "--email",
+                "pablo@example.test",
+                "--response-email",
+                "pablo@example.test",
             ]);
             machine.ok(&["user", "local", "pablo", "-w", workspace]);
         }

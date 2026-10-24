@@ -178,6 +178,33 @@ impl TryFrom<RawUser> for User {
 }
 
 impl User {
+    /// Require both email directions before configuring a portable person.
+    pub fn validate_email_configuration(&self) -> Result<(), UsersError> {
+        if !self.emails.iter().any(|email| email.inbound_allowed) {
+            return Err(UsersError::EmailConfiguration {
+                user_id: self.id.to_string(),
+                message: "requires an inbound email (user -> brain); supply --email (add/setup) or --add-email (update)",
+            });
+        }
+        let Some(response) = self.response_email.as_deref() else {
+            return Err(UsersError::EmailConfiguration {
+                user_id: self.id.to_string(),
+                message: "requires an outbound email (brain -> user); supply --response-email with one of this user's inbound emails",
+            });
+        };
+        if !self
+            .emails
+            .iter()
+            .any(|email| email.inbound_allowed && email.value == response)
+        {
+            return Err(UsersError::ResponseEmailNotOnUser {
+                user_id: self.id.to_string(),
+                value: response.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn normalized(mut self) -> Result<Self, UsersError> {
         let raw = RawUser {
             id: self.id.to_string(),

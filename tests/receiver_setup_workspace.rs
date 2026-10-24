@@ -68,6 +68,12 @@ fn noninteractive_setup_silos_provider_values_and_users_under_one_machine_url() 
         "646-555-0102",
         "--phone-allowed",
         "false",
+        "--email",
+        "alex@example.test",
+        "--email-allowed",
+        "true",
+        "--response-email",
+        "alex@example.test",
     ]);
     assert!(
         family.status.success(),

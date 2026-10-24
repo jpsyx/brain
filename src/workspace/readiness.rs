@@ -232,7 +232,7 @@ impl Display for ReadinessError {
                         )?,
                         ReadinessField::PortableUsers => write!(
                             formatter,
-                            "\n  brain user add -w {canonical_name} --id <USER_ID> --name <DISPLAY_NAME>\n  brain user local <USER_ID> -w {canonical_name}"
+                            "\n  brain user add -w {canonical_name} --id <USER_ID> --name <DISPLAY_NAME> --email <EMAIL> --response-email <EMAIL>\n  brain user local <USER_ID> -w {canonical_name}"
                         )?,
                         ReadinessField::LocalUserId => write!(
                             formatter,

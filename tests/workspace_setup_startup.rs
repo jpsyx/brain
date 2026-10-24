@@ -240,6 +240,10 @@ fn completed_workspace_migration_remains_committed_when_peer_compatibility_fails
     let mut f = Fixture::new();
     let root = f.add("alpha");
     let peer = f.add("beta");
+    fs::write(
+        root.join(".config/config.json"),
+        r#"{"skills_auto_sync":false,"allowed_email_senders":"member@example.test","response_email":"member@example.test"}"#,
+    ).unwrap();
     fs::remove_file(root.join(".config/workspace.json")).unwrap();
     fs::create_dir(root.join("tasks")).unwrap();
     fs::write(

@@ -27,7 +27,7 @@ pub(super) fn headless_plan(
             Ok::<_, anyhow::Error>((value.to_owned(), allowed))
         })
         .transpose()?;
-    let email = super::email(channels)
+    let email = (super::email(channels) || args.email.is_some())
         .then(|| {
             let value = args
                 .email
@@ -84,12 +84,16 @@ pub(super) fn interactive_plan(
         .contains(&"email")
         .then(|| {
             Ok::<_, anyhow::Error>((
-                prompt("Email address:")?,
+                prompt("Inbound email (user -> brain):")?,
                 prompt_allowed("Allow this email to initiate inbound work? [Y/n]:")?,
             ))
         })
         .transpose()?;
-    apply_user_mapping(users, &id, name.as_deref(), phone, email, None)
+    let mut users = map_user(users, &id, name.as_deref(), phone, email, None)?;
+    let user = users.user_mut(&parsed_id).expect("mapped user exists");
+    crate::users::complete_email_configuration(user, &mut prompt)?;
+    users.to_bytes()?;
+    Ok(users)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,6 +122,22 @@ fn interactive_fields(channels: ReceiverSetupChannels) -> Vec<&'static str> {
 }
 
 fn apply_user_mapping(
+    users: Users,
+    id: &str,
+    name: Option<&str>,
+    phone: Option<(String, bool)>,
+    email: Option<(String, bool)>,
+    response_email: Option<&str>,
+) -> Result<Users> {
+    let users = map_user(users, id, name, phone, email, response_email)?;
+    users
+        .user(&UserId::parse(id)?)
+        .expect("mapped user exists")
+        .validate_email_configuration()?;
+    Ok(users)
+}
+
+fn map_user(
     mut users: Users,
     id: &str,
     name: Option<&str>,
@@ -154,13 +174,7 @@ fn apply_user_mapping(
     }
     if let Some(response) = response_email {
         let response = crate::users::normalize_email(response)
-            .map_err(|_| anyhow::anyhow!("response email address is invalid"))?;
-        if !user.emails.iter().any(|email| email.value == response) {
-            user.emails.push(EmailIdentity {
-                value: response.clone(),
-                inbound_allowed: false,
-            });
-        }
+            .map_err(|_| anyhow::anyhow!("outbound email (brain -> user) is invalid"))?;
         user.response_email = Some(response);
     }
     users

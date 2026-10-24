@@ -62,7 +62,9 @@ pub fn requirements(command: &CommandContext) -> Result<Vec<Requirement>> {
                 PromptMetadata::plain("User ID"),
                 PromptMetadata::plain("Display name"),
             ],
-            format!("brain user add -w {name} --id <USER_ID> --name <DISPLAY_NAME>"),
+            format!(
+                "brain user add -w {name} --id <USER_ID> --name <DISPLAY_NAME> --email <EMAIL> --response-email <EMAIL>"
+            ),
         ),
         Requirement::required(
             RequirementScope::LocalUser,

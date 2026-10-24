@@ -19,6 +19,10 @@ pub enum UsersError {
     InvalidUserId {
         value: String,
     },
+    EmailConfiguration {
+        user_id: String,
+        message: &'static str,
+    },
     EmptyName {
         user_id: String,
     },
@@ -102,6 +106,9 @@ impl Display for UsersError {
                 formatter,
                 "invalid user ID `{value}`; use lower-case kebab case such as `alex-smith`"
             ),
+            Self::EmailConfiguration { user_id, message } => {
+                write!(formatter, "user {user_id} {message}")
+            }
             Self::EmptyName { user_id } => write!(formatter, "user {user_id} needs a display name"),
             Self::DuplicateUserId { user_id } => {
                 write!(formatter, "portable user ID {user_id} is not unique")
@@ -137,7 +144,7 @@ impl Display for UsersError {
             ),
             Self::ResponseEmailNotOnUser { user_id, value } => write!(
                 formatter,
-                "response email {value} is not one of user {user_id}'s normalized emails"
+                "outbound email (brain -> user) {value} must be one of user {user_id}'s enabled inbound emails (user -> brain)"
             ),
             Self::UnknownUser { user_id } => write!(formatter, "unknown portable user {user_id}"),
             Self::UserAlreadyExists { user_id } => {

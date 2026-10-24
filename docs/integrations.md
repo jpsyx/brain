@@ -1574,10 +1574,15 @@ normalizes the Twilio sender to E.164 and the Resend sender as an email, and
 rejects blank selected-channel values with diagnostics that never include the
 submitted provider or address value.
 
+Migration preflight also requires complete email settings before publishing users.
+
 The guided setup maps each configured address to an existing portable person
 or creates a named person in the selected workspace's `.config/users.json`.
-SMS setup requires only a phone identity; email setup requires only an email
-identity. Complete headless flags carry the user ID, optional new-user display
+SMS setup collects a phone identity; email setup collects an email identity.
+Every configured person also requires an enabled inbound email (user -> brain)
+and an outbound email (brain -> user) selected from their enabled inbound list.
+Guided setup collects missing settings; headless setup uses `--email`,
+`--email-allowed true`, and `--response-email` when these are not already set. Complete headless flags carry the user ID, optional new-user display
 name, address, and explicit inbound-allowed state. Provider values and public
 base URL are committed to only the exact canonical-name plus workspace-UUID
 record. A successful setup or `receiver set` sends an existing-process-only

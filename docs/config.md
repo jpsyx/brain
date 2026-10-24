@@ -196,12 +196,16 @@ mismatches fail rather than silently replacing portable identity.
 
 The same directory carries strict schema-1 `users.json` when portable people
 have been configured. It contains person IDs, display names, normalized phone
-and email identities, inbound-enabled flags, and optional response emails.
+and email identities, inbound-enabled flags, and the outbound `response_email`.
+The schema and keys remain unchanged. User configuration requires at least one
+enabled inbound email (user -> brain), with the outbound email (brain -> user)
+selected from that same list. Legacy incomplete records remain readable for repair.
 The file travels with the workspace; the selected person's `local_user_id`
 remains in the machine registry.
 
 Receiver setup edits portable people directly. It asks for a phone identity
-only when SMS is selected and an email identity only when email is selected.
+only when SMS is selected. Every configured person needs both email directions,
+including SMS-only users; existing complete email settings can be retained.
 The address is attached to an existing selected user or a newly named user,
 with a separate inbound-allowed value. Legacy allowlists remain compatibility
 inputs outside this setup path.

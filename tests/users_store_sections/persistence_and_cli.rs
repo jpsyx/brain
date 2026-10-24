@@ -172,3 +172,24 @@ fn removing_an_assigned_user_refuses_or_reassigns_tasks_without_partial_changes(
             .starts_with("task_id,task_name,assigned_to,status\nT001,Plan trip,wife,not_started")
     );
 }
+
+#[test]
+fn email_configuration_rejects_incomplete_or_non_inbound_outbound_without_writing() {
+    let fixture = CliFixture::new();
+    let before = fixture.users();
+    for args in [
+        vec!["user", "add", "--id", "alex", "--name", "Alex"],
+        vec!["user", "add", "--id", "alex", "--name", "Alex", "--email", "alex@example.com"],
+        vec!["user", "add", "--id", "alex", "--name", "Alex", "--response-email", "alex@example.com"],
+        vec!["user", "add", "--id", "alex", "--name", "Alex", "--email", "alex@example.com", "--response-email", "other@example.com"],
+        vec!["user", "update", "wife", "--response-email", "other@example.com"],
+        vec!["user", "update", "wife", "--response-email", "wife+brain@example.com"],
+        vec!["user", "update", "wife", "--name", "New name"],
+    ] {
+        let output = fixture.run(&args);
+        assert!(!output.status.success(), "accepted {args:?}");
+        assert_eq!(fixture.users(), before);
+    }
+    let repaired = fixture.run(&["user", "update", "wife", "--response-email", "WIFE@EXAMPLE.COM"]);
+    assert!(repaired.status.success(), "{}", String::from_utf8_lossy(&repaired.stderr));
+}

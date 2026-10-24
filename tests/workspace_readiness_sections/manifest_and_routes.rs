@@ -1,6 +1,5 @@
-
 #[test]
-fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
+fn response_email_alone_requires_explicit_inbound_and_outbound_selection() {
     let home = tempfile::tempdir().unwrap();
     let config_home = tempfile::tempdir().unwrap();
     let root = home.path().join("family");
@@ -34,7 +33,7 @@ fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
     let store = RegistryStore::from_path(config_home.path().join("brain/env.json"));
     store.replace(&registry).unwrap();
     let mut cli = try_parse_from(["brain", "config", "list", "-b", "family"]).unwrap();
-    let mut input = Cursor::new(b"Alex Smith\n\n".to_vec());
+    let mut input = Cursor::new(b"Alex Smith\n\nother@example.com\n1\n".to_vec());
     let mut output = Vec::new();
 
     let outcome = bootstrap_with_io(
@@ -49,12 +48,20 @@ fn response_email_alone_does_not_enable_or_prompt_for_an_email_identity() {
     .unwrap();
 
     let BootstrapContext::Ready(context) = outcome else {
-        panic!("response-only setup must continue without an email prompt");
+        panic!("response-only setup must collect both email directions");
     };
     let users = UsersStore::load(&context.workspace).unwrap();
-    assert!(users.users[0].emails.is_empty());
-    assert!(users.users[0].response_email.is_none());
-    assert!(!String::from_utf8(output).unwrap().contains("Email"));
+    assert_eq!(users.users[0].emails[0].value, "other@example.com");
+    assert!(users.users[0].emails[0].inbound_allowed);
+    assert_eq!(
+        users.users[0].response_email.as_deref(),
+        Some("other@example.com")
+    );
+    assert!(
+        String::from_utf8(output)
+            .unwrap()
+            .contains("Inbound emails (user -> brain)")
+    );
 }
 
 #[test]

@@ -864,20 +864,24 @@ User IDs are exact lower-case kebab identifiers. Names are non-empty display
 labels. Phone values are normalized to unambiguous E.164, and email values are
 trimmed and ASCII-lowercased without provider-specific rewriting. A person
 cannot repeat one contact, and one enabled inbound contact cannot belong to
-multiple people. `response_email`, when present, must also appear in that
-person's email list; it need not be enabled for inbound resolution.
+multiple people. User configuration requires an enabled inbound email and a
+`response_email` matching one of that person's enabled inbound emails. Display
+labels call these inbound (user -> brain) and outbound (brain -> user), without
+renaming either key. Parsing remains compatible with incomplete legacy records
+so `brain user update` can repair them; configuration rejects incomplete results.
 
 Legacy conversion associates a workspace-level response email with the first
 portable person only when it matches a normalized email receiver allowlist
 entry. An unmatched response address and every other allowlisted address stay
 in the unresolved proposal for explicit assignment. A response setting by
-itself does not configure an inbound email identity or trigger an email prompt.
+itself does not authorize an inbound email identity. Interactive setup explicitly
+collects both directions before creating the person.
 
 Receiver setup performs explicit assignment against this model. A selected
 phone or email is normalized, inserted or updated on one exact user, and
 carries its own `inbound_allowed` boolean. A new ID also requires a display
-name. Channel selection controls required fields: SMS has no email requirement,
-and email has no phone requirement.
+name. Both email directions are required for every configured person; email-only
+receiver setup has no phone requirement.
 
 Removing a person can change `tasks.csv`, `habits.csv`, and `users.json` as one
 recoverable group. Same-directory staged files and backups preserve each live

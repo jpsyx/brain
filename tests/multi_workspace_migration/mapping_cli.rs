@@ -299,6 +299,14 @@ fn headless_local_migration_runs_every_step_and_is_byte_idempotent() {
         b"task_id,task_name,assigned_to\nH1,Walk,pablo\n",
     )
     .unwrap();
+    let incomplete = run();
+    assert!(
+        !incomplete.status.success(),
+        "migration created a user without email settings"
+    );
+    assert!(!root.join(".config/users.json").exists());
+    std::fs::write(root.join(".config/config.json"),
+        br#"{"enable_triage_habits":false,"allowed_email_senders":"pablo@example.test","response_email":"pablo@example.test"}"#).unwrap();
     let first = run();
     assert!(
         first.status.success(),

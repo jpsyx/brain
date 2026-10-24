@@ -1,4 +1,3 @@
-
 #[test]
 fn readiness_prompts_interactively_and_errors_actionably_when_headless() {
     let record = WorkspaceRecord {
@@ -158,7 +157,18 @@ fn first_create_is_registry_only_and_the_next_headless_command_names_the_exact_r
 
     let add = Command::new(env!("CARGO_BIN_EXE_brain"))
         .args([
-            "-b", "family", "user", "add", "--id", "pablo", "--name", "Pablo",
+            "-b",
+            "family",
+            "user",
+            "add",
+            "--id",
+            "pablo",
+            "--name",
+            "Pablo",
+            "--email",
+            "pablo@example.com",
+            "--response-email",
+            "pablo@example.com",
         ])
         .env("HOME", home.path())
         .env("XDG_CONFIG_HOME", config_home.path())

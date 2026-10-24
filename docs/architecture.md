@@ -834,6 +834,9 @@ The strict schema-1 portable people registry at
 person IDs; `normalize` canonicalizes unambiguous phone numbers and
 case-normalizes email addresses without provider-specific rewriting; `model`
 and `validate` reject unknown schema fields and ambiguous enabled identities;
+`email_setup` shares inbound collection and restricted outbound selection across
+user creation and setup; `User::validate_email_configuration` enforces both
+directions at configuration boundaries while legacy parsing remains repairable;
 `store` publishes canonical JSON through a same-directory atomic replacement;
 `transaction` coordinates grouped registry and assignment changes with a
 portable recovery journal plus a workspace UUID-scoped machine lock; and

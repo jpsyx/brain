@@ -33,7 +33,7 @@ fn fixture(assignment: &str) -> (tempfile::TempDir, CommandContext) {
     .unwrap();
     std::fs::write(
         root.join(".config/users.json"),
-        r#"{"schema_version":1,"users":[{"id":"member","name":"Member"}]}"#,
+        r#"{"schema_version":1,"users":[{"id":"member","name":"Member","emails":[{"value":"member@example.test","inbound_allowed":true}],"response_email":"member@example.test"}]}"#,
     )
     .unwrap();
     let workspace = WorkspaceContext::new(

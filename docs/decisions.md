@@ -6341,3 +6341,14 @@ describes only the generic link column (`link-issue`, `unlink-issue`,
 extension. A guard test reads every bundled file and fails when a `` `/<name>` ``
 invocation names anything other than a bundled skill. Paths and backticks that
 close an inline span are not invocations, so the guard has no allowlist.
+
+
+## Require complete email settings when configuring users
+
+User creation, updates, receiver setup, first-user setup, and migration preflight
+require an enabled inbound email and an outbound address selected from that list.
+They never silently grant inbound permission to an arbitrary outbound address.
+Legacy users remain parseable so they can be listed and repaired individually;
+inactive migration proposals can remain incomplete until preflight collects the
+missing settings. This preserves existing keys and avoids locking users out of
+the command needed to repair their configuration.

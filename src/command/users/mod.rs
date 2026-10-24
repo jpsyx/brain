@@ -71,23 +71,21 @@ fn run_with_io(
         } => {
             let id = user_id(id.as_deref(), reader, writer, theme)?;
             let name = required_value(name.as_deref(), "Display name:", reader, writer, theme)?;
-            let mut emails = normalized_emails(&id, email, true)?;
+            let emails = normalized_emails(&id, email, true)?;
             let response_email = normalized_response(&id, response_email.as_deref())?;
-            if let Some(response) = response_email.as_deref()
-                && !emails.iter().any(|email| email.value == response)
-            {
-                emails.push(EmailIdentity {
-                    value: response.to_owned(),
-                    inbound_allowed: false,
-                });
-            }
-            let user = User {
+            let mut user = User {
                 id,
                 name,
                 phones: normalized_phones(phone, true)?,
                 emails,
                 response_email,
             };
+            if email.is_empty() || user.response_email.is_none() {
+                crate::users::complete_email_configuration(&mut user, &mut |label| {
+                    required_value(None, label, reader, writer, theme)
+                }).context("user creation requires --email and --response-email (choose an inbound email), or an interactive terminal")?;
+            }
+            user.validate_email_configuration()?;
             let mut users = load_or_empty(&workspace)?;
             apply_mutation(&mut users, UserMutation::Add(user))?;
             UsersStore::save(&workspace, &users)?;
@@ -121,13 +119,17 @@ fn run_with_io(
             apply_mutation(
                 &mut users,
                 UserMutation::Update {
-                    id,
+                    id: id.clone(),
                     name,
                     add_phones: add_phone.clone(),
                     add_emails: add_email.clone(),
                     response_email: response_email.clone(),
                 },
             )?;
+            users
+                .user(&id)
+                .expect("updated user exists")
+                .validate_email_configuration()?;
             UsersStore::save(&workspace, &users)?;
             println!("{}", theme.success("Portable user updated"));
             Ok(())
@@ -237,18 +239,26 @@ fn print_users(users: &Users, theme: Theme) {
         }
         for email in &user.emails {
             println!(
-                "  {} {}{}",
-                theme.muted("email"),
-                email.value,
-                if email.inbound_allowed {
-                    " (inbound)"
+                "  {} {}",
+                theme.muted(if email.inbound_allowed {
+                    "Inbound email (user -> brain)"
                 } else {
-                    ""
-                }
+                    "Email (inbound disabled)"
+                }),
+                email.value,
             );
         }
         if let Some(response) = user.response_email.as_deref() {
-            println!("  {} {response}", theme.muted("response"));
+            println!(
+                "  {} {response}",
+                theme.muted("Outbound email (brain -> user)")
+            );
+        } else {
+            println!(
+                "  {} {}",
+                theme.muted("Outbound email (brain -> user)"),
+                theme.warning("not configured")
+            );
         }
     }
 }

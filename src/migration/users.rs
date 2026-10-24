@@ -67,7 +67,7 @@ pub(super) fn prepare(
             if name.trim().is_empty() {
                 let Some(terminal) = terminal.as_deref_mut() else {
                     bail!(
-                        "portable users are missing; run `brain user add -w {} --id {} --name <DISPLAY_NAME>` then `brain user local {} -w {}`",
+                        "portable users are missing; run `brain user add -w {} --id {} --name <DISPLAY_NAME> --email <EMAIL> --response-email <EMAIL>` then `brain user local {} -w {}`",
                         context.workspace.name().as_str(),
                         context.workspace.local_user_id(),
                         context.workspace.local_user_id(),
@@ -93,7 +93,7 @@ pub(super) fn prepare(
     let mut rewrites = AssignmentRewrites::new();
     let issues = mapping_issues(&users, config, &assignments);
     if !issues.is_empty() {
-        let Some(terminal) = terminal else {
+        let Some(terminal) = terminal.as_deref_mut() else {
             bail!(
                 "legacy identities require portable user mappings before migration:\n{}",
                 headless_mapping_remediation(context.workspace.name().as_str(), &issues)
@@ -111,6 +111,30 @@ pub(super) fn prepare(
     if !mapping_issues(&users, config, &resolved).is_empty() {
         bail!("legacy identity mapping remained incomplete");
     }
+    for user in &mut users.users {
+        if let Err(error) = user.validate_email_configuration() {
+            let Some(terminal) = terminal.as_deref_mut() else {
+                let action = if original.is_some() {
+                    format!("update {} --add-email <EMAIL>", user.id)
+                } else {
+                    format!("add --id {} --name <DISPLAY_NAME> --email <EMAIL>", user.id)
+                };
+                bail!(
+                    "{error}; run `brain user {action} --response-email <EMAIL> -w {}` before migration",
+                    context.workspace.name().as_str()
+                );
+            };
+            writeln!(
+                terminal.writer,
+                "{}",
+                crate::theme::Theme::active().heading(&format!("Email settings for {}", user.name))
+            )?;
+            crate::users::complete_email_configuration(user, &mut |label| {
+                terminal.required(label)
+            })?;
+        }
+    }
+    users.to_bytes()?;
     Ok(PreparedUsers {
         users,
         original,
