@@ -112,7 +112,11 @@ pub(super) fn plan_block(
         if !previous.is_empty() {
             return Ok(());
         }
-        (block.range.start, terminated(content))
+        let mut addition = terminated(content);
+        if !current[..block.range.start].ends_with(b"\n") {
+            addition.insert(0, '\n');
+        }
+        (block.range.start, addition)
     } else {
         let mut addition = String::new();
         if !current.is_empty() {

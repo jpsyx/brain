@@ -42,7 +42,8 @@ pub(super) fn current(sources: &BTreeMap<String, String>) -> Result<ExtensionPro
                 .hook
                 .as_deref()
                 .and_then(|hook| hooks::mapping(source_owner, hook));
-            let workspace_alias = source_owner == "second-brain"
+            let workspace_alias = mapping.is_none()
+                && source_owner == "second-brain"
                 && block.hook.as_ref().is_some_and(|hook| {
                     hook.starts_with("workspace:") || workspace_hooks.contains(hook)
                 });
@@ -161,10 +162,16 @@ pub(super) fn project_down(
             }
             legacy
         } else if source_owner == "workspace" {
-            origin
+            let hook = origin
                 .source_hook
                 .as_deref()
-                .unwrap_or("workspace:catch-all")
+                .unwrap_or("workspace:catch-all");
+            ensure!(
+                hooks::mapping("second-brain", hook).is_none(),
+                "cannot preserve always-on workspace hook {hook} from {} in the legacy second-brain source: the ID has a reserved legacy phase",
+                origin.source_path
+            );
+            hook
         } else {
             ensure!(
                 !FOCUSED.contains(&source_owner),

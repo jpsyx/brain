@@ -297,3 +297,24 @@ fn duplicate_workspace_sections_report_the_relative_source_identity() {
         "{error}"
     );
 }
+
+#[test]
+fn workspace_unknown_ids_cannot_override_source_owned_known_mappings() {
+    for hook in [
+        "second-brain:reference-manager",
+        "organize:reference-manager",
+    ] {
+        for context in ["REFERENCE", "GLOBAL"] {
+            let input = sources(&[
+                ("second-brain.md", &format!("[{hook}]\nREFERENCE\n")),
+                ("workspace.md", &format!("[{hook}]\n{context}\n")),
+            ]);
+            let projected = project_extensions(&input, ProjectionDirection::Current).unwrap();
+            assert_eq!(
+                projected.by_skill["organize"].hooks["organize:reference-manager"],
+                "REFERENCE"
+            );
+            assert_eq!(projected.workspace.hooks[hook], context);
+        }
+    }
+}

@@ -6388,10 +6388,13 @@ Always-on canonical workspace catch-all uses the generated `[workspace:catch-all
 alias in the legacy `second-brain` extension. Old renderers append that unmatched
 section as global context; the current projection recognizes and deduplicates
 it. Canonical unknown workspace hook IDs are retained in that legacy source,
-with the same equality/conflict checks. A nonempty unmapped extension in a newly
-focused skill cannot safely acquire the broader old activation scope, so down
-refuses it. Down also refuses a moved canonical hook authored directly in its
-legacy destination file: preserving that source and adding the old hook would
+with the same equality/conflict checks. Known source-owned mappings take
+precedence over workspace alias matching. A workspace block with an otherwise
+unmatched ID that would acquire a reserved phase in the legacy destination
+refuses down rather than changing its activation scope. A nonempty unmapped
+extension in a newly focused skill cannot safely acquire the broader old
+activation scope, so down refuses it. Down also refuses a moved canonical hook
+authored directly in its legacy destination file: preserving that source and adding the old hook would
 execute the same block twice. The diagnostic identifies the source and canonical
 file to use. Current rendering still accepts that alias layout.
 

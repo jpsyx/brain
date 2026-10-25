@@ -280,3 +280,82 @@ fn aggregate_spans_remain_valid_when_a_later_block_fills_an_earlier_empty_sectio
         b"CALENDAR\n"
     );
 }
+
+#[test]
+fn workspace_unknown_ids_refuse_down_when_the_legacy_destination_would_activate_them() {
+    for hook in [
+        "second-brain:reference-manager",
+        "organize:reference-manager",
+    ] {
+        let input = sources(&[("workspace.md", &format!("[{hook}]\nGLOBAL\n"))]);
+        for target in [
+            ProjectionDirection::Legacy105,
+            ProjectionDirection::Legacy101,
+        ] {
+            let error = project_extensions(&input, target).unwrap_err().to_string();
+            assert!(
+                error.contains("workspace.md") && error.contains(hook),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn workspace_ids_reserved_in_other_legacy_skills_keep_their_always_on_scope() {
+    let mut input = sources(&[("workspace.md", "[todo:anchors]\nGLOBAL\n")]);
+    let down = project_extensions(&input, ProjectionDirection::Legacy105).unwrap();
+    assert_eq!(
+        down.by_skill["second-brain"].hooks["todo:anchors"],
+        "GLOBAL"
+    );
+    for patch in down.legacy_source_patches {
+        input.insert(
+            patch.relative_path.to_str().unwrap().to_owned(),
+            String::from_utf8(patch.after).unwrap(),
+        );
+    }
+    let up = project_extensions(&input, ProjectionDirection::Current).unwrap();
+    assert_eq!(up.workspace.hooks["todo:anchors"], "GLOBAL");
+    assert!(!up.by_skill.contains_key("agenda"));
+}
+
+#[test]
+fn company_context_alias_remains_a_representable_workspace_owned_mapping() {
+    let input = sources(&[("workspace.md", "[second-brain:company-context]\nCONTEXT\n")]);
+    let current = project_extensions(&input, ProjectionDirection::Current).unwrap();
+    assert_eq!(current.workspace.hooks["workspace:context"], "CONTEXT");
+    let down = project_extensions(&input, ProjectionDirection::Legacy105).unwrap();
+    assert_eq!(
+        down.by_skill["second-brain"].hooks["second-brain:company-context"],
+        "CONTEXT"
+    );
+}
+
+#[test]
+fn filling_an_unterminated_empty_header_remains_an_old_parser_hook() {
+    for before in ["[todo:anchors]", "[todo:anchors]\r", "[todo:anchors]  "] {
+        let input = sources(&[
+            ("agenda.md", "[agenda:anchors]\nANCHOR\n"),
+            ("todo.md", before),
+        ]);
+        for target in [
+            ProjectionDirection::Legacy105,
+            ProjectionDirection::Legacy101,
+        ] {
+            let projected = project_extensions(&input, target).unwrap();
+            let patch = &projected.legacy_source_patches[0];
+            assert_eq!(patch.before.as_deref(), Some(before.as_bytes()));
+            assert!(patch.after.starts_with(before.as_bytes()));
+            assert!(patch.validate_after(&patch.after).is_ok());
+            let text = std::str::from_utf8(&patch.after).unwrap();
+            let old_parser = crate::skills::extension::parse(text);
+            assert_eq!(
+                old_parser.hooks.get("todo:anchors").map(String::as_str),
+                Some("ANCHOR"),
+                "{text:?}"
+            );
+            assert!(old_parser.catch_all.is_empty(), "{text:?}");
+        }
+    }
+}
