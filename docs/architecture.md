@@ -1015,6 +1015,14 @@ recovery and fallible success stamping), `prune` (pure stale-name selection),
 `reconcile` (registry enumeration and receipt-aware refresh), `receipt` (the UUID state DB binding),
 `repair` (one invocation-owned refresh result and aggregate rendering), and
 `command` (selected/sandbox sync and capability status).
+The pure `compatibility/` foundation owns the audited legacy hook destinations,
+logical capability-name expansion, raw extension source bytes and block origins,
+and current/0.105.3/0.101.0 extension projections. Its `hooks`, `names`,
+`projection`, and `provenance` modules perform no filesystem writes. Downgrade
+returns one before/after `SourcePatch` per destination with per-block provenance;
+the package coordinator can validate and journal those patches before publishing.
+The foundation is separate from the install/publication integration.
+
 The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
 `journal`, `disposal`, `validation`, and `legacy` modules share one bounded installation boundary.
 

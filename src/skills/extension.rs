@@ -65,8 +65,19 @@ pub fn parse(text: &str) -> Extension {
     Extension { hooks, catch_all }
 }
 
+/// Reject duplicate sections before parsing can discard an earlier definition.
+pub(crate) fn parse_checked(text: &str) -> anyhow::Result<Extension> {
+    let mut seen = BTreeSet::new();
+    for line in text.lines() {
+        if let Some(hook) = section_header(line) {
+            anyhow::ensure!(seen.insert(hook), "duplicate extension section [{hook}]");
+        }
+    }
+    Ok(parse(text))
+}
+
 /// A `[name]` section header (the whole trimmed line), else `None`.
-fn section_header(line: &str) -> Option<&str> {
+pub(crate) fn section_header(line: &str) -> Option<&str> {
     let t = line.trim();
     let inner = t.strip_prefix('[')?.strip_suffix(']')?;
     (!inner.is_empty() && !inner.contains('[') && !inner.contains(']')).then_some(inner)

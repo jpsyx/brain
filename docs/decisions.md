@@ -6352,3 +6352,50 @@ Legacy users remain parseable so they can be listed and repaired individually;
 inactive migration proposals can remain incomplete until preflight collects the
 missing settings. This preserves existing keys and avoids locking users out of
 the command needed to repair their configuration.
+
+
+## Pure compatibility projection for focused Brain skills
+
+The `skills::compatibility` foundation maps effective hooks rather than rewriting
+extension prose, shell fragments, or plugin sources. The audited map covers all
+16 existing hooks: company context becomes `workspace:context`, reference-manager
+content becomes `organize:reference-manager`, four agenda hooks move from `todo`
+to `agenda`, and task, contact, and triage hooks retain their semantic phase.
+Legacy filenames and hook IDs remain aliases. Unknown hooks in other skills keep
+their original skill owner. Checked parsing rejects repeated section headers
+before the old map parser could discard an earlier definition. Equal effective
+alias definitions deduplicate; differing nonempty definitions report their hook
+and both relative source identities. An empty alias cannot erase a definition.
+
+Raw source bytes and each projected block's original path, hook, and byte range
+travel alongside the effective `Extension` model. Relative resource bases stay
+associated with their original source rather than being inferred from prose.
+The pure layer does not rewrite resource links or opaque shell content. Legacy
+`second-brain` catch-all and unknown content remains shared workspace guidance;
+legacy `todo` catch-all and unknown content becomes one logical task/agenda
+context without guessing its domain. An absent extension remains a no-op.
+
+Both audited legacy target projections plan narrowly scoped source additions.
+Each physical destination has one observed before-image, one complete after-image,
+and a provenance list recording canonical source hashes/ranges, logical hooks,
+and inserted hashes/ranges. Empty existing hook sections can receive content
+without duplicate headers; existing user bytes are retained. Before/after
+validation rejects intervening edits, and re-upgrade compares live canonical and
+legacy definitions instead of restoring a stale backup. The canonical sources
+remain present. This pure layer plans patches and never applies them.
+
+Always-on canonical workspace catch-all uses the generated `[workspace:catch-all]`
+alias in the legacy `second-brain` extension. Old renderers append that unmatched
+section as global context; the current projection recognizes and deduplicates
+it. Canonical unknown workspace hook IDs are retained in that legacy source,
+with the same equality/conflict checks. A nonempty unmapped extension in a newly
+focused skill cannot safely acquire the broader old activation scope, so down
+refuses it. Down also refuses a moved canonical hook authored directly in its
+legacy destination file: preserving that source and adding the old hook would
+execute the same block twice. The diagnostic identifies the source and canonical
+file to use. Current rendering still accepts that alias layout.
+
+Capability expansion preserves the input order, appends only selected legacy
+successors, and deduplicates. `second-brain` grants `projects`, `process-capture`,
+`organize`, and `brain-sync`; `todo` grants `agenda`. Empty and canonical-only
+selections stay within their original scope.

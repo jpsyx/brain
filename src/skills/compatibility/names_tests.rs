@@ -1,0 +1,40 @@
+#[test]
+fn logical_access_appends_only_the_selected_legacy_successors() {
+    let input = ["todo", "second-brain", "custom", "agenda", "todo"].map(str::to_owned);
+    assert_eq!(
+        super::expand_legacy_names(&input),
+        [
+            "todo",
+            "second-brain",
+            "custom",
+            "agenda",
+            "projects",
+            "process-capture",
+            "organize",
+            "brain-sync"
+        ]
+    );
+    assert_eq!(
+        super::expand_legacy_names(&["custom".to_owned()]),
+        ["custom"]
+    );
+    assert_eq!(
+        super::expand_legacy_names(&["projects".to_owned()]),
+        ["projects"]
+    );
+    assert_eq!(
+        super::expand_legacy_names(&["todo".to_owned()]),
+        ["todo", "agenda"]
+    );
+    assert_eq!(
+        super::expand_legacy_names(&["second-brain".to_owned()]),
+        [
+            "second-brain",
+            "projects",
+            "process-capture",
+            "organize",
+            "brain-sync"
+        ]
+    );
+    assert!(super::expand_legacy_names(&[]).is_empty());
+}
