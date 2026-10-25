@@ -693,6 +693,15 @@ sync status, receiver status, and tasks doctor call it with the already-pinned
 `CommandContext`; none consults a peer workspace or repairs state while
 observing it.
 
+`instructions/` owns the pure managed workspace document model: `document`
+validates marker/receipt ownership and produces before/after plans, `legacy`
+recognizes frozen historical bytes and records removed spans, and `render`
+combines the authored contract with central response policy. Region digests exclude
+user-owned prefix/suffix bytes. `verified_body` reuses the same parser and receipt
+validation for transaction currentness without inspecting sources. `templates`
+uses the planner only at its existing
+missing-document seed seam; package coordination owns later publication.
+
 ### `actor/`
 
 The immutable effective person for one request lineage. `resolve` uses the

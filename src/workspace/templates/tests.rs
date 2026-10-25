@@ -10,15 +10,15 @@ fn an_empty_workspace_receives_the_agent_instructions() {
 
     seed_documents(root.path()).unwrap();
 
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("AGENTS.md")).unwrap(),
-        AGENTS
+    assert!(
+        std::fs::read_to_string(root.path().join("AGENTS.md"))
+            .unwrap()
+            .contains(&render_contract())
     );
 }
 
-/// A second orientation document is a second copy of the same facts, and the
-/// copy no frontend reads is the one that goes stale. `AGENTS.md` describes
-/// the layout itself; nothing seeds a `README.md` over it.
+/// One orientation document avoids duplicate, potentially stale guidance.
+/// AGENTS.md describes the layout without seeding a second README.
 #[test]
 fn no_second_orientation_document_is_seeded() {
     let root = workspace_root();
@@ -28,8 +28,8 @@ fn no_second_orientation_document_is_seeded() {
     assert!(!root.path().join("README.md").exists());
 }
 
-/// These become the user's documents the moment they exist: an edited AGENTS.md
-/// must survive every later launch, exactly like the portable manifest.
+/// Initialization leaves existing documents alone. Managed package
+/// reconciliation, rather than seeding, owns subsequent region updates.
 #[test]
 fn existing_documents_are_never_overwritten() {
     let root = workspace_root();
@@ -76,7 +76,7 @@ fn seeding_is_idempotent() {
 /// user's plugins rather than anything brain bundles.
 #[test]
 fn the_templates_carry_nothing_instance_specific() {
-    for (name, body) in [("AGENTS.md", AGENTS)] {
+    for (name, body) in [("AGENTS.md", render_contract())] {
         let lowercase = body.to_lowercase();
         for forbidden in [
             "~/brain",
@@ -97,42 +97,27 @@ fn the_templates_carry_nothing_instance_specific() {
     }
 }
 
-/// A template naming a skill brain does not ship sends the reader after
-/// something that will never exist for them.
+/// New route names can appear on an older installation only with an explicit
+/// supported fallback; they must not send the reader to an unavailable workflow.
 #[test]
-fn every_skill_the_templates_name_is_one_brain_bundles() {
-    const BUNDLED: [&str; 6] = [
-        "second-brain",
-        "todo",
-        "triage",
-        "contacts",
-        "brain-knowledge-capture",
-        "article-summarizer",
-    ];
-    // The tool's own name reads exactly like a skill name and is unavoidable.
-    const NOT_A_SKILL: &str = "brain";
-
-    // Only passages that actually talk about skills, so an example project slug
-    // elsewhere (`launch-team-handbook`) is not mistaken for one.
-    for body in [AGENTS] {
-        for paragraph in body.split("\n\n") {
-            if !paragraph.contains("skill") {
-                continue;
-            }
-            for quoted in paragraph.split('`').skip(1).step_by(2) {
-                let candidate = quoted.trim().trim_matches('*');
-                if candidate.is_empty()
-                    || candidate.contains([' ', '/', '<', '.', '_'])
-                    || candidate == NOT_A_SKILL
-                {
-                    continue;
-                }
-                assert!(
-                    BUNDLED.contains(&candidate),
-                    "`{candidate}` is named where skills are discussed, but brain bundles no such skill"
-                );
-            }
-        }
+fn new_skill_routes_include_their_legacy_fallbacks() {
+    let contract = render_contract();
+    for (canonical, fallback) in [
+        ("projects", "`second-brain`"),
+        ("process-capture", "`second-brain`"),
+        ("organize", "`second-brain`"),
+        ("brain-sync", "`second-brain`"),
+        ("agenda", "`todo`"),
+        ("brain-skills", "Authoring instructions below"),
+    ] {
+        let row = contract
+            .lines()
+            .find(|line| line.starts_with(&format!("| `{canonical}` |")))
+            .expect("canonical route");
+        assert!(
+            row.contains(fallback),
+            "missing legacy route for {canonical}"
+        );
     }
 }
 
@@ -150,12 +135,23 @@ fn the_agent_instructions_describe_the_layout_themselves() {
         "`tasks/`",
     ] {
         assert!(
-            AGENTS.contains(directory),
+            render_contract().contains(directory),
             "AGENTS.md never names {directory}"
         );
     }
     assert!(
-        !AGENTS.contains("README.md"),
+        !render_contract().contains("README.md"),
         "AGENTS.md links a document brain no longer seeds"
     );
+}
+
+#[test]
+fn seeded_instructions_are_managed_and_expand_the_response_policy() {
+    let root = workspace_root();
+    seed_documents(root.path()).unwrap();
+    let document = std::fs::read_to_string(root.path().join("AGENTS.md")).unwrap();
+    assert!(document.starts_with("<!-- brain:managed-workspace:start schema=1 -->\n"));
+    assert!(document.ends_with("<!-- brain:managed-workspace:end -->\n"));
+    assert!(document.contains(&crate::response_policy::render_workspace_reference()));
+    assert!(!document.contains("{{"));
 }

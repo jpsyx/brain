@@ -6,6 +6,7 @@ pub mod command;
 mod context;
 mod id;
 mod initialize;
+pub(crate) mod instructions;
 mod manifest;
 mod name;
 mod paths;

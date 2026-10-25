@@ -23,6 +23,37 @@ Both CLIs run **before** the `markdown-to-pdf` prerequisite gate, so you can
 always repair a broken environment or config even when that tool is missing.
 Both normalize names the same way (lowercased, `-`→`_`).
 
+## Workspace instruction ownership
+
+A knowledge workspace's `AGENTS.md` contains one generated contract between
+`<!-- brain:managed-workspace:start schema=1 -->` and
+`<!-- brain:managed-workspace:end -->`. Text outside that region stays user-owned.
+The contract resolves the launched workspace and acting person, gives shared PARA,
+naming, native-data and authorization rules, and routes to focused workflows with
+conditional legacy fallbacks. Response presentation is rendered from the same
+central channel sources used by launch context. This document is separate from
+Brain's software-repository contributor instructions.
+
+The pure planner in `workspace/instructions/` records the complete before-image
+(including absence), proposed bytes, a region-only body digest, schema `1`, and
+generated revision `2`. Its `sources_sha256` initially hashes the supplied body
+rendering input; the package composer may replace it with its verified source
+snapshot digest. It does not claim to identify raw extension sources on its own.
+A surrounding-text edit does not change region ownership. Publication must still
+compare the complete before-image to detect concurrent edits.
+
+Exact historical templates can be adopted. In customized documents, only unique,
+complete, byte-identical historical sections are removed; edited or ambiguous
+sections remain untouched. Removed spans retain original byte offsets and bytes
+for downgrade planning. Missing documents or regions can be recreated. Modified
+managed content, invalid UTF-8, malformed/duplicate markers, and unsupported
+receipt revisions are conflicts. Missing/stale receipts can adopt only a complete
+known render, never a digest asserted by the document itself.
+
+This model performs no filesystem writes. The existing fresh-workspace seeding
+path uses it to render a missing document while leaving existing documents alone;
+coordinated package publication owns subsequent reconciliation and backups.
+
 ## Deciding which store owns a new variable
 
 Ask these two questions **in order**. The first one that answers settles it.
