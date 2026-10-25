@@ -306,7 +306,7 @@ pub fn render_receiver_delivery(
                     sender,
                     recipients,
                     subject: crate::server::delivery::reply_subject(lineage),
-                    html: crate::server::reply::email_html(&reply.text),
+                    html: crate::server::reply::email_html(content),
                     text: reply.text,
                     in_reply_to: message_id.clone(),
                     references: message_id,

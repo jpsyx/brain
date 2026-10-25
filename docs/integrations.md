@@ -1984,14 +1984,32 @@ replace the already active owner. If intent is disabled while a claimed `/new`
 waits on freshness, the command still completes and acknowledges its sender,
 but following work stays queued until re-enable.
 
-Every outbound email carries both parts of the Resend payload: `text` is the
-agent's markdown verbatim, and `html` is that markdown rendered by
-`server/reply/html.rs` (`pulldown-cmark`) inside brain's styled card. Raw HTML
+Channel presentation is selected by `response_policy::policy` from the trusted
+`actor::Channel`, never inferred from request text. Authored templates under
+`templates/workspace/response/` feed both selected launch instructions and the
+all-channel workspace reference. Interactive replies allow Markdown, local file
+references and a final changes/additions table. SMS replies allow none of those;
+email permits headings and content tables without requiring the interactive
+changes/additions table, and excludes local file references. Artifact creation
+never widens authorized recipients.
+
+`response_policy::SMS_LIMIT` owns the 480-character budget measured in Unicode characters,
+re-exported by `server::reply`. SMS Markdown is stripped before counting, and
+truncation preserves UTF-8 character boundaries. Its fallback asks for a shorter
+answer or specific detail without promising an unconfirmed email delivery.
+These deterministic shaping guarantees do not enforce model-facing path rules
+with blanket text deletion.
+
+Every outbound email carries both parts of the Resend payload: `text` is a
+readable Markdown-stripped alternative, and `html` is the original markdown
+rendered by `server/reply/html.rs` (`pulldown-cmark`) inside brain's styled card. Raw HTML
 in the answer is escaped to visible text rather than passed through, and link or
 image destinations outside `https:`/`http:`/`mailto:` are dropped — a reply
 quotes inbound message text, so both are attacker-influenced. Element styling
 rides in a `<style>` block; a client that drops it still renders a correct,
-structured document.
+structured document. Both alternatives are frozen together in the existing
+`state/receiver/model/delivery/envelope.rs` builder. Acceptance-time recipients,
+thread lineage, idempotency and retry decisions keep their existing owners.
 
 ## System `open` and the editor
 

@@ -2121,11 +2121,13 @@ Code-span and fenced content is delivered verbatim, and anything that only
 looks like markup (`2 * 3`, `snake_case_name`, an unclosed `**`) is left exactly
 as written. Stripping happens *before* the 480-character measurement, so
 markers never spend the SMS budget or trigger a needless "ask for a longer
-reply" truncation. The same response shown in the TUI keeps its markdown.
+reply" truncation. A truncated reply asks for a shorter answer or specific detail
+without promising email delivery. The same response shown in the TUI keeps its
+markdown.
 
 Email goes the other way. An email client renders HTML, so every reply is sent
-as both parts: the agent's markdown verbatim as the plain-text part, and that
-same markdown **rendered** as the HTML part — headings, lists, tables, task
+as both parts: a readable Markdown-stripped plain-text alternative, and the
+original Markdown **rendered** as the HTML part: headings, lists, tables, task
 lists, block quotes, code spans and fences, strikethrough, and clickable links,
 inside brain's styled card. Markdown is parsed by `pulldown-cmark`, not by
 anything brain hand-rolls. Two things are neutralized on the way out, because a

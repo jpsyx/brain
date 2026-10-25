@@ -172,7 +172,7 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
         "email recipients changed"
     );
     assert!(email.subject() == "Re: Question", "email subject changed");
-    assert!(email.text() == "## Answer\n\nDetails", "email text changed");
+    assert!(email.text() == "Answer\n\nDetails", "email text changed");
     assert!(email.html().contains("<h2>Answer</h2>"));
     assert!(
         email.in_reply_to() == Some(DELIVERY_PRIVATE_MESSAGE_ID),
@@ -187,6 +187,48 @@ fn email_delivery_freezes_only_acceptance_time_authorized_recipients_and_lineage
         "email provider lineage changed"
     );
     assert!(!email.recipients().contains(&"outsider@example.test".to_owned()));
+}
+
+#[test]
+fn email_delivery_renders_content_tables_and_safe_html_with_readable_plain_text() {
+    let job = email_delivery_job();
+    let answer = concat!(
+        "## Answer 🧠\n\n| Item | Status |\n| --- | --- |\n| Café | **Ready** |",
+        "\n\nSee [report](https://example.test/report).",
+        "\n\n<script>alert(1)</script>\n\n[unsafe](javascript:evil)",
+    );
+    let envelope = render_receiver_delivery(
+        &job,
+        ReceiverResponseKind::FinalAnswer,
+        "brain@example.test",
+        answer,
+    )
+    .expect("render email alternatives");
+    let email = envelope.email().expect("email envelope");
+    assert!(
+        email.text()
+            == concat!(
+                "Answer 🧠\n\nItem, Status\nCafé, Ready",
+                "\n\nSee report (https://example.test/report).",
+                "\n\n<script>alert(1)</script>\n\nunsafe",
+            ),
+        "readable email plain-text alternative changed"
+    );
+    for rendered in [
+        "<h2>Answer 🧠</h2>",
+        "<table>",
+        "<td>Café</td>",
+        "<strong>Ready</strong>",
+        "href=\"https://example.test/report\"",
+        "&lt;script&gt;alert(1)&lt;/script&gt;",
+    ] {
+        assert!(
+            email.html().contains(rendered),
+            "missing rendered email content"
+        );
+    }
+    assert!(!email.html().contains("<script>"));
+    assert!(!email.html().contains("javascript:"));
 }
 
 #[test]

@@ -156,7 +156,8 @@ fn legacy_hooks_reach_only_their_semantic_owner() {
 
 **Files:** Create `src/response_policy/{mod,render,tests}.rs` and response templates.
 Modify `src/lib.rs` / module declarations as appropriate, `src/server/reply/mod.rs`,
-and the email body construction seam in `src/state/receiver/delivery_policy.rs`.
+and the email body construction seam in
+`src/state/receiver/model/delivery/envelope.rs`.
 Keep HTML/plain-text helpers in `src/server/reply/`. Update `docs/integrations.md`.
 
 **Interfaces:** `policy(Channel) -> ResponsePolicy`,

@@ -32,6 +32,7 @@ pub mod project;
 pub mod pty_pane;
 pub mod reindex;
 pub mod render;
+pub mod response_policy;
 pub mod server;
 pub mod session;
 pub mod settings;

@@ -11,7 +11,7 @@ pub use html::email_html;
 pub use plain_text::strip_markdown;
 use serde::Serialize;
 
-pub const SMS_LIMIT: usize = 480;
+pub use crate::response_policy::SMS_LIMIT;
 
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct ReplyEnvelope {
@@ -31,6 +31,7 @@ impl std::fmt::Debug for ReplyEnvelope {
 /// needless "ask for a longer reply".
 #[must_use]
 pub fn sms(text: &str) -> ReplyEnvelope {
+    const SUFFIX: &str = "… Ask for a shorter answer or a specific detail.";
     let plain = strip_markdown(text);
     let clean = plain.as_str();
     if clean.chars().count() <= SMS_LIMIT {
@@ -42,9 +43,9 @@ pub fn sms(text: &str) -> ReplyEnvelope {
     }
     let mut shortened = clean
         .chars()
-        .take(SMS_LIMIT.saturating_sub(78))
+        .take(SMS_LIMIT.saturating_sub(SUFFIX.chars().count()))
         .collect::<String>();
-    shortened.push_str("… Ask for a longer reply and I’ll email the full answer.");
+    shortened.push_str(SUFFIX);
     ReplyEnvelope {
         channel: "sms",
         text: shortened,
@@ -52,11 +53,12 @@ pub fn sms(text: &str) -> ReplyEnvelope {
     }
 }
 
+/// Render the email plain-text alternative without shortening the answer.
 #[must_use]
 pub fn email(text: &str) -> ReplyEnvelope {
     ReplyEnvelope {
         channel: "email",
-        text: text.trim().to_owned(),
+        text: strip_markdown(text),
         long_form_available: false,
     }
 }
@@ -160,14 +162,23 @@ mod tests {
     }
 
     #[test]
+    fn long_unicode_sms_never_promises_unconfirmed_email_delivery() {
+        let reply = sms(&"🧠".repeat(481));
+        assert!(!reply.text.to_lowercase().contains("email"));
+        assert_eq!(reply.text.chars().count(), 480);
+        assert!(reply.text.starts_with("🧠🧠"));
+        assert!(reply.long_form_available);
+    }
+
+    #[test]
     fn short_sms_is_not_rewritten() {
         assert_eq!(sms("Done").text, "Done");
         assert!(!sms("Done").long_form_available);
     }
 
     #[test]
-    fn email_preserves_full_text_and_escapes_html() {
-        assert_eq!(email("# Heading\n\nDetails").text, "# Heading\n\nDetails");
+    fn email_preserves_full_content_and_escapes_html() {
+        assert_eq!(email("# Heading\n\nDetails").text, "Heading\n\nDetails");
         assert!(email_html("<unsafe>").contains("&lt;unsafe&gt;"));
     }
 

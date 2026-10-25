@@ -706,6 +706,15 @@ compatibility actor and writes nothing; readiness never activates portable
 migration. Readiness rejects every nonblank ID that the `UserId` parser would
 reject, so actor bootstrap cannot discover a weaker legacy acceptance rule.
 
+### `response_policy/`
+
+Pure channel presentation selected from `actor::Channel`. `mod.rs` owns the
+structured `ResponsePolicy` and SMS character limit; `render.rs` selects authored
+templates from `templates/workspace/response/` for launch instructions and the
+all-channel workspace reference. Deterministic Markdown stripping and safe HTML
+remain in `server/reply/`; delivery freezes both email alternatives in the
+existing typed receiver envelope without changing routing or retries.
+
 ### `agent/`
 
 The frontend-neutral agent boundary. `controller` owns the semantic
@@ -2645,7 +2654,8 @@ ambiguous recovery policy. Every
 channel's final body is shaped by `server/reply/`, whose `plain_text/`
 submodules (`block.rs` for line-level scaffolding, `inline.rs` for spans) are a
 pure markdown-to-plain-text pass applied to SMS before the length decision;
-email keeps its markdown. Final answers, notices, and control acknowledgements
+email renders safe HTML from the original Markdown and a readable stripped
+plain-text alternative. Final answers, notices, and control acknowledgements
 all enter the semantic durable outbox. The bounded provider executor in
 `server/delivery.rs` keeps network latency off the TUI event loop. Receiver bodies are capped at 1 MiB by the
 shared parser, and the shared fixed worker set prevents one slow provider call
