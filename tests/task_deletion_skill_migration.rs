@@ -80,7 +80,7 @@ fn receipt_tracks_currentness_and_missing_files_override_it() {
         )
         .unwrap();
     let receipt: serde_json::Value = serde_json::from_str(&receipt).unwrap();
-    assert_eq!(receipt["version"]["compatibility_revision"], 1);
+    assert_eq!(receipt["version"]["compatibility_revision"], 2);
     assert_eq!(
         receipt["version"]["binary_version"],
         env!("CARGO_PKG_VERSION")

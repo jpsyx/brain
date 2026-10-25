@@ -1,9 +1,11 @@
 use super::ExtensionOrigin;
 use anyhow::{Result, ensure};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt::Write as _, ops::Range, path::PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ProjectionProvenance {
     pub source_path: String,
     pub source_sha256: String,
@@ -13,7 +15,8 @@ pub(crate) struct ProjectionProvenance {
     pub inserted_range: Range<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SourcePatch {
     pub relative_path: PathBuf,
     pub before: Option<Vec<u8>>,

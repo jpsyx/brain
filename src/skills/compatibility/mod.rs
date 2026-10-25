@@ -1,6 +1,4 @@
 //! Pure, source-preserving compatibility projection for split Brain skills.
-// These pure seams precede their package/publication callers.
-#![allow(dead_code)]
 
 mod hooks;
 mod names;
@@ -15,6 +13,7 @@ use std::{collections::BTreeMap, ops::Range};
 pub(crate) enum ProjectionDirection {
     Current,
     Legacy105,
+    #[cfg_attr(not(test), allow(dead_code))] // The audited target adapter is integrated later.
     Legacy101,
 }
 
@@ -55,6 +54,7 @@ pub(crate) fn project_extensions(
     Ok(projection)
 }
 
+#[cfg_attr(not(test), allow(dead_code))] // Consumed by the package composer next.
 pub(crate) fn expand_legacy_names(names: &[String]) -> Vec<String> {
     names::expand(names)
 }

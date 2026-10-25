@@ -2,7 +2,13 @@
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io::Write, os::unix::fs::PermissionsExt, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::{Read, Write},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::Path,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,9 +78,7 @@ pub(super) fn copy(source: &Path, dest: &Path, expected: &Snapshot) -> Result<()
     match expected {
         Snapshot::Absent => {}
         Snapshot::File { mode, .. } => {
-            fs::copy(source, dest)?;
-            fs::set_permissions(dest, fs::Permissions::from_mode(*mode))?;
-            fs::File::open(dest)?.sync_all()?;
+            write_regular(dest, *mode, &mut open_regular(source)?)?;
         }
         Snapshot::Link { target } => std::os::unix::fs::symlink(target, dest)?,
         Snapshot::Directory { mode, entries } => {
@@ -212,12 +216,10 @@ pub(super) fn materialize(
         Snapshot::Absent => {}
         Snapshot::File { mode, .. } => {
             if let Some(bytes) = generated.get(relative) {
-                fs::write(dest, bytes)?;
+                write_regular(dest, *mode, &mut bytes.as_slice())?;
             } else {
-                fs::copy(root.join(relative), dest)?;
+                write_regular(dest, *mode, &mut open_regular(&root.join(relative))?)?;
             }
-            fs::set_permissions(dest, fs::Permissions::from_mode(*mode))?;
-            fs::File::open(dest)?.sync_all()?;
         }
         Snapshot::Link { target } => std::os::unix::fs::symlink(target, dest)?,
         Snapshot::Directory { mode, entries } => {
@@ -236,6 +238,29 @@ pub(super) fn materialize(
         }
     }
     ensure!(read(dest)? == *desired, "staged skill verification failed");
+    Ok(())
+}
+
+fn open_regular(path: &Path) -> Result<fs::File> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(path)?;
+    ensure!(
+        file.metadata()?.is_file(),
+        "artifact source is not a regular file"
+    );
+    Ok(file)
+}
+fn write_regular(path: &Path, mode: u32, source: &mut dyn Read) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)?;
+    std::io::copy(source, &mut file)?;
+    file.set_permissions(fs::Permissions::from_mode(mode))?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -292,19 +317,26 @@ fn validate_directory_creation(path: &Path, created: std::io::Result<()>) -> Res
 }
 
 pub(super) fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
-    match read_metadata(path)? {
-        None => Ok(None),
-        Some(metadata) => {
-            ensure!(
-                metadata.is_file()
-                    && !metadata.file_type().is_symlink()
-                    && metadata.len() <= STATE_FILE_LIMIT as u64,
-                "invalid skills state file: {}",
-                path.display()
-            );
-            Ok(Some(fs::read(path)?))
-        }
-    }
+    let file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let metadata = file.metadata()?;
+    ensure!(
+        metadata.is_file() && metadata.len() <= STATE_FILE_LIMIT as u64,
+        "invalid skills state file: {}",
+        path.display()
+    );
+    let mut bytes = Vec::new();
+    file.take(STATE_FILE_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    check_state_bytes(&bytes)?;
+    Ok(Some(bytes))
 }
 
 #[cfg(test)]

@@ -1,4 +1,6 @@
 //! Lock-scoped binding to the one UUID-scoped workspace state DB.
+//! The manifest digest binds every package artifact; stamping follows complete
+//! package verification, including when an older target receives schema 1.
 use super::install_transaction::{InstallReceipt, StampStore};
 use crate::{
     state::Db,

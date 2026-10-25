@@ -1,10 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
 
 const TEMPLATE: &str = include_str!("../../../templates/workspace/legacy/AGENTS-v0.105.3.md");
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RemovedLegacySpan {
     /// Byte offsets in the original before-image, before any removal.
     pub range: Range<usize>,

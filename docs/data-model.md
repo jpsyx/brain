@@ -2086,7 +2086,7 @@ registration correlation, then drops the owning staging-directory guard.
 Repeated shutdown is a no-op.
 
 The generic `meta` table stores `skills_install_receipt` as JSON:
-`{"version":{"binary_version":"<version>","compatibility_revision":1},"manifest_sha256":"<sha256>"}`.
+`{"version":{"binary_version":"<version>","compatibility_revision":2},"manifest_sha256":"<sha256>"}`.
 The installer writes this receipt and `skills_synced_version` in one SQLite
 transaction after verifying publication, while holding the workspace install
 lock. The SHA-256 covers actual committed `managed.json` bytes. Currentness
@@ -2982,7 +2982,7 @@ The down callback clears `skills_install_receipt` and `skills_synced_version` DB
 keys for validated available roots after local recovery; it does not remove
 managed-file hashes or immutable removal commit receipts. Target publication
 writes a new ordinary receipt with the actual target version, manifest SHA-256
-and compatibility revision 0 for audited 0.101.0 (1 for the current coordinator
+and compatibility revision 0 for audited 0.101.0 (2 for the current coordinator
 version). Missing roots have no new receipt or cache created. No persistent
 installer ticket or target-digest manifest field is added.
 
@@ -3027,3 +3027,42 @@ No historical jobs are backfilled and no schema change is required.
 
 A verified final completion also proves receipt when the submit hook was missed;
 its pending start notice is attempted before the final answer.
+
+
+### Managed workspace package evidence
+
+The managed-install manifest supports schemas 1 and 2. Its `files` map always
+contains only generated `.agents/skills/<name>/...` files. Schema 2 adds a
+separate package record: instruction region receipt and original document
+before-image (including absence), the original receipt when adopting a synced
+managed region, removed legacy spans, config-field history,
+and source-projection history with canonical source bytes and per-block origins.
+A skill-only refresh retains that record.
+
+The instruction receipt records schema, generated revision, owned body digest,
+and source snapshot digest. Changes outside the owned frame do not invalidate
+currentness. A complete supported render can be adopted with stale local evidence;
+a caller-supplied hash alone does not establish ownership.
+
+Package journals add typed regular-file entries for `AGENTS.md`, the
+`allowed_skills` field in `.config/config.json`, and the two audited legacy
+extension destinations. Each entry binds complete before/after bytes to the
+transaction fingerprints. Config patches compare field values while preserving
+other object members. Source patches retain their destination before-image and
+canonical input evidence, and must reproduce the audited pure projection.
+Journal and manifest reads and writes share the 16 MiB state limit.
+
+Legacy package output is a genuine schema-1 skill manifest, omitting newer
+fields. Immutable package archives retain the metadata and typed changes that
+older readers cannot carry. Their filename digest and recorded workspace UUID,
+canonical root, transaction identity and target manifests authenticate the
+retained evidence. Archive applicability must be checked against current
+instruction/config/source post-images; the archive alone does not claim a
+completed downgrade.
+
+
+Explicit instruction restoration optionally carries a `TargetInstructionContract`
+(binary version and audited core bytes). The transaction requires that version to
+match the next manifest. Its post-image is a deterministic replacement of the
+verified owned frame, or an append/create after valid absence. This desired core
+is not ownership evidence, and unknown matching user text is never deduplicated.

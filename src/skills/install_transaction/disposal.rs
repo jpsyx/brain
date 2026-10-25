@@ -39,11 +39,12 @@ impl Journal {
         self.save(cache)
     }
     pub fn verify_before(&self, root: &Path) -> Result<()> {
+        self.verify_sources(root)?;
         for entry in &self.entries {
             snapshot::check_parent(root, &entry.live)?;
             ensure!(
                 snapshot::read(&root.join(&entry.live))? == entry.before,
-                "restored skills changed before disposal: {}",
+                "package artifact differs from its before-image: {}",
                 entry.live
             );
         }

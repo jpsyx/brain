@@ -1923,3 +1923,28 @@ backups, active/recovery listing families, idempotence, quoted/newline filenames
 nested portable skill assets, unknown versions, and refusal of symlinked
 listings. Real watcher tests distinguish generated-file edits from portable
 extension edits.
+
+
+### Coherent workspace package publication
+
+The focused tests under `skills::install_transaction::package*` use temporary
+roots and `InstallIdentity::sandbox_with_cache`. They exercise real filesystem
+staging, complete before-image comparisons, rollback and committed recovery for
+skills, references, frontend links, the managed AGENTS region, supported config
+patches and legacy source projections together. Fault injection covers staging,
+each backup/install rename, manifest publication, failed stamps and partial
+disposal. User extras, unowned instruction text and file modes remain observable.
+
+Conflict coverage rejects arbitrary artifact paths, foreign frontend entries,
+external document/source symlinks, modified managed regions and changed canonical
+projection inputs before mutation. Mid-plan and post-crash edits retain recovery
+evidence. Legacy export is checked against the actual schema-1 field set, not
+just a changed schema number. Existing skill-only schema-1 recovery suites remain
+part of the release gate. No test installs a binary or edits a live workspace.
+
+Retained-archive cases include corrupt content, symlink leaves, rehashed foreign
+root/UUID records and forged restoration history. Target-contract cases preserve
+exact user override order, retain duplicate-looking unknown text, and cover a
+missing frame/document without replaying stale user prefixes. Exclusive staging
+and backup creation rejects preexisting destination links without touching their
+targets.

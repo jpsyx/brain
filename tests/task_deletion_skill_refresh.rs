@@ -171,7 +171,7 @@ fn source_symlinks_reserved_marker_and_foreign_frontend_fail_before_publication(
     }
 }
 #[test]
-fn current_target_runs_before_bootstrap_and_publishes_revision_one() {
+fn current_target_runs_before_bootstrap_and_publishes_current_revision() {
     let mut f = Fixture::new();
     let root = f.add("alpha");
     let executable = Path::new(env!("CARGO_BIN_EXE_brain"));
@@ -200,7 +200,7 @@ fn current_target_runs_before_bootstrap_and_publishes_revision_one() {
         &fs::read(f.cache("alpha").join("skills-install/managed.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(manifest["compatibility_revision"], 1);
+    assert_eq!(manifest["compatibility_revision"], 2);
     assert!(!root.join("tasks").exists());
 }
 

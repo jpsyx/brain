@@ -57,13 +57,14 @@ pub(super) fn name(value: &str) -> Result<()> {
 }
 pub(super) fn manifest(manifest: &ManagedSkillManifest, identity: &InstallIdentity) -> Result<()> {
     ensure!(
-        manifest.schema_version == 1 && manifest.workspace_id == identity.workspace_id,
+        matches!(manifest.schema_version, 1 | 2) && manifest.workspace_id == identity.workspace_id,
         "managed skills manifest identity/schema mismatch"
     );
     ensure!(
         version(&manifest.binary_version) && manifest.files.len() <= 100_000,
         "invalid managed skills manifest"
     );
+    super::package::validate_metadata(manifest)?;
     for (path, sha256) in &manifest.files {
         snapshot::relative(path)?;
         let parts: Vec<_> = path.split('/').collect();
@@ -111,7 +112,7 @@ fn fingerprint(value: &Snapshot, budget: &mut usize) -> Result<()> {
 }
 pub(super) fn journal(journal: &Journal, identity: &InstallIdentity) -> Result<()> {
     ensure!(
-        journal.schema_version == 1
+        matches!(journal.schema_version, 1 | 2)
             && journal.root == identity.root
             && journal.workspace_id == identity.workspace_id,
         "skills recovery identity mismatch"
@@ -139,6 +140,9 @@ pub(super) fn journal(journal: &Journal, identity: &InstallIdentity) -> Result<(
     if let Some(old) = &old {
         manifest(old, identity)?;
     }
+    super::package::validate_artifacts(journal, &next, old.as_ref())?;
+    journal.verify_sources(&identity.root)?;
+    journal.validate_archive(&identity.cache)?;
     let old_roots = old.as_ref().map_or_else(BTreeSet::new, ownership::roots);
     let roots: BTreeSet<_> = old_roots.union(&ownership::roots(&next)).cloned().collect();
     ensure!(journal.entries.len() <= 4096, "oversized skills journal");
@@ -176,6 +180,16 @@ pub(super) fn journal(journal: &Journal, identity: &InstallIdentity) -> Result<(
     let mut budget = 200_000;
     for entry in &journal.entries {
         snapshot::relative(&entry.live)?;
+        if entry.kind.is_some() {
+            ensure!(
+                paths.insert(entry.live.clone()),
+                "duplicate package artifact"
+            );
+            snapshot::check_parent(&identity.root, &entry.live)?;
+            fingerprint(&entry.before, &mut budget)?;
+            fingerprint(&entry.after, &mut budget)?;
+            continue;
+        }
         let parts: Vec<_> = entry.live.split('/').collect();
         ensure!(
             parts.len() == 3

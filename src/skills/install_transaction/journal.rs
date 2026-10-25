@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Entry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<super::package::ArtifactKind>,
     pub live: String,
     pub before: Snapshot,
     pub after: Snapshot,
@@ -17,6 +19,7 @@ pub(super) struct Entry {
 impl Entry {
     pub fn new(live: String, root: &Path) -> Result<Self> {
         Ok(Self {
+            kind: None,
             before: snapshot::read(&root.join(&live))?,
             live,
             after: Snapshot::Absent,
@@ -32,6 +35,12 @@ impl Entry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Journal {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub artifacts: std::collections::BTreeMap<String, super::package::FileChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retained_package: Option<super::package::PackageMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_sha256: Option<String>,
     pub phase: Phase,
     pub users: std::collections::BTreeMap<String, Snapshot>,
     pub legacy: std::collections::BTreeMap<String, String>,
@@ -63,12 +72,22 @@ impl Journal {
         let next = serde_json::to_vec(&plan.manifest)?;
         snapshot::check_state_bytes(&next)?;
         let mut journal = Self {
+            artifacts: plan.artifacts.clone(),
+            retained_package: plan.retained_package.clone(),
+            archive_sha256: None,
             phase: Phase::DisposingCommitted,
             users: plan.users.clone(),
             legacy: plan.legacy.clone(),
             previous_sha256: previous.as_ref().map(|bytes| snapshot::digest(bytes)),
             next_sha256: snapshot::digest(&next),
-            schema_version: 1,
+            schema_version: if plan.artifacts.is_empty()
+                && plan.manifest.schema_version == 1
+                && plan.retained_package.is_none()
+            {
+                1
+            } else {
+                2
+            },
             workspace_id: identity.workspace_id.clone(),
             root: identity.root.clone(),
             transaction_id: uuid::Uuid::new_v4().to_string(),
@@ -76,6 +95,10 @@ impl Journal {
             next,
             entries: plan.entries.clone(),
         };
+        journal.archive_sha256 = journal
+            .archive_bytes()?
+            .as_ref()
+            .map(|bytes| snapshot::digest(bytes));
         // This is the longest serialized phase; later transitions cannot exceed this size.
         snapshot::check_state_bytes(&serde_json::to_vec(&journal)?)?;
         journal.phase = Phase::Prepared;
@@ -139,6 +162,7 @@ impl Journal {
         })
     }
     pub fn verify_after(&self, root: &Path) -> Result<()> {
+        self.verify_sources(root)?;
         for entry in &self.entries {
             snapshot::check_parent(root, &entry.live)?;
             ensure!(

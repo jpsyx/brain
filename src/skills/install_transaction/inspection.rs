@@ -17,11 +17,15 @@ impl LockedInstall {
         version: &InstallVersion,
     ) -> Result<bool> {
         let previous = self.manifest()?;
+        let package_missing = previous
+            .as_ref()
+            .map(|manifest| super::package::check_owned(&self.identity, manifest))
+            .transpose()?
+            .is_some_and(|missing| !missing.is_empty());
         let plan = ownership::plan(&self.identity, previous.as_ref(), rendered.clone(), version)?;
-        Ok(
-            previous.is_some_and(|manifest| manifest.files == plan.manifest.files)
-                && plan.entries.iter().all(|entry| entry.before == entry.after),
-        )
+        Ok(!package_missing
+            && previous.is_some_and(|manifest| manifest.files == plan.manifest.files)
+            && plan.entries.iter().all(|entry| entry.before == entry.after))
     }
 
     pub(crate) fn inspect(&self, expected: &InstallVersion) -> Result<Currentness> {
@@ -33,6 +37,7 @@ impl LockedInstall {
             return Ok(Currentness::Outdated);
         };
         let mut missing = ownership::check_owned(&self.identity, &manifest)?;
+        missing.extend(super::package::check_owned(&self.identity, &manifest)?);
         for name in ownership::roots(&manifest) {
             for frontend in [".claude", ".codex", ".opencode"] {
                 let path = format!("{frontend}/skills/{name}");

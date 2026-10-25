@@ -1043,6 +1043,10 @@ The foundation is separate from the install/publication integration.
 
 The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
 `journal`, `disposal`, `validation`, and `legacy` modules share one bounded installation boundary.
+The `package` facade and its focused planning, validation, source, restoration,
+and archive modules extend that same transaction to workspace instructions,
+`allowed_skills` field patches, and audited legacy extension projections.
+Skill-only callers preserve existing package ownership metadata.
 
 Every install holds an exclusive OS advisory lock on the persistent
 `<workspace-cache>/skills-install/install.lock` inode. Registered identities
@@ -1052,7 +1056,9 @@ a genuinely nonmanifested sandbox uses its own canonical root's `.cache/brain`.
 Sandbox sources remain `extensions/` and `plugins/`; selected workspace sources
 remain `.config/extensions` and `.config/plugins`.
 
-All generated files and preserved extras are built in nonce-bearing sibling
+Regular stage and backup files are created exclusively and never follow an
+existing destination symlink. Bounded state reads open their leaf without
+following links. All generated files and preserved extras are built in nonce-bearing sibling
 staging slots on each destination's filesystem. Before live renames,
 `pending.json` durably records versioned intent, identity, previous/next
 manifests and complete typed before/after fingerprints. Recovery validates
@@ -1074,6 +1080,34 @@ phase against the same 16 MiB bound enforced on every state read and write.
 `managed.json` records the exact schema version, workspace UUID, binary version,
 compatibility revision, and SHA-256 map of generated regular-file paths. Missing
 owned files can be repaired; present changed bytes or changed types conflict.
+Schema 2 keeps instruction ownership and config/source provenance separate from
+that skill-path map. Only the managed AGENTS region determines instruction
+currentness; replacing the document compares its entire observed before-file.
+User text and existing modes survive publication. The first observed instruction
+file or its absence, recognized removed legacy spans, field patches, and canonical
+projection inputs remain available as restoration evidence. Schema-1 manifests
+and interrupted journals remain readable.
+
+Explicit legacy publication restores verified instruction ownership and commits
+an actual schema-1 skill manifest with newer fields omitted. It retains a
+UUID/root-bound, digest-addressed package archive under
+`skills-install/package-backups/` before replacing live artifacts. The same
+commit boundary controls skills, instructions, configuration and legacy sources;
+no second manifest rewrite is needed. Completed legacy publication removes its
+schema-2 pending journal. `InstructionRestore` can supply a target contract bound
+to the audited next binary version. That mode replaces the verified current frame
+in place, preserving its exact user prefix/suffix; with a missing frame it keeps
+surviving user bytes and appends or creates the supplied core. It does not restore
+legacy spans as a second core copy or resurrect stale user text. Target auditing
+belongs to the caller; desired output never proves ownership of existing bytes.
+Without a target contract, restoration uses the retained inverse evidence.
+A retained archive can also describe an interrupted
+attempt, so it is evidence rather than proof that a downgrade committed.
+`LockedInstall::retained_packages` returns typed candidates with previous/target
+manifests, package metadata and per-path before/after artifacts after bounded,
+no-follow, digest, identity, path and transition validation. The composing caller
+must establish applicability against the current post-images before using one.
+
 Unknown extras retain bytes, permissions and literal symlink targets. Removed
 skills lose only recorded generated files and exact owned frontend links;
 remaining extras stay in an unmarked residual directory. Unmarked user skills
@@ -1087,7 +1121,11 @@ Brain version and retains a verified complete backup in
 inferred from that marker. New rendered paths may replace old paths only after
 backup; unknown legacy references and disappeared legacy trees remain preserved.
 Plugin/core name collisions, invalid render inventories, or partial/unreadable
-plugin and extension sources fail before publication. Sources are never written.
+plugin and extension sources fail before publication. Ordinary rendering leaves
+sources unchanged. Explicit legacy packages alone can publish audited additions
+to `.config/extensions/todo.md` and `.config/extensions/second-brain.md`.
+Canonical projection inputs remain untouched and are checked independently of
+the destination before planning, publication, and recovery.
 
 For workspace-only launches, `layout` and `install` also render selected skills
 under the workspace UUID and actor cache without creating registry or frontend
@@ -1110,7 +1148,7 @@ The TUI does not repeat the all-root pass or rewrite an already-current
 installation.
 
 The authoritative `meta('skills_install_receipt')` JSON stores binary version,
-compatibility revision (currently 1), and the SHA-256 of the committed managed
+compatibility revision (currently 2), and the SHA-256 of the committed managed
 manifest. It is written atomically with the legacy `skills_synced_version` key,
 under the install lock, only after successful publication. Recovery precedes
 currentness; a committed install with a failed DB stamp retains its journal for

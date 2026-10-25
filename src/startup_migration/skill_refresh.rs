@@ -130,7 +130,11 @@ fn refresh(
     target.verify()?;
     let version = InstallVersion {
         binary_version: target.version.clone(),
-        compatibility_revision: u32::from(!target.legacy),
+        compatibility_revision: if target.legacy {
+            0
+        } else {
+            InstallVersion::current().compatibility_revision
+        },
     };
     locked
         .preflight(&output, &version)

@@ -17,6 +17,8 @@ pub(super) struct Plan {
     pub manifest: ManagedSkillManifest,
     pub legacy: BTreeMap<String, String>,
     pub users: BTreeMap<String, Snapshot>,
+    pub artifacts: BTreeMap<String, super::package::FileChange>,
+    pub retained_package: Option<super::package::PackageMetadata>,
 }
 
 pub(super) fn roots(manifest: &ManagedSkillManifest) -> BTreeSet<String> {
@@ -84,7 +86,11 @@ pub(super) fn plan(
         binary_version: version.binary_version.clone(),
         compatibility_revision: version.compatibility_revision,
         files: BTreeMap::new(),
+        package: previous.and_then(|manifest| manifest.package.clone()),
     };
+    if manifest.package.is_some() {
+        manifest.schema_version = 2;
+    }
     let mut files = BTreeMap::new();
     for (name, content) in &mut rendered {
         super::validation::name(name)?;
@@ -207,6 +213,8 @@ pub(super) fn plan(
         manifest,
         legacy,
         users,
+        artifacts: BTreeMap::new(),
+        retained_package: None,
     })
 }
 

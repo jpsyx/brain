@@ -5,6 +5,19 @@ mod inspection;
 mod journal;
 mod legacy;
 mod ownership;
+pub(crate) mod package;
+#[cfg(test)]
+mod package_archive_tests;
+#[cfg(test)]
+mod package_conflict_tests;
+#[cfg(test)]
+mod package_legacy_tests;
+#[cfg(test)]
+mod package_patch_tests;
+#[cfg(test)]
+mod package_recovery_tests;
+#[cfg(test)]
+mod package_tests;
 mod snapshot;
 mod validation;
 pub(crate) use identity::InstallIdentity;
@@ -26,6 +39,8 @@ pub(crate) struct ManagedSkillManifest {
     pub binary_version: String,
     pub compatibility_revision: u32,
     pub files: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<package::PackageMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +53,7 @@ impl InstallVersion {
     pub(crate) fn current() -> Self {
         Self {
             binary_version: super::current_version().into(),
-            compatibility_revision: 1,
+            compatibility_revision: 2,
         }
     }
 }
@@ -83,15 +98,15 @@ impl LockedInstall {
         rendered: &RenderedInstall,
         version: &InstallVersion,
     ) -> Result<super::install::Report> {
-        ensure!(
-            snapshot::read_optional_file(&self.identity.cache.join("pending.json"))?.is_none(),
-            "skills recovery required before preflight"
-        );
-        let previous = self.manifest()?;
-        let plan = ownership::plan(&self.identity, previous.as_ref(), rendered.clone(), version)?;
-        let previous_bytes =
-            snapshot::read_optional_file(&self.identity.cache.join("managed.json"))?;
-        Journal::planned(&self.identity, previous_bytes, &plan)?.report()
+        self.preflight_package(
+            &package::ManagedWorkspacePackage {
+                skills: rendered.clone(),
+                instructions: None,
+                config_patches: Vec::new(),
+                source_patches: Vec::new(),
+            },
+            version,
+        )
     }
     pub(crate) fn manifest(&self) -> Result<Option<ManagedSkillManifest>> {
         let parsed: Option<ManagedSkillManifest> =
@@ -111,9 +126,19 @@ impl LockedInstall {
         version: &InstallVersion,
         stamp: &mut dyn StampStore,
     ) -> Result<InstallReceipt> {
-        self.install_with(rendered, version, stamp, &mut |_| Ok(()))
+        self.install_package(
+            package::ManagedWorkspacePackage {
+                skills: rendered,
+                instructions: None,
+                config_patches: Vec::new(),
+                source_patches: Vec::new(),
+            },
+            version,
+            stamp,
+        )
     }
 
+    #[cfg(test)]
     pub(super) fn install_with(
         &mut self,
         rendered: RenderedInstall,
@@ -121,22 +146,28 @@ impl LockedInstall {
         stamp: &mut dyn StampStore,
         checkpoint: &mut dyn FnMut(Checkpoint) -> Result<()>,
     ) -> Result<InstallReceipt> {
-        let _recovered = self.recover(stamp)?;
-        let previous = snapshot::read_optional_file(&self.identity.cache.join("managed.json"))?;
-        let previous_manifest: Option<ManagedSkillManifest> = previous
-            .as_deref()
-            .map(serde_json::from_slice)
-            .transpose()?;
-        if let Some(previous) = &previous_manifest {
-            validation::manifest(previous, &self.identity)?;
-        }
-        let plan = ownership::plan(
-            &self.identity,
-            previous_manifest.as_ref(),
-            rendered,
+        self.install_package_inner(
+            package::ManagedWorkspacePackage {
+                skills: rendered,
+                instructions: None,
+                config_patches: Vec::new(),
+                source_patches: Vec::new(),
+            },
             version,
-        )?;
-        let journal = Journal::planned(&self.identity, previous, &plan)?;
+            stamp,
+            checkpoint,
+        )
+    }
+
+    fn publish(
+        &mut self,
+        plan: &ownership::Plan,
+        previous: Option<Vec<u8>>,
+        stamp: &mut dyn StampStore,
+        checkpoint: &mut dyn FnMut(Checkpoint) -> Result<()>,
+    ) -> Result<InstallReceipt> {
+        let journal = Journal::planned(&self.identity, previous, plan)?;
+        journal.retain_package(&self.identity.cache)?;
         let transaction_id = &journal.transaction_id;
         legacy::backup(&self.identity, transaction_id, &plan.legacy)?;
         for (index, entry) in plan.entries.iter().enumerate() {
@@ -160,8 +191,9 @@ impl LockedInstall {
             }
             return Err(error);
         }
-        validation::journal(&journal, &self.identity)?;
         journal.save(&self.identity.cache)?;
+        validation::journal(&journal, &self.identity)?;
+        journal.verify_before(&self.identity.root)?;
         let result = self.apply(&journal, stamp, checkpoint);
         if result.is_err()
             && (snapshot::read_optional_file(&self.identity.cache.join("managed.json"))?.as_ref()
@@ -181,6 +213,7 @@ impl LockedInstall {
         checkpoint: &mut dyn FnMut(Checkpoint) -> Result<()>,
     ) -> Result<InstallReceipt> {
         for (index, entry) in journal.entries.iter().enumerate() {
+            journal.verify_sources(&self.identity.root)?;
             snapshot::check_parent(&self.identity.root, &entry.live)?;
             let live = self.identity.root.join(&entry.live);
             ensure!(

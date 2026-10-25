@@ -55,7 +55,7 @@ fn ordinary_patch_upgrade_repairs_all_roots_before_stamp_despite_auto_sync_false
             receipt["version"]["binary_version"],
             env!("CARGO_PKG_VERSION")
         );
-        assert_eq!(receipt["version"]["compatibility_revision"], 1);
+        assert_eq!(receipt["version"]["compatibility_revision"], 2);
         assert_eq!(
             receipt["manifest_sha256"],
             format!("{:x}", Sha256::digest(manifest))

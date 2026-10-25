@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 use anyhow::{Context, Result, ensure};
@@ -9,7 +10,8 @@ const START: &str = "<!-- brain:managed-workspace:start schema=1 -->";
 const END: &str = "<!-- brain:managed-workspace:end -->";
 const MARKER: &str = "brain:managed-workspace";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct InstructionReceipt {
     pub schema_version: u32,
     pub generated_revision: u32,
@@ -19,7 +21,7 @@ pub(crate) struct InstructionReceipt {
     pub sources_sha256: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct DocumentPlan {
     pub before: Option<Vec<u8>>,
     pub after: Vec<u8>,
@@ -146,4 +148,10 @@ fn marker_count(text: &str) -> usize {
         .skip(1)
         .filter(|comment| comment.trim_start().starts_with(MARKER))
         .count()
+}
+
+/// Distinguish a missing owned region from a present malformed or modified one.
+pub(crate) fn has_managed_region(document: &[u8]) -> Result<bool> {
+    let text = std::str::from_utf8(document).context("workspace AGENTS.md is not valid UTF-8")?;
+    Ok(parse_region(text)?.is_some())
 }
