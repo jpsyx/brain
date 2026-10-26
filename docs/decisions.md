@@ -6402,3 +6402,39 @@ Capability expansion preserves the input order, appends only selected legacy
 successors, and deduplicates. `second-brain` grants `projects`, `process-capture`,
 `organize`, and `brain-sync`; `todo` grants `agenda`. Empty and canonical-only
 selections stay within their original scope.
+
+## One checked extension compiler across skill renderers
+
+Ordinary installation, selected actor capabilities, and installer source rendering
+consume the same checked extension snapshot and compatibility projection. Only an
+absent optional directory is empty by default. A discovered source that disappears,
+invalid UTF-8, unreadable files, symlinks, duplicate section headers, and conflicting
+nonempty aliases fail before generated output is published. Bundled consumers also
+reject duplicate hook placements; plugins retain their existing marker behavior.
+
+The compiler retains every raw source and projected block even when its focused
+consumer is outside the selected catalog. Effective hook content chooses a matching
+nonempty origin, including when an empty legacy alias coexists with a canonical
+block. Source annotations identify the original workspace-relative resource base;
+opaque prose, links, scripts, and binary assets are not rewritten. Registered
+sources retain `.config/extensions/` identities, while sandbox `skills sync --root`
+continues reading its `extensions/` and `plugins/` sources. Supported sandbox
+layout is `R/extensions` alongside `R/.agents/skills/<name>/SKILL.md`: its resource
+annotations resolve `../../../extensions` from that owning SKILL.md directory,
+including inside generated `references/` files. Registered and actor-cache
+annotations resolve `.config/extensions` from the selected workspace instead.
+Machine-absolute source bases are not embedded in portable bodies or fingerprints.
+
+Installed bundled skills share a short read-AGENTS prelude after YAML frontmatter.
+Plugin bodies receive no Brain prelude. Nonempty mixed legacy task context is one
+logical SHA-256-identified reference packaged independently with each selected
+`todo` or `agenda` consumer. Its guidance asks a handoff to reuse loaded context
+and avoid repeating completed side effects. Tests verify packaging and identity;
+agent behavior across the handoff requires the separate behavioral acceptance run.
+
+Workspace compilation preserves fresh-seed parity when customization is absent.
+Its package composer binds instruction receipts to framed raw source identities
+and bytes plus the shared contract, compiler revision, and package version. Rendered-body ownership
+has its own digest. Machine-absolute roots affect neither the portable instruction
+body nor its source fingerprint. Composition only plans the typed package; the
+installation coordinator remains responsible for locking and atomic publication.

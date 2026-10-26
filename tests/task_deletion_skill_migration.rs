@@ -10,6 +10,16 @@ fn all_roots_refresh_with_disabled_auto_sync_and_preserve_sources_and_globals() 
     let beta = f.add("beta");
     let alpha = f.add("alpha");
     for root in [&alpha, &beta] {
+        let source = root.join(".config/extensions/todo.md");
+        let mut bytes = fs::read(&source).unwrap();
+        bytes.extend_from_slice(
+            format!(
+                "\n[todo:linear-backlog]\n{} task customization\n",
+                root.file_name().unwrap().to_str().unwrap()
+            )
+            .as_bytes(),
+        );
+        fs::write(&source, bytes).unwrap();
         fs::create_dir_all(root.join(".agents/skills/todo")).unwrap();
         fs::write(todo(root), "legacy managed todo").unwrap();
         fs::write(
@@ -40,7 +50,7 @@ fn all_roots_refresh_with_disabled_auto_sync_and_preserve_sources_and_globals() 
         let text = fs::read_to_string(todo(root)).unwrap();
         assert!(!text.contains("legacy managed todo"));
         assert!(text.contains(&format!(
-            "{} extension",
+            "{} task customization",
             root.file_name().unwrap().to_str().unwrap()
         )));
         assert_eq!(
@@ -109,7 +119,7 @@ fn receipt_tracks_currentness_and_missing_files_override_it() {
     assert!(todo(&root).is_file());
     fs::write(
         root.join(".config/extensions/todo.md"),
-        "[todo:anchors]\nchanged source\n",
+        "[todo:linear-backlog]\nchanged source\n",
     )
     .unwrap();
     let changed = f.sync();

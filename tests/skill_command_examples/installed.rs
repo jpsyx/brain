@@ -8,7 +8,7 @@ fn installed_deletion_skill_contract() {
     let fixture = workspace::Fixture::new();
     let extension = fixture.root().join(".config/extensions/todo.md");
     fs::create_dir_all(extension.parent().unwrap()).unwrap();
-    let source = "[todo:anchors]\n\nSynthetic extension sentinel.\n";
+    let source = "[todo:linear-backlog]\n\nSynthetic extension sentinel.\n";
     fs::write(&extension, source).unwrap();
     let before = fixture.canonical_bytes();
     let argv = ["brain", "skills", "sync", "--all-workspaces", "--json"];

@@ -1,3 +1,5 @@
+#[path = "workspace_capabilities/checked_rendering.rs"]
+mod checked_rendering;
 #[path = "workspace_capabilities/frontend_claude.rs"]
 mod frontend_claude;
 #[path = "workspace_capabilities/frontend_lifecycle.rs"]

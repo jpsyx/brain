@@ -243,3 +243,6 @@ mod transaction_disposal_tests;
 
 #[cfg(test)]
 mod reconcile_tests;
+
+#[cfg(test)]
+mod compile_tests;

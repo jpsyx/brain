@@ -4,6 +4,7 @@ mod hooks;
 mod names;
 mod projection;
 mod provenance;
+pub(crate) mod snapshot;
 
 use crate::skills::extension::Extension;
 pub(crate) use provenance::{ProjectionProvenance, SourcePatch};
@@ -54,7 +55,7 @@ pub(crate) fn project_extensions(
     Ok(projection)
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // Consumed by the package composer next.
+#[cfg_attr(not(test), allow(dead_code))] // Consumed by capability-selection migration.
 pub(crate) fn expand_legacy_names(names: &[String]) -> Vec<String> {
     names::expand(names)
 }

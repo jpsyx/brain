@@ -98,8 +98,26 @@ pub(super) fn validate(
     core: &RenderedInstall,
     output: &RenderedInstall,
     sources: &Sources,
+    target_version: &str,
 ) -> Result<()> {
     validate_plugins(core, sources)?;
+    let expected = if target_version == crate::skills::current_version() {
+        current_expected(sources)?
+    } else {
+        legacy_expected(core, sources)?
+    };
+    let mut actual = output.clone();
+    for files in actual.values_mut() {
+        files.remove(".brain-rendered");
+    }
+    ensure!(
+        actual == expected,
+        "target generated incomplete or unexpected skill content"
+    );
+    Ok(())
+}
+
+fn legacy_expected(core: &RenderedInstall, sources: &Sources) -> Result<RenderedInstall> {
     let mut expected = core.clone();
     let prefix = ".config/plugins/";
     for (path, bytes) in &sources.files {
@@ -132,15 +150,61 @@ pub(super) fn validate(
         }
         files.remove(".brain-rendered");
     }
-    let mut actual = output.clone();
-    for files in actual.values_mut() {
-        files.remove(".brain-rendered");
+    Ok(expected)
+}
+
+fn current_expected(sources: &Sources) -> Result<RenderedInstall> {
+    use crate::skills::{
+        compatibility::snapshot::CheckedSources,
+        model::{Skill, SkillFile},
+    };
+    let mut catalog = crate::skills::embed::bundled_skills();
+    let mut plugins: BTreeMap<String, Vec<SkillFile>> = BTreeMap::new();
+    let mut extensions = BTreeMap::new();
+    for (path, bytes) in &sources.files {
+        if let Some(relative) = path.strip_prefix(".config/plugins/") {
+            let (name, relative) = relative
+                .split_once('/')
+                .ok_or_else(|| anyhow::anyhow!("plugin files must belong to a skill directory"))?;
+            ensure!(
+                relative != ".brain-rendered",
+                "plugin uses reserved rendered marker"
+            );
+            plugins.entry(name.to_owned()).or_default().push(SkillFile {
+                rel_path: relative.into(),
+                contents: bytes.clone(),
+            });
+        }
+        if path
+            .strip_prefix(".config/extensions/")
+            .is_some_and(|relative| {
+                !relative.contains('/')
+                    && Path::new(relative)
+                        .extension()
+                        .is_some_and(|ext| ext == "md")
+            })
+        {
+            extensions.insert(path.clone(), bytes.clone());
+        }
     }
-    ensure!(
-        actual == expected,
-        "target generated incomplete or unexpected skill content"
-    );
-    Ok(())
+    for (name, files) in plugins {
+        ensure!(
+            files
+                .iter()
+                .any(|file| file.rel_path == Path::new("SKILL.md")),
+            "plugin omitted SKILL.md"
+        );
+        catalog.push(Skill {
+            name,
+            files,
+            bundled: false,
+        });
+    }
+    Ok(crate::skills::render::compile_catalog(
+        &catalog,
+        CheckedSources::from_snapshot(&extensions)?,
+    )?
+    .skills)
 }
 
 pub(super) fn validate_plugins(core: &RenderedInstall, sources: &Sources) -> Result<()> {

@@ -1624,6 +1624,24 @@ logs. Automatic skill refresh after `brain config set` / `brain persona set`
 uses the same principle: it prints that installed skills are being refreshed
 before writing built copies or registry links.
 
+Installed bundled Brain skills first resolve the selected workspace and read its
+`AGENTS.md` if needed. This shared prelude preserves skill frontmatter and has no
+channel branches. User plugin prose, scripts, and binary assets keep their relative
+layout and receive no bundled-policy prelude.
+
+Ordinary and actor-selected renders use one checked extension projection. Legacy
+hook aliases reach their canonical owners once, equal aliases deduplicate, and
+conflicting nonempty aliases fail without replacing the previous generation.
+Invalid, unreadable, symlinked, or disappearing discovered extension files fail
+instead of becoming empty customization. An absent optional extension directory
+remains a no-op. Relative resource paths retain their original source directory.
+For sandbox `skills sync --root R`, sources in `R/extensions` resolve from
+`../../../extensions` relative to the owning installed skill's `SKILL.md` directory,
+including when reading its generated references.
+Nonempty mixed legacy task context is packaged as the same identified reference
+inside each selected task/agenda consumer, including an agenda-only selection.
+Handoffs reuse already-loaded context without rerunning completed side effects.
+
 **Customizing skills without forking.** Two mechanisms, both stored with your
 brain (synced, never committed to the repo):
 

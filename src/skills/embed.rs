@@ -48,7 +48,11 @@ pub fn bundled_skills() -> Vec<Skill> {
                     })
                 })
                 .collect();
-            Some(Skill { name, files })
+            Some(Skill {
+                name,
+                files,
+                bundled: true,
+            })
         })
         .collect()
 }
@@ -382,8 +386,7 @@ mod tests {
                     .unwrap_or(rest.len());
                 let name = &rest[..end];
                 let terminator = rest[end..].chars().next();
-                (!name.is_empty() && matches!(terminator, Some(' ' | '`')))
-                    .then(|| name.to_owned())
+                (!name.is_empty() && matches!(terminator, Some(' ' | '`'))).then(|| name.to_owned())
             })
             .collect()
     }

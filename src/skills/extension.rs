@@ -84,7 +84,7 @@ pub(crate) fn section_header(line: &str) -> Option<&str> {
 }
 
 /// The hook name in a `<!-- brain:ext NAME -->` marker line, else `None`.
-fn marker_hook(line: &str) -> Option<&str> {
+pub(crate) fn marker_hook(line: &str) -> Option<&str> {
     let t = line.trim();
     t.strip_prefix(MARKER_PREFIX)?
         .strip_suffix(MARKER_SUFFIX)
@@ -147,30 +147,6 @@ pub fn apply(skill_md: &str, ext: &Extension) -> String {
 pub fn load(skill_name: &str, dir: &Path) -> Option<Extension> {
     let path = dir.join(format!("{skill_name}.md"));
     std::fs::read_to_string(path).ok().map(|t| parse(&t))
-}
-
-/// Checked managed-install read; a failed read must never erase customization.
-pub(crate) fn load_checked(name: &str, dir: &Path) -> anyhow::Result<Option<Extension>> {
-    match std::fs::symlink_metadata(dir) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-        Ok(metadata) => anyhow::ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "extensions source is not a real directory"
-        ),
-    }
-    let path = dir.join(format!("{name}.md"));
-    match std::fs::symlink_metadata(&path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-        Ok(metadata) => {
-            anyhow::ensure!(
-                metadata.is_file() && !metadata.file_type().is_symlink(),
-                "extension must be a regular file"
-            );
-            Ok(Some(parse(&std::fs::read_to_string(path)?)))
-        }
-    }
 }
 
 #[cfg(test)]

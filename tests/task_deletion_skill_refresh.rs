@@ -174,6 +174,10 @@ fn source_symlinks_reserved_marker_and_foreign_frontend_fail_before_publication(
 fn current_target_runs_before_bootstrap_and_publishes_current_revision() {
     let mut f = Fixture::new();
     let root = f.add("alpha");
+    let source = root.join(".config/extensions/todo.md");
+    let mut before_source = fs::read(&source).unwrap();
+    before_source.extend_from_slice(b"\n[todo:linear-backlog]\nalpha task extension\n");
+    fs::write(&source, &before_source).unwrap();
     let executable = Path::new(env!("CARGO_BIN_EXE_brain"));
     let digest = format!("{:x}", Sha256::digest(fs::read(executable).unwrap()));
     let output = f
@@ -194,8 +198,9 @@ fn current_target_runs_before_bootstrap_and_publishes_current_revision() {
     assert!(
         fs::read_to_string(support::todo(&root))
             .unwrap()
-            .contains("alpha extension")
+            .contains("alpha task extension")
     );
+    assert_eq!(fs::read(&source).unwrap(), before_source);
     let manifest: serde_json::Value = serde_json::from_slice(
         &fs::read(f.cache("alpha").join("skills-install/managed.json")).unwrap(),
     )
@@ -342,3 +347,6 @@ mod ordinary_patch;
 
 #[path = "task_deletion_skill_refresh/diagnostics.rs"]
 mod diagnostics;
+
+#[path = "task_deletion_skill_refresh/current.rs"]
+mod current;

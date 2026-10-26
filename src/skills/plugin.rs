@@ -29,7 +29,11 @@ pub fn discover(dir: &Path) -> Vec<Skill> {
         let mut files = Vec::new();
         collect(&path, &path, &mut files);
         if !files.is_empty() {
-            plugins.push(Skill { name, files });
+            plugins.push(Skill {
+                name,
+                files,
+                bundled: false,
+            });
         }
     }
     plugins
@@ -129,6 +133,7 @@ fn load_exact_from(name: &str, path: &Path) -> Result<Skill> {
     collect_exact(path, path, &mut files)?;
     Ok(Skill {
         name: name.to_owned(),
+        bundled: false,
         files,
     })
 }

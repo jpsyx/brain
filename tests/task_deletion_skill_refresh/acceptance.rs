@@ -21,9 +21,16 @@ fn acceptance_two_roots_upgrade_downgrade_and_remount_preserve_customizations() 
     );
     fs::rename(&parked, &beta).unwrap();
     assert_ok(&f.sync());
-    for (root, name) in [(&alpha, "alpha"), (&beta, "beta")] {
+    for ((root, name), original) in [(&alpha, "alpha"), (&beta, "beta")]
+        .into_iter()
+        .zip(&originals)
+    {
         let text = fs::read_to_string(support::todo(root)).unwrap();
-        assert!(text.contains(&format!("{name} extension")));
+        assert_eq!(
+            fs::read(root.join(".config/extensions/todo.md")).unwrap(),
+            *original,
+            "{name}"
+        );
         assert!(text.contains("brain tasks remove T17 --dry-run --json"));
     }
     fs::rename(&beta, &parked).unwrap();

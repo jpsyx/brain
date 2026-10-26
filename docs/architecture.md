@@ -1041,6 +1041,16 @@ returns one before/after `SourcePatch` per destination with per-block provenance
 the package coordinator can validate and journal those patches before publishing.
 The foundation is separate from the install/publication integration.
 
+`compatibility/snapshot` adds the checked read boundary shared by ordinary,
+selected-capability, and installer rendering. `render::compile_catalog` keeps the
+complete projection in `model::CompiledSkills`, including unselected consumers,
+and emits the portable workspace body plus a framed source fingerprint. Its
+`compose_package` method plans the instruction document and binds the receipt to
+that fingerprint for the existing package transaction. Bundled provenance in
+`Skill` controls the common read-AGENTS prelude and generated task-context
+references; plugin prose and resource layout remain user-owned. No compiler path
+writes workspace instructions independently of the installation transaction.
+
 The transaction's focused `identity`, `inspection`, `ownership`, `snapshot`,
 `journal`, `disposal`, `validation`, and `legacy` modules share one bounded installation boundary.
 The `package` facade and its focused planning, validation, source, restoration,
@@ -3019,6 +3029,10 @@ Private HOME/XDG/TMP, empty integration env, original UUID/name and minimal conf
 contain the target's startup writes. The helper validates a target-only core
 inventory and full customized output, then uses the existing managed-install
 transaction and fallible workspace DB stamp. No target receives new flags.
+The exact current profile validates customized output with the shared checked
+compiler from captured installer source bytes. Audited historical profiles retain
+their original per-skill parser and do not inherit current projection semantics.
+
 
 Supported profiles are the audited 0.101.0 target and the running coordinator's
 exact current version. Unknown target versions fail before replacement. These

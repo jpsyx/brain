@@ -112,8 +112,13 @@ fn refresh(
     replica::validate_plugins(core.as_ref().expect("core rendered"), &sources)?;
     let output = replica::render(target, name, record, &sources, true)
         .context("render target workspace skills")?;
-    replica::validate(core.as_ref().expect("core rendered"), &output, &sources)
-        .context("validate complete target output")?;
+    replica::validate(
+        core.as_ref().expect("core rendered"),
+        &output,
+        &sources,
+        &target.version,
+    )
+    .context("validate complete target output")?;
     let mut stamp = WorkspaceStamp::selected(&workspace);
     let mut locked = LockedInstall::acquire(&identity)?;
     locked.recover(&mut stamp)?;

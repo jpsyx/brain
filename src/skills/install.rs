@@ -11,8 +11,7 @@ use super::install_transaction::{
     StampStore,
 };
 use super::layout::{Layout, WorkspaceCapabilityLayout};
-use super::model::Skill;
-use super::{embed, extension, plugin, render};
+use super::{embed, plugin, render};
 
 /// Where the user's extensions and plugins are read from. Both optional; a
 /// public user with neither just gets the bundled skills verbatim.
@@ -90,6 +89,10 @@ pub(crate) fn sync_identity(
 }
 
 pub(crate) fn render_sources(sources: &Sources) -> Result<RenderedInstall> {
+    Ok(compile_sources(sources)?.skills)
+}
+
+pub(crate) fn compile_sources(sources: &Sources) -> Result<super::model::CompiledSkills> {
     let mut skills = embed::bundled_skills();
     if let Some(dir) = &sources.plugins_dir {
         skills.extend(
@@ -98,43 +101,9 @@ pub(crate) fn render_sources(sources: &Sources) -> Result<RenderedInstall> {
             })?,
         );
     }
-    let mut output = RenderedInstall::new();
-    for skill in skills {
-        anyhow::ensure!(
-            !output.contains_key(&skill.name),
-            super::diagnostic::Diagnostic::new(
-                super::diagnostic::Category::CorePluginOverride,
-                "render_sources",
-                Some(&format!(".config/plugins/{}", skill.name))
-            )
-        );
-        let ext = sources
-            .extensions_dir
-            .as_deref()
-            .map(|dir| extension::load_checked(&skill.name, dir))
-            .transpose()
-            .map_err(|error| {
-                super::diagnostic::Diagnostic::source(
-                    &error,
-                    &format!(".config/extensions/{}.md", skill.name),
-                )
-            })?
-            .flatten();
-        let mut files = std::collections::BTreeMap::new();
-        for file in render::render(&skill, ext.as_ref()) {
-            let name = file
-                .rel_path
-                .into_os_string()
-                .into_string()
-                .map_err(|_| anyhow::anyhow!("non-UTF-8 rendered path"))?;
-            anyhow::ensure!(
-                files.insert(name, file.contents).is_none(),
-                "duplicate rendered skill path"
-            );
-        }
-        output.insert(skill.name, files);
-    }
-    Ok(output)
+    let checked =
+        super::compatibility::snapshot::CheckedSources::capture(sources.extensions_dir.as_deref())?;
+    render::compile_catalog(&skills, checked)
 }
 
 /// Render only selected skills below one workspace/actor cache directory.
@@ -145,7 +114,7 @@ pub(crate) fn render_workspace_capabilities(
     plan: &crate::access::CapabilityPlan,
 ) -> Result<WorkspaceCapabilityReport> {
     let mut bundled = embed::bundled_skills();
-    let mut rendered = Vec::new();
+    let mut skills = Vec::new();
     for source in plan.skills.available_sources() {
         let skill = match source {
             crate::access::ResolvedSkillSource::Bundled { name } => {
@@ -160,13 +129,17 @@ pub(crate) fn render_workspace_capabilities(
                     .with_context(|| format!("loading exact machine skill `{name}`"))?
             }
         };
-        let ext = sources
-            .extensions_dir
-            .as_deref()
-            .and_then(|directory| extension::load(&skill.name, directory));
-        write_fresh_built_to(&skill, ext.as_ref(), &layout.built_dir)?;
-        rendered.push(skill.name);
+        skills.push(skill);
     }
+    let checked =
+        super::compatibility::snapshot::CheckedSources::capture(sources.extensions_dir.as_deref())?;
+    let output = render::compile_catalog(&skills, checked)?.skills;
+    let mut rendered = Vec::new();
+    for (name, files) in output {
+        write_fresh_built_to(&name, files, &layout.built_dir)?;
+        rendered.push(name);
+    }
+
     Ok(WorkspaceCapabilityReport {
         rendered_dir: layout.built_dir.clone(),
         rendered,
@@ -174,11 +147,11 @@ pub(crate) fn render_workspace_capabilities(
 }
 
 fn write_fresh_built_to(
-    skill: &Skill,
-    ext: Option<&extension::Extension>,
+    name: &str,
+    files: std::collections::BTreeMap<String, Vec<u8>>,
     built_dir: &Path,
 ) -> Result<()> {
-    let dest = built_dir.join(&skill.name);
+    let dest = built_dir.join(name);
     match fs::symlink_metadata(&dest) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -187,13 +160,12 @@ fn write_fresh_built_to(
             dest.display()
         ),
     }
-    for rendered in render::render(skill, ext) {
-        let path = dest.join(&rendered.rel_path);
+    for (name, contents) in files {
+        let path = dest.join(name);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&path, &rendered.contents)
-            .with_context(|| format!("writing {}", path.display()))?;
+        fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
     }
     Ok(())
 }
@@ -403,3 +375,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 }
+
+#[cfg(test)]
+#[path = "install_projection_tests.rs"]
+mod projection_tests;
