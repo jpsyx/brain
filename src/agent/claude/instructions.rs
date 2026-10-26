@@ -17,6 +17,7 @@ pub(super) fn prepare(
     if !crate::agent::direct_command::accepts_appended_options(command) {
         return Err(error());
     }
+    let words = crate::agent::direct_command::parse_words(command).ok_or_else(error)?;
     let help = ShellProbeRunner::default()
         .run_at_with_environment(command, &["--help"], Some(root), Some(environment))
         .map_err(|_| error())?;
@@ -28,10 +29,6 @@ pub(super) fn prepare(
     {
         return Err(AgentError::Frontend("Claude must support --system-prompt-snapshot off to refresh Brain instructions on resume; update Claude Code or select a compatible claude_cmd before launching".to_owned()));
     }
-    if !command.contains("--append-system-prompt") {
-        return Ok((command.to_owned(), payload.to_owned()));
-    }
-    let words = crate::agent::direct_command::parse_words(command).ok_or_else(error)?;
     let mut removed = Vec::new();
     let mut inline = None;
     let mut file = None;
@@ -65,7 +62,10 @@ pub(super) fn prepare(
         removed.push(span);
         index += 1;
     }
-    if (inline.is_some() && file.is_some()) || (inline.is_none() && file.is_none()) {
+    if inline.is_none() && file.is_none() {
+        return Ok((command.to_owned(), payload.to_owned()));
+    }
+    if inline.is_some() && file.is_some() {
         return Err(error());
     }
     let prior = if let Some(path) = file {

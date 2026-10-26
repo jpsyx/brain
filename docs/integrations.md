@@ -447,6 +447,8 @@ the current instructions. Unsupported commands fail before launch with an update
 instruction. Literal configured inline or file append instructions are composed
 with Brain's payload; only those append arguments are removed from the prefix to
 avoid conflicting inline/file flags. Other prefix arguments retain their bytes.
+Append option names are recognized from decoded shell words, including split
+quotes, escaped characters, and equals-value forms.
 Ambiguous append forms fail instead of replacing user instructions. pi's repeated
 append flags are additive and retain configured instructions.
 

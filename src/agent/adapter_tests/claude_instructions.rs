@@ -139,3 +139,111 @@ fn claude_help_probe_uses_the_launch_environment() {
     );
     frontend.launch_spec(&prepared(temp.path())).unwrap();
 }
+
+fn assert_composed_append_option(root: &std::path::Path, option: &str, prior: &str) {
+    let base = format!(
+        "KEEP='literal value' {}/tests/fixtures/claude/fake_claude.sh --model 'configured-model'",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let suffix = "--permission-mode 'default'";
+    let frontend = ClaudeFrontend::new(
+        format!("{base} {option} {suffix}"),
+        root.into(),
+        root.join("projects"),
+    );
+    let spec = frontend.launch_spec(&prepared(root)).unwrap();
+    let args = instructions::arguments(&spec);
+    let payload = instructions::delivered(AgentKind::Claude, &spec, &args);
+    assert!(
+        payload.starts_with(&format!("{prior}\n\n")),
+        "{option}: {payload}"
+    );
+    assert!(payload.contains("Workspace rule"));
+    assert_eq!(
+        args.iter()
+            .filter(|argument| argument.as_str() == "--append-system-prompt")
+            .count(),
+        1
+    );
+    assert!(
+        !args
+            .iter()
+            .any(|argument| argument.starts_with("--append-system-prompt-file"))
+    );
+    assert!(
+        spec.command
+            .starts_with(&format!("{base}  {suffix} --system-prompt-snapshot off")),
+        "unrelated prefix bytes changed: {}",
+        spec.command
+    );
+}
+
+#[test]
+fn claude_preserves_split_quoted_and_escaped_inline_append_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let prior = "Existing inline rules = '\" é🙂 \\q";
+    for flag in [
+        "--append-system-'prompt'",
+        r"--append-system-\prompt",
+        "--append-system-\"prompt\"",
+    ] {
+        for separator in [" ", "="] {
+            assert_composed_append_option(
+                temp.path(),
+                &format!("{flag}{separator}{}", shell_quote(prior)),
+                prior,
+            );
+        }
+    }
+}
+
+#[test]
+fn claude_preserves_split_quoted_and_escaped_file_append_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let filename = "custom rules é.md";
+    let prior = "Existing file rules = '\" é🙂 \\q";
+    std::fs::write(temp.path().join(filename), prior).unwrap();
+    for flag in [
+        "--append-system-'prompt-file'",
+        r"--append-system-\prompt-file",
+        "--append-system-\"prompt-file\"",
+    ] {
+        for separator in [" ", "="] {
+            assert_composed_append_option(
+                temp.path(),
+                &format!("{flag}{separator}{}", shell_quote(filename)),
+                prior,
+            );
+        }
+    }
+}
+
+#[test]
+fn claude_validates_files_named_by_split_quoted_and_escaped_append_options() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("invalid rules.md"), [0xff]).unwrap();
+    for filename in ["missing rules.md", "invalid rules.md"] {
+        for flag in [
+            "--append-system-'prompt-file'",
+            r"--append-system-\prompt-file",
+        ] {
+            for separator in [" ", "="] {
+                let command = format!(
+                    "{}/tests/fixtures/claude/fake_claude.sh {flag}{separator}{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    shell_quote(filename)
+                );
+                let frontend =
+                    ClaudeFrontend::new(command, temp.path().into(), temp.path().join("projects"));
+                let error = frontend
+                    .launch_spec(&prepared(temp.path()))
+                    .expect_err("configured file must be read and validated");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("cannot preserve Claude launch instructions")
+                );
+            }
+        }
+    }
+}
