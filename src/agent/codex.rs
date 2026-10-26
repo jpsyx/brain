@@ -120,12 +120,7 @@ impl AgentFrontend for CodexFrontend {
         }
         if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
         {
-            crate::skills::render_workspace_capabilities(
-                request.workspace(),
-                request.actor(),
-                plan,
-            )
-            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+            request.render_capabilities(plan)?;
         }
         let capability_launch = capability_plan
             .filter(|plan| !plan.mcps.uses_global_configuration())

@@ -7,7 +7,16 @@ use crate::{
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 
 fn prepared(root: &Path) -> LaunchRequest {
-    std::fs::write(root.join("AGENTS.md"), "Shared workspace rules").unwrap();
+    if !root.join("AGENTS.md").exists() {
+        std::fs::write(root.join("AGENTS.md"), "Shared workspace rules").unwrap();
+    }
+    if !crate::workspace::WorkspaceManifest::path(root).exists() {
+        crate::workspace::WorkspaceManifest::new(
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+        )
+        .write_new(root)
+        .unwrap();
+    }
     let workspace = Arc::new(
         WorkspaceContext::new(
             root,

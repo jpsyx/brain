@@ -52,6 +52,7 @@ pub struct LaunchRequest {
     channel: Channel,
     hook_metadata: HookMetadata,
     instructions: Option<crate::agent::LaunchInstructions>,
+    selected_capabilities: Option<crate::skills::WorkspaceCapabilityReport>,
 }
 
 impl std::fmt::Debug for LaunchRequest {
@@ -99,6 +100,7 @@ impl LaunchRequest {
             channel,
             hook_metadata: HookMetadata::none(),
             instructions: None,
+            selected_capabilities: None,
         }
     }
 
@@ -123,10 +125,51 @@ impl LaunchRequest {
     }
 
     pub(crate) fn prepare_instructions(&self) -> Result<Self, AgentError> {
-        let instructions = crate::agent::instructions::load(self)?;
+        let generation =
+            crate::skills::generation::prepare_launch(self.workspace()).map_err(|error| {
+                AgentError::Frontend(format!(
+                    "cannot prepare workspace instructions and skills: {error:#}"
+                ))
+            })?;
+        let selected_capabilities = self
+            .access_policy()
+            .capability_plan()
+            .filter(|plan| !plan.skills.uses_global_configuration())
+            .map(|plan| {
+                crate::skills::generation::render_capabilities(
+                    &generation,
+                    self.workspace(),
+                    self.actor(),
+                    plan,
+                )
+            })
+            .transpose()
+            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+        let instructions = crate::agent::instructions::from_captured(
+            self,
+            &generation.instructions,
+            selected_capabilities.as_ref(),
+        )?;
         let mut prepared = self.clone();
         prepared.instructions = Some(instructions);
+        prepared.selected_capabilities = selected_capabilities;
         Ok(prepared)
+    }
+
+    pub(crate) fn render_capabilities(
+        &self,
+        plan: &crate::access::CapabilityPlan,
+    ) -> Result<crate::skills::WorkspaceCapabilityReport, AgentError> {
+        if self.access_policy().capability_plan() != Some(plan) {
+            return Err(AgentError::Frontend(
+                "selected capability authority changed after preparation".into(),
+            ));
+        }
+        self.selected_capabilities.clone().ok_or_else(|| {
+            AgentError::Frontend(
+                "workspace generation was not prepared before capability rendering".into(),
+            )
+        })
     }
 
     pub(super) fn instruction_text(&self) -> Option<String> {

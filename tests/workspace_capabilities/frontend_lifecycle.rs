@@ -243,7 +243,7 @@ fn unrestricted_cleanup_rejects_a_symlinked_workspace_cache_root() {
 
 #[cfg(unix)]
 #[test]
-fn skill_cleanup_rejects_a_symlinked_actor_ancestor() {
+fn selected_generation_rejects_a_symlinked_actor_ancestor() {
     let (_home, workspace) = temporary_workspace();
     let outside = tempfile::tempdir().expect("outside directory");
     let external_skills = outside
@@ -253,9 +253,9 @@ fn skill_cleanup_rejects_a_symlinked_actor_ancestor() {
     std::fs::create_dir_all(&external_skills).expect("external skill directory");
     let sentinel = external_skills.join("sentinel");
     std::fs::write(&sentinel, "keep").expect("outside sentinel");
-    let capabilities = workspace.paths().capabilities_dir();
-    std::fs::create_dir_all(&capabilities).expect("capability directory");
-    std::os::unix::fs::symlink(outside.path(), capabilities.join("actors"))
+    let generations = workspace.paths().cache_dir().join("skill-generations");
+    std::fs::create_dir_all(&generations).expect("generation directory");
+    std::os::unix::fs::symlink(outside.path(), generations.join("actors"))
         .expect("actor ancestor symlink");
     let plan = capability_plan(
         &Config {

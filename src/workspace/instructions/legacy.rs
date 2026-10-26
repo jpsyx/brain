@@ -5,6 +5,10 @@ use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
 
 const TEMPLATE: &str = include_str!("../../../templates/workspace/legacy/AGENTS-v0.105.3.md");
 
+pub(crate) fn is_legacy_document(bytes: &[u8]) -> bool {
+    bytes == TEMPLATE.as_bytes()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RemovedLegacySpan {

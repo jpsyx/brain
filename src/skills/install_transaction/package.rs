@@ -17,6 +17,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Clone)]
 pub(crate) struct ManagedWorkspacePackage {
     pub skills: RenderedInstall,
+    pub extension_snapshot: Option<ExtensionSnapshot>,
     pub instructions: Option<DocumentPlan>,
     pub config_patches: Vec<JsonFieldPatch>,
     pub source_patches: Vec<SourcePatch>,
@@ -32,6 +33,8 @@ pub(crate) struct JsonFieldPatch {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PackageMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extension_snapshot: Option<ExtensionSnapshot>,
     pub instructions: Option<InstructionOwnership>,
     pub config_history: Vec<JsonFieldPatch>,
     pub source_history: Vec<SourceOwnership>,
@@ -122,6 +125,8 @@ pub(crate) struct SourceOwnership {
 }
 
 pub(crate) mod archive;
+mod extensions;
+pub(crate) use extensions::ExtensionSnapshot;
 mod legacy;
 mod planning;
 mod sources;

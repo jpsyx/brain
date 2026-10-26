@@ -33,6 +33,12 @@ struct StoredCapabilities {
     skills: Vec<MachineSkill>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredSkillOwnership {
+    skills: Vec<MachineSkill>,
+}
+
 /// One machine-local MCP connection.
 #[derive(Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -66,6 +72,23 @@ pub struct MachineSkill {
 }
 
 impl MachineCapabilityEnvironment {
+    pub(crate) fn for_skill_ownership(
+        source_workspace: WorkspaceId,
+        env: &serde_json::Map<String, Value>,
+    ) -> Result<Self, CapabilityError> {
+        let stored: StoredSkillOwnership = serde_json::from_value(
+            env.get("agent_capabilities")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+        )
+        .map_err(|error| CapabilityError::InvalidMachineEnvironment(error.to_string()))?;
+        Ok(Self {
+            source_workspace,
+            mcps: Vec::new(),
+            skills: stored.skills,
+        })
+    }
+
     /// Parse selected-record capability material without copying it elsewhere.
     ///
     /// # Errors

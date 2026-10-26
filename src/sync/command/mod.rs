@@ -85,6 +85,12 @@ fn sync_once_with_task_state(
     let paths = workspace.paths();
     let root = workspace.root();
     let workspace_id = workspace.id();
+    if dir == Direction::Push {
+        anyhow::ensure!(
+            Journal::receive_phase(&paths.sync_journal(), &workspace_id.to_string())?.is_none(),
+            "complete and reconcile the pending receive before pushing"
+        );
+    }
     let (started_at, finished_at, date) = now;
     let remote = build_remote(cfg);
     let local = root.to_string_lossy().into_owned();
@@ -118,6 +124,10 @@ fn sync_once_with_task_state(
     reporter.line(&theme.info("Validating the local workspace manifest…"));
     reporter.line(&theme.info("Probing the remote workspace identity…"));
     let verified = crate::sync::identity::require_remote_identity(root, workspace_id, &remote)?;
+    let journal = Journal::open(&paths.sync_journal())?;
+    if dir != Direction::Push {
+        journal.begin_receive(&workspace_id.to_string(), started_at)?;
+    }
     let remote = verified.remote();
     reporter.line(&theme.muted(&format!(
         "  found: remote belongs to this workspace ({workspace_id}) → proceeding"
@@ -243,8 +253,20 @@ fn sync_once_with_task_state(
         note
     };
 
+    let package = if dir != Direction::Push && run.exit_ok && run.errors == 0 && run.abort.is_none()
+    {
+        journal.complete_receive(&workspace_id.to_string())?;
+        reporter.line(&theme.info("Reconciling received workspace instructions and skills…"));
+        crate::skills::reconcile::after_receive(workspace)
+    } else {
+        Ok(())
+    };
+    let outcome = if package.is_err() {
+        Outcome::NeedsAttention("received workspace package requires reconciliation".into())
+    } else {
+        outcome
+    };
     reporter.line(&journal_progress(theme));
-    let journal = Journal::open(&paths.sync_journal())?;
     crate::logging::log(format!("sync journal {}", paths.sync_journal().display()));
     journal.record(&SyncRun {
         started_at: started_at.to_owned(),
@@ -282,6 +304,7 @@ fn sync_once_with_task_state(
         },
     })?;
     crate::logging::log("sync journal recorded");
+    package?;
     Ok(outcome)
 }
 

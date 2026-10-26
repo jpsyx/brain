@@ -95,9 +95,7 @@ fn merges_selected_mcps_and_actor_skills_without_serializing_secrets() {
     }
     assert_eq!(
         value["skills"]["paths"][0],
-        workspace
-            .paths()
-            .capability_skills_dir(launch_actor.user_id())
+        super::support::selected_generation(&workspace, &launch_actor)
             .display()
             .to_string()
     );
@@ -107,9 +105,7 @@ fn merges_selected_mcps_and_actor_skills_without_serializing_secrets() {
         "allow"
     );
     assert!(
-        workspace
-            .paths()
-            .capability_skills_dir(launch_actor.user_id())
+        super::support::selected_generation(&workspace, &launch_actor)
             .join("todo/SKILL.md")
             .is_file()
     );

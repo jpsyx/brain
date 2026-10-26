@@ -5,6 +5,22 @@ use super::{
 use crate::sync::args::Direction;
 
 #[test]
+fn generated_instruction_document_alone_does_not_suppress_native_seeding() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(is_empty_workspace_inner(root.path()).unwrap());
+    crate::workspace::templates::seed_documents(root.path()).unwrap();
+    assert!(is_empty_workspace_inner(root.path()).unwrap());
+    let path = root.path().join("AGENTS.md");
+    let generated = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, format!("User instructions\n{generated}")).unwrap();
+    assert!(!is_empty_workspace_inner(root.path()).unwrap());
+    std::fs::write(&path, format!("{generated}User suffix\n")).unwrap();
+    assert!(!is_empty_workspace_inner(root.path()).unwrap());
+    std::fs::write(&path, "User instructions only").unwrap();
+    assert!(!is_empty_workspace_inner(root.path()).unwrap());
+}
+
+#[test]
 fn an_existing_root_needs_nothing() {
     assert_eq!(root_setup(true, true), RootSetup::Ready);
     assert_eq!(root_setup(true, false), RootSetup::Ready);

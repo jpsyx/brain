@@ -26,12 +26,6 @@ pub struct Layout {
     pub frontends: Vec<PathBuf>,
 }
 
-/// Cache-local actor capability render with no registry or frontend links.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceCapabilityLayout {
-    pub built_dir: PathBuf,
-}
-
 impl Layout {
     /// A workspace-local layout under `root` (for dev/tests).
     #[must_use]
@@ -51,17 +45,6 @@ impl Layout {
     #[must_use]
     pub fn real(root: &Path) -> Self {
         Self::under_root(root)
-    }
-
-    /// Selected workspace/actor render destination under the UUID cache.
-    #[must_use]
-    pub fn workspace_capabilities(
-        workspace: &crate::workspace::WorkspaceContext,
-        actor: &crate::actor::ActorContext,
-    ) -> WorkspaceCapabilityLayout {
-        WorkspaceCapabilityLayout {
-            built_dir: workspace.paths().capability_skills_dir(actor.user_id()),
-        }
     }
 }
 

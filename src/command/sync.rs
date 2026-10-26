@@ -140,7 +140,7 @@ fn run_repair(
     reconcile_after_successful_repair(&command.workspace, succeeded)
 }
 
-fn reconcile_after_successful_repair(
+pub(crate) fn reconcile_after_successful_repair(
     workspace: &crate::workspace::WorkspaceContext,
     succeeded: bool,
 ) -> Result<()> {

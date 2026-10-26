@@ -42,8 +42,7 @@ fn selected_renderer_rejects_invalid_and_ambiguous_customization_before_output()
         assert!(
             !workspace
                 .paths()
-                .capability_skills_dir(selected.user_id())
-                .join("todo")
+                .capability_skill_generations_dir(selected.user_id())
                 .exists()
         );
         assert!(fs::symlink_metadata(source).is_ok());
@@ -81,12 +80,7 @@ fn actual_agenda_only_capability_matches_ordinary_legacy_projection() {
     fs::create_dir_all(&extensions).unwrap();
     let source = "MIXED task and scheduling preferences\n[todo:anchors]\nLEGACY ANCHOR\n[todo:unknown]\nUNKNOWN\n";
     fs::write(extensions.join("todo.md"), source).unwrap();
-    let sources = brain::skills::real_sources(&workspace);
-    brain::skills::install::sync(
-        &brain::skills::layout::Layout::under_root(workspace.root()),
-        &sources,
-    )
-    .unwrap();
+    brain::skills::resync_on_version_change(&workspace);
     let config = Config {
         access_mode: AccessMode::WorkspaceOnly,
         allowed_skills: vec!["agenda".to_owned()],

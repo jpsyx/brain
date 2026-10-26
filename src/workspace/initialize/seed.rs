@@ -136,6 +136,15 @@ pub(super) fn is_empty_workspace_inner(root: &Path) -> Result<bool> {
         if INFRASTRUCTURE_DIRECTORIES.contains(&name.as_ref()) || name == ".DS_Store" {
             continue;
         }
+        if name == "AGENTS.md" && entry.file_type()?.is_file() {
+            let bytes = std::fs::read(entry.path())?;
+            // Startup verifies ownership before either production emptiness caller.
+            if crate::workspace::instructions::is_whole_managed_frame(&bytes)?
+                || crate::workspace::instructions::is_legacy_document(&bytes)
+            {
+                continue;
+            }
+        }
         if SCAFFOLD_DIRECTORIES.contains(&name.as_ref()) {
             if contains_file(entry.path())? {
                 return Ok(false);

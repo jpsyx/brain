@@ -1,16 +1,14 @@
 //! Render sources and publish managed skills through the recoverable installer.
 //! Selected capability rendering remains isolated in each actor cache.
 
+#[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::install_transaction::{
-    Currentness, InstallIdentity, InstallVersion, LockedInstall, NoStamp, RenderedInstall,
-    StampStore,
-};
-use super::layout::{Layout, WorkspaceCapabilityLayout};
+use super::install_transaction::{InstallIdentity, LockedInstall, NoStamp, StampStore};
+use super::layout::Layout;
 use super::{embed, plugin, render};
 
 /// Where the user's extensions and plugins are read from. Both optional; a
@@ -32,6 +30,7 @@ pub struct Report {
 }
 
 /// What one cache-local selected skill render produced.
+#[derive(Clone)]
 pub struct WorkspaceCapabilityReport {
     pub rendered_dir: PathBuf,
     pub rendered: Vec<String>,
@@ -69,26 +68,22 @@ pub(crate) fn sync_identity(
     sources: &Sources,
     stamp: &mut dyn StampStore,
 ) -> Result<Report> {
+    let _sync = identity.acquire_sync()?;
     let mut locked = LockedInstall::acquire(identity)?;
-    if let Some(recovered) = locked.recover(stamp)? {
-        if recovered.receipt.version == InstallVersion::current() {
-            return Ok(recovered.report);
-        }
-    }
-    let version = InstallVersion::current();
-    if let Currentness::Repairable(missing) = locked.inspect(&version)? {
-        crate::logging::log(format!(
-            "skills repairing {} missing or noncanonical artifacts",
-            missing.len()
-        ));
-    }
-    let rendered = render_sources(sources)?;
-    let report = locked.preflight(&rendered, &version)?;
-    locked.install(rendered, &version, stamp)?;
-    Ok(report)
+    super::reconcile::synchronize_locked(
+        &mut locked,
+        sources,
+        stamp,
+        super::reconcile::RefreshMode::Explicit,
+        false,
+    )
+    .map(|(_, report)| report)
 }
 
-pub(crate) fn render_sources(sources: &Sources) -> Result<RenderedInstall> {
+#[cfg(test)]
+pub(crate) fn render_sources(
+    sources: &Sources,
+) -> Result<super::install_transaction::RenderedInstall> {
     Ok(compile_sources(sources)?.skills)
 }
 
@@ -109,8 +104,9 @@ pub(crate) fn compile_sources(sources: &Sources) -> Result<super::model::Compile
 /// Render only selected skills below one workspace/actor cache directory.
 /// No shared registry or frontend path is inspected or mutated.
 pub(crate) fn render_workspace_capabilities(
-    layout: &WorkspaceCapabilityLayout,
-    sources: &Sources,
+    locked: &LockedInstall,
+    actor: &crate::users::UserId,
+    extensions: &super::install_transaction::package::ExtensionSnapshot,
     plan: &crate::access::CapabilityPlan,
 ) -> Result<WorkspaceCapabilityReport> {
     let mut bundled = embed::bundled_skills();
@@ -131,43 +127,13 @@ pub(crate) fn render_workspace_capabilities(
         };
         skills.push(skill);
     }
-    let checked =
-        super::compatibility::snapshot::CheckedSources::capture(sources.extensions_dir.as_deref())?;
+    let checked = extensions.checked()?;
     let output = render::compile_catalog(&skills, checked)?.skills;
-    let mut rendered = Vec::new();
-    for (name, files) in output {
-        write_fresh_built_to(&name, files, &layout.built_dir)?;
-        rendered.push(name);
-    }
-
+    let rendered_dir = locked.publish_capabilities(actor, &output)?;
     Ok(WorkspaceCapabilityReport {
-        rendered_dir: layout.built_dir.clone(),
-        rendered,
+        rendered_dir,
+        rendered: output.into_keys().collect(),
     })
-}
-
-fn write_fresh_built_to(
-    name: &str,
-    files: std::collections::BTreeMap<String, Vec<u8>>,
-    built_dir: &Path,
-) -> Result<()> {
-    let dest = built_dir.join(name);
-    match fs::symlink_metadata(&dest) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-        Ok(_) => anyhow::bail!(
-            "workspace capability skill destination appeared during render: {}",
-            dest.display()
-        ),
-    }
-    for (name, contents) in files {
-        let path = dest.join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, contents).with_context(|| format!("writing {}", path.display()))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

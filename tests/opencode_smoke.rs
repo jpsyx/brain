@@ -250,6 +250,11 @@ fn workspace(root: &Path) -> Arc<WorkspaceContext> {
         "Acceptance workspace guidance.",
     )
     .expect("reconciled workspace instructions");
+    brain::workspace::WorkspaceManifest::new(
+        WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+    )
+    .write_new(&workspace_root)
+    .unwrap();
     Arc::new(
         WorkspaceContext::new(
             root,

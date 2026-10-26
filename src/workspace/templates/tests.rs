@@ -5,6 +5,24 @@ fn workspace_root() -> tempfile::TempDir {
 }
 
 #[test]
+fn initial_documents_never_follow_dangling_or_external_symlinks() {
+    for exists in [false, true] {
+        let root = workspace_root();
+        let external = workspace_root();
+        let target = external.path().join("rules.md");
+        if exists {
+            std::fs::write(&target, "user rules").unwrap();
+        }
+        std::os::unix::fs::symlink(&target, root.path().join("AGENTS.md")).unwrap();
+        assert!(seed_documents(root.path()).is_err());
+        assert_eq!(target.exists(), exists);
+        if exists {
+            assert_eq!(std::fs::read_to_string(target).unwrap(), "user rules");
+        }
+    }
+}
+
+#[test]
 fn an_empty_workspace_receives_the_agent_instructions() {
     let root = workspace_root();
 

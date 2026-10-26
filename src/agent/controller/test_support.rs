@@ -1,4 +1,7 @@
-use std::{path::Path, sync::{Arc, Mutex}};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     access::{AccessMode, MachineCapabilityEnvironment, capability_plan},
@@ -58,7 +61,9 @@ impl AgentFrontend for RecordingFrontend {
         if self.available {
             Ok(())
         } else {
-            Err(AgentError::Frontend("compatibility probe failed".to_owned()))
+            Err(AgentError::Frontend(
+                "compatibility probe failed".to_owned(),
+            ))
         }
     }
 
@@ -232,22 +237,26 @@ impl AgentTransport for ShutdownOutcomeTransport {
 thread_local! {
     static WORKSPACE_FIXTURE: tempfile::TempDir = {
         let temporary = tempfile::tempdir().expect("controller workspace");
+        crate::workspace::WorkspaceManifest::new(WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap()).write_new(temporary.path()).unwrap();
         std::fs::write(temporary.path().join("AGENTS.md"), "Controller workspace guidance.").unwrap();
         temporary
     };
 }
 
 fn workspace() -> Arc<WorkspaceContext> {
-    WORKSPACE_FIXTURE.with(|temporary| Arc::new(
-        WorkspaceContext::new(
-            temporary.path(),
-            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("id"),
-            WorkspaceName::parse("family").expect("name"),
-            temporary.path(),
-            "pablo",
-            temporary.path(),
-        ).expect("workspace"),
-    ))
+    WORKSPACE_FIXTURE.with(|temporary| {
+        Arc::new(
+            WorkspaceContext::new(
+                temporary.path(),
+                WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("id"),
+                WorkspaceName::parse("family").expect("name"),
+                temporary.path(),
+                "pablo",
+                temporary.path(),
+            )
+            .expect("workspace"),
+        )
+    })
 }
 
 fn controller() -> (
@@ -275,9 +284,7 @@ fn controller() -> (
     (controller, recording, workspace, actor)
 }
 
-fn controller_with_shutdown_outcome(
-    outcome: ShutdownOutcome,
-) -> (AgentController, Recording) {
+fn controller_with_shutdown_outcome(outcome: ShutdownOutcome) -> (AgentController, Recording) {
     let workspace = workspace();
     let actor = crate::actor::test_actor("pablo");
     let recording = Recording::default();

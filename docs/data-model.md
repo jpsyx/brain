@@ -3096,3 +3096,38 @@ The reverse projection only removes recorded additions and never synthesizes a
 missing legacy selector. Missing-field defaults remain missing.
 History validation proves derivation, not independent ownership: callers must
 supply validated package metadata, never untrusted portable history.
+
+
+### Published extension snapshots and receive state
+
+Schema-2 `PackageMetadata.extension_snapshot` stores checked relative extension
+origins and exact bytes plus a SHA-256 digest of their serialized map. Validation
+uses the shared source snapshot parser and state byte limit; snapshots do not
+carry actor or capability authority. Package journals, rollback and retained
+archives carry this typed metadata unchanged. Missing snapshot fields in older
+metadata deserialize as absent and require a complete repair before launch.
+Instruction ownership binds the compiled source digest, and preparation verifies
+the retained snapshot reproduces the published managed body.
+
+The local UUID sync journal also owns `portable_receive`: one slot with
+`workspace_id`, `phase` (`receiving` or `reconcile`) and `started_at`. It is durable
+receive evidence, distinct from completed `sync_runs`. Unknown phases or a foreign
+UUID fail closed. Completed package conflicts are recorded as needs-attention;
+only successful package reconciliation deletes the pending row. No portable
+workspace schema or minimum Brain version changes for this split.
+
+The selected capability report binds the actual content-addressed rendered directory
+and successfully available skill names. Its digest covers complete relative paths
+and bytes, including packaged resources. Identical inputs reuse verified immutable
+files; conflicting existing content fails closed. These actor-specific generations
+remain local, outside transient capability/MCP cleanup. No session garbage
+collection or lifetime model is introduced.
+
+Managed state, pending journals and retained archives are created with mode 0600.
+Selected generation staging parents and published roots are 0700, with generated
+files 0600. Raw snapshot bytes are retained as private machine state.
+
+Receive and managed-receipt lookups use a stable private SQLite main-plus-WAL
+snapshot. Missing databases, schema or receipts can enter the existing locked
+repair path. Malformed, unsafe, oversized or unstable evidence is refused; it is
+never interpreted as absence. The probe creates no sidecars beside the source.

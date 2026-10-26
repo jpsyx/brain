@@ -34,7 +34,16 @@ fn codex_preserves_effective_developer_instructions_and_configured_prefix() {
 }
 
 fn prepared(root: &std::path::Path) -> LaunchRequest {
-    std::fs::write(root.join("AGENTS.md"), "Workspace guidance").unwrap();
+    if !root.join("AGENTS.md").exists() {
+        std::fs::write(root.join("AGENTS.md"), "Workspace guidance").unwrap();
+    }
+    if !crate::workspace::WorkspaceManifest::path(root).exists() {
+        crate::workspace::WorkspaceManifest::new(
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+        )
+        .write_new(root)
+        .unwrap();
+    }
     let workspace = Arc::new(
         WorkspaceContext::new(
             root,

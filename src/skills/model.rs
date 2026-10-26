@@ -24,8 +24,6 @@ pub(crate) struct CompiledSkills {
 }
 
 impl CompiledSkills {
-    // Durable publication is wired by the installation coordinator.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn compose_package(
         &self,
         existing: Option<&[u8]>,
@@ -40,6 +38,11 @@ impl CompiledSkills {
         Ok(
             super::install_transaction::package::ManagedWorkspacePackage {
                 skills: self.skills.clone(),
+                extension_snapshot: Some(
+                    super::install_transaction::package::ExtensionSnapshot::new(
+                        self.projection.sources.clone(),
+                    )?,
+                ),
                 instructions: Some(document),
                 config_patches: Vec::new(),
                 source_patches: self.projection.legacy_source_patches.clone(),

@@ -15,17 +15,27 @@ pub fn is_requested(cli: &crate::cli::Cli) -> bool {
 pub(crate) struct RefreshAttempt {
     mode: RefreshMode,
     state: AttemptState,
+    legacy_roots: reconcile::LegacyRoots,
 }
 enum AttemptState {
     NotRun,
     Finished(RefreshReport),
 }
 impl RefreshAttempt {
-    pub(crate) const fn new(mode: RefreshMode) -> Self {
+    pub(crate) fn new(mode: RefreshMode) -> Self {
         Self {
             mode,
             state: AttemptState::NotRun,
+            legacy_roots: reconcile::LegacyRoots::default(),
         }
+    }
+    pub(crate) fn capture_legacy_roots(
+        &mut self,
+        home: &std::path::Path,
+        store: &RegistryStore,
+    ) -> Result<()> {
+        self.legacy_roots = reconcile::LegacyRoots::capture(home, store)?;
+        Ok(())
     }
     /// Retain this request's explicit-source or compatibility-only semantics.
     pub(crate) fn run(
@@ -33,13 +43,14 @@ impl RefreshAttempt {
         home: Option<&std::path::Path>,
         store: &RegistryStore,
     ) -> &RefreshReport {
+        let legacy_roots = self.legacy_roots.clone();
         self.finish(|mode| {
             home.map_or_else(
                 || RefreshReport {
                     workspaces: Vec::new(),
                     refresh_error: Some("HOME is not set".into()),
                 },
-                |home| reconcile::all(home, store, mode),
+                |home| reconcile::all_with_legacy(home, store, mode, &legacy_roots),
             )
         })
     }

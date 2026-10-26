@@ -77,6 +77,7 @@ fn plan_legacy(
         identity,
         previous,
         ManagedWorkspacePackage {
+            extension_snapshot: None,
             skills: package.skills,
             instructions: None,
             config_patches: package.config_patches,

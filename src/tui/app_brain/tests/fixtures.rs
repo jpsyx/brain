@@ -23,11 +23,16 @@ impl TestWorkspaceFixture {
             std::fs::canonicalize(temporary.path()).expect("canonical test home directory");
         std::fs::create_dir_all(root.join("tasks")).expect("create task directory");
         std::fs::create_dir_all(root.join(".config")).expect("create config directory");
-        std::fs::write(
-            root.join("AGENTS.md"),
-            "Shared fixture instructions.\nChannel: email",
-        )
-        .unwrap();
+        if !crate::workspace::WorkspaceManifest::path(&root).exists() {
+            crate::workspace::WorkspaceManifest::new(WorkspaceId::parse(WORKSPACE_ID).unwrap())
+                .write_new(&root)
+                .unwrap();
+            std::fs::write(
+                root.join("AGENTS.md"),
+                "Shared fixture instructions.\nChannel: email",
+            )
+            .unwrap();
+        }
         std::fs::write(
             root.join("tasks/tasks.csv"),
             "task_uuid,task_id,task_name,status,assigned_to,system_key\n",

@@ -89,10 +89,23 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
                 app.context.workspace().root().join("AGENTS.md"),
                 format!(
                     "Shared fixture instructions.\n{}",
-                    "Rules '\"$` é🙂\n".repeat(500)
+                    "Rules '\"$` é🙂\n".repeat(300)
                 ),
             )
             .unwrap();
+            let mut request = LaunchRequest::from_trusted_context(
+                Arc::clone(&app.context.command().workspace),
+                sms_actor(),
+                crate::agent::SessionPlan::fresh(AgentSession::new("attachment-fixture").unwrap()),
+                None,
+                app.context.access_mode(),
+            );
+            if let Some(plan) = app.launch_capability_plan().unwrap() {
+                request = request.with_capability_plan(plan);
+            }
+            request
+                .prepare_instructions()
+                .expect("quoted fixture guidance plus the managed contract fits the launch budget");
             app.receiver.record_intent(true);
             let (main, main_recording) = recording_controller(&app, true, "busy main");
             app.brain.install_main(main);

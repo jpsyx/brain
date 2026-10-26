@@ -110,16 +110,29 @@ fn facade_drives_a_real_fake_pi_process_with_semantic_input() {
     // Project-local trust is declined, Brain's own extension is loaded by path,
     // and Brain's chosen session id identifies the conversation.
     assert!(log.contains("arg|0|--no-approve"), "{log}");
-    assert!(log.contains("arg|1|--append-system-prompt"), "{log}");
-    assert!(log.contains("Acceptance workspace guidance."), "{log}");
-    assert!(log.contains("arg|3|--extension"), "{log}");
-    assert!(log.contains(".brain/hooks/pi_brain_extension.ts"), "{log}");
-    assert!(log.contains("arg|5|--session-id"), "{log}");
-    assert!(log.contains("arg|6|fresh-pi-session"), "{log}");
-    // `--` keeps an option-looking prompt one argument.
-    assert!(log.contains("arg|7|--"), "{log}");
+    assert!(log.contains("arg|1|--skill"), "{log}");
     assert!(
-        log.contains("arg|8|initial text stays one argument"),
+        log.contains(&format!(
+            "arg|2|{}",
+            fixture
+                .command
+                .workspace
+                .root()
+                .join(".agents/skills")
+                .display()
+        )),
+        "{log}"
+    );
+    assert!(log.contains("arg|3|--append-system-prompt"), "{log}");
+    assert!(log.contains("Acceptance workspace guidance."), "{log}");
+    assert!(log.contains("arg|5|--extension"), "{log}");
+    assert!(log.contains(".brain/hooks/pi_brain_extension.ts"), "{log}");
+    assert!(log.contains("arg|7|--session-id"), "{log}");
+    assert!(log.contains("arg|8|fresh-pi-session"), "{log}");
+    // `--` keeps an option-looking prompt one argument.
+    assert!(log.contains("arg|9|--"), "{log}");
+    assert!(
+        log.contains("arg|10|initial text stays one argument"),
         "{log}"
     );
     // ESC[200~literal input ESC[201~ CR
@@ -161,10 +174,10 @@ fn facade_resumes_a_recorded_session_through_the_same_session_flag() {
     controller.shutdown().expect("shutdown");
 
     let log = fixture.log();
-    assert!(log.contains("arg|5|--session-id"), "{log}");
-    assert!(log.contains("arg|6|recorded-pi-session"), "{log}");
-    assert!(log.contains("arg|7|--"), "{log}");
-    assert!(log.contains("arg|8|resume safely"), "{log}");
+    assert!(log.contains("arg|7|--session-id"), "{log}");
+    assert!(log.contains("arg|8|recorded-pi-session"), "{log}");
+    assert!(log.contains("arg|9|--"), "{log}");
+    assert!(log.contains("arg|10|resume safely"), "{log}");
 }
 
 struct Fixture {
@@ -181,6 +194,9 @@ impl Fixture {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
         let id = WorkspaceId::parse("11111111-1111-4111-8111-111111111111").unwrap();
+        brain::workspace::WorkspaceManifest::new(id)
+            .write_new(&root)
+            .unwrap();
         let name = WorkspaceName::parse("family").unwrap();
         let workspace = Arc::new(
             WorkspaceContext::new(&home, id, name.clone(), &root, "pablo", &root).unwrap(),

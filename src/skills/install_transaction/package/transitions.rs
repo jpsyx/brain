@@ -66,6 +66,16 @@ pub(super) fn validate(
         metadata.instructions == instructions,
         "instruction retention differs from the previous generation"
     );
+    if !journal
+        .artifacts
+        .get("AGENTS.md")
+        .is_some_and(|change| change.kind == ArtifactKind::Instructions)
+    {
+        ensure!(
+            metadata.extension_snapshot == prior.extension_snapshot,
+            "extension snapshot changed without instruction publication"
+        );
+    }
     let configs: Vec<_> = journal
         .artifacts
         .values()

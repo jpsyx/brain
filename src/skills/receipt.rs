@@ -9,12 +9,41 @@ use crate::{
 use anyhow::Result;
 use std::path::PathBuf;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) struct WorkspaceStamp {
     path: PathBuf,
     workspace_id: String,
     actor_id: String,
 }
 impl WorkspaceStamp {
+    pub(super) fn peek(&self) -> Result<Option<InstallReceipt>> {
+        use rusqlite::OptionalExtension as _;
+        crate::sqlite_snapshot::read(&self.path, |connection| {
+            let exists: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='meta')",
+                [],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                return Ok(None);
+            }
+            let value: Option<String> = connection
+                .query_row(
+                    "SELECT value FROM meta WHERE key='skills_install_receipt'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            value
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(Into::into)
+        })
+        .map(Option::flatten)
+    }
     pub(crate) fn registered(paths: &WorkspacePaths, id: WorkspaceId, actor: &str) -> Self {
         Self {
             path: paths.state_db(),
@@ -39,6 +68,9 @@ impl WorkspaceStamp {
     }
 }
 impl StampStore for WorkspaceStamp {
+    fn read(&self) -> Result<Option<InstallReceipt>> {
+        Self::read(self)
+    }
     fn write(&mut self, receipt: &InstallReceipt) -> Result<()> {
         self.open()?.set_skills_install_receipt(receipt)
     }

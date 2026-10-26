@@ -1116,7 +1116,9 @@ currentness; replacing the document compares its entire observed before-file.
 User text and existing modes survive publication. The first observed instruction
 file or its absence, recognized removed legacy spans, field patches, and canonical
 projection inputs remain available as restoration evidence. Schema-1 manifests
-and interrupted journals remain readable.
+and interrupted journals remain readable. The same package metadata retains a checked,
+content-digested workspace extension snapshot. Older metadata without that snapshot
+is readable but requires whole-package repair before a controller launch.
 
 Explicit legacy publication restores verified instruction ownership and commits
 an actual schema-1 skill manifest with newer fields omitted. It retains a
@@ -1174,13 +1176,16 @@ bootstrap and TUI startup reuse that result. Registered roots are read
 without selected readiness, in canonical-name order. Missing roots remain
 pending without being created; identity or install failures do not prevent the
 other roots from being attempted. No machine-wide skill done marker is used.
-The TUI does not repeat the all-root pass or rewrite an already-current
-installation.
+The historical 0.102.25 and split 0.106.0 callbacks share one `RefreshAttempt`,
+including explicit installer traversal. The TUI does not repeat the all-root pass
+or rewrite an already-current installation.
 
 The authoritative `meta('skills_install_receipt')` JSON stores binary version,
 compatibility revision (currently 2), and the SHA-256 of the committed managed
 manifest. It is written atomically with the legacy `skills_synced_version` key,
-under the install lock, only after successful publication. Recovery precedes
+under the install lock, only after successful publication. Publication acquires the
+UUID sync boundary before the install lock; downgrade settlement keeps its existing
+operation/task locks between those boundaries. Recovery precedes
 currentness; a committed install with a failed DB stamp retains its journal for
 retry. An equal receipt is current only when the managed files and frontend
 links are intact. Missing artifacts are repaired; modified owned files conflict.
@@ -3124,3 +3129,57 @@ native task/habit ownership and compatibility handoffs, and triage orchestrates
 its focused collaborators only when needed. The shared checked compiler supplies
 the workspace prelude and self-contained legacy task context to both ordinary
 installs and selected agenda-only capability views; there is no new loader.
+
+
+### Prepared package generations and interrupted receives
+
+`skills/generation.rs` reconciles and captures published AGENTS bytes with their
+checked extension snapshot under the sync/install boundary. It releases both
+locks before frontend compatibility probes. `LaunchRequest` retains that one
+generation for all four adapters, including manual, skill-tab and receiver-recovery
+launches. Actor/channel/access authority remains separate. Selected machine skill
+files retain their existing live-source semantics, while their workspace extension
+contribution comes from the captured generation.
+
+`sync/journal/receive.rs` persists a UUID-bound `receiving` record before any
+incoming portable writes. Successful transport and semantic task reconciliation
+advance it to `reconcile`; the shared package coordinator clears it only after
+complete publication and success stamping. `sync::command` already owns the sync
+lock and calls `skills::reconcile::after_receive` without reacquiring it.
+
+A `receiving` record blocks ordinary dispatch, launch and push. The narrow
+`startup_migration/receive.rs` continuation accepts an explicit registered-root
+`sync --pull` or `sync repair` (including the hidden `init` alias): normal
+prerequisite migrations run first, then one verified pull or existing resync repair
+completes before package callbacks and the machine stamp. A failed transfer keeps the
+record retryable. A completed mismatch retains `reconcile` evidence, reports a
+conflict, and never starts another transport automatically.
+
+Selected capability artifacts are content-addressed by the complete checked rendered
+inventory under `skill-generations/actors/<actor>/<digest>` in the UUID cache.
+Publication reuses the installation lock and non-following snapshot materializer;
+an existing matching generation is verified without deleting or rewriting it.
+These retained trees are separate from transient MCP cleanup. Preparation freezes
+the selected catalog before instruction composition and native probes.
+
+Empty-root classification uses the shared exact whole-managed-frame shape predicate
+after mandatory package ownership verification. It does not recompile unapplied
+optional sources or treat the predicate as ownership proof. User prefix/suffix
+prose remains content.
+
+Current compatibility checks inspect the complete owned package under installation
+ownership without creating sync state. They check the receipt, pending receive and
+active sync ownership before and after inspection. A persistent unlocked sync file
+is not active ownership. The inspection lock is released before any fallback publication
+reacquires sync then installation ownership and revalidates. Automatic writers use
+the existing bounded 30-second contention policy; explicit contention stays immediate.
+Before explicit publication, existing snapshot ancestry and file-shape checks reject
+a redirected sync directory or final lock path before lock acquisition.
+
+`sqlite_snapshot.rs` supplies internal read-only receive and receipt evidence. It
+captures the database and WAL without following symlinks, requires stable repeated
+bytes, and lets SQLite read only private copies. Each component is bounded to
+64 MiB and capture retries at most three times. The temporary directory is 0700,
+files are 0600, and cleanup follows success or failure. No live source sidecars are
+created and committed WAL evidence is retained. Machine skill ownership preparation
+parses only typed skill declarations; full MCP validation remains in launch planning.

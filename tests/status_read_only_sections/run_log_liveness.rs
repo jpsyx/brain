@@ -83,6 +83,10 @@ fn seed_ready_workspace(home: &Path) {
     )
     .expect("machine registry");
     seed_current_migration(home);
+    let paths = brain::workspace::WorkspacePaths::new(home, selected_status_workspace());
+    if paths.sync_dir().exists() {
+        std::fs::remove_dir(paths.sync_dir()).expect("initial publication left no sync state");
+    }
 }
 
 fn seed_current_migration(home: &Path) {

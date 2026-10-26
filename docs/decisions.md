@@ -6456,3 +6456,51 @@ project edits/chronic heuristics, machine-person assumptions, and per-skill
 reply formatting. Resource summaries keep canonical saved headings, including
 when their source is an existing abstract. New custom skill authoring points
 to `.config/plugins`; existing unmarked user skills remain supported.
+
+
+## Package generation evidence determines split eligibility
+
+The 0.106.0 split uses compatibility revision 2 without raising existing portable
+version floors. Positive legacy evidence is an authenticated old managed version,
+an explicitly recorded old machine or installer from-version scoped to roots
+registered before setup, or an exactly recognized frozen legacy contract. A
+supported, byte-verified current portable region takes precedence over old local
+state. A missing receipt or a legacy-looking skill name is insufficient; when
+evidence is ambiguous, preserve the explicit list exactly. This lets a new
+machine adopt a current todo-only workspace without granting agenda again.
+
+Optional-sync suppression applies to instructions and capability extension
+content as a single generation. A bounded checked extension snapshot is retained
+in package metadata so later machine-skill selection cannot mix new raw workspace
+extensions into old published instructions. Explicit sync or mandatory repair
+advances both, and controller preparation captures both under one publication
+boundary before slow frontend probes.
+
+Receive-in-progress evidence is durable and UUID-scoped because a completed-run
+journal cannot distinguish a crashed partial pull from an ordinary user edit.
+Only that evidence enables the explicit recovery continuation. Completed
+mismatches fail without replaying transport, and ordinary modified documents
+never gain an overwrite bypass.
+
+A prepared capability catalog needs retained output paths as well as retained
+extension inputs: another same-actor launch must not replace files already referenced
+by the first. Content-addressing the complete selected output gives each generation
+a stable path and reuses equal inputs without writes. All frontends receive that
+path centrally through trusted, budgeted guidance, with only the narrow generated
+resource read exception needed for workspace-only use. Native discovery remains
+frontend-specific and advisory where it already was; this is not a promise of
+immutable global workspace files during an entire agent session.
+
+A complete current package must preserve ordinary status no-write behavior. The
+compatibility fast path uses bounded installation-only inspection, rechecking
+receipt and pending/active sync evidence around it, and releases installation
+ownership before taking the sync-to-install writer boundary for repair. Shared
+private SQLite snapshots preserve committed WAL evidence without creating source
+sidecars. Skill ownership preflight reads typed skill declarations only, so
+unrelated malformed MCP material cannot block an ordinary environment repair.
+
+Explicit `sync repair` retains its existing recovery role after an aborted
+baseline attempt. It and the hidden `init` alias share the same Receiving-only
+continuation as explicit pull, with existing resync safeguards and exactly one
+consumed invocation. Ordinary bidirectional sync, push and completed mismatches
+gain no continuation or overwrite bypass.

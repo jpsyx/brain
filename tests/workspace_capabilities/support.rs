@@ -17,6 +17,9 @@ pub(crate) fn temporary_workspace() -> (tempfile::TempDir, Arc<WorkspaceContext>
     let root = home.path().join("family");
     std::fs::create_dir_all(root.join(".config")).expect("workspace config directory");
     std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
+    brain::workspace::WorkspaceManifest::new(family_id())
+        .write_new(&root)
+        .unwrap();
     let workspace = WorkspaceContext::new(
         home.path(),
         family_id(),
@@ -163,4 +166,25 @@ impl AgentTransport for FailingTransport {
     fn shutdown(&mut self) -> Result<(), AgentError> {
         Ok(())
     }
+}
+
+pub(crate) fn selected_generation(
+    workspace: &WorkspaceContext,
+    actor: &brain::actor::ActorContext,
+) -> std::path::PathBuf {
+    let entries = std::fs::read_dir(
+        workspace
+            .paths()
+            .capability_skill_generations_dir(actor.user_id()),
+    )
+    .unwrap()
+    .map(|entry| entry.unwrap().path())
+    .filter(|path| !path.file_name().unwrap().to_str().unwrap().starts_with('.'))
+    .collect::<Vec<_>>();
+    assert_eq!(
+        entries.len(),
+        1,
+        "fixture expects one prepared selected generation"
+    );
+    entries[0].clone()
 }

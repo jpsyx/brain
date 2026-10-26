@@ -275,7 +275,7 @@ fn remove_owned(tree: &mut Snapshot, path: &str) {
         entries.remove(path);
     }
 }
-fn insert(tree: &mut Snapshot, path: &str, file: Snapshot) -> Result<()> {
+pub(super) fn insert(tree: &mut Snapshot, path: &str, file: Snapshot) -> Result<()> {
     let Snapshot::Directory { entries, .. } = tree else {
         anyhow::bail!("generated file collides with non-directory ancestor: {path}");
     };

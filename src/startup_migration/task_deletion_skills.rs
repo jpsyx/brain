@@ -57,7 +57,11 @@ fn down_with_store(home: &Path, store: &RegistryStore) -> Result<()> {
             record.workspace_id,
             workspace.paths().cache_dir(),
         )?;
-        identity.prepare_cache()?;
+        let _sync = identity.acquire_sync()?;
+        anyhow::ensure!(
+            identity.receive_phase()?.is_none(),
+            "complete and reconcile the pending receive before downgrade"
+        );
         let _operations = crate::tasks::removal::prepare_downgrade(&workspace)?;
         let mut stamp = WorkspaceStamp::selected(&workspace);
         let mut locked = LockedInstall::acquire(&identity)?;
@@ -112,6 +116,26 @@ mod tests {
         up_with_store(home.path(), &store, None).unwrap();
         assert!(todo.exists());
     }
+    #[test]
+    fn down_requires_sync_ownership_before_any_operation_lock_or_stamp_change() {
+        let (home, store, root, paths) = fixture();
+        up_with_store(home.path(), &store, None).unwrap();
+        let guard = crate::sync::lock::try_acquire(&paths.sync_lock()).unwrap();
+        assert!(down_with_store(home.path(), &store).is_err());
+        drop(guard);
+        let journal = crate::sync::journal::Journal::open(&paths.sync_journal()).unwrap();
+        journal
+            .begin_receive(
+                &crate::workspace::WorkspaceManifest::load(&root, env!("CARGO_PKG_VERSION"))
+                    .unwrap()
+                    .workspace_id()
+                    .to_string(),
+                "fixture",
+            )
+            .unwrap();
+        assert!(down_with_store(home.path(), &store).is_err());
+    }
+
     #[test]
     fn down_idempotently_invalidates_receipts_without_discarding_ownership() {
         let (home, store, root, paths) = fixture();

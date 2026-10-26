@@ -1576,8 +1576,10 @@ Optional refresh after a `config`/`persona` change respects `skills_auto_sync`
 that preference: startup checks binary version, compatibility revision and the
 committed manifest receipt, then verifies managed artifacts. Missing files are
 repaired even at the same version; edited owned files are protected conflicts.
-Current TUI startup avoids duplicate writes. Actor capability renders continue
-to use current embedded sources at the next launch.
+Current TUI startup avoids duplicate writes. Every controller launch receives one
+verified instruction and extension generation, including selected machine skills.
+With optional sync disabled, changed extension sources remain unapplied until
+explicit skills sync or mandatory upgrade/repair publishes the complete package.
 
 For a structured repair report:
 
@@ -3233,3 +3235,31 @@ both access modes. This applies to fresh and resumed main/manual/skill tabs and
 receiver recovery. Missing or oversized instructions fail before spawn. Existing
 frontend instructions are preserved; Claude requires support for disabling prompt
 snapshots on resume, and Codex requires bounded native instruction introspection.
+
+
+### Complete package repair after sync
+
+All skills-sync entry points publish workspace instructions, rendered skills and
+compatibility config changes together. The split migrates explicit legacy
+allowlists only with positive old-generation evidence; an already-current
+portable contract preserves a deliberately narrowed list even on another machine.
+An absent receipt alone never expands access. Missing roots remain pending and
+one failed root does not prevent repair attempts on the others.
+
+A pull records its in-progress state before receiving portable files. If Brain
+stops after instructions arrive but before their sources, ordinary commands and
+launches refuse the incomplete generation. `brain sync --pull -w <workspace>`
+or `brain sync repair -w <workspace>` finishes one verified receive before startup
+resumes. Repair retains its existing baseline safeguards. Failed recovery remains
+retryable. A completed receive whose instructions and sources disagree is a
+reported conflict, with evidence retained and no automatic repeated pull.
+
+A generated-only AGENTS document is setup infrastructure: empty-root PARA and
+task initialization still run, and the initial configured pull precedes PARA
+creation. Existing user prose is preserved; instruction symlinks are refused.
+
+Preparing another launch for the same actor retains files already selected by the
+first. Selected skills use verified content-addressed cache generations; unchanged
+generations are reused without writes. The trusted launch catalog allows reading
+only its selected definitions and packaged resources, without broadening normal
+workspace access or authorizing execution or delivery.

@@ -11,6 +11,13 @@ pub(super) fn package(root: &Path, body: &str) -> ManagedWorkspacePackage {
             .receipt
     });
     ManagedWorkspacePackage {
+        extension_snapshot: Some(
+            super::package::ExtensionSnapshot::new(std::collections::BTreeMap::from([(
+                ".config/extensions/custom.md".to_owned(),
+                body.as_bytes().to_vec(),
+            )]))
+            .unwrap(),
+        ),
         skills: rendered(body),
         instructions: Some(
             plan_document(

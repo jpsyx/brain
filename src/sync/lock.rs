@@ -111,6 +111,37 @@ pub fn try_acquire(path: &Path) -> Option<Guard> {
     try_acquire_with_heartbeat(path, HEARTBEAT_INTERVAL)
 }
 
+/// Observe active ownership without creating or modifying the lock file.
+pub(crate) fn is_active(path: &Path) -> std::io::Result<bool> {
+    use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+    let file = match OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let held = file.metadata()?;
+    if !held.is_file() {
+        return Err(std::io::Error::other("sync lock is not a regular file"));
+    }
+    match fs2::FileExt::try_lock_shared(&file) {
+        Ok(()) => {
+            let observed = match fs::symlink_metadata(path) {
+                Ok(metadata) => metadata,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            Ok(observed.file_type().is_symlink()
+                || (held.dev(), held.ino()) != (observed.dev(), observed.ino()))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+        Err(error) => Err(error),
+    }
+}
+
 #[must_use]
 fn try_acquire_with_heartbeat(path: &Path, heartbeat_interval: Duration) -> Option<Guard> {
     try_acquire_with_existing_hook(path, heartbeat_interval, || {})

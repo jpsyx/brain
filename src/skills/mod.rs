@@ -17,6 +17,7 @@ pub(crate) mod compatibility;
 pub(crate) mod diagnostic;
 pub mod embed;
 pub mod extension;
+pub(crate) mod generation;
 pub mod install;
 pub(crate) mod install_transaction;
 pub mod layout;
@@ -36,10 +37,8 @@ pub fn render_workspace_capabilities(
     actor: &crate::actor::ActorContext,
     plan: &crate::access::CapabilityPlan,
 ) -> anyhow::Result<WorkspaceCapabilityReport> {
-    let layout = layout::Layout::workspace_capabilities(workspace, actor);
-    crate::access::remove_capability_path(workspace, &layout.built_dir)?;
-    crate::access::ensure_capability_directory(workspace, &layout.built_dir)?;
-    install::render_workspace_capabilities(&layout, &real_sources(workspace), plan)
+    let generation = generation::prepare_launch(workspace)?;
+    generation::render_capabilities(&generation, workspace, actor, plan)
 }
 
 /// The brain version currently running, the authority for rendered workspace

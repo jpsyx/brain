@@ -16,6 +16,11 @@ fn workspace(home: &Path) -> Arc<WorkspaceContext> {
     let root = home.join("family");
     std::fs::create_dir_all(&root).expect("workspace root");
     std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
+    brain::workspace::WorkspaceManifest::new(
+        WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+    )
+    .write_new(&root)
+    .unwrap();
     Arc::new(
         WorkspaceContext::new(
             home,

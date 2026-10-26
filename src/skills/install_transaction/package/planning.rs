@@ -124,6 +124,16 @@ pub(super) fn plan(
             .source_history
             .push(ownership);
     }
+    if let Some(snapshot) = package.extension_snapshot {
+        ensure!(
+            plan.artifacts.contains_key("AGENTS.md"),
+            "extension snapshot requires instruction publication"
+        );
+        plan.manifest
+            .package
+            .get_or_insert_with(PackageMetadata::default)
+            .extension_snapshot = Some(snapshot);
+    }
     if plan.manifest.package.is_some() {
         plan.manifest.schema_version = 2;
     }

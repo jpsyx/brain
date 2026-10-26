@@ -177,6 +177,9 @@ impl Fixture {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
         let id = WorkspaceId::parse("11111111-1111-4111-8111-111111111111").unwrap();
+        brain::workspace::WorkspaceManifest::new(id)
+            .write_new(&root)
+            .unwrap();
         let name = WorkspaceName::parse("family").unwrap();
         let workspace = Arc::new(
             WorkspaceContext::new(&home, id, name.clone(), &root, "pablo", &root).unwrap(),

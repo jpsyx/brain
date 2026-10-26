@@ -16,6 +16,7 @@ fn down_commits_restored_instructions_and_a_real_schema_one_manifest_together() 
     locked
         .install_package(
             ManagedWorkspacePackage {
+                extension_snapshot: None,
                 skills: rendered("modern"),
                 instructions: Some(plan_document(Some(original), "modern rules", None).unwrap()),
                 config_patches: Vec::new(),
@@ -89,6 +90,7 @@ fn down_removes_a_supported_region_adopted_from_another_machine() {
     locked
         .install_package(
             ManagedWorkspacePackage {
+                extension_snapshot: None,
                 skills: rendered("modern"),
                 instructions: Some(plan_document(Some(&synced), "modern rules", None).unwrap()),
                 config_patches: Vec::new(),
@@ -191,6 +193,7 @@ fn down_preserves_later_unowned_text_and_refuses_ambiguous_legacy_span_restorati
         locked
             .install_package(
                 ManagedWorkspacePackage {
+                    extension_snapshot: None,
                     skills: rendered("modern"),
                     instructions: Some(
                         plan_document(Some(original), "modern rules", None).unwrap(),

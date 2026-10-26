@@ -46,6 +46,13 @@ pub(in crate::skills::install_transaction) fn validate_metadata(
         }
     }
     if let Some(metadata) = &manifest.package {
+        if let Some(snapshot) = &metadata.extension_snapshot {
+            snapshot.checked()?;
+            ensure!(
+                metadata.instructions.is_some(),
+                "extension snapshot has no instructions"
+            );
+        }
         for patch in &metadata.config_history {
             validate_config_patch(patch)?;
         }

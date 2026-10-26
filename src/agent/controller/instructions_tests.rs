@@ -32,6 +32,11 @@ impl AgentTransport for Captured {
 }
 
 fn fixture(root: &std::path::Path) -> (AgentController, LaunchRequest, Captured) {
+    crate::workspace::WorkspaceManifest::new(
+        WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+    )
+    .write_new(root)
+    .unwrap();
     let workspace = Arc::new(
         WorkspaceContext::new(
             root,

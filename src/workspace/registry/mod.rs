@@ -8,8 +8,8 @@ mod store;
 mod upgrade;
 mod validate;
 
-pub(crate) use migrate::migrate_legacy_with;
 pub use migrate::{MigrationOutcome, migrate_legacy};
+pub(crate) use migrate::{known_legacy_root, migrate_legacy_with};
 pub use model::{
     MachineRegistry, REGISTRY_SCHEMA_VERSION, ReceiverAction, WorkspaceRecord, receiver_transition,
 };

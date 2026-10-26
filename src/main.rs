@@ -48,6 +48,12 @@ fn main() -> Result<()> {
 
     let removal_json = brain::command::tasks::removal_mode(&cli).unwrap_or(false);
 
+    match brain::startup_migration::recover_interrupted_pull(&mut cli) {
+        Ok(true) => return Ok(()),
+        Ok(false) => {}
+        Err(error) => exit_with_error(&error, None, removal_json),
+    }
+
     if let Err(error) = brain::startup_migration::run_current() {
         exit_with_error(&error, None, removal_json);
     }

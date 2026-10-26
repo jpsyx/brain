@@ -104,6 +104,14 @@ impl WorkspacePaths {
             .join("skills")
     }
 
+    /// Retained content-addressed selected skill generations for one actor.
+    #[must_use]
+    pub fn capability_skill_generations_dir(&self, actor: &crate::users::UserId) -> PathBuf {
+        self.cache_dir
+            .join("skill-generations/actors")
+            .join(actor.to_string())
+    }
+
     /// The workspace-scoped synchronization runtime directory.
     #[must_use]
     pub fn sync_dir(&self) -> PathBuf {

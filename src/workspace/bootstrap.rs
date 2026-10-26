@@ -169,6 +169,23 @@ pub fn bootstrap(cli: &mut crate::cli::Cli) -> Result<BootstrapContext> {
     Ok(context)
 }
 
+/// Resolve only an already registered identity for interrupted-receive routing.
+pub(crate) fn recovery_record(cli: &mut crate::cli::Cli) -> Result<Option<super::WorkspaceRecord>> {
+    enforce_strict_selector(cli)?;
+    let store = RegistryStore::real();
+    let Ok(registry) = RegistryStore::load_readable(store.path()) else {
+        // Ordinary startup retains registry migration and diagnostic ownership.
+        return Ok(None);
+    };
+    resolve_workspace_selector(cli, &store, &std::env::current_dir()?);
+    let selected = registry.select(cli.workspace_selector.as_deref())?;
+    validate_expected_workspace_id(
+        std::env::var_os("BRAIN_WORKSPACE_ID").as_deref(),
+        selected.record().workspace_id,
+    )?;
+    Ok(Some(selected.record().clone()))
+}
+
 mod selection;
 
 use selection::{enforce_strict_selector, resolve_workspace_selector};

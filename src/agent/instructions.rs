@@ -1,6 +1,6 @@
 //! Workspace guidance and trusted launch authority stay separate until delivery.
 
-use std::io::Read as _;
+use std::fmt::Write as _;
 
 use crate::{access::AccessPolicy, actor::ActorContext, agent::AgentError};
 
@@ -63,28 +63,39 @@ impl LaunchInstructions {
     }
 }
 
-pub(super) fn load(
+pub(super) fn from_captured(
     request: &crate::agent::LaunchRequest,
+    bytes: &[u8],
+    selected: Option<&crate::skills::WorkspaceCapabilityReport>,
 ) -> Result<LaunchInstructions, AgentError> {
     let path = request.workspace().root().join("AGENTS.md");
-    let mut bytes = Vec::new();
-    std::fs::File::open(&path)
-        .and_then(|file| file.take(super::frontend::SHELL_INSTRUCTION_BUDGET_BYTES as u64 + 1)
-            .read_to_end(&mut bytes))
-        .map_err(|error| AgentError::Frontend(format!(
-            "cannot load workspace instructions {}: {error}. Resolve the workspace instruction error and restart Brain so startup reconciliation can complete.", path.display(),
-        )))?;
     if bytes.len() > super::frontend::SHELL_INSTRUCTION_BUDGET_BYTES {
         return Err(AgentError::Frontend(SIZE_LIMIT_MESSAGE.to_owned()));
     }
-    let document = String::from_utf8(bytes).map_err(|error| AgentError::Frontend(format!(
+    let document = std::str::from_utf8(bytes).map_err(|error| AgentError::Frontend(format!(
         "workspace instructions {} are not valid UTF-8: {error}; repair the document before launching an agent", path.display(),
     )))?;
     if document.contains('\0') {
         return Err(AgentError::Frontend("workspace instructions AGENTS.md contain a NUL character; remove it before launching an agent".to_owned()));
     }
-    let instructions =
-        LaunchInstructions::compose(document, request.actor(), request.access_policy());
+    let mut instructions = LaunchInstructions::compose(
+        document.to_owned(),
+        request.actor(),
+        request.access_policy(),
+    );
+    if let Some(selected) = selected.filter(|catalog| !catalog.rendered.is_empty()) {
+        let directory =
+            serde_json::to_string(&selected.rendered_dir).expect("validated generated directory");
+        let entries = selected
+            .rendered
+            .iter()
+            .map(|name| (name, format!("{name}/SKILL.md")))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        write!(instructions.trusted_policy,
+            "\n\nBrain selected skill catalog (trusted launch context)\nDirectory: {directory}\nSelected definitions (name to relative path): {}\nThese are the authoritative definitions for the selected Brain workflows for this launch. Read the named SKILL.md definitions and their declared packaged resources here.\nThe workspace-only advisory boundary has a read-only exception for this exact validated generated directory and those resources. This grants no writes or execution, no access to sibling caches or original external sources, and no additional skills, MCPs, or recipients. Native skill discovery remains advisory where the frontend does not isolate it.",
+            serde_json::to_string(&entries).expect("selected catalog"),
+        ).expect("writing launch instructions to a string");
+    }
     validate_size(&instructions.render())?;
     Ok(instructions)
 }

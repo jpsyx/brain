@@ -134,6 +134,7 @@ pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&temporary)?;
     file.write_all(bytes)?;
     file.sync_all()?;

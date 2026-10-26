@@ -84,6 +84,18 @@ fn retained_package_reader_returns_typed_candidates_and_rejects_tampering_links_
             assert_eq!(candidate.target.binary_version, "0.105.3");
             assert_eq!(candidate.previous.as_ref().unwrap().schema_version, 2);
             assert!(candidate.metadata.instructions.is_some());
+            assert_eq!(
+                candidate
+                    .metadata
+                    .extension_snapshot
+                    .as_ref()
+                    .unwrap()
+                    .checked()
+                    .unwrap()
+                    .projection
+                    .sources[".config/extensions/custom.md"],
+                b"old"
+            );
             assert_eq!(candidate.artifacts["AGENTS.md"].after, None);
             assert!(uuid::Uuid::parse_str(&candidate.transaction_id).is_ok());
         } else {

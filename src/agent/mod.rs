@@ -135,3 +135,6 @@ impl Error for AgentError {}
 
 #[cfg(test)]
 mod adapter_tests;
+
+#[cfg(test)]
+mod generation_tests;

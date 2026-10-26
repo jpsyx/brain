@@ -150,14 +150,36 @@ fn workspace_skill_rendering_is_root_and_actor_aware_without_global_registry_mut
         .expect("Maria capability render");
 
     assert_eq!(
-        pablo_report.rendered_dir,
-        workspace.paths().capability_skills_dir(pablo.user_id())
+        pablo_report.rendered_dir.parent(),
+        Some(
+            workspace
+                .paths()
+                .capability_skill_generations_dir(pablo.user_id())
+                .as_path()
+        )
     );
     assert_eq!(
-        maria_report.rendered_dir,
-        workspace.paths().capability_skills_dir(maria.user_id())
+        maria_report.rendered_dir.parent(),
+        Some(
+            workspace
+                .paths()
+                .capability_skill_generations_dir(maria.user_id())
+                .as_path()
+        )
     );
     assert_ne!(pablo_report.rendered_dir, maria_report.rendered_dir);
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::metadata(pablo_report.rendered_dir.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700,
+            "staging parent must be private before materialization"
+        );
+    }
     let rendered = std::fs::read_to_string(pablo_report.rendered_dir.join("family-only/SKILL.md"))
         .expect("rendered family skill");
     assert!(rendered.contains("Selected family policy"));

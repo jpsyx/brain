@@ -332,7 +332,11 @@ Legacy capability migration retains `second-brain` and appends `projects`,
 `agenda`. Only an explicitly present legacy field receives a narrow field patch,
 with its exact before/after values retained in managed-install history. Missing
 fields use the defaults without being written. This projection requires proven
-pre-split migration eligibility. Ordinary capability resolution preserves a
+pre-split migration eligibility. A verified current portable contract takes
+precedence over old local version metadata. Recorded old machine/from-version
+evidence applies only to roots registered before setup; an exactly recognized
+legacy contract is also positive evidence. Missing receipts or legacy-looking
+names alone preserve the explicit list. Ordinary capability resolution preserves a
 current selection exactly, so removing `agenda` while retaining `todo` does not
 grant agenda access again. Selecting `triage` never grants its delegated skills.
 An unselected delegated skill reports that it is not selected.
@@ -865,7 +869,7 @@ the `name=value` form.
 | `day_rollover_hour` | `6` | Local hour (0-23) the "logical day" rolls over for the triage re-check on refresh. Out-of-range → default. Read by `config.rs`. |
 | `agenda_dir` | `~/Downloads` | Directory the generated daily-agenda **PDF** is written to (`agenda-<YYYY-MM-DD>.pdf`), tilde-expanded. Portable, unlike the markdown's `agenda_markdown_dir`: where you file a printable is a preference that should follow you between machines, while `/tmp` is a filesystem detail of one. |
 | `calendar_id` | *(unset)* | Calendar the agenda build pulls busy blocks from (e.g. a Google Calendar id/email). Empty disables calendar-aware scheduling; core agenda ordering is calendar-optional. |
-| `skills_auto_sync` | `true` | Enables optional installed-skill refresh after config/persona mutations. Mandatory bundled compatibility refresh ignores this preference without changing it; explicit sync also remains available. Currentness uses the per-workspace receipt and managed artifacts. Read by `src/skills/`. |
+| `skills_auto_sync` | `true` | Enables optional installed-skill refresh after config/persona mutations. Mandatory bundled compatibility refresh ignores this preference without changing it; explicit sync also remains available. Currentness covers the complete instruction/skill/config package and its retained extension snapshot. Disabled optional edits stay unapplied to both instructions and selected skill customizations until explicit sync or mandatory repair. Read by `src/skills/`. |
 
 `markdown_to_pdf_path`, `claude_cmd`, `codex_cmd`, `opencode_cmd`, `pi_cmd`, and
 `agenda_markdown_dir` are **not** in this table
@@ -1077,9 +1081,9 @@ surviving row sharing an issue blocks cancellation. See
 [integrations.md](integrations.md#task-removal-adapter-protocol) for the protocol.
 
 
-The managed-skill callback introduced in 0.102.25 is mandatory even when
-`skills_auto_sync` is false. Selected bootstrap and TUI defer to that process-level
-callback. Installer target rendering privately projects the effective original
+The managed-skill callback introduced in 0.102.25 and the 0.106.0 package callback
+share one mandatory refresh attempt even when `skills_auto_sync` is false. Selected
+bootstrap and TUI defer to that process-level package verification. Installer target rendering privately projects the effective original
 access mode, original workspace UUID/name and validated local user into a
 one-entry schema-4 registry. It copies the original manifest and optional users
 document, but no integration environment, receiver intent, task CSVs, journals,

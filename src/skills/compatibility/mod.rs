@@ -62,7 +62,6 @@ pub(crate) fn expand_legacy_names(names: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod down_tests;
 
-#[cfg_attr(not(test), allow(dead_code))] // The refresh coordinator supplies migration eligibility.
 pub(crate) fn project_allowed_skills(
     config: &serde_json::Value,
 ) -> anyhow::Result<Option<crate::skills::install_transaction::package::JsonFieldPatch>> {

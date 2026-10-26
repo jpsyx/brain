@@ -7,6 +7,8 @@ use std::path::Path;
 
 use anyhow::Result;
 use rusqlite::Connection;
+mod receive;
+pub(crate) use receive::ReceivePhase;
 
 /// One recorded sync run.
 #[derive(Debug, Clone, PartialEq, Eq)]

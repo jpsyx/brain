@@ -131,22 +131,24 @@ impl AgentFrontend for OpenCodeFrontend {
         let selected_skill_names = capability_plan
             .filter(|plan| !plan.skills.uses_global_configuration())
             .map(|plan| plan.skills.available_names());
-        let selected_skills = selected_skill_names.as_ref().map(|names| {
-            (
+        let selected_directory = capability_plan
+            .filter(|plan| !plan.skills.uses_global_configuration())
+            .map(|plan| {
                 request
-                    .workspace()
-                    .paths()
-                    .capability_skills_dir(request.actor().user_id()),
-                names.as_slice(),
-            )
-        });
+                    .render_capabilities(plan)
+                    .map(|report| report.rendered_dir)
+            })
+            .transpose()?;
+        let selected_skills = selected_directory
+            .as_ref()
+            .zip(selected_skill_names.as_ref());
         let config = config::merge(
             inherited,
             brain_prompt,
             mcp_launch.as_ref().map(|launch| launch.entries.clone()),
             selected_skills
                 .as_ref()
-                .map(|(path, names)| (path.as_path(), *names)),
+                .map(|(path, names)| (path.as_path(), names.as_slice())),
         )?;
         if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
             crate::access::cleanup_workspace_capabilities(request.workspace())
@@ -159,12 +161,7 @@ impl AgentFrontend for OpenCodeFrontend {
         }
         if let Some(plan) = capability_plan.filter(|plan| !plan.skills.uses_global_configuration())
         {
-            crate::skills::render_workspace_capabilities(
-                request.workspace(),
-                request.actor(),
-                plan,
-            )
-            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+            request.render_capabilities(plan)?;
         }
         environment.retain(|(name, _)| name != "OPENCODE_CONFIG_CONTENT");
         if let Some(launch) = mcp_launch.as_ref() {

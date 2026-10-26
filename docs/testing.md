@@ -1948,3 +1948,37 @@ exact user override order, retain duplicate-looking unknown text, and cover a
 missing frame/document without replaying stale user prefixes. Exclusive staging
 and backup creation rejects preexisting destination links without touching their
 targets.
+
+
+Task10 acceptance lives in `tests/brain_skill_migration/`: old and current-version
+startup, explicit installer provenance, narrowed capability preservation, safe
+seeding, sync ordering and interrupted receive recovery. The local-only Python
+rclone boundary uses isolated roots and kills only its own fixture Brain process
+after writing AGENTS but before its extension. Retry verifies exactly one pull,
+required prerequisites, pending-state gates and retained completed conflicts.
+Generation tests use barriers to publish between preparation and adapter launch
+and verify all four frontends retain one instruction/extension generation.
+Machine-skill coverage proves disabled optional sync cannot read new raw workspace
+extensions; package archive tests validate the retained snapshot too.
+
+The same-actor launch regression decodes the pi fixture's real `--skill` argument,
+prepares a second generation, and verifies both original paths and no-write reuse.
+Decoded Claude/Codex payloads verify the exact selected catalog, narrow read-only
+exception and preservation of preexisting configured instructions.
+
+Permissions acceptance invokes only the fixture Brain process under a permissive
+child-shell umask and verifies retained snapshot state remains 0600. No parallel
+unit test mutates process-global umask. Empty-root coverage includes disabled raw
+optional edits and proves unknown/modified frames fail ownership before PARA writes.
+
+Generation/catalog adapter tests live under `src/agent/generation_tests/`, within
+the concrete-frontend architecture boundary. Receive and receipt tests use child
+process exit to leave committed WAL-only evidence, then prove read-only inspection
+does not create source sidecars. Snapshot fixtures check bounded unstable capture,
+private modes and cleanup. Current-package fixtures prove no sync-state creation
+and distinguish active ownership from a persistent unlocked file. Existing
+concurrent status/create guards and read-only task-removal checks remain intact.
+Pending repair coverage retains failed evidence, consumes one transfer and refuses
+completed mismatches; local-rclone convergence exercises the same recovery path.
+Explicit refresh fixtures also redirect the sync directory and final lock, proving
+outside sentinel files and links survive refusal without package publication.

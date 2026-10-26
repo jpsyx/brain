@@ -99,18 +99,30 @@ fn unowned_instruction_edit_after_staging_is_detected_before_any_live_artifact_m
         .unwrap();
     let next = package(root.path(), "new");
     let agents = root.path().join("AGENTS.md");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let editor = {
+        let barrier = std::sync::Arc::clone(&barrier);
+        let agents = agents.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            let mut bytes = fs::read(&agents).unwrap();
+            bytes.extend_from_slice(b"concurrent user suffix\n");
+            fs::write(agents, bytes).unwrap();
+            barrier.wait();
+        })
+    };
     assert!(
         locked
             .install_package_with(next, &version, &mut NoStamp, &mut |point| {
                 if point == super::Checkpoint::Staged {
-                    let mut bytes = fs::read(&agents)?;
-                    bytes.extend_from_slice(b"concurrent user suffix\n");
-                    fs::write(&agents, bytes)?;
+                    barrier.wait();
+                    barrier.wait();
                 }
                 Ok(())
             })
             .is_err()
     );
+    editor.join().unwrap();
     assert_eq!(
         fs::read(root.path().join(".agents/skills/todo/SKILL.md")).unwrap(),
         b"old"

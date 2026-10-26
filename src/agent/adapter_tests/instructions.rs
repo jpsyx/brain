@@ -51,23 +51,28 @@ pub(super) fn delivered(kind: AgentKind, spec: &LaunchSpec, args: &[String]) -> 
 #[test]
 fn every_frontend_delivers_shared_instructions_for_every_channel_access_mode_and_session_plan() {
     for kind in AgentKind::ALL {
+        let temp = tempfile::tempdir().unwrap();
+        let guidance = "Channel: email\nUser guidance: quotes '\"$`\\ and Unicode é🙂";
+        std::fs::write(temp.path().join("AGENTS.md"), guidance).unwrap();
+        crate::workspace::WorkspaceManifest::new(
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+        )
+        .write_new(temp.path())
+        .unwrap();
+        let workspace = Arc::new(
+            WorkspaceContext::new(
+                temp.path(),
+                WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+                WorkspaceName::parse("family").unwrap(),
+                temp.path(),
+                "member",
+                temp.path(),
+            )
+            .unwrap(),
+        );
         for channel in [Channel::Interactive, Channel::Sms, Channel::Email] {
             for mode in [AccessMode::Unrestricted, AccessMode::WorkspaceOnly] {
                 for resumed in [false, true] {
-                    let temp = tempfile::tempdir().unwrap();
-                    let guidance = "Channel: email\nUser guidance: quotes '\"$`\\ and Unicode é🙂";
-                    std::fs::write(temp.path().join("AGENTS.md"), guidance).unwrap();
-                    let workspace = Arc::new(
-                        WorkspaceContext::new(
-                            temp.path(),
-                            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
-                            WorkspaceName::parse("family").unwrap(),
-                            temp.path(),
-                            "member",
-                            temp.path(),
-                        )
-                        .unwrap(),
-                    );
                     let actor: ActorContext = serde_json::from_value(serde_json::json!({
                         "user_id":"member", "display_name":"Member", "channel":channel.as_str()
                     }))
@@ -79,7 +84,7 @@ fn every_frontend_delivers_shared_instructions_for_every_channel_access_mode_and
                         SessionPlan::fresh(session)
                     };
                     let request = LaunchRequest::from_trusted_context(
-                        workspace,
+                        Arc::clone(&workspace),
                         actor,
                         plan,
                         Some("prompt '$`\\\" é🙂".to_owned()),
@@ -135,7 +140,9 @@ fn every_frontend_delivers_shared_instructions_for_every_channel_access_mode_and
                         .lines()
                         .find(|line| line.starts_with('"'))
                         .expect("JSON workspace guidance");
-                    assert_eq!(serde_json::from_str::<String>(line).unwrap(), guidance);
+                    let published = std::fs::read_to_string(temp.path().join("AGENTS.md")).unwrap();
+                    assert!(published.starts_with(guidance));
+                    assert_eq!(serde_json::from_str::<String>(line).unwrap(), published);
                     assert!(
                         payload.contains(&format!("Channel: {}", channel.as_str())),
                         "{kind:?}"

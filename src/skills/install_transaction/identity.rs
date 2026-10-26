@@ -16,6 +16,42 @@ pub(crate) struct InstallIdentity {
     portable: bool,
 }
 impl InstallIdentity {
+    pub(crate) fn sync_active(&self) -> Result<bool> {
+        Ok(crate::sync::lock::is_active(&self.sync_lock())?)
+    }
+    fn sync_lock(&self) -> PathBuf {
+        self.cache
+            .parent()
+            .expect("skills cache parent")
+            .join("sync/sync.lock")
+    }
+    pub(crate) fn receive_phase(&self) -> Result<Option<crate::sync::journal::ReceivePhase>> {
+        crate::sync::journal::Journal::receive_phase(&self.receive_journal(), &self.workspace_id)
+    }
+    pub(crate) fn clear_receive(&self) -> Result<()> {
+        crate::sync::journal::Journal::open(&self.receive_journal())?
+            .clear_receive(&self.workspace_id)
+    }
+    fn receive_journal(&self) -> PathBuf {
+        self.cache
+            .parent()
+            .expect("skills cache parent")
+            .join("sync/journal.db")
+    }
+    pub(crate) fn acquire_sync(&self) -> Result<crate::sync::lock::Guard> {
+        self.validate()?;
+        self.prepare_cache()?;
+        let path = self.sync_lock();
+        snapshot::ensure_absolute_directory(path.parent().expect("sync lock parent"))?;
+        ensure!(
+            matches!(
+                snapshot::read(&path)?,
+                snapshot::Snapshot::Absent | snapshot::Snapshot::File { .. }
+            ),
+            "unsafe workspace sync lock file"
+        );
+        crate::sync::lock::try_acquire(&path).ok_or_else(|| SyncBusy.into())
+    }
     pub(crate) fn workspace_id(&self) -> &str {
         &self.workspace_id
     }
@@ -121,7 +157,21 @@ impl InstallIdentity {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct SyncBusy;
+impl std::fmt::Display for SyncBusy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "workspace sync is in progress; retry package reconciliation after it completes",
+        )
+    }
+}
+impl std::error::Error for SyncBusy {}
+
 impl LockedInstall {
+    pub(crate) const fn identity(&self) -> &InstallIdentity {
+        &self.identity
+    }
     pub(crate) fn acquire(identity: &InstallIdentity) -> Result<Self> {
         identity.validate()?;
         identity.prepare_cache()?;

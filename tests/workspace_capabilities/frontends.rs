@@ -79,9 +79,7 @@ fn codex_uses_documented_secret_free_overrides_and_reports_base_exclusion_as_adv
         Some(CapabilityEnforcement::AdvisoryOnly)
     );
     assert!(
-        workspace
-            .paths()
-            .capability_skills_dir(launch_actor.user_id())
+        super::support::selected_generation(&workspace, &launch_actor)
             .join("todo/SKILL.md")
             .is_file()
     );

@@ -19,6 +19,7 @@ mod selector;
 pub mod setup;
 mod templates;
 
+pub(crate) use bootstrap::recovery_record;
 pub use bootstrap::{BootstrapContext, CommandContext, bootstrap, bootstrap_with_io};
 pub use bootstrap_policy::{
     BootstrapPolicy, Invocation, bootstrap_policy, invocation_for, is_read_only_status,

@@ -16,7 +16,7 @@ impl std::fmt::Display for LockTimeout {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "timed out waiting for managed skill install ownership for {}; retry after the active installer finishes",
+            "timed out waiting for workspace publication ownership for {}; retry after the active updater finishes",
             self.workspace_id
         )
     }
@@ -32,13 +32,58 @@ pub(super) fn acquire(identity: &InstallIdentity) -> Result<LockedInstall> {
     })
 }
 
+pub(super) fn acquire_sync(identity: &InstallIdentity) -> Result<crate::sync::lock::Guard> {
+    let deadline = Instant::now()
+        .checked_add(WAIT)
+        .context("skill sync wait deadline overflow")?;
+    wait_until(
+        identity,
+        deadline,
+        Instant::now,
+        std::thread::sleep,
+        || {
+            eprintln!(
+                "{}",
+                crate::theme::Theme::active()
+                    .info("Waiting for another workspace sync to finish (up to 30 seconds).")
+            );
+        },
+        || identity.acquire_sync(),
+        |error| {
+            error
+                .downcast_ref::<super::super::install_transaction::SyncBusy>()
+                .is_some()
+        },
+    )
+}
+
 fn acquire_until_with_notice(
+    identity: &InstallIdentity,
+    deadline: Instant,
+    now: impl FnMut() -> Instant,
+    poll: impl FnMut(Duration),
+    notice: impl FnMut(),
+) -> Result<LockedInstall> {
+    wait_until(
+        identity,
+        deadline,
+        now,
+        poll,
+        notice,
+        || LockedInstall::acquire(identity),
+        |error| error.downcast_ref::<InstallBusy>().is_some(),
+    )
+}
+
+fn wait_until<T>(
     identity: &InstallIdentity,
     deadline: Instant,
     mut now: impl FnMut() -> Instant,
     mut poll: impl FnMut(Duration),
     mut notice: impl FnMut(),
-) -> Result<LockedInstall> {
+    mut acquire: impl FnMut() -> Result<T>,
+    busy: impl Fn(&anyhow::Error) -> bool,
+) -> Result<T> {
     let expired = || LockTimeout {
         workspace_id: identity.workspace_id().to_owned(),
     };
@@ -47,7 +92,7 @@ fn acquire_until_with_notice(
         if now() >= deadline {
             return Err(expired().into());
         }
-        match LockedInstall::acquire(identity) {
+        match acquire() {
             Ok(locked) => {
                 // acquire revalidates portable/root identity after obtaining ownership.
                 if now() >= deadline {
@@ -55,7 +100,7 @@ fn acquire_until_with_notice(
                 }
                 return Ok(locked);
             }
-            Err(error) if error.downcast_ref::<InstallBusy>().is_some() => {
+            Err(error) if busy(&error) => {
                 if !announced {
                     notice();
                     announced = true;

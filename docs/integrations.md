@@ -2812,3 +2812,33 @@ heading/reference anchors; task-only operations do not require agenda references
 Triage completes managed daily/weekly rows by `system_key` through the native
 helper, which also syncs existing artifacts. Disabled managed habits remain a
 no-op, and generic triage declares no completion artifacts of its own.
+
+
+### One instruction and capability generation per launch
+
+AgentController preparation captures reconciled AGENTS bytes and checked workspace
+extension inputs together, then runs the existing Task8 instruction validation
+on those captured bytes. Frontend probes and adapters run after publication locks
+are released. Claude, Codex, OpenCode and pi render selected bundled and machine
+skills from that same extension snapshot; trusted actor/access/channel policy
+is supplied separately. A pending receive blocks these launch paths, including
+receiver recovery and manual/skill sessions.
+
+Portable receive uses the existing sync lock before managed installation. After
+a successful verified pull and task merge, sync calls the shared locked package
+coordinator directly. An interrupted receive can resume only through explicit
+`brain sync --pull -w <workspace>` or `brain sync repair -w <workspace>` after
+prerequisite migrations. The hidden `sync init` repair alias is preserved. Recovery
+performs one pull or resync repair and consumes that invocation; successful repair
+also retains its managed-triage reconciliation. A completed package conflict retains evidence
+and is not retried as another transport.
+
+Every adapter receives the exact materialized selected catalog in trusted launch
+instructions. Available names and relative `SKILL.md` paths identify the authoritative
+definitions for those workflows. A nonempty catalog adds a read-only exception for
+that exact generated directory and its packaged resources only. It grants no writes,
+execution, sibling-cache/original-source access, additional skills, MCPs or recipients.
+The catalog is composed and size-checked before probes. OpenCode and pi also receive
+the actual immutable directory through their existing native injection. Claude and
+Codex retain advisory enforcement; this does not isolate or freeze global native
+discovery. Empty selections add no read exception; unrestricted behavior is unchanged.

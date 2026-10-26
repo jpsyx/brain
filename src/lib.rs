@@ -48,3 +48,5 @@ mod tree;
 pub mod tui;
 pub mod users;
 pub mod workspace;
+
+mod sqlite_snapshot;

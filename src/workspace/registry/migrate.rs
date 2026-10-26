@@ -331,6 +331,23 @@ fn resolved_root(home: &Path, config_dir: &Path, legacy: &Map<String, Value>) ->
     normalize_root(&expanded, home).unwrap_or_else(|_| home.join("brain"))
 }
 
+pub(crate) fn known_legacy_root(home: &Path, config_dir: &Path, value: &Value) -> Option<PathBuf> {
+    let legacy = value.as_object()?;
+    if legacy.contains_key("schema_version") || legacy.contains_key("workspaces") {
+        return None;
+    }
+    let explicit = legacy
+        .get("root")
+        .and_then(Value::as_str)
+        .is_some_and(|root| !root.trim().is_empty());
+    let pointer = config_dir
+        .parent()
+        .and_then(|parent| fs::read_to_string(parent.join("brain-root")).ok())
+        .and_then(|body| crate::paths::parse_brain_root_file(&body))
+        .is_some();
+    (explicit || pointer).then(|| resolved_root(home, config_dir, legacy))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{migrate_legacy_with, migrate_legacy_with_before_save};

@@ -22,6 +22,7 @@ pub(super) fn patched(root: &Path) -> ManagedWorkspacePackage {
         ),
     ]);
     ManagedWorkspacePackage {
+        extension_snapshot: None,
         skills: rendered("new"),
         instructions: None,
         config_patches: vec![JsonFieldPatch {

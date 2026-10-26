@@ -14,6 +14,8 @@ pub(crate) enum Category {
     UnreadableSource,
     InvalidSource,
     RefreshFailed,
+    ReceivePending,
+    ReceiveConflict,
 }
 impl Category {
     const fn code(self) -> &'static str {
@@ -27,6 +29,8 @@ impl Category {
             Self::UnreadableSource => "unreadable_source",
             Self::InvalidSource => "invalid_source",
             Self::RefreshFailed => "refresh_failed",
+            Self::ReceivePending => "receive_pending",
+            Self::ReceiveConflict => "receive_conflict",
         }
     }
     const fn hint(self) -> &'static str {
@@ -55,6 +59,12 @@ impl Category {
             }
             Self::RefreshFailed => {
                 "Inspect managed skill ownership and installation state for this workspace, then retry brain skills sync --all-workspaces"
+            }
+            Self::ReceivePending => {
+                "Complete the interrupted receive with brain sync --pull -w <workspace> or brain sync repair -w <workspace> before running other commands or launching an agent"
+            }
+            Self::ReceiveConflict => {
+                "The receive completed but its workspace package conflicts; preserve AGENTS.md and extension sources, reconcile their matching generation, then retry brain skills sync --all-workspaces"
             }
         }
     }

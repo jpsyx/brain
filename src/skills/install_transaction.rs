@@ -1,4 +1,5 @@
 //! Recoverable publication of the whole managed skill installation.
+mod capabilities;
 mod disposal;
 mod identity;
 mod inspection;
@@ -20,7 +21,7 @@ mod package_recovery_tests;
 mod package_tests;
 mod snapshot;
 mod validation;
-pub(crate) use identity::InstallIdentity;
+pub(crate) use identity::{InstallIdentity, SyncBusy};
 pub(crate) use inspection::{Currentness, InstallBusy};
 
 use anyhow::{Result, ensure};
@@ -66,6 +67,9 @@ pub(crate) struct InstallReceipt {
 
 pub(crate) trait StampStore {
     fn write(&mut self, receipt: &InstallReceipt) -> Result<()>;
+    fn read(&self) -> Result<Option<InstallReceipt>> {
+        Ok(None)
+    }
 }
 pub(crate) struct NoStamp;
 impl StampStore for NoStamp {
@@ -93,6 +97,14 @@ pub(crate) struct LockedInstall {
     _lock: fs::File,
 }
 impl LockedInstall {
+    pub(crate) fn read_package_file(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        ensure!(
+            matches!(path, "AGENTS.md" | ".config/config.json"),
+            "unsupported package input"
+        );
+        snapshot::check_parent(&self.identity.root, path)?;
+        snapshot::read_optional_file(&self.identity.root.join(path))
+    }
     pub(crate) fn preflight(
         &self,
         rendered: &RenderedInstall,
@@ -100,6 +112,7 @@ impl LockedInstall {
     ) -> Result<super::install::Report> {
         self.preflight_package(
             &package::ManagedWorkspacePackage {
+                extension_snapshot: None,
                 skills: rendered.clone(),
                 instructions: None,
                 config_patches: Vec::new(),
@@ -128,6 +141,7 @@ impl LockedInstall {
     ) -> Result<InstallReceipt> {
         self.install_package(
             package::ManagedWorkspacePackage {
+                extension_snapshot: None,
                 skills: rendered,
                 instructions: None,
                 config_patches: Vec::new(),
@@ -148,6 +162,7 @@ impl LockedInstall {
     ) -> Result<InstallReceipt> {
         self.install_package_inner(
             package::ManagedWorkspacePackage {
+                extension_snapshot: None,
                 skills: rendered,
                 instructions: None,
                 config_patches: Vec::new(),

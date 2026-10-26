@@ -94,9 +94,7 @@ fn claude_uses_owner_only_workspace_mcp_json_and_strict_selection_flags() {
         Some(CapabilityEnforcement::AdvisoryOnly)
     );
     assert!(
-        workspace
-            .paths()
-            .capability_skills_dir(launch_actor.user_id())
+        super::support::selected_generation(&workspace, &launch_actor)
             .join("todo/SKILL.md")
             .is_file()
     );

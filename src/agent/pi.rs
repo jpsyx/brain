@@ -213,20 +213,13 @@ impl AgentFrontend for PiFrontend {
         }
         let selected_skills =
             capability_plan.filter(|plan| !plan.skills.uses_global_configuration());
-        if let Some(plan) = selected_skills {
-            crate::skills::render_workspace_capabilities(
-                request.workspace(),
-                request.actor(),
-                plan,
-            )
-            .map_err(|error| AgentError::Frontend(error.to_string()))?;
-        }
-        let capability_skills = selected_skills.map(|_| {
-            request
-                .workspace()
-                .paths()
-                .capability_skills_dir(request.actor().user_id())
-        });
+        let capability_skills = selected_skills
+            .map(|plan| {
+                request
+                    .render_capabilities(plan)
+                    .map(|report| report.rendered_dir)
+            })
+            .transpose()?;
         let skills = capability_skills.as_deref().map_or_else(
             || {
                 self.workspace_skills_dir()

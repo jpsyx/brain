@@ -21,6 +21,42 @@ impl StampStore for FailOnce {
         Ok(())
     }
 }
+
+#[test]
+fn explicit_refresh_refuses_a_redirected_sync_directory_before_outside_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let sentinel = outside.path().join("sync.lock");
+    fs::write(&sentinel, "outside sentinel").unwrap();
+    std::os::unix::fs::symlink(outside.path(), cache.path().join("sync")).unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let result = sync_identity(&identity, &Sources::default(), &mut NoStamp);
+    assert_eq!(fs::read(&sentinel).unwrap(), b"outside sentinel");
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+    assert!(result.is_err());
+    assert!(!root.path().join("AGENTS.md").exists());
+    assert!(!cache.path().join("skills-install/install.lock").exists());
+}
+
+#[test]
+fn explicit_refresh_refuses_a_redirected_sync_lock_before_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let sentinel = outside.path().join("sentinel");
+    fs::write(&sentinel, "outside sentinel").unwrap();
+    fs::create_dir(cache.path().join("sync")).unwrap();
+    let redirected = cache.path().join("sync/sync.lock");
+    std::os::unix::fs::symlink(&sentinel, &redirected).unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let result = sync_identity(&identity, &Sources::default(), &mut NoStamp);
+    assert_eq!(fs::read(&sentinel).unwrap(), b"outside sentinel");
+    assert_eq!(fs::read_link(&redirected).unwrap(), sentinel);
+    assert!(result.is_err());
+    assert!(!root.path().join("AGENTS.md").exists());
+    assert!(!cache.path().join("skills-install/install.lock").exists());
+}
 #[test]
 fn stamp_retry_finishes_without_reading_render_sources_again() {
     let root = tempfile::tempdir().unwrap();
@@ -45,6 +81,39 @@ fn stamp_retry_finishes_without_reading_render_sources_again() {
         inode
     );
     assert!(!cache.path().join("skills-install/pending.json").exists());
+}
+
+#[test]
+fn completed_receive_reconciles_new_sources_after_finishing_a_pending_stamp() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let extensions = root.path().join(".config/extensions");
+    let sources = Sources {
+        extensions_dir: Some(extensions.clone()),
+        plugins_dir: None,
+    };
+    let mut stamp = FailOnce(true);
+    assert!(sync_identity(&identity, &sources, &mut stamp).is_err());
+    fs::create_dir_all(&extensions).unwrap();
+    fs::write(
+        extensions.join("workspace.md"),
+        "[workspace:context]\nReceived after committed install.\n",
+    )
+    .unwrap();
+    let journal =
+        crate::sync::journal::Journal::open(&cache.path().join("sync/journal.db")).unwrap();
+    journal
+        .begin_receive(identity.workspace_id(), "fixture")
+        .unwrap();
+    journal.complete_receive(identity.workspace_id()).unwrap();
+    sync_identity(&identity, &sources, &mut stamp).unwrap();
+    assert!(
+        fs::read_to_string(root.path().join("AGENTS.md"))
+            .unwrap()
+            .contains("Received after committed install.")
+    );
+    assert_eq!(identity.receive_phase().unwrap(), None);
 }
 
 #[test]

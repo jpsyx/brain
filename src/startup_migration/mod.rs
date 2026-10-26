@@ -1,10 +1,12 @@
 //! Automatic, version-directed machine migrations.
 
+pub(crate) mod brain_skills;
 mod capture_directory;
 mod job_socket_cutover;
 mod lifecycle;
 mod manual_session;
 mod pi_frontend;
+mod receive;
 mod receiver_delivery;
 mod receiver_launch;
 mod receiver_lifecycle_observation;
@@ -44,6 +46,7 @@ const MANUAL_SESSION_VERSION: Version = Version::new(0, 87, 0);
 const PI_FRONTEND_VERSION: Version = Version::new(0, 91, 0);
 const CAPTURE_DIRECTORY_VERSION: Version = Version::new(0, 94, 0);
 const TASK_DELETION_SKILLS_VERSION: Version = Version::new(0, 102, 25);
+const BRAIN_SKILLS_VERSION: Version = Version::new(0, 106, 0);
 const PRE_MIGRATION_VERSION: Version = Version::new(0, 70, 0);
 
 struct Migration {
@@ -52,7 +55,7 @@ struct Migration {
     down: fn(&Path) -> Result<()>,
 }
 
-const MIGRATIONS: [Migration; 16] = [
+const MIGRATIONS: [Migration; 17] = [
     Migration {
         introduced: LIFECYCLE_VERSION,
         up: lifecycle::up,
@@ -133,6 +136,11 @@ const MIGRATIONS: [Migration; 16] = [
         up: task_deletion_skills::up,
         down: task_deletion_skills::down,
     },
+    Migration {
+        introduced: BRAIN_SKILLS_VERSION,
+        up: brain_skills::up,
+        down: brain_skills::down,
+    },
 ];
 
 /// Reconcile every migration owned by this binary before ordinary dispatch.
@@ -140,6 +148,11 @@ pub fn run_current() -> Result<()> {
     run_current_with_refresh(&mut crate::skills::repair::RefreshAttempt::new(
         crate::skills::reconcile::RefreshMode::Compatibility,
     ))
+}
+
+/// Consume an explicit interrupted receive continuation after startup prerequisites.
+pub fn recover_interrupted_pull(cli: &mut crate::cli::Cli) -> Result<bool> {
+    receive::recover_pull(cli)
 }
 
 pub(crate) fn run_current_with_refresh(
@@ -164,6 +177,9 @@ fn run_current_prepared(
     let current = Version::parse(env!("CARGO_PKG_VERSION"))?;
     let recorded = read_state(&state_path)?;
     let from = recorded.unwrap_or(PRE_MIGRATION_VERSION);
+    if recorded.is_some_and(|version| version < BRAIN_SKILLS_VERSION) {
+        attempt.capture_legacy_roots(&home, &crate::workspace::RegistryStore::real())?;
+    }
     run_with_refresh(
         &home,
         from,
@@ -222,7 +238,17 @@ pub fn run_explicit(from: &str, to: &str) -> Result<()> {
 }
 
 fn run(home: &Path, from: Version, to: Version, reconcile: bool) -> Result<()> {
-    run_with_refresh(home, from, to, reconcile, None, None)
+    let mut attempt = crate::skills::repair::RefreshAttempt::new(
+        crate::skills::reconcile::RefreshMode::Compatibility,
+    );
+    if from < BRAIN_SKILLS_VERSION {
+        attempt.capture_legacy_roots(home, &crate::workspace::RegistryStore::real())?;
+    }
+    run_with_refresh(home, from, to, reconcile, Some(&mut attempt), None)?;
+    if from <= to {
+        task_deletion_skills::up_with_attempt(home, Some(&mut attempt))?;
+    }
+    Ok(())
 }
 fn run_with_refresh(
     home: &Path,
@@ -237,7 +263,10 @@ fn run_with_refresh(
             .iter()
             .filter(|migration| runs_on_upgrade(migration.introduced, from, to))
         {
-            if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+            if matches!(
+                migration.introduced,
+                TASK_DELETION_SKILLS_VERSION | BRAIN_SKILLS_VERSION
+            ) {
                 if let Some(preparation) = preparation.as_deref_mut() {
                     preparation.run()?;
                 }
@@ -259,7 +288,10 @@ fn run_with_refresh(
             .iter()
             .filter(|migration| migration.introduced <= to)
         {
-            if migration.introduced == TASK_DELETION_SKILLS_VERSION {
+            if matches!(
+                migration.introduced,
+                TASK_DELETION_SKILLS_VERSION | BRAIN_SKILLS_VERSION
+            ) {
                 if let Some(preparation) = preparation.as_deref_mut() {
                     preparation.run()?;
                 }

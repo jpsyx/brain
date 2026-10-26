@@ -155,3 +155,9 @@ pub(crate) fn has_managed_region(document: &[u8]) -> Result<bool> {
     let text = std::str::from_utf8(document).context("workspace AGENTS.md is not valid UTF-8")?;
     Ok(parse_region(text)?.is_some())
 }
+
+/// Shape only, not ownership evidence. Callers must first pass package verification.
+pub(crate) fn is_whole_managed_frame(document: &[u8]) -> Result<bool> {
+    let text = std::str::from_utf8(document).context("workspace AGENTS.md is not valid UTF-8")?;
+    Ok(parse_region(text)?.is_some_and(|region| region.entire == (0..text.len())))
+}
