@@ -1,6 +1,6 @@
 ---
 name: brain-knowledge-capture
-description: Use when the user has learned something durable in a conversation and wants it saved into their brain — "capture this", "save what I just learned", "add this to my brain", "write this up as a note", or any time a session produced a reusable insight worth keeping. Distills the knowledge into a clean note and files it via the second-brain PARA rules.
+description: Use when the user has learned something durable in a conversation and wants it saved into their brain - "capture this", "save what I just learned", "add this to my brain", "write this up as a note", or after accepting an offer to capture a reusable insight. Distills the knowledge into a clean note and files it via the organize PARA rules.
 ---
 
 # brain-knowledge-capture
@@ -10,31 +10,14 @@ debugging insight, a mental model the user just built) into a clean,
 reusable note in the user's brain. This is the "harvest what I just
 learned" skill.
 
-Throughout, `<brain>` is the user's brain root — the directory `brain config
-get root` returns (default `~/brain`) — and `<brain-root>/.agents/skills/second-brain/`
-is where `brain skills sync` installs the `/second-brain` skill (with its
-`brain clean`); the lookup rebuild is the native `brain reindex` command.
-These resolve without hardcoding a personal path.
+Own what is worth keeping and how to distill it. Delegate filing to
+[`/organize`](../organize/SKILL.md); route resulting actions to
+[`/todo`](../todo/SKILL.md). Use the selected workspace and effective actor
+from the shared workspace context.
 
-It is a **capture specialist**, not a filing-system authority. It owns
-*what is worth keeping* and *how to write it down well*, and it
-**delegates where the note goes** to the PARA rules in
-[`/second-brain`](../second-brain/SKILL.md). Tasks that fall out of the
-knowledge go to [`/todo`](../todo/SKILL.md). Don't re-derive placement
-rules here; defer to second-brain.
+<a id="personal-assistant-mode"></a>
 
-## Personal-assistant mode
-
-Touching the brain puts you in personal/executive-assistant mode. Load who
-you're assisting: run `brain persona list`, which prints one block per workspace
-member with the person at this machine marked `(this machine)`, and honor their
-`role`/`works_for`
-(both may be unset — then stay neutral). **Top priority: save the user's time.**
-Be blunt and distill hard. Make the obvious calls yourself (topic, filename,
-whether a point is durable) and state them. Ask only when second-brain's rules
-require it (a new subdirectory, a genuinely ambiguous bucket) or when you
-can't judge whether something is durable enough to keep. Batch any
-questions.
+The shared workspace contract supplies assistant context and actor identity.
 
 ## When to use it
 
@@ -48,8 +31,8 @@ questions.
   Never capture unprompted.
 
 Don't invoke this for saving an external artifact (a PDF, a URL, a file)
-with little distillation. That's second-brain's
-["Add a resource"](../second-brain/SKILL.md) command. This skill is for
+with little distillation. That's organize's
+["Add a resource"](../organize/SKILL.md#add-a-resource) command. This skill is for
 knowledge that lives in the *conversation* and needs writing down.
 
 ## What is worth capturing
@@ -91,60 +74,35 @@ written down?"** If no, don't capture it.
    established. Record a hypothesis ("likely a bug, worth verifying") as
    a hypothesis, not a fact. Keep code minimal and runnable.
 
-3. **Classify the bucket** with second-brain's
-   [decision flow](../second-brain/SKILL.md). General learnings default
-   to **`resources/<topic>/`**. Use a **project** folder only when the
-   knowledge was produced *for* an active project and is specific to it;
-   an **area** only when it's about an ongoing responsibility. Torn
-   between "tied to this project" and "generally reusable"? Prefer
-   `resources/` so future work can pull it in (it's an Intermediate
-   Packet; see second-brain).
+3. **Delegate placement to `/organize`.** Use its
+   [placement rules](../organize/SKILL.md#placement). Search existing notes
+   recursively and deduplicate: extend a note only for the same narrow
+   subject; otherwise write a sibling and cross-link. A reusable general
+   learning belongs in resources; project-specific learning stays with its
+   active project. Honor an explicit destination and proceed with routine
+   filing choices already authorized by the capture request.
 
-4. **Find the home recursively, and dedupe.** Before creating anything,
-   search for a note this belongs in or beside:
-   ```
-   fd -t d <topic-or-synonyms> <brain>/resources
-   rg -il '<key terms>' <brain>/resources
-   ```
-   - If a close match exists, **extend or link it** instead of
-     duplicating. Append only when the material clearly belongs in the
-     same narrow subject; otherwise write a sibling note and cross-link.
-   - Nest under the most natural existing parent
-     (`resources/software-engineering/frontend/`, not a new top-level
-     `resources/react/`).
+4. **Resolve real ambiguity.** Ask only for unresolved consequential choices,
+   destructive disposition, or a new configured namespace. Do not ask for
+   approval of every new subdirectory.
 
-5. **Confirm placement only where second-brain requires it.** A new
-   *file* in an existing folder: place it and state where. A topic you
-   picked yourself or a folder you're reusing: state your choice and
-   proceed. A new **subdirectory** (top-level or nested): describe the
-   path and parent, and get explicit confirmation before `mkdir`.
+5. **Check provenance and certainty.** Preserve the context and source of each
+   durable claim, including unresolved hypotheses as hypotheses.
 
 6. **Write the note** with the template below. Lower-kebab-case filename
-   describing the subject. Every brain file you mention gets a relative
-   markdown link. Close with a `See also` section when the note has
-   genuinely related neighbours (see
-   [the rule below](#add-a-see-also-section-when-theres-something-worth-linking)).
+   describing the subject. Use relative links inside the saved note for real related material
+   discovered by organize, without inventing tenuous connections.
 
-7. **Reindex, then clean up.** If you wrote a `.METADATA.json` under
-   `resources/` or `projects/`, run the matching
-   [reindex](../second-brain/SKILL.md):
-   ```
-   brain reindex --resources
-   ```
-   A plain prose note in an existing topic folder needs no reindex (the
-   lookup CSVs track reference-manager items, not every note). Always
-   finish with the byproduct cleanup:
-   ```
-   brain clean
-   ```
+7. **Apply organize's [reindex decision](../organize/SKILL.md#reindex).**
+   Plain unindexed prose needs no lookup rebuild.
 
-8. **Reply** with a one-line summary of what you captured and a relative
-   markdown link to the note.
+8. **Report the result.** Describe the knowledge captured, its provenance,
+   saved destination, and any tasks created or uncertainties retained.
 
 ## Note template
 
 ```
-# <Subject — what the reader learns>
+# <Subject - what the reader learns>
 
 Source: Captured from a <session kind> on <YYYY-MM-DD>.
 <one line of provenance: what prompted it>
@@ -169,35 +127,18 @@ is the reusable part.>
 
 ## See also   (only when there are genuinely related neighbours)
 
-- [related note](relative/path/to/note.md) — one line on why it's relevant
+- [related note](relative/path/to/note.md) - one line on why it's relevant
 ```
 
 Adapt the sections to the content. A small insight can be just the H1,
 the framing, and one principle. Don't pad to fill the template.
 
-## Add a "See also" section when there's something worth linking
+<a id="add-a-see-also-section-when-theres-something-worth-linking"></a>
 
-**Before finishing a note, search the brain for genuinely related
-material and, if you find any, cross-link it in a `See also` section**
-(notes, files, or directories). The brain's value compounds through
-connections, so a note with real neighbours should join the graph.
+## Related material
 
-This is **not** mandatory. The gate is relevance, not obligation:
-
-- Search for neighbours first (`fd`/`rg` over `<brain>` for the topic and
-  its synonyms, plus the sibling files in the destination folder). Don't
-  skip the search; that's how you find the links worth making.
-- **Link only what truly relates.** A reader following the link should
-  land on something that meaningfully connects, not a word-match. A few
-  strong links beat a long list of weak ones.
-- **If an honest search finds nothing relevant, omit the section.** Don't
-  invent tenuous links or pad it to look connected. No `See also` is the
-  right outcome for a note with no real neighbours.
-- When you do link: notes, non-markdown files, and directories are all
-  valid targets (a related PDF, a dataset, a whole topic folder), always
-  via **relative markdown links** (a directory link ends in `/`). The
-  shape to aim for: a note that links a sibling note and an adjacent
-  directory, each with a one-line reason for the link.
+Use [organize](../organize/SKILL.md#add-a-resource) for the neighbor search
+and relevant cross-links; omit `See also` when there are no real neighbors.
 
 ## Provenance
 
@@ -217,8 +158,3 @@ issue tracker, a PR, a doc), name or link it.
 | New top-level `resources/<topic>/` when a nested home exists  | Search recursively; nest under the natural parent.                  |
 | Recording a hypothesis as established fact                    | Mark uncertainty; capture only what was verified.                   |
 | Headlining the resolution of a terminology mix-up             | Re-read through the user's later clarification; keep the clean "X′ vs Y", not "X vs Y was wrong". |
-| Bare path or filename when referencing a note                 | Use a relative markdown link so the user can jump to it.            |
-| Skipping the neighbour search, so real cross-links get missed | Always `fd`/`rg` for related material; add `See also` when you find genuinely relevant notes/files/dirs. |
-| Padding `See also` with tenuous links to look connected       | Relevance is the gate. Link only what truly relates; if nothing does, omit the section. |
-| Creating a new subdirectory without confirming                | New *files* are fine to place; new *subdirs* need confirmation.     |
-| Forgetting cleanup after touching the brain                   | End every run with `brain clean`. |

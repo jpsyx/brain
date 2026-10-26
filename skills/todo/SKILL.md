@@ -59,7 +59,7 @@ tasks.csv (+ habits.csv) is the single source of truth for tasks.
   ask for the broader scope if they meant it.
 - **Golden rule: no sub-tasks in tasks.csv.** A task that wants
   sub-tasks is a project — offer `/todo turn-into-project`. See
-  [task-project-link.md](references/task-project-link.md).
+  [task-project-link.md](../projects/references/task-project-link.md).
 - **Backlog ⇒ no dates, ever (hard invariant — backlog and dates are
   mutually exclusive).** A `status=backlog` item carries **no schedule**:
   empty `due_date`, empty `start_date`, `hard_deadline=false`, empty
@@ -1221,7 +1221,7 @@ and a warning ladder), a `todo:cutoff` extension defines it — including which
 generation reads directly from `tasks.csv` / `habits.csv` and is
 tightly coupled to task state (MITs, hard deadlines, defer counts,
 suggested order). Splitting it into a separate skill would either
-duplicate the task-reading logic or force /agenda to re-load /todo
+duplicate the task-reading logic or force `/todo agenda` to reload task context
 every time. Keeping it inside /todo means one skill load covers
 both. Revisit if /todo grows past ~600 lines and the agenda
 section becomes the bulk of it.
@@ -1242,7 +1242,7 @@ load-bearing ones:
   entry point.)
 - **`/todo turn-into-project <task>`** — convert oversized task to
   project + sub-tasks. See
-  [task-project-link.md](references/task-project-link.md).
+  [task-project-link.md](../projects/references/task-project-link.md).
   Every conversion (whether triggered here, by `/triage`, or any
   other flow) MUST end with: (a) each proposed sub-task written as
   a row in `tasks.csv` with `project=<slug>`, (b) the project's
@@ -1271,7 +1271,7 @@ load-bearing ones:
   (`brain backlog restore <task>`); set a fresh `due_date`/`priority`
   after.
 - **`/todo reindex`** — apply automation rules + cleanup. Mirrors what
-  `/second-brain reindex` runs for tasks.
+  `/organize reindex` runs for tasks.
 
 ### Remove tasks
 
@@ -1343,7 +1343,7 @@ automation and garbage collection.
 ## Reindex / automation rules
 
 See [references/sync-rules.md](references/sync-rules.md). Both this
-skill and `/second-brain` execute the same rules via
+skill and `/organize` execute the same rules via
 `brain tasks lint` +
 `brain habits cleanup`.
 
@@ -1602,8 +1602,8 @@ any of it is. Some of what lands there is reference material and becomes a
 note; some of it is an **action** and belongs here instead. Filing an action
 as a note buries it, so the classification matters.
 
-`/second-brain` owns the in-basket and its processing pass; see
-[its `capture/` section](../second-brain/SKILL.md#capture--the-users-in-basket-not-a-para-bucket)
+`/process-capture` owns the in-basket and its processing pass; see
+[its `capture/` section](../process-capture/SKILL.md)
 and [the weekly capture pass](../triage/SKILL.md#1b--the-capture-in-basket).
 This section is only the task half of that handoff.
 
@@ -1618,14 +1618,14 @@ This section is only the task half of that handoff.
   sense in three weeks, and put the original wording in `notes` when the
   paraphrase loses something.
 - **Keep the material with the task.** When the same captured item also
-  produced a note, file the note through `/second-brain` and put its path in
+  produced a note, file the note through `/organize` and put its path in
   the task's `see_also`, so the task carries its context instead of pointing
   at a directory the item has already left.
 - **Multi-step scope is a project, not a task.** A captured item with scope
   verbs (`launch`, `build`, `migrate`, `research`) or several checkboxes goes
   through `/todo turn-into-project`: the golden rule against sub-tasks in
   `tasks.csv` applies exactly as it does to any other source. See
-  [task-project-link.md](references/task-project-link.md).
+  [task-project-link.md](../projects/references/task-project-link.md).
 - **The in-basket is not a holding pen.** Once the task exists, the captured
   item leaves `capture/`; it does not stay there as a reminder. The task *is*
   the reminder. An item the user can't decide about becomes a task naming the
@@ -1689,15 +1689,15 @@ you MUST ask the follow-up (via `AskUserQuestion`):
   whole project?"
 - **Backlogging would empty the project** (it was the last active task, or
   the user chose "whole project") → ask: "archive the project too?" If yes,
-  archive it per `/second-brain` conventions (move to `archive/` mirroring
-  its path, set `.METADATA.json:status`) AND backlog every one of its
-  tasks.
+  follow [`/projects archive`](../projects/SKILL.md#archive), including its
+  IP/completion and linked-task gates, and backlog the agreed tasks through
+  native commands.
 - **"Backlog this project"** (user names a project, not a task) → interpret
   as: **archive the project + move all its tasks to the backlog.** Confirm
   once, then do both.
 
 Keep the brain project and tasks.csv consistent throughout — same rule as
-project conversion (see [task-project-link.md](references/task-project-link.md)).
+project conversion (see [task-project-link.md](../projects/references/task-project-link.md)).
 
 **Backlog ↔ external tracker.** The "Backlog ⇒ no dates" invariant applies
 to a linked tracker too: parking a task should leave no live deadline on the
@@ -1755,7 +1755,7 @@ Offer the user help proactively when:
   candidate is itself a signal worth pausing on.
 - **The user mentions something they "dropped in capture"**, or you notice
   unprocessed material in `<brain>/capture/` while working → offer to
-  process the in-basket (`/second-brain` ["Process capture"](../second-brain/SKILL.md#process-capture--move-this-into-my-brain)),
+  process the in-basket (`/process-capture` ["Process capture"](../process-capture/SKILL.md#process)),
   and create tasks for whatever in it turns out to be an action. Don't file
   an action as a note to get the in-basket empty.
 - **5+ chronic-ignore hits at once** (run
@@ -1766,7 +1766,7 @@ Offer the user help proactively when:
 ## When in doubt
 
 - Read [commands.md](references/commands.md) for the full command map.
-- Read [task-project-link.md](references/task-project-link.md) for
+- Read [task-project-link.md](../projects/references/task-project-link.md) for
   anything touching projects.
 - Run `brain tasks lint` (dry-run) before mutating to see what
   state the system is in.

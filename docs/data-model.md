@@ -26,7 +26,7 @@ Archive sorts last, because it's retired material that stays searchable
 without crowding live work.
 
 `capture/` is a bucket for *search* only. It is not a PARA destination:
-nothing is ever filed **into** it, and the `second-brain` skill routes items
+nothing is ever filed **into** it, and the `process-capture` skill routes items
 out of it into `projects/` / `areas/` / `resources/`, or into the task system.
 Brain guarantees only that the directory exists
 (`workspace::ensure_capture_directory`); its contents and their naming belong
@@ -2339,7 +2339,7 @@ The `brain persona show` block is the **skill-lookup contract**: a stable,
 keyed `user:`/`name:`/`role:`/`works_for:`/`namespaces:` text block that
 identity-dependent skills read at runtime to learn who they serve. The
 `namespaces:` line always shows the *effective* set (the configured list, or the
-generic defaults when unset), so a skill like `second-brain` always sees a usable
+generic defaults when unset), so a skill like `projects` always sees a usable
 namespace list. `brain persona list` emits one such block per member,
 blank-line separated, marking the local person `(this machine)`; a member of
 `users.json` with no entry still gets a block of `(unset)` values, and a stored
@@ -2694,7 +2694,7 @@ All paths are relative to the brain root. `original_exists` and each copy's
 `modified`/`bytes` are read off the filesystem by injected closures (kept out
 of the pure builder for testability); a copy whose metadata can't be read
 serializes `modified`/`bytes` as JSON `null` rather than omitting the fields.
-No groups at all serializes as `[]`. This is the shape the `/second-brain
+No groups at all serializes as `[]`. This is the shape the `/brain-sync
 resolve-conflicts` skill parses; see [integrations.md](integrations.md) for
 the resolve side of the contract.
 

@@ -154,7 +154,7 @@ mod tests {
             .find(|skill| skill.name == "brain-skills")
             .expect("brain-skills guide should be embedded");
         let text = skill_md_text(guide);
-        assert!(text.contains("<brain-root>/.agents/skills/<skill-name>/"));
+        assert!(text.contains("<brain-root>/.config/plugins/<skill-name>/SKILL.md"));
         assert!(text.contains("brain skills sync"));
     }
 
@@ -170,8 +170,11 @@ mod tests {
             text.contains("# brain-knowledge-capture"),
             "has the heading"
         );
-        // It delegates placement to second-brain rather than re-deriving PARA.
-        assert!(text.contains("second-brain"), "delegates to /second-brain");
+        // Placement has one focused owner.
+        assert!(
+            text.contains("../organize/SKILL.md"),
+            "delegates to organize"
+        );
     }
 
     #[test]
@@ -190,85 +193,15 @@ mod tests {
         );
         // The contacts book is its own sibling skill now.
         assert!(text.contains("/contacts"), "points at the /contacts skill");
-        // Namespaces are runtime config (onboarding checklist), not hardcoded,
-        // and a shared workspace has one persona per member.
-        assert!(
-            text.contains("brain persona show"),
-            "reads namespaces/identity at runtime"
-        );
-        assert!(
-            text.contains("brain persona list"),
-            "reads every member's persona, not just one"
-        );
-        for hook in [
-            "second-brain:company-context",
-            "second-brain:reference-manager",
-        ] {
-            assert!(
-                text.contains(&format!("brain:ext {hook}")),
-                "declares the `{hook}` extension hook"
-            );
+        for owner in ["projects", "process-capture", "organize", "brain-sync"] {
+            assert!(skills.iter().any(|skill| skill.name == owner));
+            assert!(text.contains(&format!("../{owner}/")));
         }
-        // Cloud-sync (brain sync) commands, distinct from the lookup-CSV
-        // `/second-brain reindex` above. (The docs/ writeup for the broader
-        // cloud-sync feature lands in a separate docs task.)
-        assert!(
-            text.contains("/second-brain cloud-sync"),
-            "documents /second-brain cloud-sync"
-        );
-        assert!(
-            text.contains("/second-brain resolve-conflicts"),
-            "documents /second-brain resolve-conflicts"
-        );
-        assert!(
-            text.contains("brain sync conflicts --json"),
-            "documents the conflicts --json invocation"
-        );
-        assert!(
-            text.contains("brain sync resolve"),
-            "documents brain sync resolve"
-        );
-        assert!(
-            text.contains("different operation from"),
-            "documents the cloud-sync vs lookup-sync distinction"
-        );
-        assert!(
-            text.contains("\"sync my brain\"") && text.contains("\"pull latest brain changes\""),
-            "user-directed sync phrases route to the cloud sync workflow"
-        );
-        assert!(
-            !text.contains("a bare \"sync my brain\" with no signal"),
-            "the direct user phrase must not trigger an unnecessary clarification"
-        );
-        // The local lookup/metadata rebuild is named "reindex", so "sync"
-        // unambiguously means cloud sync everywhere. It is the native
-        // `brain reindex` command — the old `/second-brain sync` name and the
-        // never-shipped `sync.py` / `reindex.py` scripts are gone.
-        assert!(
-            text.contains("/second-brain reindex"),
-            "documents the renamed /second-brain reindex operation"
-        );
-        assert!(
-            text.contains("brain reindex"),
-            "invokes the native brain reindex command"
-        );
-        assert!(
-            !text.contains("reindex.py"),
-            "no stale reindex.py script references"
-        );
-        assert!(
-            !text.contains("sync.py"),
-            "no stale sync.py references remain"
-        );
-        assert!(
-            !text.contains("/second-brain sync"),
-            "the old /second-brain sync (lookup-rebuild) name is gone"
-        );
-        // A bare "do a sync" now routes straight to cloud sync.
-        assert!(
-            text.contains("\"do a sync\""),
-            "a bare 'do a sync' request routes to the cloud sync workflow"
-        );
+        let organize = skills
+            .iter()
+            .find(|skill| skill.name == "organize")
+            .unwrap();
+        assert!(skill_md_text(organize).contains("brain:ext organize:reference-manager"));
     }
 
     #[test]

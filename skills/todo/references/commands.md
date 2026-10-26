@@ -46,7 +46,7 @@ row without changing its immutable `task_uuid`.
   Required: `recur_interval` + `recur_unit`. No `defer_count`,
   `start_date`, `blocked_by`, or `task_type` on habits.
 - **`/todo add-to-project <project> "<freetext>"`** — like `add` but
-  with `project` pre-filled. See [task-project-link.md](task-project-link.md).
+  with `project` pre-filled. See [task-project-link.md](../../projects/references/task-project-link.md).
 - **`/todo remove <task>`**: preview explicit targets with
   `brain tasks remove T17 --dry-run --json`, obtain consent for the selected
   policies, then apply through the native CLI. Dependency, reference, and project
@@ -183,7 +183,7 @@ assistant first.
 
 ## Project linkage
 
-See [task-project-link.md](task-project-link.md) for the full doc.
+See [task-project-link.md](../../projects/references/task-project-link.md) for the full doc.
 
 - **`/todo turn-into-project <task>`** — conversion workflow.
 - **`/todo link <task> <project>`** — bidirectional link.
@@ -218,9 +218,9 @@ agent-tool cancellation. See [Remove tasks](../SKILL.md#remove-tasks).
 
 - **`/todo reindex`** — runs `brain tasks lint --fix` +
   `brain habits cleanup`. Same code paths invoked by
-  `/second-brain reindex`.
-- **`/second-brain reindex`** — runs the full brain reindex, including
-  tasks. See `../second-brain/SKILL.md`.
+  `/organize reindex`.
+- **`/organize reindex`** - runs the full brain reindex, including
+  tasks. See [organize reindex](../../organize/SKILL.md#reindex).
 
 ## Natural-language matching cheat sheet
 

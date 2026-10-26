@@ -1,45 +1,27 @@
 ---
 name: contacts
-description: Use when the user asks about a person or service provider in their contacts book — "what's Maria's number?", "who is my accountant?", "what's my plumber's email?", "add a contact", "update so-and-so's address" — or any read/write to the local contacts CSV at `resources/contacts/`. Handles add / edit / delete / search / list via a deterministic CLI.
+description: Use when the user asks about a person or service provider in their contacts book - "what's Maria's number?", "who is my accountant?", "what's my plumber's email?", "add a contact", "update so-and-so's address" - or any read/write to the local contacts CSV at `resources/contacts/`. Handles add / edit / delete / search / list via a deterministic CLI.
 ---
 
 # contacts
 
-The brain keeps a **local contacts book** — the user's people and
-service providers — at `<brain>/resources/contacts/`. This skill owns
-looking people up and keeping that book clean. It is a sibling of
-[`/second-brain`](../second-brain/SKILL.md) (which references it for
-contact lookups) and shares its brain-mutation conventions.
-
-Throughout, `<brain>` is the user's brain root (`brain config get root`,
-default `~/brain`). `brain contacts` is
-this skill's CLI as installed by `brain skills sync`.
-
-> **Non-negotiables for every contacts request (read before answering):**
-> 1. **Handle it through this skill — never freelance.** Do the lookup
->    with `brain contacts` (`find`/`get`/`list`), *not* by `cat`/`grep`/
->    hand-reading `contacts.csv`, and reach any configured fallback only
->    via the documented path (`brain contacts fallback`), *not* by a raw guess
->    against another tool. The CLI is the only sanctioned path.
-> 2. **Every lookup answer is a markdown table** — see
->    [Presenting lookup results](#presenting-lookup-results--always-a-table).
->    No exceptions, including a "quick" one-field answer like a single
->    phone number. Prose-only replies are a bug.
->
-> If you catch yourself about to answer a contacts question without
-> having run `brain contacts`, stop and restart through the CLI.
+The selected workspace's contact book lives at `<brain>/resources/contacts/`.
+Use `brain contacts find`, `get`, or `list` for every lookup. Memory may help
+choose the query but never replaces canonical lookup. Do not hand-read the CSV
+or guess against a fallback service; discover any configured fallback through
+`brain contacts fallback` and the hook below.
 
 ## Storage
 
 The contacts book lives at `<brain>/resources/contacts/`:
 
-- `contacts.csv` — one row per contact, keyed by a stable `id`
+- `contacts.csv` - one row per contact, keyed by a stable `id`
   (`C001`, `C002`, …).
-- `contacts.config.json` — column list + an optional fallback pointer
+- `contacts.config.json` - column list + an optional fallback pointer
   (see [Lookup precedence](#lookup-precedence--local-csv-first-then-fallback)).
   Named `contacts.config.json`, *not* `.METADATA.json`, so the
-  second-brain resources sync never sweeps it into a lookup index.
-- `README.md` — human-facing summary.
+  resource reindex never sweeps it into a lookup index.
+- `README.md` - human-facing summary.
 
 All mutations go through the **deterministic CLI**, never by hand:
 
@@ -52,7 +34,7 @@ address, tags, birthday, notes, created_date, last_updated`. `job`,
 `company`, `email`, `phone`, `preferred_comms` (`email`/`whatsapp`/
 `phone`), and `notes` mirror the common fields of an external people DB;
 the rest are additions (`address`, `tags` semicolon-separated,
-`birthday`, and the `id`/timestamp bookkeeping the script maintains
+`birthday`, and the `id`/timestamp bookkeeping the CLI maintains
 automatically).
 
 ## Commands
@@ -78,9 +60,9 @@ the affected record as JSON. **Confirm before `delete`**, and before an
 
 Support both, using `find`:
 
-- **By name** — "What is Patrick's address?", "Give me Maria's number"
+- **By name** - "What is Patrick's address?", "Give me Maria's number"
   → `brain contacts find "patrick"`, then read the requested field.
-- **By role / other field** — "Who is my accountant?", "What's my
+- **By role / other field** - "Who is my accountant?", "What's my
   plumber's number?", "Who do we use for X?"
   → `brain contacts find accountant --field job` (or search all fields).
   The `job` column is the key for role lookups.
@@ -89,92 +71,37 @@ Support both, using `find`:
 email, phone, address, tags, and notes, so queries anchored on any
 field work.
 
-## Lookup precedence — local CSV first, then fallback
+<a id="lookup-precedence--local-csv-first-then-fallback"></a>
+
+## Lookup precedence
 
 When the user asks for a contact's name / email / phone / address (by
 name **or** by role):
 
-1. **Check memories first** — if a `[[...]]` memory already holds the
-   answer, use it.
-2. **Search the local CSV** — `brain contacts find …`. This is the source
-   of truth and always wins.
+1. Use remembered context only to choose an identifying name or role query.
+2. Search with `brain contacts find`; the local record is authoritative.
+3. If no local match exists, inspect `brain contacts fallback` before using
+   any configured fallback through its documented integration.
 
 <!-- brain:ext contacts:fallback -->
 
 If the local CSV has no match and no fallback is configured, say so
 plainly rather than guessing.
 
-## Presenting lookup results — always a table
+<a id="presenting-lookup-results--always-a-table"></a>
 
-Whenever you answer a contact lookup (by name or by role), **present the
-result as a clearly formatted markdown table** so it's easy to read and
-easy to relocate later by scrolling the chat transcript. This applies to
-every retrieval answer, not just mutations — **including trivial
-single-field answers** ("what's her number?"). There is no lookup
-small enough to skip the table; a bare prose answer is a defect.
+## Presenting lookup results
 
-Rules for the table:
-
-- **Lead with one short sentence** naming who was found (e.g. "Your
-  accountant is **Nam Nguyen** (Premier Tax Advisors)."), then the
-  table. Keep any caveats *below* the table.
-- **One column per contact, fields as rows** (transposed) when
-  returning one or two contacts — it reads best and keeps long
-  values like email/address on their own line. With three or more
-  matches, use **one row per contact** with columns for the fields
-  that matter to the question.
-- **Include the fields the user needs plus the standard identifiers.**
-  At minimum: Name, Job, Company, Email, Phone/WhatsApp, Preferred
-  comms. Add Address / Notes / tags when relevant to the question or
-  present in the record. Omit fields that are empty for every match
-  rather than showing blank rows.
-- **Render email, phone, and address as inline code** (backticks) so
-  the user can select and copy them cleanly from the terminal.
-- **Note the source** in a trailing line under the table when the
-  match came from a fallback rather than the local CSV, so the user
-  knows it isn't in their contacts book yet.
-
-Transposed shape (one or two contacts):
-
-```markdown
-Your accountant is **Nam Nguyen** (Premier Tax Advisors).
-
-|                | Nam Nguyen |
-|----------------|------------|
-| Job            | Accountant; CPA/Taxes |
-| Company        | Premier Tax Advisors |
-| Email          | `nam@premiertaxadvisors.com` |
-| Phone/WhatsApp | `(408) 513-5537` |
-| Preferred comms| Email |
-```
-
-Row-per-contact shape (three or more matches):
-
-```markdown
-Found 3 contacts matching "plumber":
-
-| Name | Company | Phone/WhatsApp | Preferred comms |
-|---|---|---|---|
-| … | … | `…` | … |
-```
-
-This is a **display convention only** — it does not replace the
-[additions table](../second-brain/SKILL.md#always-end-with-an-additions-table)
-required after a mutation. A pure lookup (no add/edit/delete) ends with
-the contact table above; a lookup that then saves a contact still ends
-with the additions table per [After any contacts mutation](#after-any-contacts-mutation).
+Return the requested facts first and identify the matching person. Include
+relevant available identifiers: Name, Job, Company, Email, Phone/WhatsApp, and
+Preferred comms; add Address, Notes, or tags when useful. Omit fields empty for
+every match. For multiple matches, distinguish candidates and resolve ambiguity
+before mutation. Preserve exact contact values and disclose when a result came
+from a fallback rather than the local book. Never fabricate a missing field.
+These are content requirements; the workspace response policy determines
+presentation and how much supporting detail fits the active channel.
 
 ## After any contacts mutation
 
-Adding / editing / deleting a contact is a brain change: end the
-response with the
-[additions table](../second-brain/SKILL.md#always-end-with-an-additions-table)
-(path `<brain>/resources/contacts/contacts.csv`) and run the
-[byproduct cleanup](../second-brain/SKILL.md#end-of-session-clean-up-tool-byproducts):
-
-```
-brain clean
-```
-
-No `brain reindex` run is needed — the contacts CSV is a standalone book, not
-a derived lookup index.
+Report the changed record, fields, and actual outcome. No `brain reindex`
+run is needed: the contacts CSV is a standalone book, not a derived lookup.

@@ -1,0 +1,48 @@
+use std::collections::BTreeMap;
+
+pub type Documents = BTreeMap<String, String>;
+
+pub fn documents(rendered: bool) -> Documents {
+    let mut documents = Documents::new();
+    for skill in brain::skills::embed::bundled_skills() {
+        let files: Vec<_> = if rendered {
+            brain::skills::render::render(&skill, None)
+                .into_iter()
+                .map(|file| (file.rel_path, file.contents))
+                .collect()
+        } else {
+            skill
+                .files
+                .into_iter()
+                .map(|file| (file.rel_path, file.contents))
+                .collect()
+        };
+        for (path, contents) in files {
+            if path.extension().is_some_and(|extension| extension == "md") {
+                documents.insert(
+                    format!("{}/{}", skill.name, path.display()),
+                    String::from_utf8(contents).unwrap(),
+                );
+            }
+        }
+    }
+    documents
+}
+
+#[test]
+fn focused_workflows_are_available_in_source_and_rendered_catalogs() {
+    for rendered in [false, true] {
+        let documents = documents(rendered);
+        for name in ["projects", "process-capture", "organize", "brain-sync"] {
+            let path = format!("{name}/SKILL.md");
+            let body = documents
+                .get(&path)
+                .unwrap_or_else(|| panic!("missing {path}, rendered={rendered}"));
+            assert!(body.starts_with(&format!("---\nname: {name}\n")));
+            assert!(
+                !super::markdown::links(body).is_empty(),
+                "{path} must route to its real collaborators/references"
+            );
+        }
+    }
+}

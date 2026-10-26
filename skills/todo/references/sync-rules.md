@@ -8,8 +8,8 @@ Tasks Tracker used, plus the local-only rules this system adds.
 Run via:
 
 - `/todo reindex` — applies all rules to tasks.csv + habits.csv.
-- `/second-brain reindex` — same, plus projects + zotero. See
-  `../second-brain/SKILL.md`.
+- `/organize reindex` - same, plus projects + zotero. See
+  [organize reindex](../../organize/SKILL.md#reindex).
 - `brain tasks lint [--fix]`
   — dry-run by default; pass `--fix` to write corrections.
 
@@ -80,7 +80,7 @@ Run via:
 The `--fix` mode patches the reverse direction (writes missing
 `task_id`s into `.METADATA.json`). It never silently drops a CSV row,
 never invents a project, never mutates the forward link — those need
-the user. See [task-project-link.md](task-project-link.md).
+the user. See [task-project-link.md](../../projects/references/task-project-link.md).
 
 ## Warnings (logged, no mutation)
 
@@ -90,7 +90,9 @@ the user. See [task-project-link.md](task-project-link.md).
     `notes` triggers a "consider /todo turn-into-project" hint.
     Golden rule: **no sub-tasks in tasks.csv**.
 
-## Order of operations in `/second-brain reindex`
+<a id="order-of-operations-in-second-brain-reindex"></a>
+
+## Order of operations in `/organize reindex`
 
 ```
 1. projects   (existing — projects-lookup.csv)
@@ -104,5 +106,5 @@ up to date for link validation.
 ## Reindex is not a write-by-default tool
 
 Without `--fix`, reindex is read-only and reports issues. Production
-runs (`/second-brain reindex`) call `--fix` automatically; ad-hoc CLI
+runs (`/organize reindex`) call `--fix` automatically; ad-hoc CLI
 invocations are dry-run by default so you can preview before mutating.

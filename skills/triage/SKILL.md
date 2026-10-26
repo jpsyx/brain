@@ -91,7 +91,7 @@ time.** Group first, walk individuals only when grouping doesn't apply. Be
 blunt. Make obvious decisions. Ask the user only when you genuinely can't
 proceed — and when you ask, batch questions and keep them short.
 
-Sibling skills: /todo (tasks + agenda), /second-brain (knowledge management). All engage the same assistant mode.
+Sibling skills: /todo (tasks + agenda), /projects, /process-capture, /organize, /brain-sync (knowledge workflows). All engage the same assistant mode.
 
 ## Modes
 
@@ -239,7 +239,7 @@ The full action vocabulary (`defer +14d`, `defer to date`, `mit`, `change-priori
   ⚠ deferred 4 times already — drop it, or commit to a firm date?
 ```
 
-Recognize when the user wants to convert to a project (see [task-project-link.md](../todo/references/task-project-link.md) conversion triggers). If `estimated_duration > 90` or the task has scope verbs, suggest `/todo turn-into-project` instead of deferring again.
+Recognize when the user wants to convert to a project (see [task-project-link.md](../projects/references/task-project-link.md) conversion triggers). If `estimated_duration > 90` or the task has scope verbs, suggest `/todo turn-into-project` instead of deferring again.
 
 ## Step 5 — Hard-deadline review
 
@@ -316,7 +316,7 @@ options:  Start now / Defer +7d / Drop / Convert to project
 - **start-now** — set `start_date=today` and `status=in_progress`. Use when the user commits to begin now.
 - **defer +Nd / defer to date** — push `due_date`, increments `defer_count` (except no-penalty defers: `status=waiting` or non-empty `blocked_by` push without raising the count). **Hard-deadline tasks require explicit confirm** (same rule as Step 5): pause and ask whether the hard deadline still holds before deferring.
 - **drop**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)).
-- **convert-to-project** — when `estimated_duration > 90` or scope verbs (`launch`, `build`, `migrate`, `research`) — suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md).
+- **convert-to-project** - when `estimated_duration > 90` or scope verbs (`launch`, `build`, `migrate`, `research`) - suggest `/todo turn-into-project` per [task-project-link.md](../projects/references/task-project-link.md).
 - **skip** — acknowledge, no change. Use when the user is aware and chooses to leave it.
 
 ### Skipping the whole pass
@@ -376,7 +376,7 @@ Actions:
 - **`drop`**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)). Use as default.
 - **`revive`** — bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" — they'll get another 21 days before it reappears. Script: `brain tasks touch <T###>`.
 - **`start-now`** — set `status=in_progress` and `start_date=today` (the underlying scripts will also touch the row). Use when the user commits to begin now.
-- **`convert-to-project`** — when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../todo/references/task-project-link.md). Note: don't reflexively convert — converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.
+- **`convert-to-project`** - when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../projects/references/task-project-link.md). Note: don't reflexively convert - converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.
 - **`defer to date`** — push `due_date` to a real date with a real commitment. Hard-deadline rows still require the Step 5 confirmation.
 - **`skip`** — no change. The clock keeps ticking; it'll surface again next triage.
 
@@ -529,8 +529,8 @@ from 1b.
 2. **Walk it top to bottom**, splitting into discrete items at natural boundaries (paragraph breaks, blank lines, bullet groups, headings). Treat each coherent chunk as one item.
 3. **For each item, classify** as TASK, NOTE, or UNSURE — see [Classification rules](#classification-rules).
 4. **Process** (these three routes are the shared routing rules 1b reuses):
-   - **TASK** → invoke `/todo` to create the task with the best-guess fields (priority, due_date, task_type, duration). If the item is clearly a project (multi-step, scope verbs like `launch`/`build`/`migrate`/`research`, multiple checkboxes), CONFIRM with the user and run `/todo turn-into-project`. When creating sub-tasks of a converted project, set `blocked_by` relationships explicitly per [task-project-link.md](../todo/references/task-project-link.md).
-   - **NOTE** → place it in the appropriate `/second-brain` location (project / area / resource). Use the `second-brain` skill's decision flow. Create a new subdirectory only if no existing home fits, and ask for confirmation only when you're genuinely unsure. Pair PDFs/media with their notes per the brain conventions.
+   - **TASK** → invoke `/todo` to create the task with the best-guess fields (priority, due_date, task_type, duration). If the item is clearly a project (multi-step, scope verbs like `launch`/`build`/`migrate`/`research`, multiple checkboxes), CONFIRM with the user and run `/todo turn-into-project`. When creating sub-tasks of a converted project, set `blocked_by` relationships explicitly per [task-project-link.md](../projects/references/task-project-link.md).
+   - **NOTE** → place it in the appropriate `/organize` location (project / area / resource). Use the `organize` skill's placement rules. Create a new subdirectory only if no existing home fits, and ask for confirmation only when you're genuinely unsure. Pair PDFs/media with their notes per the brain conventions.
    - **UNSURE** → ask the user a single specific question: "Found '<short paraphrase>' — looks like it could be X or Y. What did you mean?" Move on to the next item while waiting if the user is batching answers.
 5. **Remove the item from scratch.md** once it's been routed. Edit `<brain>/scratch.md` as you go.
 6. At the end of 1a, `<brain>/scratch.md` should be **empty** (or contain only items the user explicitly chose to leave — but see [Deferring ≠ leaving in the inbox](#deferring--leaving-in-the-inbox)).
@@ -543,8 +543,8 @@ named however they felt like naming it. It is a **directory tree, not a
 file**, so it needs its own walk; the routing decisions are the same three
 routes as 1a step 4.
 
-`/second-brain` owns the full procedure. Follow
-[its "Process capture" flow](../second-brain/SKILL.md#process-capture--move-this-into-my-brain)
+`/process-capture` owns the full procedure. Follow
+[its "Process capture" flow](../process-capture/SKILL.md#process)
 rather than re-deriving it here. The parts that matter most for a weekly
 pass:
 
@@ -565,7 +565,7 @@ pass:
    unrelated things (a meeting note, a book recommendation, and a to-do)
    that belong in three different places. The unit you route is the idea, not
    the file. See
-   [A file is not a note](../second-brain/SKILL.md#a-file-is-not-a-note).
+   [A file is not a note](../process-capture/SKILL.md#a-file-is-not-a-note).
 4. **Classify each item** as TASK, NOTE, or UNSURE using the same
    [Classification rules](#classification-rules), and route it through the
    same three routes as 1a step 4. Some captured material is reference (a
@@ -584,8 +584,8 @@ pass:
    item the user can't decide about does not stay here: create a task naming
    the decision and move the item to a real home, per
    [Deferring ≠ leaving in the inbox](#deferring--leaving-in-the-inbox).
-7. **Report what moved.** `/second-brain`'s
-   [additions table](../second-brain/SKILL.md#always-end-with-an-additions-table)
+7. **Report what moved.** The workspace response policy's
+   changes summary
    covers everything this pass filed; include it with the weekly summary.
 
 <!-- brain:ext triage:weekly-inboxes -->
@@ -723,4 +723,4 @@ For a `capture/` item the same move also needs a home for the *material*: file i
 
 ## Reference
 
-See [references/heuristics.md](references/heuristics.md) for the original daily-triage heuristics document (preserved for historical reference and richer examples). The task ↔ project linkage rules used during weekly TASK routing live in [/todo's task-project-link.md](../todo/references/task-project-link.md).
+See [references/heuristics.md](references/heuristics.md) for the original daily-triage heuristics document (preserved for historical reference and richer examples). The task ↔ project linkage rules used during weekly TASK routing live in [canonical task-project linkage](../projects/references/task-project-link.md).

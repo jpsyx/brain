@@ -2340,7 +2340,7 @@ brain-root lookup.
   re-derives `ConflictGroup`/`ParsedCopy` from the on-disk friendly names via
   `conflicts::parse_conflict_name` + `conflicts::group_conflicts`, so the
   themed human list and `--json` agree on which files are real conflict copies.
-  `--json` is the structured enumerator the `/second-brain resolve-conflicts`
+  `--json` is the structured enumerator the `/brain-sync resolve-conflicts`
   skill (and any other agent) consumes: `command::conflicts_json` renders each
   group as `{ "original", "original_exists", "copies": [{ "path", "host",
   "date", "modified", "bytes" }] }` (paths relative to the brain root;

@@ -1033,6 +1033,17 @@ recovery and fallible success stamping), `prune` (pure stale-name selection),
 `reconcile` (registry enumeration and receipt-aware refresh), `receipt` (the UUID state DB binding),
 `repair` (one invocation-owned refresh result and aggregate rendering), and
 `command` (selected/sandbox sync and capability status).
+Bundled knowledge instructions now have four focused owners: `projects` for
+project lifecycle and task linkage, `process-capture` for input accounting,
+`organize` for filing/retrieval/local reindex, and `brain-sync` for cloud sync.
+`second-brain` retains routing and old anchors only. The canonical shared
+reference is `skills/projects/references/task-project-link.md`; its old todo
+path forwards without duplicating procedures. Conditional detail lives in
+project metadata/IP references and the organize resource-index reference.
+`tests/brain_skill_contract/` checks catalog availability, real Markdown links
+and anchors, explicit slash routes, and compatibility destinations in source
+and rendered output. Fenced/inline examples are not file targets.
+
 The pure `compatibility/` foundation owns the audited legacy hook destinations,
 logical capability-name expansion, raw extension source bytes and block origins,
 and current/0.105.3/0.101.0 extension projections. Its `hooks`, `names`,
@@ -1695,7 +1706,7 @@ where it can be:
   Bare `brain sync resolve` (no args) drops into an interactive picker over
   the open conflict groups.
 
-Together these back the `/second-brain resolve-conflicts` skill: it reads
+Together these back the `/brain-sync resolve-conflicts` skill: it reads
 `conflicts --json`, merges each group into its canonical file, deletes the
 copies via `resolve`, then runs one ordinary `brain sync`. See
 [integrations.md](integrations.md) for that contract in full.

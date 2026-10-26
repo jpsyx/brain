@@ -38,7 +38,7 @@ fn bundled_removal_guidance_uses_the_native_preview_and_consent_contract() {
         for source in [
             todo,
             include_str!("../skills/todo/references/commands.md"),
-            include_str!("../skills/todo/references/task-project-link.md"),
+            include_str!("../skills/projects/references/task-project-link.md"),
         ] {
             assert!(
                 !source.contains(obsolete),
@@ -46,7 +46,7 @@ fn bundled_removal_guidance_uses_the_native_preview_and_consent_contract() {
             );
         }
     }
-    let conversion = include_str!("../skills/todo/references/task-project-link.md");
+    let conversion = include_str!("../skills/projects/references/task-project-link.md");
     assert!(conversion.contains("report incomplete source removal"));
     let triage = include_str!("../skills/triage/SKILL.md");
     assert!(triage.contains("all consented IDs in one command"));

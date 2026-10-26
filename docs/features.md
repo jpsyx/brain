@@ -470,7 +470,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain sync [--push\|--pull] {setup [--adopt-workspace-id <UUID>]\|repair\|status\|conflicts\|resolve}` | Manually sync the selected workspace root to its private Backblaze B2 target via `rclone bisync` (see below). Opt-in per workspace: does nothing until `brain sync setup` configures that record. Setup's dedicated UUID flag is the noninteractive authority for adopting a nonempty manifestless target. `conflicts` takes `--json` for structured output; `resolve <original>...` deletes resolved conflict copies, locally and on the remote. |
 | `brain share [<path>] [--expires <duration>] [--json]` | Create a temporary private-bucket download link. Relative paths use cwd; directories become filtered ZIPs. See [Temporary download links](#temporary-download-links). |
 | `brain check` | Read-only report of pending sync changes (what a `brain sync` would push/pull), via dry-run `rclone bisync` plus task/habit CSV baseline diffs (see below). |
-| `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/second-brain reindex` and `/todo reindex` operation (see below). |
+| `brain reindex [--projects\|--resources\|--tasks]` | Rebuild the derived lookup CSVs (`projects-lookup.csv`, `zotero-lookup.csv`) from the canonical `.METADATA.json` + `notes.md`, and re-apply the task/habit automation rules. Bare `brain reindex` does all three; the flags narrow it. This is the `/organize reindex` and `/todo reindex` operation (see below). |
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`, and prune skills brain rendered before but no longer produces. `--root` selects a sandbox workspace (see below). |
 | `brain skills sync --all-workspaces [--json]` | Repair every registered root independently, including when the default root is unavailable. JSON is one aggregate document; unavailable roots remain pending. |
@@ -984,7 +984,7 @@ The two lookup CSVs are derived, not authored:
 shells out to the shared `/todo` rule scripts with the selected root in
 `BRAIN_ROOT`, so non-default workspaces are reindexed in place.
 Output is LF-terminated, matching brain's other CSVs. This is the operation the
-`/second-brain reindex` and `/todo reindex` skill rows invoke.
+`/organize reindex` and `/todo reindex` skill rows invoke.
 
 ### `brain sync`
 
@@ -1066,7 +1066,7 @@ the UUID lock and directs the user to resume `brain workspace migrate`.
   groups as JSON (one object per canonical original, its
   `original_exists` flag, and its `copies` with `host`/`date`/`modified`/
   `bytes`) instead of the themed line-list — meant for agents/skills to
-  consume, e.g. the `/second-brain resolve-conflicts` skill.
+  consume, e.g. the `/brain-sync resolve-conflicts` skill.
 - `brain sync resolve <original> [...]` — after you've merged a conflict back
   into its canonical file, safely delete that original's leftover conflict
   copies (never the canonical itself). Refuses (and deletes nothing) if the
@@ -1275,7 +1275,7 @@ per machine you want to join it.
      copy of either file.
    - Editing the *same* prose file on both machines at once (before either
      syncs) produces exactly one keep-both `(conflict …)` copy, which
-     `/second-brain resolve-conflicts` merges back into the canonical file and
+     `/brain-sync resolve-conflicts` merges back into the canonical file and
      clears with `brain sync resolve`.
 
 Once these five steps check out, the machine is fully onboarded: sync runs
@@ -1377,7 +1377,7 @@ doesn't drop the losing edit: it keeps that copy, and brain renames it to
 `name (conflict <host> <date>).ext` alongside the winner, so nothing is
 silently lost. Conflict copies are themselves excluded from sync, so they
 don't fan out to every machine. `brain sync conflicts` lists them (`--json`
-for the structured, agent-consumable form); the `/second-brain
+for the structured, agent-consumable form); the `/brain-sync
 resolve-conflicts` skill reads that JSON, merges each group into its
 canonical file, then clears the copies with `brain sync resolve <original>`.
 
@@ -1611,9 +1611,35 @@ other refresh failures. Source bodies, parser values and target child output are
 never diagnostic content. Preserve edits before restoring a modified generated
 file; rename conflicting plugins or use the matching extension, then retry.
 
-Bundled today: `article-summarizer`, `triage`, `brain-knowledge-capture`,
-`second-brain`, `contacts`, and `todo`. See [config.md](config.md) and the
-sub-project B spec.
+Bundled knowledge workflows have focused owners:
+
+| Skill | Responsibility |
+| --- | --- |
+| `projects` | Native project creation/metadata, IP extraction and completion gates, archive task disposition |
+| `process-capture` | Inspect every selected input, regroup by idea, route notes/actions, account for failures |
+| `organize` | PARA filing, media/notes pairing, retrieval across all buckets, local reindex |
+| `brain-sync` | Cloud sync and batched prose-conflict resolution with partial-result reporting |
+| `second-brain` | Compatibility routing for existing invocations and heading links |
+
+The catalog also includes `article-summarizer`, `brain-knowledge-capture`,
+`contacts`, `brain-skills`, `todo`, and `triage`. Shared workspace guidance owns
+actor context and response presentation. Contact results retain their facts;
+saved source summaries retain `Summary`, `Executive summary`, `Key points`, and
+`Conclusion / key findings` headings without imposing that shape on a reply.
+
+Existing `/second-brain reindex`, `cloud-sync`, `resolve-conflicts`, project,
+and capture requests forward to the focused owner. Old task-project reference
+paths and heading anchors remain usable by plugins; first-party references use
+`projects/references/task-project-link.md`. Routine placement proceeds under
+an explicit filing request. Unreadable capture inputs remain accounted for,
+never discarded merely to empty the inbox. Plain capture processing does not
+complete weekly triage.
+
+Author new workspace skills in `.config/plugins/<name>/SKILL.md`, then run
+`brain skills sync`. Edit customization sources, not generated copies.
+Existing unmarked user-authored `.agents/skills` directories remain supported
+and unchanged. Plugin/core name collisions are reported before publication.
+See [config.md](config.md) for customization storage.
 
 Before writing anything, selected or sandbox `brain skills sync` prints the built-skill directory,
 the shared registry directory, the number of frontend skill directories it will
@@ -2501,7 +2527,7 @@ is. Brain's guarantees about it are deliberately small:
   empty note and steps back out of the way.
 - **Nothing else touches it.** Brain neither organizes, renames, nor prunes
   it. Filing its contents is skill work, not CLI work: the bundled
-  `second-brain` skill owns the processing pass (read every item, regroup by
+  `process-capture` skill owns the processing pass (read every item, regroup by
   idea rather than by file, then route each one into a PARA bucket or into
   the task system), and `triage weekly` runs that pass alongside the scratch
   notepad so both in-baskets end empty.

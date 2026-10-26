@@ -1,27 +1,20 @@
 ---
 name: article-summarizer
-description: Use when the user wants an article, paper, study, blog post, or long web page distilled into a clean, faithful summary — "summarize this article", "give me the gist of this paper", "TL;DR this link". Produces a structured summary (executive summary, key points, findings) suitable for filing into a knowledge base. Other skills call this one rather than re-deriving the method.
+description: Use when the user wants an article, paper, study, blog post, or long web page distilled into a clean, faithful summary - "summarize this article", "give me the gist of this paper", "TL;DR this link". Produces a structured summary (executive summary, key points, findings) suitable for filing into a knowledge base. Other skills call this one rather than re-deriving the method.
 ---
 
 # article-summarizer
 
 Distill a single source into a clean, faithful, structured summary. This is the
-generic "how to summarize" skill; other skills (e.g. second-brain when filing
+generic "how to summarize" skill; other skills (e.g. organize when filing
 into resources, or a personal reference-manager plugin) call it rather than
 re-deriving the method.
-
-Before you begin, load the reader's persona so framing fits them: run
-`brain persona show` (the person at this machine; `brain persona list` shows
-every member of a shared workspace) and note their `role`/`works_for` (they may be unset —
-then keep the framing neutral). The generic rule is simply to summarize
-carefully and faithfully; who it's for is personalization, not a hardcoded
-identity.
 
 ## Get the source first
 
 - If given a URL, fetch it. If given a file, read it. Never summarize from the
   title, a snippet, or memory alone.
-- If you cannot get the actual content, **stop and say so** — do not produce a
+- If you cannot get the actual content, **stop and say so** - do not produce a
   summary from what you happen to know about the source (see Red flags).
 - If only an abstract/metadata is available, you may proceed, but **state
   explicitly** that the summary is based on the abstract only.
@@ -35,8 +28,7 @@ source's own hedges and terminology.
 
 ## Output structure
 
-Use **exactly** this Markdown structure — no preamble, no closing remarks, no
-meta-commentary:
+For a saved summary, use this Markdown structure:
 
 ```markdown
 ## Summary
@@ -48,7 +40,7 @@ meta-commentary:
 ### Key points
 
 - [Context, motivation, or gap being addressed.]
-- [Methodology — design, data sources, sample size, analytical approach.]
+- [Methodology - design, data sources, sample size, analytical approach.]
 - [Primary result, with effect sizes or statistics where reported.]
 - [Secondary result or nuance, if applicable.]
 - [Implications or limitations, if notable.]
@@ -62,7 +54,7 @@ meta-commentary:
 
 `## Summary` is the canonical container a knowledge base can share (e.g. a
 `notes.md` filed alongside the source); sub-headings are H3. Omit any bullet the
-source does not support rather than padding to hit the count — the last two Key
+source does not support rather than padding to hit the count - the last two Key
 points and the second/third Conclusion bullets are optional. For short web
 articles, blog posts, or opinion pieces, the summary may be briefer; match depth
 to the source.
@@ -78,8 +70,9 @@ to the source.
 - **Preserve the source's discipline.** Match the field's terminology and
   conventions (medicine, economics, ML, policy, etc.).
 - **Reuse, don't redo.** If the source has an author-written abstract or a
-  high-quality existing summary, use it verbatim under `## Summary` rather than
-  producing a new one.
+  high-quality existing summary, treat it as source material for the canonical
+  structure above. Preserve attribution and applicable quotation limits; do not
+  paste an entire abstract verbatim or replace the canonical headings.
 
 ## When to skip summarizing
 
@@ -90,7 +83,9 @@ notes the user wrote themselves. Summarize when the source is a paper, study,
 news article, opinion piece, blog post, long-form essay, or other prose-heavy
 artifact.
 
-## Red flags — stop and reconsider
+<a id="red-flags--stop-and-reconsider"></a>
+
+## Red flags
 
 - You're about to write a statistic the retrieved text doesn't contain.
 - You're filling in methodology details not in the source.
@@ -101,6 +96,10 @@ All mean: stop, retrieve the source (or ask the user), then proceed.
 
 ## Output handling
 
-Return the summary as clean Markdown. Do not file it anywhere yourself — the
-calling skill (or the user) decides where it lands. Keep it tight: shorter than
-the source, losing none of its load-bearing content.
+Provide the core question, methodology/evidence, supported findings, relevant
+limitations, and conclusions at a depth appropriate to the source. The saved
+artifact keeps the headings above; the workspace response policy controls the
+reply's presentation. Do not file a summary merely because it was requested.
+The calling skill or an explicit user request decides whether and where to
+save it. When filing, use [organize](../organize/SKILL.md#add-a-resource).
+Keep it shorter than the source without losing load-bearing content.

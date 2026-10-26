@@ -43,10 +43,15 @@ fn installed_deletion_skill_contract() {
     }
     assert!(read("todo/references/commands.md").contains("--operation-status"));
     assert!(
-        read("todo/references/task-project-link.md").contains("report incomplete source removal")
+        read("projects/references/task-project-link.md")
+            .contains("report incomplete source removal")
     );
     assert!(read("triage/SKILL.md").contains("all consented IDs in one command"));
-    assert!(read("second-brain/SKILL.md").contains("../todo/SKILL.md#remove-tasks"));
+    assert!(read("projects/SKILL.md").contains("../todo/SKILL.md#remove-tasks"));
+    assert!(
+        read("todo/references/task-project-link.md")
+            .contains("../../projects/references/task-project-link.md")
+    );
 
     let mut examples = std::collections::BTreeSet::new();
     let mut templates = 0;

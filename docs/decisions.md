@@ -6438,3 +6438,21 @@ and bytes plus the shared contract, compiler revision, and package version. Rend
 has its own digest. Machine-absolute roots affect neither the portable instruction
 body nor its source fingerprint. Composition only plans the typed package; the
 installation coordinator remains responsible for locking and atomic publication.
+
+
+## Focused knowledge workflows retain compatibility navigation
+
+Shared workspace policy and channel presentation no longer require loading a
+large knowledge-workflow umbrella. `projects`, `process-capture`, `organize`,
+and `brain-sync` own their procedures; `second-brain` keeps small forwarding
+routes and every supported heading anchor. Project/task linkage has one owner
+under projects with a forwarding reference at the old todo path. This retains
+plugin navigation without rewriting any user source.
+
+The move preserves native mutation/removal gates, staged-IP review, capture
+accounting, resource originals and indexing, all-bucket retrieval, and partial
+sync outcomes. It corrects contradictory placement confirmations, stale manual
+project edits/chronic heuristics, machine-person assumptions, and per-skill
+reply formatting. Resource summaries keep canonical saved headings, including
+when their source is an existing abstract. New custom skill authoring points
+to `.config/plugins`; existing unmarked user skills remain supported.

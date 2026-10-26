@@ -80,7 +80,7 @@ prepend a line in red/bold:
 ```
 
 Recognize when the user wants to convert to a project (see
-[task-project-link.md](task-project-link.md) conversion triggers).
+[task-project-link.md](../../projects/references/task-project-link.md) conversion triggers).
 If `estimated_duration > 90` or the task has scope verbs, suggest
 `/todo turn-into-project` instead of deferring again.
 
