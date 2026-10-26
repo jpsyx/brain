@@ -18,3 +18,6 @@ mod planning_validation;
 mod rendering_status;
 #[path = "workspace_capabilities/support.rs"]
 mod support;
+
+#[path = "workspace_capabilities/selection_scope.rs"]
+mod selection_scope;

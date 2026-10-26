@@ -35,7 +35,9 @@ pub(super) const VARS: [VarSpec; 16] = [
     VarSpec {
         name: "allowed_skills",
         description: "Portable logical skill allowlist for workspace-only launches. An explicit empty list disables all skills.",
-        default: Some("[\"contacts\",\"second-brain\",\"todo\",\"triage\"]"),
+        default: Some(
+            "[\"contacts\",\"second-brain\",\"todo\",\"triage\",\"projects\",\"process-capture\",\"organize\",\"brain-sync\",\"agenda\"]",
+        ),
     },
     VarSpec {
         name: "enable_triage_habits",

@@ -31,6 +31,11 @@ pub enum CapabilityError {
         /// Field containing the invalid value.
         field: &'static str,
     },
+    /// A machine-owned name would be silently replaced by a bundled skill.
+    SkillOwnershipCollision {
+        /// Logical name claimed by both sources.
+        name: String,
+    },
     /// A cache-local capability artifact could not be written safely.
     RuntimeArtifact(String),
 }
@@ -51,6 +56,12 @@ impl Display for CapabilityError {
                 write!(
                     formatter,
                     "{field} names must use ASCII letters or digits with internal `.`, `_`, or `-`"
+                )
+            }
+            Self::SkillOwnershipCollision { name } => {
+                write!(
+                    formatter,
+                    "skill ownership collision for `{name}`: a machine source and a bundled skill claim this name"
                 )
             }
             Self::RuntimeArtifact(message) => {
@@ -194,10 +205,16 @@ impl SkillCapabilityPlan {
         self.entries
             .iter()
             .find(|(name, _)| name == requested)
-            .and_then(|(_, resolution)| match resolution {
-                CapabilityResolution::Available(_) => None,
-                CapabilityResolution::Unavailable(reason) => Some(reason.as_str()),
-            })
+            .map_or_else(
+                || {
+                    (!self.global_configuration)
+                        .then_some("skill is not selected by allowed_skills")
+                },
+                |(_, resolution)| match resolution {
+                    CapabilityResolution::Available(_) => None,
+                    CapabilityResolution::Unavailable(reason) => Some(reason.as_str()),
+                },
+            )
     }
 
     pub(crate) fn available_sources(&self) -> Vec<ResolvedSkillSource> {
@@ -288,5 +305,7 @@ impl CapabilityPlan {
 /// Returns a capability configuration error when logical or machine names are
 /// ambiguous.
 mod capability_plan;
-pub use capability_plan::{capability_plan, capability_plan_for};
+pub use capability_plan::{
+    capability_plan, capability_plan_for, preflight_bundled_skill_ownership,
+};
 use capability_plan::{enforcement_entries, unsupported_entries};

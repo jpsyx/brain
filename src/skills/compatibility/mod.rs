@@ -55,10 +55,24 @@ pub(crate) fn project_extensions(
     Ok(projection)
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // Consumed by capability-selection migration.
 pub(crate) fn expand_legacy_names(names: &[String]) -> Vec<String> {
     names::expand(names)
 }
 
 #[cfg(test)]
 mod down_tests;
+
+#[cfg_attr(not(test), allow(dead_code))] // The refresh coordinator supplies migration eligibility.
+pub(crate) fn project_allowed_skills(
+    config: &serde_json::Value,
+) -> anyhow::Result<Option<crate::skills::install_transaction::package::JsonFieldPatch>> {
+    names::project_allowed_skills(config)
+}
+
+#[cfg_attr(not(test), allow(dead_code))] // The audited downgrade coordinator supplies recorded history.
+pub(crate) fn reverse_allowed_skills(
+    config: &serde_json::Value,
+    history: &[crate::skills::install_transaction::package::JsonFieldPatch],
+) -> anyhow::Result<Option<crate::skills::install_transaction::package::JsonFieldPatch>> {
+    names::reverse_allowed_skills(config, history)
+}

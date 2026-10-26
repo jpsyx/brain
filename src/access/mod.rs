@@ -14,7 +14,10 @@ pub use enforcement::{CapabilityEnforcement, CapabilityEnforcementReport, Enforc
 pub use mcp::MachineCapabilityEnvironment;
 pub use mode::AccessMode;
 pub use prompt::{boundary_prompt, classify_obvious_outside_path};
-pub use skills::{CapabilityError, CapabilityPlan, capability_plan, capability_plan_for};
+pub use skills::{
+    CapabilityError, CapabilityPlan, capability_plan, capability_plan_for,
+    preflight_bundled_skill_ownership,
+};
 
 pub(crate) use artifact::{
     ensure_directory as ensure_capability_directory,

@@ -113,9 +113,19 @@ const fn enabled() -> bool {
 }
 
 fn default_allowed_skills() -> Vec<String> {
-    ["contacts", "second-brain", "todo", "triage"]
-        .map(str::to_owned)
-        .to_vec()
+    [
+        "contacts",
+        "second-brain",
+        "todo",
+        "triage",
+        "projects",
+        "process-capture",
+        "organize",
+        "brain-sync",
+        "agenda",
+    ]
+    .map(str::to_owned)
+    .to_vec()
 }
 
 impl Config {

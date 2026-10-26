@@ -100,3 +100,38 @@ fn sandbox_sources_accept_a_relative_root_without_changing_the_process_directory
         b"relative source"
     );
 }
+
+#[test]
+fn every_split_successor_refuses_user_source_and_destination_collisions_before_publication() {
+    for name in [
+        "agenda",
+        "projects",
+        "process-capture",
+        "organize",
+        "brain-sync",
+    ] {
+        for parent in [
+            ".config/plugins",
+            ".agents/skills",
+            ".claude/skills",
+            ".codex/skills",
+            ".opencode/skills",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let source = root.path().join(parent).join(name).join("SKILL.md");
+            fs::create_dir_all(source.parent().unwrap()).unwrap();
+            fs::write(&source, "user-owned bytes").unwrap();
+            let sources = Sources {
+                plugins_dir: Some(root.path().join(".config/plugins")),
+                extensions_dir: None,
+            };
+            assert!(
+                sync(&Layout::under_root(root.path()), &sources).is_err(),
+                "{parent}/{name}"
+            );
+            assert_eq!(fs::read(&source).unwrap(), b"user-owned bytes");
+            assert!(!root.path().join(".agents/skills/todo").exists());
+            assert!(!root.path().join("AGENTS.md").exists());
+        }
+    }
+}

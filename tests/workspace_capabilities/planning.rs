@@ -21,7 +21,17 @@ fn missing_skill_allowlist_gets_core_defaults_but_explicit_empty_stays_empty() {
 
     assert_eq!(
         missing.allowed_skills,
-        ["contacts", "second-brain", "todo", "triage"]
+        [
+            "contacts",
+            "second-brain",
+            "todo",
+            "triage",
+            "projects",
+            "process-capture",
+            "organize",
+            "brain-sync",
+            "agenda"
+        ]
     );
     assert!(empty.allowed_skills.is_empty());
 }
@@ -57,7 +67,17 @@ fn logical_allowlists_resolve_separately_from_machine_connection_material() {
     assert_eq!(plan.mcps.names(), ["notion"]);
     assert_eq!(
         plan.skills.names(),
-        ["contacts", "second-brain", "todo", "triage"]
+        [
+            "contacts",
+            "second-brain",
+            "todo",
+            "triage",
+            "projects",
+            "process-capture",
+            "organize",
+            "brain-sync",
+            "agenda"
+        ]
     );
     assert!(!plan.mcps.names().contains(&"linear"));
     assert!(!plan.mcps.names().contains(&"superhuman"));

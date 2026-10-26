@@ -1357,7 +1357,12 @@ with control-free argument strings. HTTP transports require exact `http` or
 match their transport, and protected frontend environment names are rejected.
 Unrestricted plans delegate to frontend global configuration. Workspace-only
 plans preserve an explicit empty list, while a missing skill list receives the
-four core defaults. The controller requires one workspace-only plan and rejects
+nine core defaults (the four compatibility-era defaults plus the five focused
+successors). Current selections are exact: compatibility routing and triage
+composition never expand an allowlist. A requested but unselected delegated
+skill reports `skill is not selected by allowed_skills`. Machine skill records
+that claim a bundled name are unavailable with an explicit ownership collision,
+even if the machine path is missing. The controller requires one workspace-only plan and rejects
 a mode mismatch or credential provenance UUID from another workspace before
 frontend translation.
 
@@ -3066,3 +3071,28 @@ Explicit instruction restoration optionally carries a `TargetInstructionContract
 match the next manifest. Its post-image is a deterministic replacement of the
 verified owned frame, or an append/create after valid absence. This desired core
 is not ownership evidence, and unknown matching user text is never deduplicated.
+
+
+### Capability split field provenance
+
+The pure compatibility name projection produces an optional `JsonFieldPatch`
+for `.config/config.json` and `allowed_skills` only. Explicit legacy names retain
+their configured spelling and order, then receive deduplicated successors in
+legacy-list order. Empty, custom-only, canonical-only, and already-expanded lists
+need no patch; an absent field uses new defaults without materialization. The
+refresh coordinator must establish pre-split eligibility before requesting this
+projection and preflight machine ownership alongside the existing plugin/tree/
+frontend checks before publishing the complete package.
+
+Reverse decisions accept history from the authenticated managed package, verify
+that each before/after pair is exactly a legacy expansion, and derive introduced
+entries from that pair. They remove only those exact introductions still present
+in the current list. Other current names and unrelated JSON values survive.
+Before reversing, every selected legacy umbrella and focused successor must have
+its complete equivalent legacy scope selected. Canonical-only scopes and later
+narrowing of an umbrella fail explicitly. Reversal requires the legacy selector
+to remain present: removing it conflicts even if every focused successor remains.
+The reverse projection only removes recorded additions and never synthesizes a
+missing legacy selector. Missing-field defaults remain missing.
+History validation proves derivation, not independent ownership: callers must
+supply validated package metadata, never untrusted portable history.

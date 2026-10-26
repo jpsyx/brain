@@ -75,7 +75,9 @@ pub fn capability_plan(
         allowed_skills
             .iter()
             .map(|name| {
-                let resolution = if bundled.contains(name) {
+                let resolution = if bundled.contains(name) && machine_skills.iter().any(|skill| skill.name == *name) {
+                    CapabilityResolution::Unavailable(CapabilityError::SkillOwnershipCollision { name: name.clone() }.to_string())
+                } else if bundled.contains(name) {
                     CapabilityResolution::Available(SkillSelection::Bundled)
                 } else if let Some(mut skill) = machine_skills
                     .iter()
@@ -187,3 +189,31 @@ use super::{
     Config, CredentialProvenance, HashSet, MachineCapabilityEnvironment, McpCapabilityPlan,
     SkillCapabilityPlan, SkillSelection,
 };
+
+/// Check machine skill names before publishing the bundled catalog.
+///
+/// # Errors
+///
+/// Returns a capability error when machine and bundled ownership collide.
+pub fn preflight_bundled_skill_ownership(
+    machine: &MachineCapabilityEnvironment,
+) -> Result<(), CapabilityError> {
+    let names = normalize_names(
+        "machine skill",
+        &machine
+            .skills
+            .iter()
+            .map(|skill| skill.name.clone())
+            .collect::<Vec<_>>(),
+    )?;
+    let bundled = crate::skills::embed::bundled_skills()
+        .into_iter()
+        .map(|skill| skill.name)
+        .collect::<HashSet<_>>();
+    for name in names {
+        if bundled.contains(&name) {
+            return Err(CapabilityError::SkillOwnershipCollision { name });
+        }
+    }
+    Ok(())
+}

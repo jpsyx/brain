@@ -317,7 +317,8 @@ Sandbox      none
 
 The portable `allowed_mcps` and `allowed_skills` arrays contain logical names
 only. A missing `allowed_skills` field defaults to `contacts`, `second-brain`,
-`todo`, and `triage`; an explicit empty array remains empty. In unrestricted
+`todo`, `triage`, `projects`, `process-capture`, `organize`, `brain-sync`, and
+`agenda`; an explicit empty array remains empty. In unrestricted
 mode the frontends use their ordinary global MCP and skill configuration. In
 workspace-only mode Brain resolves the logical names against only the selected
 workspace record's `agent_capabilities` environment object. Run
@@ -325,6 +326,31 @@ workspace record's `agent_capabilities` environment object. Run
 Claude/Codex/OpenCode/pi enforcement level without printing connection material. Names are
 ASCII case-normalized and must begin with a letter or digit; remaining
 characters may be letters, digits, `.`, `_`, or `-`.
+
+Legacy capability migration retains `second-brain` and appends `projects`,
+`process-capture`, `organize`, and `brain-sync`; it retains `todo` and appends
+`agenda`. Only an explicitly present legacy field receives a narrow field patch,
+with its exact before/after values retained in managed-install history. Missing
+fields use the defaults without being written. This projection requires proven
+pre-split migration eligibility. Ordinary capability resolution preserves a
+current selection exactly, so removing `agenda` while retaining `todo` does not
+grant agenda access again. Selecting `triage` never grants its delegated skills.
+An unselected delegated skill reports that it is not selected.
+
+Machine skill names that also name bundled skills are ownership conflicts, even
+when the configured machine source is missing. They cannot silently become
+bundled sources. Existing plugin-source, unmarked-tree, and frontend-destination
+checks also apply to every new bundled name before publication.
+
+Equivalent-scope downgrade uses the authenticated field-patch history to remove
+only recorded introductions, preserving unrelated settings and later custom
+selections. A current `projects`-only selection cannot become the broader old
+`second-brain`; a current `todo` selection without `agenda` cannot become the
+broader old `todo`. Such selections require an explicit conflict, rather than an
+automatic authority expansion. A full legacy-derived selection retaining its legacy selector can reverse.
+Removing that compatibility selector is an explicit later-edit conflict, even
+when all focused successors remain selected. Downgrade removes recorded
+introductions; it does not synthesize missing legacy selectors.
 
 Inbound request actor selection reads `users.json`: provider signatures are
 verified first, then the normalized sender must match an enabled phone or email
@@ -830,7 +856,7 @@ the `name=value` form.
 | --- | --- | --- |
 | `access_mode` | `unrestricted` | Portable agent boundary policy. `workspace_only` adds advisory trusted instructions and capability filtering; accepted values are exactly `unrestricted` and `workspace_only`. It is not a filesystem sandbox. |
 | `allowed_mcps` | `[]` | Portable logical MCP names requested by workspace-only launches. Connection details and credentials belong only in the selected machine registry record. Accepts a JSON array or comma-separated names through `brain config set`. |
-| `allowed_skills` | `["contacts","second-brain","todo","triage"]` when missing | Portable logical skill names requested by workspace-only launches. An explicit `[]` disables every skill. Accepts a JSON array or comma-separated names through `brain config set`. |
+| `allowed_skills` | `["contacts","second-brain","todo","triage","projects","process-capture","organize","brain-sync","agenda"]` when missing | Portable logical skill names requested by workspace-only launches. An explicit `[]` disables every skill. Accepts a JSON array or comma-separated names through `brain config set`. |
 | `enable_triage_habits` | `true` | Portable managed-triage policy. `brain config set enable_triage_habits=true` reconciles one open daily and weekly chain. Setting `false` uses one durable grouped transaction to purge managed rows and derived references before committing config. Manual `/triage` remains available. |
 | `linear_workspace` | *(unset)* | Linear workspace slug (e.g. `acme`). `config.rs` interpolates it into `https://linear.app/<slug>/issue/`, to which a task's `linear_issue` id is appended for the `Ctrl+O` "open link" action. Empty → no Linear links. |
 | `daily_triage_name_pattern` | `Morning Triage` | Case-insensitive regex matched against habit *names* to find the habit that gates the tasks view's startup triage nudge. Empty (or invalid regex) disables it. Read by `config.rs`. |
