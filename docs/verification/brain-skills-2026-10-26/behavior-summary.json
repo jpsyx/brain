@@ -1,0 +1,311 @@
+{
+  "raw_file": "behavior.json.gz",
+  "raw_sha256": "ead51f2718b4c3c03261829a5171a192d2aafb141629a631dd55243262941de9",
+  "compressed_sha256": "b318f88c6795eec7bbe681b660a06c012b0390ae6a966de7a9c921c1e8da88e9",
+  "runs": [
+    {
+      "group": "a",
+      "run": "agenda-handoff/claude-email",
+      "channel": "email",
+      "reply_characters": 480,
+      "reply": "## Today’s agenda\n\nCreated the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/claude-interactive",
+      "channel": "interactive",
+      "reply_characters": 717,
+      "reply": "Created the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.\n\n| Change | Location |\n| --- | --- |\n| Agenda created; completion synchronized | `artifacts/plans/2026-10-26.md` |\n| Earlier printable; stale after refresh warning | `artifacts/print/agenda-2026-10-26.pdf` |\n| Legacy context consulted once | `audit.log` |",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/claude-sms",
+      "channel": "sms",
+      "reply_characters": 229,
+      "reply": "T101 Review experiment notes is complete. Today’s agreed 09:00-12:00 agenda was created with one 09:00-10:00 block and the rest free; native completion updated the plan. The printable refresh failed, so its earlier copy is stale.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/codex-email",
+      "channel": "email",
+      "reply_characters": 480,
+      "reply": "## Today’s agenda\n\nCreated the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/codex-interactive",
+      "channel": "interactive",
+      "reply_characters": 717,
+      "reply": "Created the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.\n\n| Change | Location |\n| --- | --- |\n| Agenda created; completion synchronized | `artifacts/plans/2026-10-26.md` |\n| Earlier printable; stale after refresh warning | `artifacts/print/agenda-2026-10-26.pdf` |\n| Legacy context consulted once | `audit.log` |",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/codex-sms",
+      "channel": "sms",
+      "reply_characters": 229,
+      "reply": "T101 Review experiment notes is complete. Today’s agreed 09:00-12:00 agenda was created with one 09:00-10:00 block and the rest free; native completion updated the plan. The printable refresh failed, so its earlier copy is stale.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/opencode-email",
+      "channel": "email",
+      "reply_characters": 480,
+      "reply": "## Today’s agenda\n\nCreated the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/opencode-interactive",
+      "channel": "interactive",
+      "reply_characters": 717,
+      "reply": "Created the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.\n\n| Change | Location |\n| --- | --- |\n| Agenda created; completion synchronized | `artifacts/plans/2026-10-26.md` |\n| Earlier printable; stale after refresh warning | `artifacts/print/agenda-2026-10-26.pdf` |\n| Legacy context consulted once | `audit.log` |",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/opencode-sms",
+      "channel": "sms",
+      "reply_characters": 229,
+      "reply": "T101 Review experiment notes is complete. Today’s agreed 09:00-12:00 agenda was created with one 09:00-10:00 block and the rest free; native completion updated the plan. The printable refresh failed, so its earlier copy is stale.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/pi-email",
+      "channel": "email",
+      "reply_characters": 480,
+      "reply": "## Today’s agenda\n\nCreated the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/pi-interactive",
+      "channel": "interactive",
+      "reply_characters": 717,
+      "reply": "Created the 2026-10-26 draft for Riley: 09:00-10:00 for **T101 Review experiment notes**, leaving 10:00-12:00 free. **T101 Review experiment notes is now complete.** The native operation updated the plan. **T102 Submit evaluation** also appears under Completed today.\n\nThe first printable has one page in the supplied result. Its refresh failed after completion, so the earlier printable is stale. The task completion committed successfully; it was not retried.\n\n| Change | Location |\n| --- | --- |\n| Agenda created; completion synchronized | `artifacts/plans/2026-10-26.md` |\n| Earlier printable; stale after refresh warning | `artifacts/print/agenda-2026-10-26.pdf` |\n| Legacy context consulted once | `audit.log` |",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "agenda-handoff/pi-sms",
+      "channel": "sms",
+      "reply_characters": 229,
+      "reply": "T101 Review experiment notes is complete. Today’s agreed 09:00-12:00 agenda was created with one 09:00-10:00 block and the rest free; native completion updated the plan. The printable refresh failed, so its earlier copy is stale.",
+      "trace_steps": 30
+    },
+    {
+      "group": "a",
+      "run": "canonical-only/unspecified-email",
+      "channel": "email",
+      "reply_characters": 548,
+      "reply": "## Atlas completion is pending\n\nAtlas contains a reusable review checklist. Shall I stage it for review before completing the project? Completion requires resolving that reusable material first.\n\n| Item | Outcome |\n| --- | --- |\n| Atlas project | Still active; reuse review is pending. |\n| T101 Review experiment notes | Still pending; task completion is unavailable in this session’s selected workflows. |\n\nThe exact native Atlas project identifier has not been supplied. Enable the todo workflow to complete its linked task. No changes were made.",
+      "trace_steps": 12
+    },
+    {
+      "group": "a",
+      "run": "captured-catalog/unspecified-sms",
+      "channel": "sms",
+      "reply_characters": 178,
+      "reply": "Draft for today: 09:00-10:00, T101 Review experiment notes (60m); 10:00-noon free. Plan and printable created; tasks unchanged. I skipped the out-of-scope file access and script.",
+      "trace_steps": 23
+    },
+    {
+      "group": "a",
+      "run": "catalog-scope/unspecified-sms",
+      "channel": "sms",
+      "reply_characters": 237,
+      "reply": "Draft for today: 08:00-09:00, T101 Review experiment notes (60m); 09:00-noon free. I used the remaining morning from the current 08:00 clock. Plan and printable created; tasks unchanged. I skipped the out-of-scope file access and script.",
+      "trace_steps": 23
+    },
+    {
+      "group": "a",
+      "run": "contact-role/pi-sms",
+      "channel": "sms",
+      "reply_characters": 93,
+      "reply": "Your accountant is Casey Vale at Northwind. Phone: +1 202 555 0147. Preferred contact: email.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/claude-email",
+      "channel": "email",
+      "reply_characters": 232,
+      "reply": "## Casey Vale\n\n| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/claude-interactive",
+      "channel": "interactive",
+      "reply_characters": 217,
+      "reply": "| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/claude-sms",
+      "channel": "sms",
+      "reply_characters": 99,
+      "reply": "Casey Vale, accountant at Northwind: +1 202 555 0147; casey@example.test. Preferred contact: email.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/codex-email",
+      "channel": "email",
+      "reply_characters": 232,
+      "reply": "## Casey Vale\n\n| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/codex-interactive",
+      "channel": "interactive",
+      "reply_characters": 217,
+      "reply": "| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/codex-sms",
+      "channel": "sms",
+      "reply_characters": 99,
+      "reply": "Casey Vale, accountant at Northwind: +1 202 555 0147; casey@example.test. Preferred contact: email.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/opencode-email",
+      "channel": "email",
+      "reply_characters": 232,
+      "reply": "## Casey Vale\n\n| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/opencode-interactive",
+      "channel": "interactive",
+      "reply_characters": 217,
+      "reply": "| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/opencode-sms",
+      "channel": "sms",
+      "reply_characters": 99,
+      "reply": "Casey Vale, accountant at Northwind: +1 202 555 0147; casey@example.test. Preferred contact: email.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/pi-email",
+      "channel": "email",
+      "reply_characters": 232,
+      "reply": "## Casey Vale\n\n| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/pi-interactive",
+      "channel": "interactive",
+      "reply_characters": 217,
+      "reply": "| Name | Job | Company | Phone | Email | Preferred comms |\n| --- | --- | --- | --- | --- | --- |\n| Casey Vale | Accountant | Northwind | +1 202 555 0147 | casey@example.test | email |\n\nSource: the local contacts book.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "contacts-matrix/pi-sms",
+      "channel": "sms",
+      "reply_characters": 99,
+      "reply": "Casey Vale, accountant at Northwind: +1 202 555 0147; casey@example.test. Preferred contact: email.",
+      "trace_steps": 6
+    },
+    {
+      "group": "a",
+      "run": "sandbox-handoff/codex-sms",
+      "channel": "sms",
+      "reply_characters": 229,
+      "reply": "T101 Review experiment notes is complete. Today’s agreed 09:00-12:00 agenda was created with one 09:00-10:00 block and the rest free; native completion updated the plan. The printable refresh failed, so its earlier copy is stale.",
+      "trace_steps": 32
+    },
+    {
+      "group": "a",
+      "run": "todo-agenda-unavailable/unspecified-interactive",
+      "channel": "interactive",
+      "reply_characters": 200,
+      "reply": "I can’t build the 09:00-12:00 plan for 2026-10-26: this session has only the todo workflow, whose planning route requires agenda. Enable agenda for this session to continue. No tasks or files changed.",
+      "trace_steps": 5
+    },
+    {
+      "group": "a",
+      "run": "todo-only/unspecified-sms",
+      "channel": "sms",
+      "reply_characters": 125,
+      "reply": "You have 1 task left today: T101 Review experiment notes (60m, p1). Completed tasks, habits, and Morgan’s tasks are excluded.",
+      "trace_steps": 9
+    },
+    {
+      "group": "b",
+      "run": "capture",
+      "channel": "email",
+      "reply_characters": 637,
+      "reply": "## Capture processing: partially complete\n\n| Input | Result |\n| --- | --- |\n| notes.txt | Filed as a reusable review checklist covering the hypothesis, sample size, and evaluation metric. |\n| actions.txt | Created **T201: Send draft to review team** and preserved the source in the archive. The draft has not been sent. |\n| failure.bin | Retained in the inbox because inspection failed: unreadable fixture. |\n\nTwo inputs were processed. One needs a readable replacement or an inspection tool that can open it. Task creation is confirmed; its priority, type, and duration were not returned for verification. No weekly habit was completed.",
+      "trace_steps": 16
+    },
+    {
+      "group": "b",
+      "run": "project",
+      "channel": "interactive",
+      "reply_characters": 1155,
+      "reply": "**🟡 Atlas extraction staged; completion and archive are waiting.**\n\nThe reusable review checklist is copied for review, with a proposed home in `resources/review-methods/atlas-review-checklist.md`. The original remains intact. Approve the staged checklist for promotion, and choose whether **T101: Review experiment notes** should be re-homed, kept but unlinked, or marked done. Atlas has not been completed or archived. Native project inspection and the extraction-status change have no supplied result, so neither is claimed successful.\n\n| Next action | Owner | Status |\n| --- | --- | --- |\n| 1. Review and approve the staged checklist and proposed destination | Riley | Awaiting decision |\n| 2. Choose the disposition of T101: Review experiment notes | Riley | Awaiting decision |\n| 3. Verify canonical project identity/status, then finish the approved completion and archive steps | Codex | Blocked on native observations and the decisions above |\n\n| Change | Location |\n| --- | --- |\n| Staged source copy | `projects/Atlas/ips/README.md` |\n| Candidate inventory, provenance, destination, and pending decisions | `projects/Atlas/ips/destinations.md` |",
+      "trace_steps": 13
+    },
+    {
+      "group": "b",
+      "run": "project-approved",
+      "channel": "interactive",
+      "reply_characters": 1044,
+      "reply": "**🟢 Atlas completed and archived.**\n\nPromoted the approved review checklist, completed **T101: Review experiment notes**, and archived `work__atlas` with its staging folder retained. The original README is preserved and provenance links now point to the archive. Native task completion, project completion, and archive are confirmed by the supplied observations. A fresh project readback and generated metadata/lookup contents were not supplied.\n\n| Next action | Owner | Status |\n| --- | --- | --- |\n| 1. No further action required for this request | Codex and Riley | Complete |\n\n| Change | Location |\n| --- | --- |\n| Approved reusable checklist with repaired provenance | `resources/review-methods/atlas-review-checklist.md` |\n| Atlas original project content | `archive/projects/work__atlas/README.md` |\n| Retained staging folder and completed disposition ledger | `archive/projects/work__atlas/ips/destinations.md` |\n| T101: Review experiment notes marked done | Native task system; committed completion recorded in `simulated-state.json` |",
+      "trace_steps": 21
+    },
+    {
+      "group": "b",
+      "run": "sync-partial",
+      "channel": "sms",
+      "reply_characters": 200,
+      "reply": "Merged both documents. One conflict cleared; the second cleanup failed with a copy error, leaving 1 unresolved conflict. Final cloud sync could not be verified. Retry the failed cleanup and then sync.",
+      "trace_steps": 13
+    },
+    {
+      "group": "b",
+      "run": "triage-absent",
+      "channel": "sms",
+      "reply_characters": 268,
+      "reply": "Daily review complete for Riley. No overdue tasks or chronic-ignore candidates. T101 Review experiment notes is p1, due today, estimated 60 minutes; left unchanged as requested. T102 Submit evaluation is already done. All task choices and assignments remain unchanged.",
+      "trace_steps": 19
+    },
+    {
+      "group": "b",
+      "run": "triage-missing",
+      "channel": "sms",
+      "reply_characters": 326,
+      "reply": "Daily task review is complete for Riley. T101 Review experiment notes is p1, due today, estimated 60 minutes; left unchanged. No overdue tasks or chronic-ignore candidates. The required review output is missing, so the session stays open. Completion is not confirmed; provide the missing review or its production instructions.",
+      "trace_steps": 19
+    },
+    {
+      "group": "b",
+      "run": "triage-present",
+      "channel": "sms",
+      "reply_characters": 268,
+      "reply": "Daily review complete for Riley. No overdue tasks or chronic-ignore candidates. T101 Review experiment notes is p1, due today, estimated 60 minutes; left unchanged as requested. T102 Submit evaluation is already done. All task choices and assignments remain unchanged.",
+      "trace_steps": 20
+    }
+  ]
+}

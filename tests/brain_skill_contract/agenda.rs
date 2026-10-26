@@ -1,6 +1,20 @@
 use super::{catalog, markdown};
 
 #[test]
+fn triage_selects_the_effective_actor_in_shared_workspaces() {
+    let docs = catalog::documents(false);
+    let actor = docs["triage/SKILL.md"]
+        .split("## Personal-assistant mode")
+        .nth(1)
+        .unwrap()
+        .split("## Modes")
+        .next()
+        .unwrap();
+    assert!(actor.contains("BRAIN_ACTOR_ID"));
+    assert!(!actor.contains("triage for\nthem"));
+}
+
+#[test]
 fn task_only_requests_do_not_load_agenda_planning() {
     let docs = catalog::documents(false);
     let todo = &docs["todo/SKILL.md"];

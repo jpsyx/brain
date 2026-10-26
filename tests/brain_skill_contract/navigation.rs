@@ -17,7 +17,7 @@ fn resolve(from: &str, target: &str) -> String {
     parts.join("/")
 }
 
-fn validate_link(documents: &catalog::Documents, from: &str, link: &str) {
+fn validate_link(files: &catalog::Files, from: &str, link: &str) {
     let (path, anchor) = link
         .split_once('#')
         .map_or((link, None), |(path, anchor)| (path, Some(anchor)));
@@ -26,39 +26,68 @@ fn validate_link(documents: &catalog::Documents, from: &str, link: &str) {
     } else {
         resolve(from, path)
     };
-    let document = documents
+    let document = files
         .get(&target)
         .unwrap_or_else(|| panic!("{from}: missing target {link} -> {target}"));
-    if let Some(anchor) = anchor {
+    if let Some(anchor) = anchor
+        && Path::new(&target)
+            .extension()
+            .is_some_and(|extension| extension == "md")
+    {
         assert!(
-            markdown::anchors(document).contains(anchor),
+            markdown::anchors(std::str::from_utf8(document).unwrap()).contains(anchor),
             "{from}: missing anchor {link} -> {target}"
         );
+    }
+}
+
+pub fn validate(files: &catalog::Files) {
+    for (path, body) in catalog::markdown_documents(files) {
+        for link in markdown::links(&body) {
+            validate_link(files, &path, &link);
+        }
+        for route in markdown::routes(&body) {
+            assert!(
+                files.contains_key(&format!("{route}/SKILL.md")),
+                "{path}: unavailable /{route}"
+            );
+        }
     }
 }
 
 #[test]
 fn every_real_link_and_explicit_skill_route_resolves() {
     for rendered in [false, true] {
-        let documents = catalog::documents(rendered);
-        for (path, body) in &documents {
-            for link in markdown::links(body) {
-                validate_link(&documents, path, &link);
-            }
-            for route in markdown::routes(body) {
-                assert!(
-                    documents.contains_key(&format!("{route}/SKILL.md")),
-                    "{path}: unavailable /{route}"
-                );
-            }
-        }
+        validate(&catalog::files(rendered));
     }
+}
+
+#[test]
+fn binary_assets_need_existence_while_markdown_fragments_need_real_anchors() {
+    let files = catalog::Files::from([
+        (
+            "custom/SKILL.md".into(),
+            b"[asset](asset.bin) [notes](notes.md#real)".to_vec(),
+        ),
+        ("custom/asset.bin".into(), vec![0, 255]),
+        ("custom/notes.md".into(), b"# Real\n".to_vec()),
+    ]);
+    validate(&files);
+    assert!(
+        std::panic::catch_unwind(|| validate_link(&files, "custom/SKILL.md", "notes.md#missing"))
+            .is_err()
+    );
+    assert!(
+        std::panic::catch_unwind(|| validate_link(&files, "custom/SKILL.md", "absent.bin"))
+            .is_err()
+    );
 }
 
 #[test]
 fn compatibility_routes_reach_the_focused_owner() {
     for rendered in [false, true] {
-        let documents = catalog::documents(rendered);
+        let files = catalog::files(rendered);
+        let documents = catalog::markdown_documents(&files);
         let router = &documents["second-brain/SKILL.md"];
         for (alias, owner) in [
             ("/second-brain reindex", "../organize/SKILL.md#reindex"),
@@ -96,11 +125,11 @@ fn compatibility_routes_reach_the_focused_owner() {
                 markdown::links(row).contains(&owner.to_owned()),
                 "{alias} must reach {owner}"
             );
-            validate_link(&documents, "second-brain/SKILL.md", owner);
+            validate_link(&files, "second-brain/SKILL.md", owner);
         }
         let old = "todo/references/task-project-link.md";
         let canonical = "../../projects/references/task-project-link.md";
         assert!(markdown::links(&documents[old]).contains(&canonical.to_owned()));
-        validate_link(&documents, old, canonical);
+        validate_link(&files, old, canonical);
     }
 }

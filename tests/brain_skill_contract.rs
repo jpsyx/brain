@@ -11,3 +11,5 @@ mod legacy;
 mod markdown;
 #[path = "brain_skill_contract/navigation.rs"]
 mod navigation;
+#[path = "brain_skill_contract/variants.rs"]
+mod variants;

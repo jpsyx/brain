@@ -6560,3 +6560,30 @@ gain no continuation or overwrite bypass.
 A completed receive can fail for local publication or receipt persistence as well
 as portable instruction conflicts. Its diagnostic therefore retains the safe typed
 cause and repair target; raw parser, subprocess and source text remain private.
+
+
+## Skill release verification: scalable observation and recoverable configuration
+
+A small managed-skill receipt must not impose a size ceiling on unrelated SQLite
+state. Private streaming copies preserve the original no-follow/WAL-aware reader
+contract with bounded memory; repeated content and identity observations refuse
+unstable files. Raising an arbitrary whole-database cap would only defer the same
+availability defect. Historical schema callbacks retain their existing checkpoint
+behavior, which is measured separately from read-only receipt currentness.
+
+Strict machine skill ownership must not make its own configuration correction
+unreachable. Only the named capability object/skills setters enter the existing
+one-shot preparation boundary. They retain invocation ownership, selected identity,
+typed validation, and mandatory reconciliation after the committed correction.
+Unrelated commands remain behind the compatibility gate.
+
+The release [verification record](verification/brain-skills-2026-10-26.md) retains
+raw independent synthetic traces and exact default release checks. Synthetic
+frontend labels exercise shared guidance semantics; they are not claims of live
+Claude, Codex, OpenCode, or pi model compliance. Deterministic transport tests own
+actual adapter argument/payload coverage.
+
+A live sync lock is ownership state, not a package artifact. Compatibility
+acquisition validates its kind without snapshotting its bytes. A deterministic
+owner-release test reproduces the former metadata/content-read disappearance
+race; the correction preserves the same lock primitive and acquisition deadlines.

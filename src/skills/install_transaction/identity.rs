@@ -39,17 +39,24 @@ impl InstallIdentity {
             .join("sync/journal.db")
     }
     pub(crate) fn acquire_sync(&self) -> Result<crate::sync::lock::Guard> {
+        self.acquire_sync_observed(|| {})
+    }
+    fn acquire_sync_observed(&self, observed: impl FnOnce()) -> Result<crate::sync::lock::Guard> {
         self.validate()?;
         self.prepare_cache()?;
         let path = self.sync_lock();
         snapshot::ensure_absolute_directory(path.parent().expect("sync lock parent"))?;
+        // The live owner can unlink this path; its contents are not an install artifact.
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
         ensure!(
-            matches!(
-                snapshot::read(&path)?,
-                snapshot::Snapshot::Absent | snapshot::Snapshot::File { .. }
-            ),
+            metadata.is_none_or(|metadata| metadata.is_file()),
             "unsafe workspace sync lock file"
         );
+        observed();
         crate::sync::lock::try_acquire(&path).ok_or_else(|| SyncBusy.into())
     }
     pub(crate) fn workspace_id(&self) -> &str {
@@ -207,3 +214,6 @@ impl LockedInstall {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

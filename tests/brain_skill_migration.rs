@@ -79,6 +79,8 @@ mod instructions;
 mod invocations;
 #[path = "brain_skill_migration/receiptless.rs"]
 mod receiptless;
+#[path = "brain_skill_migration/release_checks.rs"]
+mod release_checks;
 #[path = "brain_skill_migration/replacement.rs"]
 mod replacement;
 #[path = "brain_skill_migration/source_projection.rs"]

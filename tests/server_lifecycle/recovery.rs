@@ -114,7 +114,15 @@ fn published_elected_child_is_reaped_for_heartbeat_recovery(remove_token: bool) 
     let mut registration = tui.registration(brain::server::lifecycle::ServerGeneration::new());
     let published = client
         .connect_and_register(&mut registration)
-        .expect("elect and register through production");
+        .unwrap_or_else(|error| {
+            let log = std::fs::read_to_string(paths.log())
+                .unwrap_or_else(|read_error| format!("child log unavailable: {read_error}"));
+            let retained = std::env::temp_dir().join(format!(
+                "brain-server-startup-failure-{}.log", uuid::Uuid::new_v4()
+            ));
+            std::fs::write(&retained, &log).expect("retain failed child diagnostics");
+            panic!("elect and register through production: {error:#}\nchild diagnostics retained at {}:\n{log}", retained.display());
+        });
     let status = std::process::Command::new("kill")
         .args(["-KILL", &published.pid.to_string()])
         .status()

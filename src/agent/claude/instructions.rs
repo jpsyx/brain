@@ -69,14 +69,15 @@ pub(super) fn prepare(
         return Err(error());
     }
     let prior = if let Some(path) = file {
-        let mut contents = String::new();
+        let mut contents = Vec::new();
         std::fs::File::open(root.join(path))
             .and_then(|file| {
                 file.take(crate::agent::frontend::SHELL_INSTRUCTION_BUDGET_BYTES as u64 + 1)
-                    .read_to_string(&mut contents)
+                    .read_to_end(&mut contents)
             })
             .map_err(|_| error())?;
-        Some(contents)
+        crate::agent::instructions::validate_byte_length(contents.len())?;
+        Some(String::from_utf8(contents).map_err(|_| error())?)
     } else {
         inline
     };

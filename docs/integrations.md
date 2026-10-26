@@ -2896,3 +2896,15 @@ logically, differing definitions conflict, and old-client edits are never replac
 with stale backups. Retained package candidates must match actual target identity
 and migration-owned postimages. Unrelated config fields and unrelated skill entries
 are not archive identity. Private replicas never bypass live archive root binding.
+
+
+Claude append-file loading checks the bounded byte count before UTF-8 decoding.
+An oversized Unicode file therefore reports the existing actionable 20 KiB
+instruction limit, even if the bounded read ends inside a character; no user rules
+are truncated. This uses the same byte-length guard as captured workspace guidance.
+The composed encoded/shell budgets and all adapter authority remain unchanged.
+
+Skill receipt and pending-receive inspection streams stable private SQLite images
+in bounded memory, including committed WAL, without a database-size ceiling or
+live sidecar creation. Ordinary historical schema reconciliation may still open
+and checkpoint its live state DB; that separate migration behavior is unchanged.

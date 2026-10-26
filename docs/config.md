@@ -1091,3 +1091,25 @@ personas or frontend commands. This projection never changes real configuration
 or lowers the manifest's minimum Brain version. Missing roots remain pending.
 Use the modern standalone `install.sh --target-source CHECKOUT` for supported
 cross-version installation; users do not invoke hidden migrations themselves.
+
+
+### Repairing machine skill declarations
+
+Malformed `agent_capabilities.skills` or a machine skill claiming a bundled name
+blocks ordinary startup and agent launches. The native correction remains usable:
+
+```sh
+brain env set 'agent_capabilities.skills=[]' -w <workspace>
+```
+
+Use the intended nonconflicting declaration array instead of `[]` to retain custom
+choices. If the entire capability object has an invalid shape, replace it through
+`brain env set 'agent_capabilities={"skills":[],"mcps":[]}' -w <workspace>`, retaining
+the desired MCP settings in that replacement. Named setters without `=<value>`
+retain the existing interactive value prompt. Candidate skill shapes, logical names,
+and bundled-name ownership are validated before saving; malformed values are not
+echoed in diagnostics. The workspace identity and normal machine invocation lock
+still apply. After the correction commits, all mandatory reconciliation must pass
+before the command succeeds. If it fails, the diagnostic says the correction was
+committed and the remaining managed-package problem must be repaired. Unrelated
+env setters do not bypass startup.

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 pub type Documents = BTreeMap<String, String>;
+pub type Files = BTreeMap<String, Vec<u8>>;
 
-pub fn documents(rendered: bool) -> Documents {
-    let mut documents = Documents::new();
+pub fn files(rendered: bool) -> Files {
+    let mut inventory = Files::new();
     for skill in brain::skills::embed::bundled_skills() {
         let files: Vec<_> = if rendered {
             brain::skills::render::render(&skill, None)
@@ -18,15 +19,26 @@ pub fn documents(rendered: bool) -> Documents {
                 .collect()
         };
         for (path, contents) in files {
-            if path.extension().is_some_and(|extension| extension == "md") {
-                documents.insert(
-                    format!("{}/{}", skill.name, path.display()),
-                    String::from_utf8(contents).unwrap(),
-                );
-            }
+            inventory.insert(format!("{}/{}", skill.name, path.display()), contents);
         }
     }
-    documents
+    inventory
+}
+
+pub fn documents(rendered: bool) -> Documents {
+    markdown_documents(&files(rendered))
+}
+
+pub fn markdown_documents(files: &Files) -> Documents {
+    files
+        .iter()
+        .filter(|(path, _)| {
+            std::path::Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension == "md")
+        })
+        .map(|(path, contents)| (path.clone(), String::from_utf8(contents.clone()).unwrap()))
+        .collect()
 }
 
 #[test]

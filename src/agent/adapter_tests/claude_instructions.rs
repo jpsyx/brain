@@ -1,6 +1,25 @@
 use super::*;
 use crate::agent::AgentKind;
 
+#[test]
+fn oversized_unicode_append_file_reports_size_before_utf8_decoding() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("large.md"), "🙂".repeat(6000)).unwrap();
+    let command = format!(
+        "{}/tests/fixtures/claude/fake_claude.sh --append-system-prompt-file large.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let frontend = ClaudeFrontend::new(command, temp.path().into(), temp.path().join("projects"));
+    let error = frontend
+        .launch_spec(&prepared(temp.path()))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("20 KiB") && error.contains("shorten"),
+        "{error}"
+    );
+}
+
 fn prepared(root: &std::path::Path) -> LaunchRequest {
     if !root.join("AGENTS.md").exists() {
         std::fs::write(root.join("AGENTS.md"), "Workspace rule").unwrap();

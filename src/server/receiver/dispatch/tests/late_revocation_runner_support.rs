@@ -17,17 +17,9 @@ pub(super) fn provider_id(revocation: LateRevocation) -> &'static str {
 
 pub(super) fn finish_pipeline(
     revocation: LateRevocation,
-    result_rx: &std::sync::mpsc::Receiver<anyhow::Result<InboundJob>>,
+    result: anyhow::Result<InboundJob>,
     workspace: &crate::workspace::WorkspaceContext,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let result = loop {
-        if let Ok(result) = result_rx.try_recv() {
-            break result;
-        }
-        assert!(Instant::now() < deadline, "shared pipeline did not finish");
-        std::thread::yield_now();
-    };
     if matches!(revocation, LateRevocation::CommitLinearizesUnderControl) {
         let job = result.expect("live authority should commit under the control mutex");
         assert!(

@@ -3144,3 +3144,10 @@ Receive and managed-receipt lookups use a stable private SQLite main-plus-WAL
 snapshot. Missing databases, schema or receipts can enter the existing locked
 repair path. Malformed, unsafe, oversized or unstable evidence is refused; it is
 never interpreted as absence. The probe creates no sidecars beside the source.
+
+
+Skill installation receipts remain small rows in the shared UUID state database;
+unrelated state growth does not invalidate them. The read-only observation path
+streams the complete database and WAL to private files, checks repeated SHA-256
+content plus file identity/timestamps, and queries the private SQLite image.
+The capture has bounded memory and retries, not a 64 MiB state-file limit.

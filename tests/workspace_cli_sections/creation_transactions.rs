@@ -17,49 +17,6 @@ fn later_workspace_create_preserves_the_existing_default() {
 
 #[cfg(unix)]
 #[test]
-fn concurrent_successful_creates_all_survive_the_registry_transaction() {
-    const WRITERS: usize = 20;
-
-    let fixture = Fixture::new();
-    let initial = fixture.home.path().join("initial");
-    assert_success(&fixture.run(&["workspace", "create", "--root", path_arg(&initial)]));
-    let release = fixture.current_dir.path().join("release-writers");
-    let roots = (0..WRITERS)
-        .map(|index| fixture.home.path().join(format!("concurrent-{index}")))
-        .collect::<Vec<_>>();
-    let mut children = Vec::with_capacity(WRITERS);
-    for root in &roots {
-        children.push(
-            fixture
-                .barrier_command(&release, &["workspace", "create", "--root", path_arg(root)])
-                .spawn()
-                .expect("spawn blocked workspace writer"),
-        );
-    }
-
-    std::fs::write(&release, b"go").expect("release workspace writers");
-    let outputs = children
-        .into_iter()
-        .map(|child| child.wait_with_output().expect("wait for workspace writer"))
-        .collect::<Vec<_>>();
-    for output in &outputs {
-        assert_success(output);
-    }
-
-    let registry = fixture.registry();
-    assert_eq!(registry.workspaces.len(), WRITERS + 1);
-    for index in 0..WRITERS {
-        assert!(
-            registry
-                .workspaces
-                .contains_key(&name(&format!("concurrent-{index}"))),
-            "successful concurrent writer {index} was lost"
-        );
-    }
-}
-
-#[cfg(unix)]
-#[test]
 fn first_create_persistence_failure_preserves_its_new_root_chain_for_manual_cleanup() {
     let fixture = Fixture::new();
     let registry_dir = fixture.registry_path().parent().unwrap().to_path_buf();

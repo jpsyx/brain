@@ -48,11 +48,4 @@ fn copied_database_is_private_and_removed_after_query() {
     .unwrap()
     .unwrap();
     assert!(!private.parent().unwrap().exists());
-    fs::OpenOptions::new()
-        .write(true)
-        .open(path.clone())
-        .unwrap()
-        .set_len(LIMIT + 1)
-        .unwrap();
-    assert!(read(&path, |_| Ok(())).is_err());
 }

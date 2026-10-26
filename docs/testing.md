@@ -1606,7 +1606,7 @@ nested siblings, proving every current and future split part enters the guard.
 | `tests/workspace_docs.rs` | Stable clap-to-doc workspace commands, selector spellings, storage locations, obsolete root-write rejection, and honest access-language invariants. |
 | `agent::codex::sessions` + `agent::codex::frontend_tests` | Codex resume validation against a temporary rollout tree: an exact trailing-segment id match, refusal of prefix collisions and of ids not following a `-`, unrelated filenames, a missing sessions directory, day-tree search including older days, and no descent past the day level. The frontend half proves the interactive and response-channel predicates agree, that no resolvable home means nothing is resumable, and that a validated id becomes `codex resume '<id>'`. |
 | `tui::app_brain::tests::receiver_durable_reconstruction_matrix` + `receiver_recovery_frontend_matrix` | Composed fresh-App restart proofs for queued, claimed, launching, launched, accepted, processing, recovery, cleanup-gated response, answer-ready, delivering, retrying, acknowledged, failed, and done. The orderly matrix directly invokes receiver-runtime and generic controller shutdown on every originating App and asserts the immediate durable outcome before reconstruction. A separate crash matrix preserves drop-only coverage. Every row proves database-authorized resumption or explicit terminalization and advances a later FIFO job. Retained transport and delivery recorders directly exclude original inbound replay, terminal agent relaunch, and acknowledged provider replay while proving the intended recovery and due-delivery attempts. Recovery repeats reconstruction through `AgentController` for Claude, Codex, OpenCode, and pi while retaining the exact native session. |
-| `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle,receiver_durable_binding_completion,receiver_durable_resume_boundaries,receiver_durable_resume_completion,receiver_durable_shutdown,receiver_durable_attachment_worker}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, atomic native-binding plus terminal evidence commit, exact-session removal after controller validation, expiry and owner replacement after terminal validation, resumed Codex and OpenCode second-run completion when the durable binding already equals the lifecycle-native session, post-validation owner renewal for missing all-frontend history and OpenCode probe errors, post-registration owner renewal for a rejected exact resume claim, live-owner Fresh controls for each fallback, retained planning retry after binding mismatch or SQLite error, barrier-driven lifecycle rotation after validation that preserves the old artifact and active run, successful-spawn owner loss/allocation failure/launch-commit failure fencing, lost ownership without job/retry mutation, progressed stale-state refusal, synchronous spawn retry and post-spawn child-exit fencing, receiver-first claimed/active shutdown, attachment process cancellation and owning cleanup, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. |
+| `tui::app_brain::tests::{receiver_durable_launch,receiver_durable_lifecycle,receiver_durable_binding_completion,receiver_durable_resume_boundaries,receiver_durable_resume_completion,receiver_durable_shutdown,receiver_durable_attachment_worker}` | Composed production-tick coverage for disabled/busy gating, freshness-first exact renewal, timestamp/job-ID FIFO, an arrival waiting unclaimed behind an active run, isolated all-frontend controller launch, exact artifact correlation, atomic native-binding plus terminal evidence commit, exact-session removal after controller validation, expiry and owner replacement after terminal validation, resumed Codex and OpenCode second-run completion when the durable binding already equals the lifecycle-native session, post-validation owner renewal for missing all-frontend history and OpenCode probe errors, post-registration owner renewal for a rejected exact resume claim, live-owner Fresh controls for each fallback, retained planning retry after binding mismatch or SQLite error, barrier-driven lifecycle rotation after validation that preserves the old artifact and active run, successful-spawn owner loss/allocation failure/launch-commit failure fencing, lost ownership without job/retry mutation, progressed stale-state refusal, synchronous spawn retry and post-spawn child-exit fencing, receiver-first claimed/active shutdown, attachment process cancellation and owning cleanup, reply/task/sync terminal effects, and unchanged view, tab, visibility, and focus at launch, close, and next launch. Tests use injected clocks and event barriers rather than fixed sleeps. The two malformed OpenCode resume-error fixtures explicitly seed only their unique command's compatibility cache entry, then retain actual malformed-session discovery and require the validation boundary exactly once. An unseeded unavailable-command control requires a planning retry before that boundary; real compatibility/deadline tests remain separate. |
 | `workspace::templates` tests | The seeded `AGENTS.md`: written when absent, never overwriting an edited copy, idempotent, describing every top-level directory itself (so it needs no companion document, and links none), carrying nothing instance-specific (no `~/brain`, absolute paths, private skills directory, or personal names), and naming only skills Brain actually bundles — checked in passages that discuss skills, so an example project slug is not mistaken for one. Seeding writes **no** `README.md`, and an existing one is left untouched. |
 | `tests/empty_workspace_initialization.rs` | First-run scaffolding through the compiled binary: an empty workspace still counts as empty after automatic lifecycle installation, then gets PARA + CSVs + counters + a schema document declaring v2/`task_uuid`; a sync subcommand seeds the document it needs (sync dispatches before the workspace gate); and **a first sync that fails still leaves the whole task store in place**, since seeding it afterwards left a joining machine merging as `Legacy` against a `Current` remote with an empty `tasks/`. |
 | `sync::csv_merge::remote_csvs` + `sync::csv_sync::tests_sections::remote_schema_publication` + `sync::setup` schema_preflight | Remote task-schema generation decided by CSV *content*: absent/current/legacy classification (header-only current CSVs are current, whitespace proves nothing, one legacy CSV makes the remote legacy), a remote missing only its schema document is healed by publishing it, a failed publication is surfaced rather than assumed healed, and genuinely legacy remote rows still refuse while naming `brain workspace migrate`. Setup's guard refuses on legacy rows instead of on mere CSV existence. |
@@ -1691,7 +1691,7 @@ the `#[cfg(test)]` block (unit) or inside the integration test file.
 ## Commands
 
 ```sh
-# everything (fast — well under a second)
+# everything, including process and installer integrations (several minutes)
 ( cd path/to/brain && cargo test --release )
 
 # one module's unit tests
@@ -2000,3 +2000,36 @@ policy are deterministic unit tests. Historical TUI refusal uses live PID eviden
 without launching a frontend. Isolated actual-helper tests cover migration/apply
 failure and retry; shell fixtures cover protocol selection and unsupported old
 modern coordinators. No production test bypass or transition ticket is used.
+
+
+### Focused-skill release verification
+
+The [2026-10-26 verification record](verification/brain-skills-2026-10-26.md)
+separates deterministic compiler/migration/native transport guarantees from
+independent synthetic skill execution. The bundled/rendered navigation validator
+inventories every file, including binary plugin assets; only Markdown targets
+receive heading-anchor validation. It covers empty, legacy, canonical, equivalent
+mixed customizations and plugins, plus missing-file/anchor negative controls.
+
+The large-state regression uses real valid SQLite databases and committed WAL
+above 64 MiB. Patch startup pins source hashes/mtimes and package bytes. A
+same-version startup additionally checks availability and logical preservation,
+because existing historical schema callbacks may checkpoint the live WAL before
+compatibility observation. Direct receipt and pending-receive cases separately
+prove WAL visibility without source sidecars. Recovery fixture startup failures
+retain child diagnostics before temporary-home cleanup; deadlines are unchanged.
+
+Concurrent workspace-create fixtures capture every child's output and report all
+failed writers together. A deterministic sync-lock test releases the owner after
+kind observation and before acquisition; controls retain live-owner, symlink,
+directory and socket refusal. Receiver CAS tests join their released worker and
+assert its Result, mutex ownership and persisted job, retaining production and
+phase deadlines without an unrelated one-second result busy-spin assumption.
+
+The concurrent-create integration sends all 20 requests together. It checks exact
+initial state and final membership for every acknowledged creation, and validates
+that a documented pre-commit registry contention refusal creates no row or root.
+Only the native exit-1 LockTimeout rendering is accepted; unrelated errors and
+post-commit failures remain failures. At least two successes are needed for this
+fixture's lost-update oracle. This is not a promise that 20 durable creates always
+finish within the registry's existing ten-second acquisition budget.

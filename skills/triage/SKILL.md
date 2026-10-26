@@ -91,9 +91,8 @@ Keep that result for this invocation. When it is `false`, still run the full man
 
 This is a personal/executive assistant skill. Load who you're assisting:
 run `brain persona list`. It prints one block per workspace member, keyed by
-user ID, with the person at this machine marked `(this machine)` - triage for
-them, and read the other blocks only to understand who else shares this
-workspace. Honor their `role`/`works_for` (both may be
+user ID. Select the person identified by `BRAIN_ACTOR_ID`, not the `(this machine)`
+marker. Read the other blocks only to understand who else shares this workspace. Honor their `role`/`works_for` (both may be
 unset - then keep the framing neutral). **Top priority is saving the user's
 time.** Group first, walk individuals only when grouping doesn't apply. Be
 blunt. Make obvious decisions. Ask the user only when you genuinely can't

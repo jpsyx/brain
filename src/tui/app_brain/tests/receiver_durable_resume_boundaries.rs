@@ -23,7 +23,13 @@ fn bind_native_session(
 
 fn assert_claim_retained_without_retry(db: &Db, accepted: &ReceiverAcceptance) {
     let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
-    assert_eq!(job.state(), ReceiverJobState::Claimed);
+    assert_eq!(
+        job.state(),
+        ReceiverJobState::Claimed,
+        "retry_count={}, last_error={:?}",
+        job.retry_count(),
+        job.last_error()
+    );
     assert_eq!(job.retry_count(), 0);
     assert_eq!(job.last_error(), None);
 }
@@ -120,13 +126,18 @@ fn malformed_session_command(temporary: &tempfile::TempDir) -> String {
 fn validation_error_app(
     temporary: &tempfile::TempDir,
 ) -> (App, Db, ReceiverAcceptance, TransportRecording) {
+    let command = malformed_session_command(temporary);
+    // These cases exercise resume authorization after a validation error, not compatibility.
+    crate::agent::seed_opencode_fixture_compatibility(&command);
+    bound_session_app(temporary, &command)
+}
+
+fn bound_session_app(
+    temporary: &tempfile::TempDir,
+    command: &str,
+) -> (App, Db, ReceiverAcceptance, TransportRecording) {
     let cli = Cli::parse_from(["tasks"]);
-    let mut app = test_app_with_agent_command(
-        temporary,
-        &cli,
-        AgentKind::OpenCode,
-        &malformed_session_command(temporary),
-    );
+    let mut app = test_app_with_agent_command(temporary, &cli, AgentKind::OpenCode, command);
     app.receiver.record_intent(true);
     let db = Db::open(app.context.workspace()).expect("state DB");
     let accepted = accept_email_job(&app, &db, "unavailable native history", 100);
@@ -137,19 +148,60 @@ fn validation_error_app(
 }
 
 #[test]
+fn unavailable_frontend_retries_before_resume_validation() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let (mut app, db, accepted, transport) = bound_session_app(&temporary, "false");
+    let clock = ReceiverClock::new();
+    app.services
+        .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let validations = Arc::new(Mutex::new(0));
+    let observed_validations = Arc::clone(&validations);
+    app.receiver.install_launch_boundary_hook(
+        ReceiverLaunchBoundary::ResumeValidation,
+        Box::new(move || {
+            *observed_validations.lock().expect("validation count") += 1;
+            clock.advance(std::time::Duration::from_secs(31));
+        }),
+    );
+
+    app.tick_receiver();
+
+    let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
+    assert_eq!(*validations.lock().expect("validation count"), 0);
+    assert!(transport.launch_specs().is_empty());
+    assert_eq!(job.state(), ReceiverJobState::Retrying);
+    assert_eq!(job.retry_count(), 1);
+    assert_eq!(job.last_error(), Some("launch-planning"));
+}
+
+#[test]
 fn resume_validation_error_cannot_fall_back_fresh_after_claim_expiry() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let (mut app, db, accepted, transport) = validation_error_app(&temporary);
     let clock = ReceiverClock::new();
     app.services
         .replace_receiver_sync_runtime(Box::new(clock.clone()));
+    let validations = Arc::new(Mutex::new(0));
+    let observed_validations = Arc::clone(&validations);
     app.receiver.install_launch_boundary_hook(
         ReceiverLaunchBoundary::ResumeValidation,
-        Box::new(move || clock.advance(std::time::Duration::from_secs(31))),
+        Box::new(move || {
+            *observed_validations.lock().expect("validation count") += 1;
+            clock.advance(std::time::Duration::from_secs(31));
+        }),
     );
 
     app.tick_receiver();
 
+    let job = db.receiver_job(accepted.job_id()).unwrap().unwrap();
+    assert_eq!(
+        *validations.lock().expect("validation count"),
+        1,
+        "state={:?}, retry_count={}, last_error={:?}",
+        job.state(),
+        job.retry_count(),
+        job.last_error()
+    );
     assert!(transport.launch_specs().is_empty());
     assert_claim_retained_without_retry(&db, &accepted);
 }

@@ -1,0 +1,139 @@
+{
+  "checked_at": "2026-10-26T15:31:24.456144+00:00",
+  "checks": [
+    {
+      "path": "docs/verification/brain-skills-2026-10-26.md",
+      "bytes": 23523,
+      "decoded_bytes": 23523,
+      "sha256": "7e3d800bb2d044ed6746820abae47872d9ff37f96a587ad360d6b2213698e3fd",
+      "checked_text_scope": "complete decoded file",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/verification/brain-skills-2026-10-26/behavior-summary.json",
+      "bytes": 20473,
+      "decoded_bytes": 20473,
+      "sha256": "bbd1b515caaed0b3e7cac0f45a846ceda87b40dbf6437611a98fa40db39797cd",
+      "checked_text_scope": "complete decoded file",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/verification/brain-skills-2026-10-26/behavior.json.gz",
+      "bytes": 302662,
+      "decoded_bytes": 1225079,
+      "sha256": "b318f88c6795eec7bbe681b660a06c012b0390ae6a966de7a9c921c1e8da88e9",
+      "checked_text_scope": "complete decoded file",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/verification/brain-skills-2026-10-26/native-schema-behavior.json.gz",
+      "bytes": 79059,
+      "decoded_bytes": 269714,
+      "sha256": "c39f3edd5b5b168bcf24d6e304b5b7d90e78302fa8454610bb9cb0f0e81e5f31",
+      "checked_text_scope": "complete decoded file",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/verification/brain-skills-2026-10-26/release-logs.json.gz",
+      "bytes": 479752,
+      "decoded_bytes": 2298551,
+      "sha256": "60a0e642b4330e04bd40e88693c83dd7e24668586cad4396419135cdb4e911d5",
+      "checked_text_scope": "complete decoded file",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/architecture.md",
+      "bytes": 222758,
+      "decoded_bytes": 1327,
+      "sha256": "24e8c4dc622a2b037eba07f54387f67440726f3ae2c4d7c3f08037d22b355ecb",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/config.md",
+      "bytes": 78893,
+      "decoded_bytes": 1134,
+      "sha256": "e836bdc8a71b25a85243d7dde30558e161815792143bc368b5a0bd1206b535f8",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/data-model.md",
+      "bytes": 196580,
+      "decoded_bytes": 394,
+      "sha256": "55ca184d08603ac76b39fafb7c8007da956f99dc6341cc5935791a23b345cfdc",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/decisions.md",
+      "bytes": 410031,
+      "decoded_bytes": 1624,
+      "sha256": "bd685c697e00f838aa1bc3ae8d0c8f51d1f80ac6c3f50c6f16bd989578a6b85f",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/features.md",
+      "bytes": 226457,
+      "decoded_bytes": 697,
+      "sha256": "389fe100253a274edf8b22b94497ea3ce683d6c9cc32a3369563f633cb783dc9",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/integrations.md",
+      "bytes": 199314,
+      "decoded_bytes": 725,
+      "sha256": "c45580e6fa855cd95fe0ca33c24bd54f91fb76d260b91b335deeb6ac7280b307",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-25-brain-skills.md",
+      "bytes": 38994,
+      "decoded_bytes": 467,
+      "sha256": "70d19d718c6974e517893a390ee5272258d2f3035119172b0dd8147ede7ed6a1",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-25-brain-skills-design.md",
+      "bytes": 30436,
+      "decoded_bytes": 478,
+      "sha256": "f8af9cab78b8248a2b30844e0c5a3fa96df448817fbeeb7ce598ab0f24f2dc00",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    },
+    {
+      "path": "docs/testing.md",
+      "bytes": 177135,
+      "decoded_bytes": 4156,
+      "sha256": "270c325a67b19ee31c21014bbb0f0bdf5ef66673f190734242ac4f23d16b9e32",
+      "checked_text_scope": "added or changed product-doc lines against Task 12 base; pre-existing content excluded",
+      "valid_text": true,
+      "host_paths_and_known_real_identity_values_absent": true
+    }
+  ],
+  "email_values": [
+    "casey@example.test",
+    "p@x.com"
+  ],
+  "email_review": "Synthetic fixtures and documented generic examples only; no real environment/configuration dump or private endpoint in preserved logs.",
+  "generic_path_exception": "Documented /Users/example is permitted; all other /Users identities are rejected within checked text.",
+  "normalization": "Release log text replaces absolute repository, main checkout and HOME paths with documented placeholders. Original local-log hashes are retained. Semantic archives required no host-path normalization.",
+  "scope": "Complete decoded compressed JSON/new verification files, plus added/changed product-doc lines against Task 12 base; known host/user/API-key markers plus complete email-value review within that scope. Pre-existing product-doc examples are not relabelled as newly verified additions. This audit does not claim a general secret-detection guarantee."
+}

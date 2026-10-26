@@ -35,6 +35,17 @@ struct ProbeCache {
 
 static PROBE_CACHE: OnceLock<ProbeCache> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) fn seed_fixture_compatibility(command: &str) {
+    let previous = PROBE_CACHE
+        .get_or_init(ProbeCache::default)
+        .successful
+        .lock()
+        .expect("OpenCode probe cache lock")
+        .insert(command.to_owned(), CompatibilityReport { version: None });
+    assert!(previous.is_none(), "fixture command must be unique");
+}
+
 pub(super) fn ensure_compatible(command: &str) -> Result<(), AgentError> {
     compatibility(command).map(|_| ())
 }

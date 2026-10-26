@@ -3296,3 +3296,15 @@ first. Selected skills use verified content-addressed cache generations; unchang
 generations are reused without writes. The trusted launch catalog allows reading
 only its selected definitions and packaged resources, without broadening normal
 workspace access or authorizing execution or delivery.
+
+
+Machine skill declaration mistakes can be repaired with the existing named
+`brain env set agent_capabilities.skills=...` or whole-object setter even when
+mandatory compatibility refuses ordinary commands. The correction is validated
+under the selected workspace identity, saved once, then followed by mandatory
+reconciliation. Remaining conflicts still produce failure and preserve user edits.
+See [configuration](config.md#repairing-machine-skill-declarations).
+
+Triage resolves the effective `BRAIN_ACTOR_ID` in shared workspaces, including
+receiver runs for a member other than this machine's local user. A contact or
+task lookup never acquires unrelated workflows merely to format its reply.

@@ -69,9 +69,7 @@ pub(super) fn from_captured(
     selected: Option<&crate::skills::WorkspaceCapabilityReport>,
 ) -> Result<LaunchInstructions, AgentError> {
     let path = request.workspace().root().join("AGENTS.md");
-    if bytes.len() > super::frontend::SHELL_INSTRUCTION_BUDGET_BYTES {
-        return Err(AgentError::Frontend(SIZE_LIMIT_MESSAGE.to_owned()));
-    }
+    validate_byte_length(bytes.len())?;
     let document = std::str::from_utf8(bytes).map_err(|error| AgentError::Frontend(format!(
         "workspace instructions {} are not valid UTF-8: {error}; repair the document before launching an agent", path.display(),
     )))?;
@@ -98,6 +96,13 @@ pub(super) fn from_captured(
     }
     validate_size(&instructions.render())?;
     Ok(instructions)
+}
+
+pub(super) fn validate_byte_length(length: usize) -> Result<(), AgentError> {
+    if length > super::frontend::SHELL_INSTRUCTION_BUDGET_BYTES {
+        return Err(AgentError::Frontend(SIZE_LIMIT_MESSAGE.to_owned()));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_size(instructions: &str) -> Result<(), AgentError> {

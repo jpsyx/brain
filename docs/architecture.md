@@ -3204,8 +3204,10 @@ a redirected sync directory or final lock path before lock acquisition.
 
 `sqlite_snapshot.rs` supplies internal read-only receive and receipt evidence. It
 captures the database and WAL without following symlinks, requires stable repeated
-bytes, and lets SQLite read only private copies. Each component is bounded to
-64 MiB and capture retries at most three times. The temporary directory is 0700,
+content fingerprints and file identity/timestamps, and lets SQLite read only
+private copies. Each pass streams through an 8 KiB buffer, bounded by the initial
+file length plus one byte; a growing file is refused. Database size has no arbitrary
+ceiling. Capture retries at most three times. The temporary directory is 0700,
 files are 0600, and cleanup follows success or failure. No live source sidecars are
 created and committed WAL evidence is retained. Machine skill ownership preparation
 parses only typed skill declarations; full MCP validation remains in launch planning.
@@ -3213,3 +3215,19 @@ parses only typed skill declarations; full MCP validation remains in launch plan
 Completed-receive diagnostics preserve a sanitized cause from the actual source,
 instruction, publication or receipt stage. Per-file extension capture attaches its
 existing relative origin; the receive wrapper never substitutes an AGENTS diagnosis.
+
+
+`env/repair.rs` admits only named `env set agent_capabilities[.skills]` requests
+at the existing one-shot startup preparation seam. The ordinary invocation guard
+still encloses the entire operation. Normal selected-workspace bootstrap validates
+identity, the existing env setter validates candidate skill declarations and bundled
+ownership before saving, and mandatory all-workspace reconciliation follows.
+A committed correction followed by a failed reconciliation is reported distinctly.
+Other env commands keep ordinary startup ordering; no general migration bypass or
+second dispatch is introduced.
+
+Compatibility lock acquisition validates cache ancestry and the ephemeral sync
+lock's non-following file kind, then delegates ownership to the existing sync
+lock primitive. It does not fingerprint live lock contents: an owner may unlink
+its path while an observer is between metadata and content reads. Regular files
+and absence are accepted; symlinks, directories and special files remain refused.

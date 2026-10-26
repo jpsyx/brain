@@ -162,6 +162,20 @@ pub fn set(command: &CommandContext, name: &str, value: &str) -> Result<()> {
         }
     }
     set_path(&mut map, name, declared_value(name, value)?)?;
+    if segments[0] == "agent_capabilities"
+        && (segments.len() == 1 || segments.get(1) == Some(&"skills"))
+    {
+        let machine = crate::access::MachineCapabilityEnvironment::for_skill_ownership(
+            command.workspace.id(),
+            &map,
+        )
+        .map_err(|_| {
+            crate::access::CapabilityError::InvalidMachineEnvironment(
+                "agent_capabilities.skills must be an array of skill name and path objects".into(),
+            )
+        })?;
+        crate::access::preflight_bundled_skill_ownership(&machine)?;
+    }
     if segments[0] == crate::tasks::removal::integration::config::ADAPTERS {
         crate::tasks::removal::integration::config::parse_adapters(map[segments[0]].clone())?;
     }

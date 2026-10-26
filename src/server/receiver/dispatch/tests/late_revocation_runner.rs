@@ -141,8 +141,7 @@ fn run_late_revocation(revocation: LateRevocation) {
     let worker_clock_sample_count = Arc::clone(&clock_sample_count);
     let intent_reload_count = Arc::new(AtomicUsize::new(0));
     let worker_intent_reload_count = Arc::clone(&intent_reload_count);
-    let (result_tx, result_rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         let mut request = request;
         let admission_clock = match revocation {
             LateRevocation::ExpireBeforeCommitWithoutWatchdog => Some({
@@ -236,9 +235,7 @@ fn run_late_revocation(revocation: LateRevocation) {
                     .expect("release final durable admission");
             })),
         };
-        result_tx
-            .send(execute_pipeline(&mut pipeline))
-            .expect("report dispatch result");
+        execute_pipeline(&mut pipeline)
     });
 
     provider_finished_rx
@@ -386,5 +383,6 @@ fn run_late_revocation(revocation: LateRevocation) {
             .expect("release final durable admission");
     }
 
-    finish_pipeline(revocation, &result_rx, &workspace);
+    let result = worker.join().expect("shared pipeline worker panicked");
+    finish_pipeline(revocation, result, &workspace);
 }

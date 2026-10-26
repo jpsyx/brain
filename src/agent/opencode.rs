@@ -6,6 +6,9 @@ mod probe;
 mod session;
 
 #[cfg(test)]
+pub(crate) use probe::seed_fixture_compatibility;
+
+#[cfg(test)]
 mod instructions_tests;
 
 use std::{

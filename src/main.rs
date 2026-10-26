@@ -32,6 +32,14 @@ fn main() -> Result<()> {
 
     let _invocation = brain::startup_migration::invocation::Guard::ordinary()?;
 
+    if brain::env::repair::is_requested(&cli) {
+        validate_selected_agent(selected_agent);
+        if let Err(error) = brain::env::repair::run(&mut cli) {
+            exit_with_error(&error, None, false);
+        }
+        return Ok(());
+    }
+
     if brain::skills::repair::is_requested(&cli) {
         let code = brain::skills::repair::run(&cli)?;
         if code != 0 {

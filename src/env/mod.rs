@@ -9,6 +9,7 @@
 mod breakdown;
 mod migrate;
 mod render;
+pub mod repair;
 mod schema;
 mod store;
 mod vars;

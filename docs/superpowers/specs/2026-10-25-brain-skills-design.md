@@ -327,6 +327,13 @@ rendering. Preserve fresh-root initialization order: managed AGENTS must not
 cause an otherwise empty workspace to skip PARA/task seeding. Nonmanifested
 sandboxes receive instructions and skills without inventing portable metadata.
 
+Named native `env set agent_capabilities` and `agent_capabilities.skills` corrections
+use the same one-shot setup boundary under ordinary invocation ownership. Validate
+the candidate declarations and selected identity before saving, then require
+mandatory reconciliation before success. Unrelated env commands retain ordinary
+ordering. Read-only receipt/pending observation has bounded memory and stable
+private WAL-aware copies, without imposing a whole-database size ceiling.
+
 ### Capability names
 
 Preserve logical access when a skill is decomposed. For explicitly selected
