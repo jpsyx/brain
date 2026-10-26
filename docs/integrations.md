@@ -2860,6 +2860,15 @@ instructions and a retained extension snapshot. Historical packages lower the
 manifest to schema 1 in the same transaction: revision 0 for 0.101.0 and revision 1
 for 0.105.3. Both audited targets share the frozen legacy instruction contract.
 
+Missing local package metadata never skips target capability validation. With no
+current package receipt, legacy-only and plugin names remain unchanged; canonical
+selectors still require an equivalent complete legacy selection. A current package
+receipt retains the stricter narrowed-selection check. Only authenticated config
+history authorizes removing migration-added names. A portable managed AGENTS frame
+without local instruction ownership refuses legacy preflight and apply before
+publication. Reconcile it with the current version's `brain skills sync --all-workspaces`
+and resolve any reported conflict before retrying. Prefix and suffix bytes remain intact.
+
 Downgrade applies while the modern executable is still installed. Failure leaves
 that executable available to recover the journal. The installer requires every
 registered root and refuses pending receives under sync-before-install ownership.

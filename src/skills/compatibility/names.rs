@@ -1,4 +1,7 @@
-use crate::skills::install_transaction::package::JsonFieldPatch;
+use crate::skills::{
+    diagnostic::{Category, Diagnostic},
+    install_transaction::package::JsonFieldPatch,
+};
 use anyhow::{Context as _, Result, ensure};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -75,27 +78,43 @@ pub(super) fn reverse_allowed_skills(
     let Some(before) = configured_names(config)? else {
         return Ok(None);
     };
-    let selected: BTreeSet<_> = before
-        .iter()
-        .map(|name| name.to_ascii_lowercase())
-        .collect();
-    // Reversal only removes recorded additions. Removing the legacy selector
-    // is a later-edit conflict even when all successors remain selected.
-    for (legacy, successors) in SPLITS {
-        if selected.contains(*legacy) || successors.iter().any(|name| selected.contains(*name)) {
-            ensure!(
-                selected.contains(*legacy)
-                    && successors.iter().all(|name| selected.contains(*name)),
-                "cannot represent allowed_skills at equivalent scope with legacy `{legacy}`"
-            );
-        }
-    }
+    validate_legacy_names(&before, true)?;
     let after = before
         .iter()
         .filter(|name| !introduced.contains(*name))
         .cloned()
         .collect::<Vec<_>>();
     Ok((before != after).then(|| field_patch(&before, &after)))
+}
+
+/// Without a current package receipt, legacy-only selectors retain their legacy meaning.
+pub(super) fn validate_legacy_allowed_skills(config: &Value) -> Result<()> {
+    if let Some(names) = configured_names(config)? {
+        validate_legacy_names(&names, false)?;
+    }
+    Ok(())
+}
+
+fn validate_legacy_names(names: &[String], current_generation: bool) -> Result<()> {
+    let selected: BTreeSet<_> = names.iter().map(|name| name.to_ascii_lowercase()).collect();
+    // A current receipt makes a legacy-only selector a narrowed modern choice.
+    // Without that evidence, only canonical selectors require an equivalent umbrella.
+    for (legacy, successors) in SPLITS {
+        if (current_generation && selected.contains(*legacy))
+            || successors.iter().any(|name| selected.contains(*name))
+        {
+            ensure!(
+                selected.contains(*legacy)
+                    && successors.iter().all(|name| selected.contains(*name)),
+                Diagnostic::new(
+                    Category::LegacyCapabilityScope,
+                    "prepare_legacy_package",
+                    Some(".config/config.json"),
+                )
+            );
+        }
+    }
+    Ok(())
 }
 
 fn configured_names(config: &Value) -> Result<Option<Vec<String>>> {

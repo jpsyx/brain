@@ -6255,6 +6255,17 @@ invalidate that evidence. Re-upgrade compiles current live sources instead of
 restoring old source/config backups. Identical alias definitions deduplicate;
 differing old-client and canonical definitions retain both sources and refuse.
 
+Portable inputs can arrive before a machine has package receipts. Capability
+representability therefore runs independently of restoration history. A current
+package receipt establishes modern selector semantics; without it, legacy-only
+and plugin names keep their legacy meaning, while canonical selectors still need
+an equivalent complete legacy selection. History authorizes only removal of
+recorded additions. A managed portable instruction frame does not by itself prove
+local ownership for reversal. Legacy planning refuses that case and directs the
+user to current-version reconciliation before retry, preserving the entire
+document. No receipt is synthesized and no managed frame is silently left beside
+legacy skill output.
+
 Downgrade holds sync ownership before operation/task and install ownership, and
 refuses pending receive state. Every registered root must be available before any
 downgrade publication, because the old executable cannot repair a missing root

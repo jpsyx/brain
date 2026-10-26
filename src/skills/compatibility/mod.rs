@@ -73,3 +73,7 @@ pub(crate) fn reverse_allowed_skills(
 ) -> anyhow::Result<Option<crate::skills::install_transaction::package::JsonFieldPatch>> {
     names::reverse_allowed_skills(config, history)
 }
+
+pub(crate) fn validate_legacy_allowed_skills(config: &serde_json::Value) -> anyhow::Result<()> {
+    names::validate_legacy_allowed_skills(config)
+}

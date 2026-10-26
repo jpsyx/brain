@@ -10,7 +10,7 @@ fn success(output: &Output) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
-fn ordinary(f: &Fixture, executable: &Path, args: &[&str]) -> Output {
+pub(super) fn ordinary(f: &Fixture, executable: &Path, args: &[&str]) -> Output {
     Command::new(executable)
         .args(args)
         .env_clear()

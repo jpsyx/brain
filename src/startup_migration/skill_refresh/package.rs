@@ -6,6 +6,7 @@ use super::{
 };
 use crate::skills::{
     compatibility,
+    diagnostic::{Category, Diagnostic},
     install_transaction::{
         InstallVersion, LockedInstall, RenderedInstall, StampStore,
         package::{
@@ -14,7 +15,7 @@ use crate::skills::{
         },
     },
 };
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 pub(super) enum Package {
     Current(ManagedWorkspacePackage),
@@ -39,8 +40,20 @@ impl Package {
         let metadata = manifest
             .as_ref()
             .and_then(|manifest| manifest.package.as_ref());
-        let instructions = metadata
-            .and_then(|metadata| metadata.instructions.as_ref())
+        let ownership = metadata.and_then(|metadata| metadata.instructions.as_ref());
+        if ownership.is_none() {
+            if let Some(document) = sources.files.get("AGENTS.md") {
+                ensure!(
+                    !crate::workspace::instructions::has_managed_region(document)?,
+                    Diagnostic::new(
+                        Category::InstructionOwnershipRequired,
+                        "prepare_legacy_package",
+                        Some("AGENTS.md"),
+                    )
+                );
+            }
+        }
+        let instructions = ownership
             .map(|owned| {
                 let before = sources.files.get("AGENTS.md").cloned();
                 let contract = TargetInstructionContract {
@@ -65,6 +78,7 @@ impl Package {
                 .into_iter()
                 .collect()
         } else {
+            compatibility::validate_legacy_allowed_skills(&config)?;
             Vec::new()
         };
         let projection =

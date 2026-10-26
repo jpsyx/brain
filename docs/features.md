@@ -3206,6 +3206,13 @@ either source. A narrowed capability selection or hook scope that the old versio
 cannot represent is an explicit refusal. Unrelated config changes and foreign
 files remain intact. The target's existing workspace minimum version is honored.
 
+These capability checks also run before this machine has a package receipt.
+Legacy-only and plugin selections retain their meaning; canonical-only selections
+must still have an equivalent target representation. Portable modern AGENTS without
+local instruction ownership refuses downgrade without changing the document.
+Run `brain skills sync --all-workspaces` with the current Brain version, resolve
+any reported conflict, then retry the downgrade.
+
 Ordinary files, nested binary references and literal source bytes are preserved.
 Source symlinks, special files, reserved render markers, core/plugin collisions
 and protected live destinations fail closed. Temporary copies are removed on exit.

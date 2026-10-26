@@ -77,6 +77,8 @@ mod installer;
 mod instructions;
 #[path = "brain_skill_migration/invocations.rs"]
 mod invocations;
+#[path = "brain_skill_migration/receiptless.rs"]
+mod receiptless;
 #[path = "brain_skill_migration/replacement.rs"]
 mod replacement;
 #[path = "brain_skill_migration/source_projection.rs"]

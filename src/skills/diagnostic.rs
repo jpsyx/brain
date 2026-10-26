@@ -17,6 +17,8 @@ pub(crate) enum Category {
     ReceivePending,
     ReceiveConflict,
     ReceiptWriteFailed,
+    LegacyCapabilityScope,
+    InstructionOwnershipRequired,
 }
 impl Category {
     const fn code(self) -> &'static str {
@@ -33,6 +35,8 @@ impl Category {
             Self::ReceivePending => "receive_pending",
             Self::ReceiveConflict => "receive_conflict",
             Self::ReceiptWriteFailed => "receipt_write_failed",
+            Self::LegacyCapabilityScope => "legacy_capability_scope",
+            Self::InstructionOwnershipRequired => "instruction_ownership_required",
         }
     }
     const fn hint(self) -> &'static str {
@@ -70,6 +74,12 @@ impl Category {
             }
             Self::ReceiptWriteFailed => {
                 "Repair the local workspace state database so its receipt can be written, then retry brain skills sync --all-workspaces; the published package and recovery evidence are retained"
+            }
+            Self::LegacyCapabilityScope => {
+                "The target cannot represent allowed_skills at equivalent scope; choose a target supporting the configured capabilities, then retry"
+            }
+            Self::InstructionOwnershipRequired => {
+                "AGENTS.md has a managed frame without local instruction ownership; run brain skills sync --all-workspaces with the current Brain version, resolve any reported conflict, then retry the downgrade"
             }
         }
     }

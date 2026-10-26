@@ -23,6 +23,10 @@ impl Installer {
         let f = Fixture::new(env!("CARGO_PKG_VERSION"));
         compatible(&f);
         f.startup();
+        Self::from_fixture(f)
+    }
+
+    fn from_fixture(f: Fixture) -> Self {
         let candidate = f.temp.path().join("candidate");
         let bin = f.temp.path().join("bin");
         let tools = f.temp.path().join("tools");
@@ -70,6 +74,59 @@ impl Installer {
             .env("FIXTURE_OBSERVATION", &self.observation)
             .output()
             .unwrap()
+    }
+}
+
+#[test]
+fn receiptless_incompatible_portable_state_prevents_executable_replacement() {
+    for modern in [false, true] {
+        let f = Fixture::new(env!("CARGO_PKG_VERSION"));
+        compatible(&f);
+        let diagnostic = if modern {
+            std::fs::write(
+                f.root.join("AGENTS.md"),
+                super::receiptless::modern_document(),
+            )
+            .unwrap();
+            "local instruction ownership"
+        } else {
+            write_json(
+                &f.root.join(".config/config.json"),
+                &json!({"allowed_skills":["agenda"], "skills_auto_sync":false}),
+            );
+            "equivalent scope"
+        };
+        let installer = Installer::from_fixture(f);
+        let before = std::fs::read(&installer.installed).unwrap();
+        let agents = std::fs::read(installer.f.root.join("AGENTS.md")).ok();
+        let config = std::fs::read(installer.f.root.join(".config/config.json")).ok();
+        let output = installer.run();
+        assert!(
+            !output.status.success(),
+            "receiptless downgrade was installed"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(diagnostic),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read(&installer.installed).unwrap(), before);
+        assert_eq!(
+            std::fs::read(installer.f.root.join("AGENTS.md")).ok(),
+            agents
+        );
+        assert_eq!(
+            std::fs::read(installer.f.root.join(".config/config.json")).ok(),
+            config
+        );
+        assert!(!installer.f.root.join(".agents").exists());
+        assert!(
+            !installer
+                .f
+                .cache()
+                .join("skills-install/managed.json")
+                .exists()
+        );
     }
 }
 

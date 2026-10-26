@@ -188,6 +188,40 @@ fn down_does_not_remove_preexisting_canonical_names() {
 }
 
 #[test]
+fn receiptless_legacy_scope_validation_preserves_legacy_and_plugin_names() {
+    use serde_json::json;
+    for names in [
+        json!([]),
+        json!(["Custom"]),
+        json!(["TODO", "second-brain", "Custom"]),
+        json!(["todo", "agenda", "Custom"]),
+        json!([
+            "second-brain",
+            "projects",
+            "process-capture",
+            "organize",
+            "brain-sync"
+        ]),
+    ] {
+        super::validate_legacy_allowed_skills(&json!({"allowed_skills": names})).unwrap();
+    }
+    super::validate_legacy_allowed_skills(&json!({})).unwrap();
+    for names in [
+        json!(["agenda"]),
+        json!(["projects"]),
+        json!(["process-capture"]),
+        json!(["organize"]),
+        json!(["brain-sync"]),
+        json!(["second-brain", "projects"]),
+        json!(["projects", "process-capture", "organize", "brain-sync"]),
+    ] {
+        let error =
+            super::validate_legacy_allowed_skills(&json!({"allowed_skills": names})).unwrap_err();
+        assert!(error.to_string().contains("equivalent scope"), "{error}");
+    }
+}
+
+#[test]
 fn machine_selection_preflight_refuses_all_new_bundled_name_claims() {
     for name in [
         "agenda",
