@@ -1982,3 +1982,6 @@ Pending repair coverage retains failed evidence, consumes one transfer and refus
 completed mismatches; local-rclone convergence exercises the same recovery path.
 Explicit refresh fixtures also redirect the sync directory and final lock, proving
 outside sentinel files and links survive refusal without package publication.
+Completed-receive diagnostics cover invalid extension bytes and a failed receipt
+write, including retained evidence and retry. Nested-cause tests check JSON/text
+redaction, and the actual instruction mismatch still identifies its AGENTS target.

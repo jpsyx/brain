@@ -264,7 +264,9 @@ impl LockedInstall {
         published.save(&self.identity.cache)?;
         checkpoint(Checkpoint::ManifestPublished)?;
         let receipt = journal.receipt()?;
-        stamp.write(&receipt)?;
+        stamp
+            .write(&receipt)
+            .map_err(|_| super::diagnostic::Diagnostic::receipt_write())?;
         published.transition(Phase::DisposingCommitted, &self.identity.cache)?;
         published.cleanup(&self.identity.root, &self.identity.cache)?;
         Ok(receipt)
@@ -308,7 +310,9 @@ impl LockedInstall {
         let recovered = if committed {
             journal.verify_after(&self.identity.root)?;
             let receipt = journal.receipt()?;
-            stamp.write(&receipt)?;
+            stamp
+                .write(&receipt)
+                .map_err(|_| super::diagnostic::Diagnostic::receipt_write())?;
             journal.transition(Phase::DisposingCommitted, &self.identity.cache)?;
             Some(RecoveredInstall {
                 receipt,

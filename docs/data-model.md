@@ -3116,6 +3116,12 @@ UUID fail closed. Completed package conflicts are recorded as needs-attention;
 only successful package reconciliation deletes the pending row. No portable
 workspace schema or minimum Brain version changes for this split.
 
+Receive failures retain the `receive_conflict` category with an optional structured
+`cause`: a classified diagnostic with its stage, validated relative artifact and
+repair hint. Arbitrary error strings and source contents are excluded. Receipt
+write failures identify local state persistence, while instruction composition
+failures name `AGENTS.md` only at that instruction-validation boundary.
+
 The selected capability report binds the actual content-addressed rendered directory
 and successfully available skill names. Its digest covers complete relative paths
 and bytes, including packaged resources. Identical inputs reuse verified immutable

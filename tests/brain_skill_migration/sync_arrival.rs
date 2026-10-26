@@ -81,6 +81,10 @@ fn completed_mismatch_retains_evidence_without_repeated_transport() {
     let transfer = super::sync_fixture::Transfer::new();
     let failed = transfer.pull("mismatch");
     assert!(!failed.status.success());
+    let diagnostic = String::from_utf8_lossy(&failed.stderr);
+    assert!(diagnostic.contains("receive_conflict"));
+    assert!(diagnostic.contains("compose_instructions"));
+    assert!(diagnostic.contains("AGENTS.md"));
     assert_eq!(transfer.phase().as_deref(), Some("reconcile"));
     let db = rusqlite::Connection::open(transfer.fixture.cache().join("sync/journal.db")).unwrap();
     let outcome: String = db

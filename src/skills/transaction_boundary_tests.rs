@@ -117,6 +117,88 @@ fn completed_receive_reconciles_new_sources_after_finishing_a_pending_stamp() {
 }
 
 #[test]
+fn completed_receive_keeps_invalid_extension_diagnostic_and_pending_evidence() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    sync_identity(&identity, &Sources::default(), &mut NoStamp).unwrap();
+    let before = fs::read(root.path().join("AGENTS.md")).unwrap();
+    let extensions = root.path().join(".config/extensions");
+    fs::create_dir_all(&extensions).unwrap();
+    fs::write(
+        extensions.join("workspace.md"),
+        b"private-source-secret\xff",
+    )
+    .unwrap();
+    let journal =
+        crate::sync::journal::Journal::open(&cache.path().join("sync/journal.db")).unwrap();
+    journal
+        .begin_receive(identity.workspace_id(), "fixture")
+        .unwrap();
+    journal.complete_receive(identity.workspace_id()).unwrap();
+    let error = sync_identity(
+        &identity,
+        &Sources {
+            extensions_dir: Some(extensions),
+            plugins_dir: None,
+        },
+        &mut NoStamp,
+    )
+    .unwrap_err();
+    let diagnostic = super::diagnostic::Diagnostic::from_error(&error, "test", None);
+    let value = serde_json::to_value(&diagnostic).unwrap();
+    assert_eq!(value["category"], "receive_conflict");
+    assert_eq!(value["cause"]["category"], "invalid_source");
+    assert_eq!(value["cause"]["stage"], "read_source");
+    assert_eq!(
+        value["cause"]["artifact"],
+        ".config/extensions/workspace.md"
+    );
+    assert!(
+        diagnostic
+            .to_string()
+            .contains(".config/extensions/workspace.md")
+    );
+    assert!(!diagnostic.to_string().contains("private-source-secret"));
+    assert!(!value.to_string().contains("private-source-secret"));
+    assert_eq!(
+        identity.receive_phase().unwrap(),
+        Some(crate::sync::journal::ReceivePhase::Reconcile)
+    );
+    assert_eq!(fs::read(root.path().join("AGENTS.md")).unwrap(), before);
+}
+
+#[test]
+fn completed_receive_keeps_receipt_write_diagnostic_and_retryable_evidence() {
+    let root = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let identity = InstallIdentity::sandbox_with_cache(root.path(), cache.path()).unwrap();
+    let journal =
+        crate::sync::journal::Journal::open(&cache.path().join("sync/journal.db")).unwrap();
+    journal
+        .begin_receive(identity.workspace_id(), "fixture")
+        .unwrap();
+    journal.complete_receive(identity.workspace_id()).unwrap();
+    let mut stamp = FailOnce(true);
+    let error = sync_identity(&identity, &Sources::default(), &mut stamp).unwrap_err();
+    let diagnostic = super::diagnostic::Diagnostic::from_error(&error, "test", None);
+    let value = serde_json::to_value(&diagnostic).unwrap();
+    assert_eq!(value["category"], "receive_conflict");
+    assert_eq!(value["cause"]["category"], "receipt_write_failed");
+    assert_eq!(value["cause"]["stage"], "write_receipt");
+    assert!(diagnostic.to_string().contains("workspace state database"));
+    assert!(!value.to_string().contains("stamp temporarily unavailable"));
+    assert!(!value.to_string().contains("AGENTS.md"));
+    assert_eq!(
+        identity.receive_phase().unwrap(),
+        Some(crate::sync::journal::ReceivePhase::Reconcile)
+    );
+    assert!(cache.path().join("skills-install/pending.json").exists());
+    sync_identity(&identity, &Sources::default(), &mut stamp).unwrap();
+    assert_eq!(identity.receive_phase().unwrap(), None);
+}
+
+#[test]
 fn failed_legacy_backup_leaves_live_tree_and_no_completed_stages() {
     let root = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();

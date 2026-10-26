@@ -3253,6 +3253,8 @@ or `brain sync repair -w <workspace>` finishes one verified receive before start
 resumes. Repair retains its existing baseline safeguards. Failed recovery remains
 retryable. A completed receive whose instructions and sources disagree is a
 reported conflict, with evidence retained and no automatic repeated pull.
+Its diagnostic identifies the actual repair target, such as an invalid extension
+or a local receipt write failure, without exposing source contents or parser output.
 
 A generated-only AGENTS document is setup infrastructure: empty-root PARA and
 task initialization still run, and the initial configured pull precedes PARA

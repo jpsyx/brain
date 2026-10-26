@@ -53,34 +53,14 @@ impl CheckedSources {
         };
         let mut sources = BTreeMap::new();
         for path in paths {
-            let metadata = fs::symlink_metadata(&path)
-                .with_context(|| format!("reading selected extension {}", path.display()))?;
-            ensure!(
-                metadata.is_file() && !metadata.file_type().is_symlink(),
-                "extension must be a regular file: {}",
-                path.display()
-            );
-            ensure!(
-                metadata.permissions().mode() & 0o444 != 0,
-                "extension is unreadable: {}",
-                path.display()
-            );
-            let mut file = fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-                .open(&path)?;
-            ensure!(
-                file.metadata()?.is_file(),
-                "extension changed type during snapshot"
-            );
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)
-                .with_context(|| format!("reading extension {}", path.display()))?;
             let identity = prefix
                 .join(path.file_name().context("extension source name")?)
                 .into_os_string()
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("non-UTF-8 extension name"))?;
+            let contents = read_source(&path).map_err(|error| {
+                crate::skills::diagnostic::Diagnostic::source(&error, &identity)
+            })?;
             ensure!(
                 sources.insert(identity, contents).is_none(),
                 "duplicate extension source"
@@ -94,6 +74,29 @@ impl CheckedSources {
             projection: project_extensions(sources, ProjectionDirection::Current)?,
         })
     }
+}
+
+fn read_source(path: &Path) -> Result<String> {
+    let metadata = fs::symlink_metadata(path)?;
+    ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "extension must be a regular file"
+    );
+    ensure!(
+        metadata.permissions().mode() & 0o444 != 0,
+        "extension is unreadable"
+    );
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+        .open(path)?;
+    ensure!(
+        file.metadata()?.is_file(),
+        "extension changed type during snapshot"
+    );
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
 }
 
 fn check_directory(directory: &Path) -> Result<bool> {

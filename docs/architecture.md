@@ -3183,3 +3183,7 @@ bytes, and lets SQLite read only private copies. Each component is bounded to
 files are 0600, and cleanup follows success or failure. No live source sidecars are
 created and committed WAL evidence is retained. Machine skill ownership preparation
 parses only typed skill declarations; full MCP validation remains in launch planning.
+
+Completed-receive diagnostics preserve a sanitized cause from the actual source,
+instruction, publication or receipt stage. Per-file extension capture attaches its
+existing relative origin; the receive wrapper never substitutes an AGENTS diagnosis.

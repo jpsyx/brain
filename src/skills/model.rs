@@ -30,7 +30,14 @@ impl CompiledSkills {
         prior: Option<&crate::workspace::instructions::InstructionReceipt>,
     ) -> anyhow::Result<super::install_transaction::package::ManagedWorkspacePackage> {
         let mut document =
-            crate::workspace::instructions::plan_document(existing, &self.workspace_body, prior)?;
+            crate::workspace::instructions::plan_document(existing, &self.workspace_body, prior)
+                .map_err(|error| {
+                    super::diagnostic::Diagnostic::from_error(
+                        &error,
+                        "compose_instructions",
+                        Some("AGENTS.md"),
+                    )
+                })?;
         document
             .receipt
             .sources_sha256

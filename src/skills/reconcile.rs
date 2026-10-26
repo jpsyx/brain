@@ -214,12 +214,7 @@ pub(crate) fn synchronize_locked(
     )
     .map_err(|error| {
         if receive.is_some() {
-            Diagnostic::new(
-                super::diagnostic::Category::ReceiveConflict,
-                "receive_reconcile",
-                Some("AGENTS.md"),
-            )
-            .into()
+            Diagnostic::receive_conflict(&error).into()
         } else {
             error
         }
@@ -254,7 +249,7 @@ fn publish_locked(
 ) -> Result<(bool, install::Report)> {
     let recovered = locked
         .recover(stamp)
-        .context("recover managed skill installation")?;
+        .map_err(|error| Diagnostic::from_error(&error, "recover_installation", None))?;
     let version = InstallVersion::current();
     let manifest = locked.manifest()?;
     let complete = current::complete(manifest.as_ref());
@@ -282,8 +277,11 @@ fn publish_locked(
                 ),
         ));
     }
-    let package = package::prepare(locked, sources, legacy_machine)?;
-    let report = locked.preflight_package(&package, &version)?;
+    let package = package::prepare(locked, sources, legacy_machine)
+        .map_err(|error| Diagnostic::from_error(&error, "prepare_package", None))?;
+    let report = locked
+        .preflight_package(&package, &version)
+        .map_err(|error| Diagnostic::from_error(&error, "preflight_package", None))?;
     if complete && let Ok(Currentness::Current(receipt)) = locked.inspect(&version) {
         let prior = manifest
             .as_ref()
@@ -304,14 +302,16 @@ fn publish_locked(
         {
             let stamp_changed = stamp.read()?.as_ref() != Some(&receipt);
             if stamp_changed {
-                stamp.write(&receipt)?;
+                stamp
+                    .write(&receipt)
+                    .map_err(|_| Diagnostic::receipt_write())?;
             }
             return Ok((recovered.is_some() || stamp_changed, report));
         }
     }
     locked
         .install_package(package, &version, stamp)
-        .context("publish managed workspace package and persist receipt")?;
+        .map_err(|error| Diagnostic::from_error(&error, "publish_package", None))?;
     Ok((true, report))
 }
 

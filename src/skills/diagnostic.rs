@@ -16,6 +16,7 @@ pub(crate) enum Category {
     RefreshFailed,
     ReceivePending,
     ReceiveConflict,
+    ReceiptWriteFailed,
 }
 impl Category {
     const fn code(self) -> &'static str {
@@ -31,6 +32,7 @@ impl Category {
             Self::RefreshFailed => "refresh_failed",
             Self::ReceivePending => "receive_pending",
             Self::ReceiveConflict => "receive_conflict",
+            Self::ReceiptWriteFailed => "receipt_write_failed",
         }
     }
     const fn hint(self) -> &'static str {
@@ -64,7 +66,10 @@ impl Category {
                 "Complete the interrupted receive with brain sync --pull -w <workspace> or brain sync repair -w <workspace> before running other commands or launching an agent"
             }
             Self::ReceiveConflict => {
-                "The receive completed but its workspace package conflicts; preserve AGENTS.md and extension sources, reconcile their matching generation, then retry brain skills sync --all-workspaces"
+                "The receive completed but package reconciliation failed; correct the reported cause, then retry brain skills sync --all-workspaces"
+            }
+            Self::ReceiptWriteFailed => {
+                "Repair the local workspace state database so its receipt can be written, then retry brain skills sync --all-workspaces; the published package and recovery evidence are retained"
             }
         }
     }
@@ -75,6 +80,8 @@ pub(crate) struct Diagnostic {
     pub stage: &'static str,
     pub artifact: Option<String>,
     pub hint: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<Box<Self>>,
 }
 impl Diagnostic {
     pub(crate) fn new(category: Category, stage: &'static str, artifact: Option<&str>) -> Self {
@@ -85,7 +92,17 @@ impl Diagnostic {
                 .filter(|path| safe_relative(path))
                 .map(str::to_owned),
             hint: category.hint(),
+            cause: None,
         }
+    }
+    pub(crate) fn receive_conflict(error: &anyhow::Error) -> Self {
+        Self {
+            cause: Some(Box::new(Self::from_error(error, "publish_package", None))),
+            ..Self::new(Category::ReceiveConflict, "receive_reconcile", None)
+        }
+    }
+    pub(crate) fn receipt_write() -> Self {
+        Self::new(Category::ReceiptWriteFailed, "write_receipt", None)
     }
     pub(crate) fn from_error(
         error: &anyhow::Error,
@@ -123,7 +140,10 @@ impl Diagnostic {
         if error.downcast_ref::<Self>().is_some() {
             return Self::from_error(error, "read_source", Some(artifact));
         }
-        let category = if error.downcast_ref::<std::io::Error>().is_some() {
+        let category = if error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() != std::io::ErrorKind::InvalidData)
+        {
             Category::UnreadableSource
         } else {
             Category::InvalidSource
@@ -155,7 +175,11 @@ impl Display for Diagnostic {
         if let Some(artifact) = &self.artifact {
             write!(f, " {artifact}")?;
         }
-        write!(f, ": {}", self.hint)
+        write!(f, ": {}", self.hint)?;
+        if let Some(cause) = &self.cause {
+            write!(f, "; cause: {cause}")?;
+        }
+        Ok(())
     }
 }
 impl std::error::Error for Diagnostic {}
@@ -186,6 +210,62 @@ impl std::error::Error for RefreshFailure {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn receive_failure_hint_does_not_assume_instruction_mismatch() {
+        let diagnostic = Diagnostic::new(Category::ReceiveConflict, "receive_reconcile", None);
+        assert!(!diagnostic.hint.contains("AGENTS.md"));
+        assert!(!diagnostic.hint.contains("matching generation"));
+    }
+
+    #[test]
+    fn receive_cause_preserves_only_the_typed_safe_diagnostic() {
+        for artifact in [
+            ".config/extensions/workspace.md",
+            "/private/secret",
+            "../secret",
+        ] {
+            let cause = Diagnostic::new(Category::InvalidSource, "read_source", Some(artifact));
+            let expected = serde_json::to_value(&cause).unwrap();
+            let error = anyhow::Error::new(cause).context("private-parser-source-child-output");
+            let diagnostic = Diagnostic::receive_conflict(&error);
+            let value = serde_json::to_value(&diagnostic).unwrap();
+            assert_eq!(value["category"], "receive_conflict");
+            assert_eq!(value["cause"], expected);
+            for text in [value.to_string(), diagnostic.to_string()] {
+                assert!(!text.contains("private-parser"));
+                assert!(!text.contains("/private/secret"));
+                assert!(!text.contains("../secret"));
+                assert!(!text.contains("AGENTS.md"));
+            }
+        }
+    }
+
+    #[test]
+    fn receive_cause_classifies_unknown_errors_without_copying_their_contents() {
+        for (error, category) in [
+            (
+                anyhow::anyhow!("private-parser-source-child-output"),
+                "refresh_failed",
+            ),
+            (
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "private-parser-source-child-output",
+                )
+                .into(),
+                "unreadable_source",
+            ),
+        ] {
+            let diagnostic = Diagnostic::receive_conflict(&error);
+            let value = serde_json::to_value(&diagnostic).unwrap();
+            assert_eq!(value["cause"]["category"], category);
+            assert_eq!(value["cause"]["stage"], "publish_package");
+            assert!(value["cause"]["artifact"].is_null());
+            assert!(!value.to_string().contains("private-parser"));
+            assert!(!diagnostic.to_string().contains("private-parser"));
+        }
+    }
+
     #[test]
     fn diagnostics_omit_unsafe_artifacts_and_arbitrary_error_contents() {
         for artifact in [

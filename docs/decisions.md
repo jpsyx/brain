@@ -6504,3 +6504,7 @@ baseline attempt. It and the hidden `init` alias share the same Receiving-only
 continuation as explicit pull, with existing resync safeguards and exactly one
 consumed invocation. Ordinary bidirectional sync, push and completed mismatches
 gain no continuation or overwrite bypass.
+
+A completed receive can fail for local publication or receipt persistence as well
+as portable instruction conflicts. Its diagnostic therefore retains the safe typed
+cause and repair target; raw parser, subprocess and source text remain private.
