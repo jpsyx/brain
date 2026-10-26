@@ -137,3 +137,52 @@ fn capture_only_requests_do_not_enter_or_complete_weekly_triage() {
     assert!(scope.contains("Explicit weekly review"));
     assert!(!triage.contains("\"process my capture\""));
 }
+
+#[test]
+fn at_risk_bulk_defers_cannot_override_individual_hard_deadline_review() {
+    for rendered in [false, true] {
+        let docs = catalog::documents(rendered);
+        let triage = &docs["triage/SKILL.md"];
+        let group = triage
+            .split("### Group-level prompt (4+ hits)")
+            .nth(1)
+            .unwrap()
+            .split("### Per-task prompt")
+            .next()
+            .unwrap();
+        let group = group.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            !group.contains("still go through"),
+            "local bulk consent must not override hard-deadline protection"
+        );
+        for required in [
+            "Before any group mutation",
+            "#step-5--hard-deadline-review",
+            "Exclude every `hard_deadline=true` row from all bulk defer variants",
+            "Handle protected rows separately",
+            "Bulk consent does not replace that individual decision",
+        ] {
+            assert!(group.contains(required), "missing local guard: {required}");
+        }
+    }
+}
+
+#[test]
+fn shared_bulk_consent_keeps_deadline_guards_and_maintenance_exceptions() {
+    let docs = catalog::documents(false);
+    let triage = &docs["triage/SKILL.md"];
+    let consent = triage
+        .split("## Never auto-mutate")
+        .nth(1)
+        .unwrap()
+        .split("## Asking the user")
+        .next()
+        .unwrap();
+    assert!(!consent.contains("consent for the **entire group**"));
+    assert!(consent.contains("eligible selected rows"));
+    assert!(consent.contains("never waive individual hard-deadline review"));
+    assert!(consent.contains("explicit maintenance exceptions"));
+    for command in ["brain backlog purge", "brain backlog dedupe"] {
+        assert!(triage.contains(command));
+    }
+}

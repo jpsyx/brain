@@ -3220,3 +3220,8 @@ revision uses the agenda skill; a native mutation does not ask the agent to
 rebuild it. Daily/weekly triage keeps its seven hook phases and runtime `require`
 gate. Capture and agenda procedures load only when the run actually needs them;
 weekly-to-daily chaining begins at the daily opening phase, including maintenance.
+
+At-risk triage applies the same pre-mutation individual hard-deadline review as
+past-due triage. Every group defer variant excludes hard-deadline rows; group
+consent cannot replace their per-task confirmation. Native no-penalty defers,
+preview-bound removal consent, and deliberate backlog maintenance are unchanged.

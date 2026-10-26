@@ -230,7 +230,8 @@ its deadline individually before proceeding. Step numbers do not delay this gate
 
 ## Step 3 - Bulk operations per group
 
-- **Defer all N days** - accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `brain tasks defer` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
+- **Defer all N days** - exclude `hard_deadline=true` rows after the individual
+  deadline review above; accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `brain tasks defer` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
 - **Drop all**: preview all consented IDs in one command with
   `brain tasks remove T17 T18 --dry-run --json`, then obtain consent for the
   exact scope and dependency/linked-issue policies. Apply the same batch with
@@ -326,8 +327,19 @@ options:  Leave as is / 1-by-1 / Defer all +7d / Drop all
 
 - **`Leave as is`** is ALWAYS the first option, because at-risk tasks are flagged but not yet late - leaving them unchanged is a legitimate choice and often the right one. The user is being shown a preview, not forced to act.
 - **`1-by-1`** kicks into the per-task prompt below for that group only.
-- **`Defer all +Nd`** / **`Drop all`** are bulk operations. Hard-deadline tasks inside a "Defer all" still go through (per the user's explicit consent), but if the bulk push would land any task at `defer_count >= 3`, flag it in the post-action summary.
-- Less common bulk operations (`Defer all +14d`, `Defer all to date`, `Convert all to project`) remain reachable via "Other".
+- Before any group mutation, perform the [hard-deadline review](#step-5--hard-deadline-review)
+  for every protected row. Bulk consent does not replace that individual decision.
+- **`Defer all +Nd`**: Exclude every `hard_deadline=true` row from all bulk defer variants,
+  including `Defer all +14d` and `Defer all to date`. State which rows remain outside
+  the batch. Handle protected rows separately through the per-task prompt and its
+  explicit deadline confirmation, even when the user chose a group defer.
+  Apply `brain tasks defer` only to the eligible batch; native waiting/blocked and
+  `--no-count` exemptions still apply. Flag a resulting `defer_count >= 3` in the summary.
+- **`Drop all`**: after deadline review, follow Step 3's native removal preview,
+  exact-scope consent, dependency/linked-issue policy, and fingerprint contract.
+- Less common bulk operations (`Defer all +14d`, `Defer all to date`, `Convert all to project`)
+  remain reachable through a free-form response and obey the same deadline review.
+  Choosing a different defer interval never expands the eligible batch.
 
 ### Per-task prompt
 
@@ -658,7 +670,11 @@ Once weekly processing is complete and managed completion is handled (or disable
 
 ## Never auto-mutate
 
-Triage never deletes, defers, re-prioritizes, or routes anything without an explicit user choice. Bulk options count as explicit consent for the **entire group**. In weekly mode, your best-guess routing of a TASK or NOTE counts as a decision the user has implicitly authorized - but anything UNSURE must be confirmed.
+Apart from the explicit maintenance exceptions in daily Step 0 and the monthly
+check, triage never deletes, defers, re-prioritizes, or routes anything without
+an explicit user choice. Bulk options authorize only eligible selected rows; they
+never waive individual hard-deadline review or include protected rows in a bulk
+defer. In weekly mode, your best-guess routing of a TASK or NOTE counts as a decision the user has implicitly authorized - but anything UNSURE must be confirmed.
 
 <a id="asking-the-user-for-per-task-actions-use-askuserquestion"></a>
 
