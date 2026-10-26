@@ -72,6 +72,16 @@ impl ShellProbeRunner {
         arguments: &[&str],
         cwd: Option<&std::path::Path>,
     ) -> Result<ProbeOutput, ProbeRunError> {
+        self.run_at_with_environment(command, arguments, cwd, None)
+    }
+
+    pub(super) fn run_at_with_environment(
+        &self,
+        command: &str,
+        arguments: &[&str],
+        cwd: Option<&std::path::Path>,
+        environment: Option<&[(String, String)]>,
+    ) -> Result<ProbeOutput, ProbeRunError> {
         use std::os::unix::process::CommandExt as _;
 
         let arguments = arguments
@@ -89,6 +99,9 @@ impl ShellProbeRunner {
             .process_group(0);
         if let Some(cwd) = cwd {
             shell.current_dir(cwd);
+        }
+        if let Some(environment) = environment {
+            shell.env_clear().envs(environment.iter().cloned());
         }
         let mut child = shell.spawn().map_err(|_| ProbeRunError::Start)?;
         let stdout = child.stdout.take().ok_or(ProbeRunError::Capture)?;
@@ -111,7 +124,7 @@ impl ShellProbeRunner {
         let stderr = receive_capture(&stderr_rx, deadline)?;
         Ok(ProbeOutput {
             success: status.success(),
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stdout: String::from_utf8(stdout).map_err(|_| ProbeRunError::Capture)?,
             stderr: String::from_utf8_lossy(&stderr).into_owned(),
         })
     }

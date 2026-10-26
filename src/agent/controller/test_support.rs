@@ -229,18 +229,25 @@ impl AgentTransport for ShutdownOutcomeTransport {
     }
 }
 
+thread_local! {
+    static WORKSPACE_FIXTURE: tempfile::TempDir = {
+        let temporary = tempfile::tempdir().expect("controller workspace");
+        std::fs::write(temporary.path().join("AGENTS.md"), "Controller workspace guidance.").unwrap();
+        temporary
+    };
+}
+
 fn workspace() -> Arc<WorkspaceContext> {
-    Arc::new(
+    WORKSPACE_FIXTURE.with(|temporary| Arc::new(
         WorkspaceContext::new(
-            Path::new("/home/tester"),
+            temporary.path(),
             WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").expect("id"),
             WorkspaceName::parse("family").expect("name"),
-            Path::new("/home/tester/family"),
+            temporary.path(),
             "pablo",
-            Path::new("/home/tester"),
-        )
-        .expect("workspace"),
-    )
+            temporary.path(),
+        ).expect("workspace"),
+    ))
 }
 
 fn controller() -> (

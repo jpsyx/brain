@@ -1,5 +1,6 @@
 //! Claude Code translation behind the frontend-neutral agent facade.
 
+mod instructions;
 mod probe;
 
 use std::path::PathBuf;
@@ -182,6 +183,26 @@ impl AgentFrontend for ClaudeFrontend {
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
+        let environment = launch_environment(request, self.kind());
+        let instruction_text = request.instruction_text();
+        let prepared = if request.instructions().is_some() {
+            Some(instructions::prepare(
+                &self.command,
+                request.workspace().root(),
+                &environment,
+                instruction_text.as_deref().expect("prepared instructions"),
+            )?)
+        } else {
+            None
+        };
+        let command = prepared.as_ref().map_or_else(
+            || self.command.clone(),
+            |(prefix, _)| format!("{prefix} --system-prompt-snapshot off"),
+        );
+        let instruction_text = prepared
+            .as_ref()
+            .map(|(_, text)| text.as_str())
+            .or(instruction_text.as_deref());
         let capability_plan = request.access_policy().capability_plan();
         if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
             crate::access::cleanup_workspace_capabilities(request.workspace())
@@ -219,14 +240,14 @@ impl AgentFrontend for ClaudeFrontend {
         });
         Ok(LaunchSpec::new(
             Self::command_for_with_policy(
-                &self.command,
+                &command,
                 request.session_plan(),
                 request.initial_prompt(),
-                request.access_policy().boundary_prompt(),
+                instruction_text,
                 mcp_config.as_deref(),
             ),
             request.workspace().root().to_path_buf(),
-            launch_environment(request, self.kind()),
+            environment,
             HookMetadata::none(),
         )
         .with_capabilities(report))

@@ -175,6 +175,7 @@ impl Fixture {
         let home = temporary.path().join("home");
         let root = temporary.path().join("family");
         std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
         let id = WorkspaceId::parse("11111111-1111-4111-8111-111111111111").unwrap();
         let name = WorkspaceName::parse("family").unwrap();
         let workspace = Arc::new(

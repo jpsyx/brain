@@ -69,6 +69,7 @@ fn a_named_manual_session_launches_fresh_in_a_selected_additional_tab_for_every_
         assert_eq!(record.name.as_str(), "Atlas");
         assert_eq!(record.role, ManualSessionRole::Additional);
         let spec = &recording.launch_specs()[0];
+        assert_shared_launch_instructions(spec, kind, "interactive");
         assert_eq!(
             environment_value(spec, "BRAIN_INSTANCE_ID"),
             record.id.as_str()

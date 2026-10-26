@@ -141,7 +141,6 @@ impl AgentController {
     /// Returns an error when the request context differs from this controller,
     /// the frontend rejects the request, or the transport cannot spawn it.
     pub fn launch(&mut self, request: &LaunchRequest) -> Result<(), AgentError> {
-        self.frontend.ensure_available()?;
         if request.workspace().id() != self.workspace.id() || request.actor() != &self.actor {
             return Err(AgentError::ContextMismatch);
         }
@@ -151,6 +150,9 @@ impl AgentController {
         {
             return Err(AgentError::ContextMismatch);
         }
+        let prepared = request.prepare_instructions()?;
+        let request = &prepared;
+        self.frontend.ensure_available()?;
         let spec = self.frontend.launch_spec(request)?;
         if !crate::agent::frontend::shell_command_is_transport_safe(&spec.command) {
             let error = AgentError::Frontend(
@@ -389,3 +391,6 @@ impl AgentController {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod instructions_tests;

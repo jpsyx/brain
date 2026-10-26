@@ -18,3 +18,9 @@ fn probe_does_not_inherit_the_parent_standard_input() {
     assert!(output.success);
     assert!(output.stdout.is_empty());
 }
+
+#[test]
+fn invalid_utf8_stdout_is_rejected_instead_of_changing_instruction_bytes() {
+    let output = ShellProbeRunner::default().run("printf '\\377'", &[]);
+    assert!(matches!(output, Err(super::ProbeRunError::Capture)));
+}

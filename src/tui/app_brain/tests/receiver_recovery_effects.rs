@@ -83,7 +83,10 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
         .env
         .insert(
             "codex_cmd".to_owned(),
-            serde_json::Value::String("codex-recovery-command".to_owned()),
+            serde_json::Value::String(format!(
+                "{}/tests/fixtures/codex/fake_codex.sh --profile codex-recovery-command",
+                env!("CARGO_MANIFEST_DIR")
+            )),
         );
     registry_store
         .replace(&registry)
@@ -172,6 +175,12 @@ fn due_recovery_launches_before_later_ordinary_work_in_the_persisted_frontend() 
     assert_eq!(specifications.len(), 1);
     assert!(specifications[0].command.contains("codex-recovery-command"));
     assert!(specifications[0].command.contains("resume"));
+    assert!(
+        specifications[0]
+            .command
+            .contains("Shared fixture instructions.")
+    );
+    assert!(specifications[0].command.contains("Channel: email"));
     assert_eq!(stale_transport.shutdowns(), 1);
 
     recovery_transport.set_alive(false);

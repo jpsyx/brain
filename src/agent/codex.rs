@@ -11,6 +11,7 @@ use crate::agent::{
     frontend::{launch_environment, shell_quote},
 };
 
+mod instructions;
 mod sessions;
 
 pub(crate) const DEFAULT_COMMAND: &str = "codex";
@@ -98,6 +99,16 @@ impl AgentFrontend for CodexFrontend {
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
+        let mut environment = launch_environment(request, self.kind());
+        let instruction_text = match request.instruction_text() {
+            Some(payload) if request.instructions().is_some() => Some(instructions::compose(
+                &self.command,
+                request.workspace().root(),
+                &environment,
+                &payload,
+            )?),
+            other => other,
+        };
         let capability_plan = request.access_policy().capability_plan();
         if request.access_policy().mode() == crate::access::AccessMode::Unrestricted {
             crate::access::cleanup_workspace_capabilities(request.workspace())
@@ -124,7 +135,6 @@ impl AgentFrontend for CodexFrontend {
         let overrides = capability_launch
             .as_ref()
             .map_or(&[][..], |launch| launch.overrides.as_slice());
-        let mut environment = launch_environment(request, self.kind());
         if let Some(launch) = capability_launch.as_ref() {
             environment.extend(launch.environment.iter().cloned());
         }
@@ -136,7 +146,7 @@ impl AgentFrontend for CodexFrontend {
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
-                request.access_policy().boundary_prompt(),
+                instruction_text.as_deref(),
                 overrides,
             ),
             request.workspace().root().to_path_buf(),

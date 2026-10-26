@@ -248,7 +248,7 @@ impl AgentFrontend for PiFrontend {
                 &self.command,
                 request.session_plan(),
                 request.initial_prompt(),
-                request.access_policy().boundary_prompt(),
+                request.instruction_text().as_deref(),
                 &skills,
                 Some(&self.workspace_root.join(EXTENSION_RELATIVE_PATH)),
             ),

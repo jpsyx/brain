@@ -103,7 +103,7 @@ fn claude_uses_owner_only_workspace_mcp_json_and_strict_selection_flags() {
 }
 
 #[test]
-fn claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands() {
+fn claude_rejects_commands_that_cannot_receive_shared_launch_instructions() {
     let (_home, workspace) = temporary_workspace();
     let config = Config {
         access_mode: AccessMode::WorkspaceOnly,
@@ -135,11 +135,8 @@ fn claude_downgrades_strict_mcp_claims_for_ambiguous_or_indirect_commands() {
         )
         .with_capability_plan(plan);
 
-        let spec = launch_spec(AgentKind::Claude, command, &request).expect("Claude launch spec");
-
-        assert_eq!(
-            spec.capabilities.mcps.enforcement("notion"),
-            Some(CapabilityEnforcement::AdvisoryOnly),
+        assert!(
+            launch_spec(AgentKind::Claude, command, &request).is_err(),
             "configured command: {command}"
         );
     }

@@ -250,7 +250,7 @@ fn installed_codex_parser_accepts_the_generated_per_invocation_overrides() {
     if Command::new("codex").arg("--version").output().is_err() {
         return;
     }
-    let (_home, workspace) = temporary_workspace();
+    let (home, workspace) = temporary_workspace();
     let config = Config {
         access_mode: AccessMode::WorkspaceOnly,
         allowed_mcps: vec!["notion".to_owned()],
@@ -277,20 +277,25 @@ fn installed_codex_parser_accepts_the_generated_per_invocation_overrides() {
     )
     .with_capability_plan(plan);
     let spec = launch_spec(AgentKind::Codex, "codex", &request).expect("Codex launch spec");
-    let parser_command = format!(
-        "{} -- 'capability parser probe' >/dev/null",
-        spec.command.replacen(
-            "codex --dangerously-bypass-hook-trust",
-            "codex debug prompt-input",
-            1,
-        )
+    let fake_prefix = format!(
+        "{}/tests/fixtures/codex/fake_codex.sh --dangerously-bypass-hook-trust",
+        env!("CARGO_MANIFEST_DIR")
     );
-
+    let overrides = spec
+        .command
+        .strip_prefix(&fake_prefix)
+        .expect("generated Codex options");
+    let parser_command = format!("codex mcp list --json {overrides}");
+    std::fs::create_dir_all(home.path().join("codex")).unwrap();
     let output = Command::new("/bin/sh")
         .args(["-c", &parser_command])
-        .envs(spec.environment)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", home.path())
+        .env("CODEX_HOME", home.path().join("codex"))
+        .current_dir(workspace.root())
         .output()
-        .expect("run installed Codex parser");
+        .expect("run isolated installed Codex parser");
 
     assert!(
         output.status.success(),

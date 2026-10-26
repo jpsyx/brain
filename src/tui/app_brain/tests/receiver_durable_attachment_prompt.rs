@@ -85,6 +85,14 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             let temporary = tempfile::tempdir().expect("temporary directory");
             let cli = Cli::parse_from(["tasks"]);
             let mut app = test_app(&temporary, &cli, kind);
+            std::fs::write(
+                app.context.workspace().root().join("AGENTS.md"),
+                format!(
+                    "Shared fixture instructions.\n{}",
+                    "Rules '\"$` é🙂\n".repeat(500)
+                ),
+            )
+            .unwrap();
             app.receiver.record_intent(true);
             let (main, main_recording) = recording_controller(&app, true, "busy main");
             app.brain.install_main(main);
@@ -211,7 +219,14 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             app.tick_receiver();
 
             let specifications = transport.launch_specs();
-            assert_eq!(specifications.len(), 1, "{} with {history:?}", kind.label());
+            assert_eq!(
+                specifications.len(),
+                1,
+                "{} with {history:?}: {:?}",
+                kind.label(),
+                app.status.error()
+            );
+            assert_shared_launch_instructions(&specifications[0], kind, "sms");
             assert!(
                 transport.inputs().is_empty(),
                 "{} with {history:?} injected its prompt after launch",

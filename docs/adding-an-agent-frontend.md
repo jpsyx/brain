@@ -66,7 +66,7 @@ submodules when it needs more than one file: keep every file under the
 | --- | --- |
 | `kind` | the new `AgentKind` |
 | `ensure_available` | run the compatibility probe; a known-but-unusable frontend must fail here, before any PTY spawn |
-| `launch_spec` | the full launch: command, cwd (always the workspace root), explicit environment, hook metadata, and the honest capability report |
+| `launch_spec` | the full launch: command, cwd (always the workspace root), explicit environment, hook metadata, prepared shared instructions, and the honest capability report |
 | `rollback_launch` | remove anything `launch_spec` wrote when the child failed to start |
 | `input_for` | one atomic terminal sequence per `AgentAction` |
 | `completion_strategy` | `Hook` when the frontend can report turn completion, `TransportExit` otherwise |
@@ -84,6 +84,21 @@ Two rules that are easy to get wrong:
   in a richer private builder that `launch_spec` calls. Keep the two consistent:
   with no capability plan and no policy, they must produce the same string,
   because the adapter contract suite asserts exactly that.
+
+Prepared launches receive `LaunchRequest::instructions()` from the controller.
+Deliver that payload explicitly through a supported additive system/developer
+instruction mechanism for every channel, access mode, and fresh/resume plan.
+Native `AGENTS.md` discovery is not evidence of delivery. Preserve existing
+frontend instructions and keep workspace guidance separate from trusted launch
+authority. If resume caches old instructions, explicitly disable that behavior or
+reject unsupported versions before launch. Preserve lifecycle metadata and the
+ordinary initial prompt byte boundaries.
+
+Instruction preparation precedes adapter side effects. Honor the shared 20 KiB
+encoded instruction allowance and final 96 KiB command guard; do not truncate
+rules or consume receiver reserves. Tests should decode actual arguments/configs,
+exercise configured instruction composition and oversized/quoted/Unicode input,
+and verify main/manual/skill and receiver reconstruction/recovery paths.
 
 ## 3. The lifecycle bridge
 

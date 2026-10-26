@@ -132,6 +132,7 @@ impl DueRecoveryFixture {
 
         assert_eq!(transport.launch_specs().len(), 1);
         let specification = &transport.launch_specs()[0];
+        assert_shared_launch_instructions(specification, AgentKind::Claude, "email");
         assert!(specification.command.contains("--resume"));
         assert!(specification.command.contains(fixture.session.as_str()));
         assert!(

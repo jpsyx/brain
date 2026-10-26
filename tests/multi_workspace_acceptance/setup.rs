@@ -64,12 +64,30 @@ pub(crate) fn prepare(fixture: &DualWorkspaceReceiverFixture) -> Scenario {
                 .to_string(),
         ),
     );
+    for (key, fixture) in [
+        ("claude_cmd", "claude/claude"),
+        ("codex_cmd", "codex/fake_codex.sh"),
+        ("pi_cmd", "pi/fake_pi.sh"),
+    ] {
+        family_record.env.insert(
+            key.to_owned(),
+            serde_json::Value::String(format!(
+                "{}/tests/fixtures/{fixture}",
+                env!("CARGO_MANIFEST_DIR")
+            )),
+        );
+    }
     store.replace(&registry).expect("acceptance registry");
 
     let personal = Arc::new(context(&home, &fixture.personal, "pablo"));
     let family = Arc::new(context(&home, &fixture.family, "pablo"));
     std::fs::create_dir_all(personal.root().join("tasks")).expect("personal tasks directory");
     std::fs::create_dir_all(family.root().join("tasks")).expect("family tasks directory");
+    std::fs::write(
+        family.root().join("AGENTS.md"),
+        "Acceptance workspace guidance.",
+    )
+    .unwrap();
     UsersStore::save(&personal, &users(&[("pablo", "Pablo", true)])).expect("personal users");
     UsersStore::save(
         &family,

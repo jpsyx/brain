@@ -15,6 +15,7 @@ use brain::workspace::{WorkspaceContext, WorkspaceId, WorkspaceName};
 fn workspace(home: &Path) -> Arc<WorkspaceContext> {
     let root = home.join("family");
     std::fs::create_dir_all(&root).expect("workspace root");
+    std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
     Arc::new(
         WorkspaceContext::new(
             home,
@@ -103,10 +104,11 @@ fn fake_executable(directory: &Path) -> (PathBuf, PathBuf) {
 
     let executable = directory.join("capture-agent-argv");
     let captured = directory.join("argv.bin");
+    let probes = format!("{}/tests/fixtures", env!("CARGO_MANIFEST_DIR"));
     std::fs::write(
         &executable,
         format!(
-            "#!/bin/sh\nfor argument do\n  if [ \"$argument\" = '--version' ]; then\n    printf '%s\\n' '2.1.196 (Claude Code)'\n    exit 0\n  fi\ndone\n: > '{}'\nfor argument do\n  printf '%s\\000' \"$argument\" >> '{}'\ndone\n",
+            "#!/bin/sh\ncase \" $* \" in *\" --help \"*) exec '{probes}/claude/claude' --help;; *\" mcp list --json \"*|*\" debug prompt-input \"*) exec '{probes}/codex/fake_codex.sh' \"$@\";; esac\nfor argument do\n  if [ \"$argument\" = '--version' ]; then\n    printf '%s\\n' '2.1.196 (Claude Code)'\n    exit 0\n  fi\ndone\n: > '{}'\nfor argument do\n  printf '%s\\000' \"$argument\" >> '{}'\ndone\n",
             captured.display(),
             captured.display()
         ),
@@ -141,10 +143,21 @@ fn run_and_capture_argv(spec: &LaunchSpec, captured: &Path) -> Vec<String> {
 
 fn launch_spec(kind: AgentKind, command: &str, request: &LaunchRequest) -> LaunchSpec {
     let captured = Arc::new(Mutex::new(None));
+    let command = match (kind, command) {
+        (AgentKind::Claude, "claude") => format!(
+            "{}/tests/fixtures/claude/claude",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+        (AgentKind::Codex, "codex") => format!(
+            "{}/tests/fixtures/codex/fake_codex.sh",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+        _ => command.to_owned(),
+    };
     let mut controller = AgentController::for_workspace_with_command(
         Arc::clone(request.workspace()),
         kind,
-        command.to_owned(),
+        command,
         request.actor().clone(),
         Box::new(RecordingTransport {
             launch: Arc::clone(&captured),
@@ -226,19 +239,19 @@ fn adapters_install_workspace_boundary_as_trusted_frontend_instructions() {
 }
 
 #[test]
-fn unrestricted_launches_do_not_add_boundary_instruction_flags() {
+fn unrestricted_launches_receive_shared_instructions_without_restricted_boundaries() {
     let request = request(
         SessionPlan::fresh(AgentSession::new("unrestricted").expect("session")),
         AccessMode::Unrestricted,
     );
 
     assert!(
-        !launch_spec(AgentKind::Claude, "claude", &request)
+        launch_spec(AgentKind::Claude, "claude", &request)
             .command
             .contains("--append-system-prompt")
     );
     assert!(
-        !launch_spec(AgentKind::Codex, "codex", &request)
+        launch_spec(AgentKind::Codex, "codex", &request)
             .command
             .contains("developer_instructions")
     );

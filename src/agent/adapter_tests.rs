@@ -46,10 +46,12 @@ fn adaptive_shell_quote_proves_the_inline_value_budget_with_reserved_command_ove
 
     assert_eq!(SHELL_COMMAND_ARGUMENT_BUDGET_BYTES, 96 * 1024);
     assert_eq!(SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES, 12 * 1024);
-    assert_eq!(SHELL_INLINE_VALUE_BUDGET_BYTES, 47 * 1024);
+    assert_eq!(SHELL_INLINE_VALUE_BUDGET_BYTES, 36 * 1024);
     assert_eq!(quoted.len(), worst_case.len() * 7 / 4 + 2);
     assert!(
-        quoted.len() + SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES
+        quoted.len()
+            + SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES
+            + crate::agent::frontend::SHELL_INSTRUCTION_BUDGET_BYTES
             <= SHELL_COMMAND_ARGUMENT_BUDGET_BYTES
     );
 }
@@ -352,3 +354,7 @@ fn adapters_validate_resume_candidates_with_their_own_transcript_rules() {
         Ok(false)
     );
 }
+
+mod claude_instructions;
+mod codex_instructions;
+mod instructions;

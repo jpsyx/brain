@@ -1,0 +1,141 @@
+use super::*;
+use crate::agent::AgentKind;
+
+fn prepared(root: &std::path::Path) -> LaunchRequest {
+    std::fs::write(root.join("AGENTS.md"), "Workspace rule").unwrap();
+    let workspace = Arc::new(
+        WorkspaceContext::new(
+            root,
+            WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
+            WorkspaceName::parse("family").unwrap(),
+            root,
+            "pablo",
+            root,
+        )
+        .unwrap(),
+    );
+    LaunchRequest::from_trusted_context(
+        workspace,
+        actor(),
+        SessionPlan::resume(AgentSession::new("resumed").unwrap()),
+        None,
+        AccessMode::Unrestricted,
+    )
+    .prepare_instructions()
+    .unwrap()
+}
+
+#[test]
+fn claude_retains_configured_inline_and_file_append_instructions_on_resume() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("custom rules.md"),
+        "Existing file rules é🙂",
+    )
+    .unwrap();
+    for option in [
+        "--append-system-prompt 'Existing inline rules'",
+        "--append-system-prompt-file 'custom rules.md'",
+    ] {
+        let prefix = format!(
+            "{}/tests/fixtures/claude/fake_claude.sh --system-prompt-snapshot on {option}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let frontend =
+            ClaudeFrontend::new(&prefix, temp.path().into(), temp.path().join("projects"));
+        let spec = frontend.launch_spec(&prepared(temp.path())).unwrap();
+        let args = instructions::arguments(&spec);
+        let last = args
+            .windows(2)
+            .rfind(|pair| pair[0] == "--append-system-prompt")
+            .unwrap();
+        assert!(last[1].contains("Existing"), "{}", last[1]);
+        assert!(last[1].contains("Workspace rule"));
+        assert!(
+            args.windows(2)
+                .rfind(|pair| pair[0] == "--system-prompt-snapshot")
+                .is_some_and(|pair| pair[1] == "off")
+        );
+        assert_eq!(spec.cwd, temp.path());
+        assert!(instructions::delivered(AgentKind::Claude, &spec, &args).contains("Existing"));
+    }
+}
+
+#[test]
+fn claude_refuses_unproven_snapshot_support_before_launch_preparation() {
+    let temp = tempfile::tempdir().unwrap();
+    let frontend = ClaudeFrontend::new(
+        "printf old-help",
+        temp.path().into(),
+        temp.path().join("projects"),
+    );
+    assert!(frontend.launch_spec(&prepared(temp.path())).is_err());
+}
+
+#[test]
+fn claude_refuses_prefixes_that_cannot_receive_trusted_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let command = format!(
+        "{}/tests/fixtures/claude/fake_claude.sh -- user-text",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let frontend = ClaudeFrontend::new(command, temp.path().into(), temp.path().join("projects"));
+    assert!(frontend.launch_spec(&prepared(temp.path())).is_err());
+}
+
+#[test]
+fn claude_composes_double_quoted_append_instructions_without_changing_literals() {
+    let temp = tempfile::tempdir().unwrap();
+    let command = format!(
+        r#"{}/tests/fixtures/claude/fake_claude.sh --append-system-prompt "ordinary\q literal\n slash\\ quote\" dollar\$ tick\` é\🙂""#,
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let frontend = ClaudeFrontend::new(command, temp.path().into(), temp.path().join("projects"));
+    let spec = frontend.launch_spec(&prepared(temp.path())).unwrap();
+    let args = instructions::arguments(&spec);
+    let delivered = instructions::delivered(AgentKind::Claude, &spec, &args);
+    assert!(delivered.starts_with(r#"ordinary\q literal\n slash\ quote" dollar$ tick` é\🙂"#));
+    assert!(delivered.contains("Workspace rule"));
+}
+
+#[test]
+fn claude_probes_a_relative_executable_in_the_launch_workspace() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::copy(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude/fake_claude.sh"),
+        temp.path().join("configured-claude"),
+    )
+    .unwrap();
+    let frontend = ClaudeFrontend::new(
+        "./configured-claude",
+        temp.path().into(),
+        temp.path().join("projects"),
+    );
+    let spec = frontend.launch_spec(&prepared(temp.path())).unwrap();
+    let args = instructions::arguments(&spec);
+    assert!(instructions::delivered(AgentKind::Claude, &spec, &args).contains("Workspace rule"));
+}
+
+#[test]
+fn claude_help_probe_uses_the_launch_environment() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let temp = tempfile::tempdir().unwrap();
+    let script = temp.path().join("configured-claude");
+    let fake =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude/fake_claude.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n[ \"$BRAIN_ACTOR_ID\" = pablo ] || exit 64\nexec {} \"$@\"\n",
+            shell_quote(&fake.display().to_string()),
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let frontend = ClaudeFrontend::new(
+        shell_quote(&script.display().to_string()),
+        temp.path().into(),
+        temp.path().join("projects"),
+    );
+    frontend.launch_spec(&prepared(temp.path())).unwrap();
+}

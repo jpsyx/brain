@@ -24,6 +24,19 @@ pub(super) fn merge(
     mcp_entries: Option<Map<String, Value>>,
     selected_skills: Option<(&Path, &[&str])>,
 ) -> Result<String, AgentError> {
+    let prior = object_entry(object_entry(&mut inherited, "agent")?, "brain")?
+        .get("prompt")
+        .map(|prompt| {
+            prompt
+                .as_str()
+                .ok_or_else(|| AgentError::Frontend(INVALID_CONFIG.to_owned()))
+        })
+        .transpose()?;
+    let brain_prompt = prior.map_or_else(
+        || brain_prompt.to_owned(),
+        |prior| format!("{prior}\n\n{brain_prompt}"),
+    );
+    crate::agent::instructions::validate_size(&brain_prompt)?;
     let mut brain = Map::from_iter([
         ("mode".to_owned(), Value::from("primary")),
         ("prompt".to_owned(), Value::from(brain_prompt)),
@@ -54,6 +67,18 @@ pub(super) fn merge(
     }
     serde_json::to_string(&Value::Object(inherited))
         .map_err(|error| AgentError::Frontend(format!("serialize OpenCode config: {error}")))
+}
+
+pub(super) fn set_effective_prompt(
+    config: &mut Map<String, Value>,
+    prompt: Option<String>,
+) -> Result<(), AgentError> {
+    let brain = object_entry(object_entry(config, "agent")?, "brain")?;
+    brain.remove("prompt");
+    if let Some(prompt) = prompt {
+        brain.insert("prompt".to_owned(), Value::from(prompt));
+    }
+    Ok(())
 }
 
 fn merge_skill_path(config: &mut Map<String, Value>, skills_dir: &Path) -> Result<(), AgentError> {
@@ -123,6 +148,7 @@ mod tests {
     fn merge_preserves_user_config_and_replaces_only_brain_reserved_entries() {
         let inherited = serde_json::json!({
             "theme": "catppuccin",
+            "instructions": ["/user/global-rules.md"],
             "agent": {
                 "review": {"mode": "subagent", "description": "Keep me"},
                 "brain": {"model": "replace me"}
@@ -148,6 +174,7 @@ mod tests {
         let value: Value = serde_json::from_str(&merged).expect("merged JSON");
 
         assert_eq!(value["theme"], "catppuccin");
+        assert_eq!(value["instructions"][0], "/user/global-rules.md");
         assert_eq!(value["agent"]["review"]["description"], "Keep me");
         assert_eq!(value["agent"]["brain"]["prompt"], "trusted prompt");
         assert!(value["agent"]["brain"].get("model").is_none());
@@ -178,5 +205,26 @@ mod tests {
             .expect_err("invalid skills paths"),
             AgentError::Frontend(INVALID_CONFIG.to_owned())
         );
+    }
+
+    #[test]
+    fn inherited_user_brain_prompt_is_composed_before_trusted_policy() {
+        let inherited = serde_json::json!({
+            "agent": {"brain": {"prompt": "User rules '\" é🙂"}},
+            "instructions": ["user-rules.md"]
+        });
+        let merged = merge(
+            inherited.as_object().unwrap().clone(),
+            "Trusted policy",
+            None,
+            None,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(
+            value["agent"]["brain"]["prompt"],
+            "User rules '\" é🙂\n\nTrusted policy"
+        );
+        assert_eq!(value["instructions"][0], "user-rules.md");
     }
 }

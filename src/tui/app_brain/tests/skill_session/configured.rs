@@ -9,42 +9,45 @@ fn inject_skill_session_transport(app: &mut App, transport: Box<dyn crate::agent
 
 #[test]
 fn a_configured_skill_session_launches_its_own_prompt_under_its_own_title() {
-    let cli = Cli::parse_from(["tasks"]);
-    let temporary = tempfile::tempdir().expect("temporary directory");
-    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
-    app.set_test_configured_skill_sessions(serde_json::json!([{
-        "title": "Email triage",
-        "prompt": "/email-triage",
-        "command_label": "Run email triage",
-    }]));
-    let recording = TransportRecording::default();
-    inject_skill_session_transport(&mut app, recording.transport());
+    for kind in AgentKind::ALL {
+        let cli = Cli::parse_from(["tasks"]);
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let mut app = test_app(&temporary, &cli, kind);
+        app.set_test_configured_skill_sessions(serde_json::json!([{
+            "title": "Email triage",
+            "prompt": "/email-triage",
+            "command_label": "Run email triage",
+        }]));
+        let recording = TransportRecording::default();
+        inject_skill_session_transport(&mut app, recording.transport());
 
-    app.run_skill_session(SkillSessionKey::Custom(0));
+        app.run_skill_session(SkillSessionKey::Custom(0));
 
-    assert!(app.brain.has_skill_session(SkillSessionKey::Custom(0)));
-    assert_eq!(
-        app.brain.tab_titles(),
-        vec!["Brain".to_owned(), "Email triage".to_owned()]
-    );
-    let specs = recording.launch_specs();
-    assert_eq!(specs.len(), 1);
-    // The workspace's prompt reaches the session, and so does the completion
-    // protocol brain appends — the skill itself knows nothing about brain.
-    assert!(specs[0].command.contains("/email-triage"), "{:?}", specs[0]);
-    assert!(
-        specs[0]
-            .command
-            .contains(crate::skill_session::prompt::DONE_URL_ENV),
-        "{:?}",
-        specs[0]
-    );
-    assert!(
-        specs[0]
-            .environment
-            .iter()
-            .any(|(name, _)| name == crate::skill_session::prompt::TOKEN_ENV)
-    );
+        assert!(app.brain.has_skill_session(SkillSessionKey::Custom(0)));
+        assert_eq!(
+            app.brain.tab_titles(),
+            vec!["Brain".to_owned(), "Email triage".to_owned()]
+        );
+        let specs = recording.launch_specs();
+        assert_eq!(specs.len(), 1);
+        assert_shared_launch_instructions(&specs[0], kind, "interactive");
+        // The workspace's prompt reaches the session, and so does the completion
+        // protocol brain appends — the skill itself knows nothing about brain.
+        assert!(specs[0].command.contains("/email-triage"), "{:?}", specs[0]);
+        assert!(
+            specs[0]
+                .command
+                .contains(crate::skill_session::prompt::DONE_URL_ENV),
+            "{:?}",
+            specs[0]
+        );
+        assert!(
+            specs[0]
+                .environment
+                .iter()
+                .any(|(name, _)| name == crate::skill_session::prompt::TOKEN_ENV)
+        );
+    }
 }
 
 #[test]

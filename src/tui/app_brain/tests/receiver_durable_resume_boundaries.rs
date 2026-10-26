@@ -100,6 +100,7 @@ fn missing_resume_history_falls_back_fresh_while_claim_is_live() {
 }
 
 fn malformed_session_command(temporary: &tempfile::TempDir) -> String {
+    use std::os::unix::fs::PermissionsExt as _;
     let fake =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/opencode/fake_opencode.sh");
     let wrapper = temporary.path().join("opencode-malformed-session.sh");
@@ -111,10 +112,9 @@ fn malformed_session_command(temporary: &tempfile::TempDir) -> String {
         ),
     )
     .expect("write malformed-session OpenCode fixture");
-    format!(
-        "sh {}",
-        crate::agent::frontend::shell_quote(&wrapper.display().to_string())
-    )
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700))
+        .expect("make malformed-session wrapper executable");
+    crate::agent::frontend::shell_quote(&wrapper.display().to_string())
 }
 
 fn validation_error_app(

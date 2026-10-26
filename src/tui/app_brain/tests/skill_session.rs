@@ -353,7 +353,8 @@ fn unrestricted_triage_launch_does_not_parse_malformed_machine_capabilities() {
         let specs = recording.0.lock().expect("launch recording");
         assert_eq!(specs.len(), 1);
         assert!(!specs[0].command.contains("--mcp-config"));
-        assert!(!specs[0].command.contains("developer_instructions"));
+        assert_shared_launch_instructions(&specs[0], kind, "interactive");
+        assert!(!specs[0].command.contains("Do not read, inspect, modify"));
         drop(specs);
     }
 }

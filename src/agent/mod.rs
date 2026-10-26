@@ -13,6 +13,7 @@ mod direct_command;
 pub(crate) mod frontend;
 pub mod hooks;
 mod input;
+mod instructions;
 mod observation;
 mod opencode;
 mod pi;
@@ -30,6 +31,7 @@ pub use default_frontend::resolved_frontend;
 pub use frontend::{LaunchRequest, LaunchSpec};
 pub use hooks::HookMetadata;
 pub use input::{InputSequence, InputWrite};
+pub use instructions::LaunchInstructions;
 pub use observation::{
     AgentObservationBoundary, AgentObservationCursor, AgentObservationError, AgentObservationPhase,
     AgentObservationRequest, AgentObservationResult, AgentProgressPulse,

@@ -64,6 +64,7 @@ fn app_main_fresh_launch_carries_trusted_policy_and_separate_prompt_for_every_fr
             specs[0].clone()
         };
         assert_workspace_only_launch_spec(&app, &spec, kind, &actor, prompt);
+        assert_shared_launch_instructions(&spec, kind, "interactive");
         for forbidden in [
             "BRAIN_RECEIVER_JOB_TOKEN",
             "BRAIN_RECEIVER_OBSERVATION_PATH",
@@ -204,7 +205,8 @@ fn app_main_unrestricted_launch_does_not_parse_malformed_capability_configuratio
         let specs = recording.0.lock().expect("launch recording");
         assert_eq!(specs.len(), 1);
         assert!(!specs[0].command.contains("--mcp-config"));
-        assert!(!specs[0].command.contains("developer_instructions"));
+        assert_shared_launch_instructions(&specs[0], kind, "interactive");
+        assert!(!specs[0].command.contains("Do not read, inspect, modify"));
         drop(specs);
     }
 }

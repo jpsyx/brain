@@ -2024,7 +2024,7 @@ acknowledgement later owns the terminal delivery state.
 The ordinary launch planner treats a same-frontend pair as a candidate rather than
 proof: the selected adapter must still find its native history and the caller's
 exact-session claim must succeed. Every uncertain outcome selects a fresh
-session supplied by the caller. That fresh plan carries a 47 KiB maximum recovery
+session supplied by the caller. That fresh plan carries a 36 KiB maximum recovery
 prompt with the newest UTF-8-safe transcript suffix, a distinct current-message
 section, and the accepted attachment references. A resumed plan carries only
 the current message and attachment references. The planner owns no tab,

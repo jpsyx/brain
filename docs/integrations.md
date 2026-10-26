@@ -321,13 +321,13 @@ dropping an unread result or any rollback removes the entire exact job
 directory. Resumed
 launches carry only the current authenticated message and those local file
 paths. Fresh launches carry the same current inputs after a separate
-portable-transcript section. The raw receiver prompt is bounded to 47 KiB
+portable-transcript section. The raw receiver prompt is bounded to 36 KiB
 after canonical local paths are available, while retaining the newest
 UTF-8-safe transcript suffix. The planner keeps only a deterministic prefix of
 complete JSON path records and adds an explicit omission marker when more paths
 do not fit. Its final line is the exact trusted
 `<!-- brain:receiver-job-token=<uuid> -->` marker used by lifecycle acceptance.
-Planning reserves 12 KiB for command, policy, and options under a
+Planning reserves 20 KiB for encoded instructions and 12 KiB for other command options under a
 96 KiB complete `/bin/sh -c` argument ceiling, accounting for adaptive POSIX
 quoting whose worst case is seven output bytes per four input bytes plus
 delimiters. `AgentController` checks the exact rendered argument before spawn,
@@ -419,17 +419,73 @@ on `LaunchSpec` is reserved and empty; the PTY transport does not interpret it.
 When the shell exits, Brain explicitly shuts down both live controllers before
 releasing the session lock, so teardown does not depend on `PtyPane::drop`.
 
-Every `LaunchRequest` also carries an immutable access-policy snapshot built
-from the selected workspace, resolved actor, and portable config before any
-user or inbound prompt is considered. In `workspace_only` mode, Claude receives
-that advisory through `--append-system-prompt`; Codex receives it through the
-`developer_instructions` config override. Claude and Codex place the ordinary
-user prompt after their option terminator; OpenCode passes it as one quoted
-`--prompt` value. Prompt text that begins with `-` therefore cannot become a
-frontend flag or config override.
-Fresh, resumed, interactive, SMS, email, and daily-triage
-requests use the same policy construction. Unrestricted mode adds no policy
-instruction.
+Every `LaunchRequest` carries an immutable access-policy snapshot built from the
+selected workspace, resolved actor, and portable config. Before frontend probes,
+preparation, or spawning, `AgentController` reads the reconciled workspace
+`AGENTS.md` and prepares `LaunchInstructions`. Missing, unreadable, invalid UTF-8,
+NUL-containing, or oversized instructions stop the launch with an actionable
+error. Startup reconciliation owns publication and currentness; launch reads the
+published document without rewriting it.
+
+The payload keeps document bytes as explicitly identified workspace guidance,
+separate from trusted actor, channel, access, capability, and recipient authority.
+Channel rules come only from `ActorContext`, including unrestricted requests.
+Document text, message bodies, transcripts, and attachments cannot select a
+channel or widen access or recipients. Main and manual tabs, skill sessions,
+fresh/resumed receiver work, portable reconstruction, and recovery-only launches
+all cross this controller boundary.
+
+Claude and pi receive the prepared payload through `--append-system-prompt`;
+Codex receives composed `developer_instructions`; OpenCode uses its reserved
+Brain-agent prompt. Ordinary initial prompts retain their existing quoting and
+option boundaries. Access restrictions and capability selection keep their
+existing meaning independently of these shared instructions.
+
+Claude must advertise `--system-prompt-snapshot` in its configured command's
+help. Brain supplies `--system-prompt-snapshot off` so a resumed session receives
+the current instructions. Unsupported commands fail before launch with an update
+instruction. Literal configured inline or file append instructions are composed
+with Brain's payload; only those append arguments are removed from the prefix to
+avoid conflicting inline/file flags. Other prefix arguments retain their bytes.
+Ambiguous append forms fail instead of replacing user instructions. pi's repeated
+append flags are additive and retain configured instructions.
+
+Instruction probes use the launch workspace and environment; relative Claude
+append files resolve from that workspace. Configured prefixes must be literal
+argument lists: dynamic substitutions, globs, braces, unquoted tilde, and shell
+line continuations are refused. Quote literal characters that need preservation.
+
+Codex preservation uses its native offline configuration resolution, including
+profiles, project layers, and explicit command overrides. With the launch's exact
+working directory and environment, Brain first runs `mcp list --json`, then
+`debug prompt-input` with every inventoried MCP disabled and apps, plugins, hooks,
+and shell snapshots disabled for that probe only. The checked prompt metadata
+identifies configured developer instructions; built-in and additional-requirement
+messages remain frontend-owned. These probes have a five-second timeout and a
+1 MiB output bound. Unsupported commands, opaque compound shell prefixes,
+malformed inventory or provenance, and timeouts fail closed. The real launch
+retains its original integrations. No global frontend configuration is written.
+
+OpenCode preserves the effective pre-injection `agent.brain.prompt` from native
+`debug config --pure`, including global, project, and inherited inline layers.
+The native value is composed exactly once before shared policy; the resolved
+inline value is not appended a second time. This integration-suppressed config
+inspection uses the same prefix, workspace, and environment, with a 15-second
+deadline and 1 MiB output limit. Unsupported or malformed results fail closed.
+Native inspection may initialize OpenCode's ordinary local database/log/lock
+state. It does not invoke a model turn. A configured command that assigns
+`OPENCODE_CONFIG_CONTENT` is refused before probing because it would override
+Brain's final policy environment. Move that configuration to a native OpenCode
+config file or the inherited environment. Other literal environment prefixes
+remain supported.
+
+Shared instructions plus preserved Codex/Claude/OpenCode text have a 20 KiB encoded
+allowance, checked through shell and JSON quoting. The 96 KiB shell-command limit
+also reserves 12 KiB for fixed overhead and 36 KiB of raw receiver prompt text.
+Receiver planning retains its 16 KiB current-message and 8 KiB transcript reserves
+and includes only complete attachment paths. Rules are never silently truncated;
+users must shorten instructions that exceed the allowance. The controller checks
+the final actual command size before spawning as an additional guard.
 
 OpenCode receives the policy through the Brain-owned `agent.brain.prompt` in
 `OPENCODE_CONFIG_CONTENT`; launch always selects that agent with `--agent

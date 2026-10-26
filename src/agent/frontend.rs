@@ -15,11 +15,13 @@ use crate::{
 
 pub(crate) const SHELL_COMMAND_ARGUMENT_BUDGET_BYTES: usize = 96 * 1024;
 pub(crate) const SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES: usize = 12 * 1024;
+pub(crate) const SHELL_INSTRUCTION_BUDGET_BYTES: usize = 20 * 1024;
 const SHELL_QUOTE_DELIMITER_BYTES: usize = 2;
 const SHELL_QUOTED_EXPANSION_NUMERATOR: usize = 7;
 const SHELL_QUOTED_EXPANSION_DENOMINATOR: usize = 4;
 const SHELL_INLINE_VALUE_UNROUNDED_BYTES: usize = (SHELL_COMMAND_ARGUMENT_BUDGET_BYTES
     - SHELL_COMMAND_FIXED_OVERHEAD_BUDGET_BYTES
+    - SHELL_INSTRUCTION_BUDGET_BYTES
     - SHELL_QUOTE_DELIMITER_BYTES)
     * SHELL_QUOTED_EXPANSION_DENOMINATOR
     / SHELL_QUOTED_EXPANSION_NUMERATOR;
@@ -49,6 +51,7 @@ pub struct LaunchRequest {
     access_policy: AccessPolicy,
     channel: Channel,
     hook_metadata: HookMetadata,
+    instructions: Option<crate::agent::LaunchInstructions>,
 }
 
 impl std::fmt::Debug for LaunchRequest {
@@ -95,6 +98,7 @@ impl LaunchRequest {
             access_policy,
             channel,
             hook_metadata: HookMetadata::none(),
+            instructions: None,
         }
     }
 
@@ -110,6 +114,26 @@ impl LaunchRequest {
     pub fn with_capability_plan(mut self, plan: crate::access::CapabilityPlan) -> Self {
         self.access_policy = self.access_policy.with_capability_plan(plan);
         self
+    }
+
+    /// Instruction payload prepared by the controller before frontend side effects.
+    #[must_use]
+    pub const fn instructions(&self) -> Option<&crate::agent::LaunchInstructions> {
+        self.instructions.as_ref()
+    }
+
+    pub(crate) fn prepare_instructions(&self) -> Result<Self, AgentError> {
+        let instructions = crate::agent::instructions::load(self)?;
+        let mut prepared = self.clone();
+        prepared.instructions = Some(instructions);
+        Ok(prepared)
+    }
+
+    pub(super) fn instruction_text(&self) -> Option<String> {
+        self.instructions
+            .as_ref()
+            .map(crate::agent::LaunchInstructions::render)
+            .or_else(|| self.access_policy.boundary_prompt().map(str::to_owned))
     }
 
     /// The selected workspace for this launch.

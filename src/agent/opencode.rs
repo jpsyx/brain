@@ -1,8 +1,12 @@
 //! OpenCode translation behind the frontend-neutral agent facade.
 
 mod config;
+mod instructions;
 mod probe;
 mod session;
+
+#[cfg(test)]
+mod instructions_tests;
 
 use std::{
     path::{Path, PathBuf},
@@ -99,13 +103,25 @@ impl AgentFrontend for OpenCodeFrontend {
     }
 
     fn ensure_available(&self) -> Result<(), AgentError> {
+        instructions::validate_prefix(&self.command)?;
         probe::ensure_compatible(&self.command)
     }
 
     fn launch_spec(&self, request: &LaunchRequest) -> Result<LaunchSpec, AgentError> {
         self.clear_discovery();
-        let inherited = config::parse(self.inherited_config.as_deref())?;
-        let brain_prompt = request.access_policy().boundary_prompt().unwrap_or(
+        let mut inherited = config::parse(self.inherited_config.as_deref())?;
+        let mut environment = launch_environment(request, self.kind());
+        environment.retain(|(name, _)| name != "OPENCODE_CONFIG_CONTENT");
+        if let Some(config) = &self.inherited_config {
+            environment.push(("OPENCODE_CONFIG_CONTENT".to_owned(), config.clone()));
+        }
+        if request.instructions().is_some() {
+            let prior =
+                instructions::resolve(&self.command, request.workspace().root(), &environment)?;
+            config::set_effective_prompt(&mut inherited, prior)?;
+        }
+        let instruction_text = request.instruction_text();
+        let brain_prompt = instruction_text.as_deref().unwrap_or(
             "You are the Brain agent. Follow the user's request and report completion clearly.",
         );
         let capability_plan = request.access_policy().capability_plan();
@@ -150,7 +166,6 @@ impl AgentFrontend for OpenCodeFrontend {
             )
             .map_err(|error| AgentError::Frontend(error.to_string()))?;
         }
-        let mut environment = launch_environment(request, self.kind());
         environment.retain(|(name, _)| name != "OPENCODE_CONFIG_CONTENT");
         if let Some(launch) = mcp_launch.as_ref() {
             environment.extend(launch.environment.iter().cloned());

@@ -392,7 +392,7 @@ as a Fresh fallback. A validated candidate is claimed through its exact session
 registration and followed by another renewal before a rejected claim may fall
 back Fresh. Lost and deferred ownership are separate typed outcomes and can
 never become Fresh. `tui::receiver::planning` renders that already-authorized
-choice with a UTF-8-safe recovery prompt capped at 47 KiB. The isolated-tab coordinator
+choice with a UTF-8-safe recovery prompt capped at 36 KiB. The isolated-tab coordinator
 uses these operations from the one recurring `App::tick_receiver` call.
 `app_brain/receiver/dispatch.rs` owns delivery reconciliation, restart, held-run,
 recovery-claim, then ordinary-claim tick order;
@@ -725,6 +725,15 @@ remain in `server/reply/`; delivery freezes both email alternatives in the
 existing typed receiver envelope without changing routing or retries.
 
 ### `agent/`
+
+`instructions` owns the pure composition of workspace guidance and trusted
+actor/channel/access policy. The controller loads the reconciled workspace
+`AGENTS.md` before frontend side effects and attaches this separate payload to
+`LaunchRequest`. All adapters deliver it explicitly, including unrestricted and
+resumed launches. Claude composes configured append text and disables prompt
+snapshots; Codex preserves its natively resolved developer instructions through
+bounded integration-suppressed probes. `frontend` reserves instruction overhead
+within the shell-command budget used by receiver planning.
 
 The frontend-neutral agent boundary. `controller` owns the semantic
 `AgentController` facade and the transport trait, so callers can type, submit,

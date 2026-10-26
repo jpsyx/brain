@@ -16,6 +16,7 @@ pub(crate) fn temporary_workspace() -> (tempfile::TempDir, Arc<WorkspaceContext>
     let home = tempfile::tempdir().expect("temporary home");
     let root = home.path().join("family");
     std::fs::create_dir_all(root.join(".config")).expect("workspace config directory");
+    std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
     let workspace = WorkspaceContext::new(
         home.path(),
         family_id(),
@@ -97,6 +98,12 @@ fn hermetic_frontend_command(kind: AgentKind, command: &str) -> String {
             .display()
             .to_string();
         return command.replacen("claude", &fake_claude, 1);
+    }
+    if kind == AgentKind::Codex && command == "codex" {
+        return std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/codex/fake_codex.sh")
+            .display()
+            .to_string();
     }
     if kind == AgentKind::OpenCode && command == "opencode" {
         return std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

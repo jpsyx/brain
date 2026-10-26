@@ -90,7 +90,6 @@ fn conflicting_frontend_flags_exit_before_startup_side_effects() {
 fn opencode_input_and_workspace_scoped_session_contracts_are_explicit() {
     let temporary = tempfile::tempdir().expect("temporary workspace");
     let workspace = workspace(temporary.path());
-    std::fs::create_dir_all(workspace.root()).expect("workspace root");
     let log = temporary.path().join("invocations.log");
     let command = fake_command(&log);
     let (mut controller, recording) = recording_controller(&workspace, &command);
@@ -245,6 +244,12 @@ fn opencode_puts_the_trusted_policy_in_its_named_agent_config() {
 
 fn workspace(root: &Path) -> Arc<WorkspaceContext> {
     let workspace_root = root.join("family");
+    std::fs::create_dir_all(&workspace_root).expect("workspace root");
+    std::fs::write(
+        workspace_root.join("AGENTS.md"),
+        "Acceptance workspace guidance.",
+    )
+    .expect("reconciled workspace instructions");
     Arc::new(
         WorkspaceContext::new(
             root,

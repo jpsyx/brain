@@ -2102,7 +2102,7 @@ merge key. Each conversation stores
 Brain-owned markdown and, when available, its frontend plus opaque native
 session ID. Brain may resume that ID only with the same frontend. Selecting a
 different frontend starts a fresh native session from the portable transcript.
-Every raw receiver launch prompt is capped at 47 KiB and begins with the same
+Every raw receiver launch prompt is capped at 36 KiB and begins with the same
 two trusted response policies: the task-capture policy, and a link policy that
 requires any link in a reply to be written as its full destination URL instead
 of a shortened one. Adaptive POSIX quoting keeps a maximally escaped
@@ -3225,3 +3225,11 @@ At-risk triage applies the same pre-mutation individual hard-deadline review as
 past-due triage. Every group defer variant excludes hard-deadline rows; group
 consent cannot replace their per-task confirmation. Native no-penalty defers,
 preview-bound removal consent, and deliberate backlog maintenance are unchanged.
+
+
+Agent launches explicitly receive the selected workspace's reconciled `AGENTS.md`
+and trusted channel response rules for interactive, SMS, and email requests in
+both access modes. This applies to fresh and resumed main/manual/skill tabs and
+receiver recovery. Missing or oversized instructions fail before spawn. Existing
+frontend instructions are preserved; Claude requires support for disabling prompt
+snapshots on resume, and Codex requires bounded native instruction introspection.
