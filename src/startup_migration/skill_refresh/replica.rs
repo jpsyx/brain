@@ -10,6 +10,21 @@ use crate::{
 use anyhow::{Result, ensure};
 use std::{collections::BTreeMap, fs, path::Path};
 
+pub(super) fn render_package(
+    target: &Target,
+    name: &WorkspaceName,
+    record: &WorkspaceRecord,
+    input: &Sources,
+    core: &RenderedInstall,
+    mut package: super::package::Package,
+) -> Result<super::package::Package> {
+    validate_plugins(core, input)?;
+    let skills = render(target, name, record, input, true)?;
+    validate(core, &skills, input, target)?;
+    package.set_skills(skills);
+    Ok(package)
+}
+
 pub(super) fn render(
     target: &Target,
     name: &WorkspaceName,
@@ -27,6 +42,14 @@ pub(super) fn render(
     fs::create_dir_all(path.parent().expect("registry parent"))?;
     fs::write(path, serde_json::to_vec(&registry)?)?;
     target.run(&private, &["-w", name.as_str(), "skills", "sync"])?;
+    if customization {
+        if let Some(expected) = input.files.get("AGENTS.md") {
+            ensure!(
+                sources::optional_file(&root.join("AGENTS.md"))?.as_ref() == Some(expected),
+                "target instructions differ from the prepared package"
+            );
+        }
+    }
     let generated = root.join(".agents/skills");
     let mut output = RenderedInstall::new();
     for entry in fs::read_dir(&generated)? {
@@ -98,13 +121,13 @@ pub(super) fn validate(
     core: &RenderedInstall,
     output: &RenderedInstall,
     sources: &Sources,
-    target_version: &str,
+    target: &Target,
 ) -> Result<()> {
     validate_plugins(core, sources)?;
-    let expected = if target_version == crate::skills::current_version() {
-        current_expected(sources)?
+    let expected = if target.profile == super::target::Profile::Current {
+        compile(sources)?.skills
     } else {
-        legacy_expected(core, sources)?
+        legacy_expected(core, sources, target.profile.direction())?
     };
     let mut actual = output.clone();
     for files in actual.values_mut() {
@@ -117,7 +140,13 @@ pub(super) fn validate(
     Ok(())
 }
 
-fn legacy_expected(core: &RenderedInstall, sources: &Sources) -> Result<RenderedInstall> {
+fn legacy_expected(
+    core: &RenderedInstall,
+    sources: &Sources,
+    direction: crate::skills::compatibility::ProjectionDirection,
+) -> Result<RenderedInstall> {
+    let projection =
+        crate::skills::compatibility::project_extensions(&sources.extensions()?, direction)?;
     let mut expected = core.clone();
     let prefix = ".config/plugins/";
     for (path, bytes) in &sources.files {
@@ -139,13 +168,12 @@ fn legacy_expected(core: &RenderedInstall, sources: &Sources) -> Result<Rendered
     // The audited renderer applies extensions only to SKILL.md, with this unchanged parser.
     for (name, files) in &mut expected {
         ensure!(files.contains_key("SKILL.md"), "plugin omitted SKILL.md");
-        if let Some(extension) = sources.files.get(&format!(".config/extensions/{name}.md")) {
-            let extension = crate::skills::extension::parse(std::str::from_utf8(extension)?);
+        if let Some(extension) = projection.by_skill.get(name) {
             let body =
                 String::from_utf8_lossy(files.get("SKILL.md").expect("validated entrypoint"));
             files.insert(
                 "SKILL.md".into(),
-                crate::skills::extension::apply(&body, &extension).into_bytes(),
+                crate::skills::extension::apply(&body, extension).into_bytes(),
             );
         }
         files.remove(".brain-rendered");
@@ -153,7 +181,7 @@ fn legacy_expected(core: &RenderedInstall, sources: &Sources) -> Result<Rendered
     Ok(expected)
 }
 
-fn current_expected(sources: &Sources) -> Result<RenderedInstall> {
+pub(super) fn compile(sources: &Sources) -> Result<crate::skills::model::CompiledSkills> {
     use crate::skills::{
         compatibility::snapshot::CheckedSources,
         model::{Skill, SkillFile},
@@ -200,11 +228,7 @@ fn current_expected(sources: &Sources) -> Result<RenderedInstall> {
             bundled: false,
         });
     }
-    Ok(crate::skills::render::compile_catalog(
-        &catalog,
-        CheckedSources::from_snapshot(&extensions)?,
-    )?
-    .skills)
+    crate::skills::render::compile_catalog(&catalog, CheckedSources::from_snapshot(&extensions)?)
 }
 
 pub(super) fn validate_plugins(core: &RenderedInstall, sources: &Sources) -> Result<()> {

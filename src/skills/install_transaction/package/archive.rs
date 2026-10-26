@@ -90,8 +90,7 @@ impl Journal {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // Selection belongs to the subsequent package composer.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RetainedPackage {
     pub transaction_id: String,
     pub previous: Option<ManagedSkillManifest>,
@@ -100,7 +99,6 @@ pub(crate) struct RetainedPackage {
     pub artifacts: BTreeMap<String, FileChange>,
 }
 impl LockedInstall {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn retained_packages(&self) -> Result<Vec<RetainedPackage>> {
         snapshot::check_parent(&self.identity.cache, "package-backups/archive.json")?;
         let directory = self.identity.cache.join("package-backups");
@@ -151,7 +149,6 @@ impl LockedInstall {
 }
 
 impl Archive {
-    #[cfg_attr(not(test), allow(dead_code))]
     fn validate(self, identity: &InstallIdentity) -> Result<RetainedPackage> {
         let next: ManagedSkillManifest = serde_json::from_slice(&self.next)?;
         let previous: Option<ManagedSkillManifest> = self
@@ -198,5 +195,52 @@ impl Archive {
             metadata: self.package,
             artifacts: self.artifacts,
         })
+    }
+}
+
+impl RetainedPackage {
+    /// Archives can outlive an aborted attempt. Match the current generation and
+    /// migration-owned postimages, never directory order or unrelated user data.
+    pub(crate) fn applies_to(
+        &self,
+        manifest: &ManagedSkillManifest,
+        files: &BTreeMap<String, Vec<u8>>,
+    ) -> Result<bool> {
+        if manifest.workspace_id != self.target.workspace_id
+            || manifest.binary_version != self.target.binary_version
+            || manifest.compatibility_revision != self.target.compatibility_revision
+            || manifest.schema_version != self.target.schema_version
+        {
+            return Ok(false);
+        }
+        for (path, change) in &self.artifacts {
+            let current = files.get(path).map(Vec::as_slice);
+            let matches = if let Some(patch) = &change.config {
+                let config: serde_json::Value =
+                    current.map_or_else(|| Ok(serde_json::json!({})), serde_json::from_slice)?;
+                config.get(&patch.field) == patch.after.as_ref()
+            } else if let Some(source) = &change.source {
+                source.patch.matches_postimage(current)
+                    && source
+                        .inputs
+                        .iter()
+                        .all(|(path, bytes)| files.get(path) == Some(bytes))
+            } else if let Some(contract) = &change.target_contract {
+                current.is_some_and(|bytes| {
+                    crate::workspace::instructions::has_managed_region(bytes).ok() == Some(false)
+                        && bytes
+                            .windows(contract.bytes.len())
+                            .filter(|window| *window == contract.bytes)
+                            .count()
+                            == 1
+                })
+            } else {
+                current == change.after.as_deref()
+            };
+            if !matches {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }

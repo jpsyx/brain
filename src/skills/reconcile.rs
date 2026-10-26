@@ -2,7 +2,7 @@
 mod current;
 mod eligibility;
 mod lock;
-mod package;
+pub(crate) mod package;
 use super::diagnostic::Diagnostic;
 use super::{
     install,

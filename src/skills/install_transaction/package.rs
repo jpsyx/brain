@@ -136,14 +136,12 @@ pub(crate) use legacy::{compose_target_instructions, restore_instructions};
 use planning::plan;
 pub(super) use validation::{check_owned, validate_artifacts, validate_metadata};
 
-#[cfg_attr(not(test), allow(dead_code))] // Audited target input, integrated by the installer next.
 #[derive(Clone)]
 pub(crate) struct InstructionRestore {
     pub target_contract: Option<TargetInstructionContract>,
     pub before: Option<Vec<u8>>,
     pub after: Option<Vec<u8>>,
 }
-#[cfg_attr(not(test), allow(dead_code))] // Audited target input, integrated by the installer next.
 #[derive(Clone)]
 pub(crate) struct LegacyWorkspacePackage {
     pub skills: RenderedInstall,

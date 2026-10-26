@@ -3174,25 +3174,49 @@ BIN_DIR="$HOME/.local/bin" /path/to/current-brain/install.sh \
 ```
 
 An old target requires an already installed migration-capable coordinator.
-Current profiles support audited 0.101.0 and the coordinator's exact current
-version. The installer rejects unknown targets and incompatible workspace
-identity, schema, active removal or managed ownership before replacement.
-Available roots are attempted independently; missing roots remain pending and
-are never created. A post-replacement refresh failure exits nonzero with pending
-workspace details and does not print installation success. Retry through the
-current installer after repairing the reported cause; no manual migration is
-needed.
+Current profiles support audited 0.101.0, audited 0.105.3, and the coordinator's
+exact current version. The installer rejects unknown targets and incompatible
+workspace identity, schema, active removal, pending receives, or managed ownership
+before replacement. Every registered root must be available for downgrade; none
+is invented. Upgrades continue to retain missing roots as pending. Available roots
+are attempted independently after this downgrade availability check.
 
-Legacy rendering uses private temporary copies of `.config/extensions` and
-`.config/plugins`. Ordinary files, nested binary references and literal source
-bytes are preserved. Source symlinks, special files, reserved render markers,
-core/plugin collisions and protected live destinations fail closed. Temporary
-copies are removed on exit. The actual target generates the installed skill
-bytes; 0.101.0 output receives compatibility revision 0.
+Preflight renders private copies of instructions, config, extensions and plugins
+without editing live customization. Apply publishes compatible instructions,
+skills, narrow config changes and legacy source projections together before
+replacing the executable on either upgrade or downgrade. An apply failure leaves that
+executable available for recovery and does not print installation success.
+Retry through the current installer after repairing the reported cause.
+
+Close every Brain TUI and wait for running commands to finish before installing.
+The current helper holds exclusive invocation ownership through migration,
+publication and replacement; active commands or lifecycle evidence cause a clear
+retry refusal. Ordinary commands loaded before replacement check their compiled
+version against the executable now on disk before proceeding. Help/version remain
+available while installation owns the guard. Protected finalization requires a
+coordinator at least 0.106.14. For an installed 0.106.0-0.106.13 coordinator, run
+the current installer without `--target-source` first, then retry the downgrade;
+the refusal prints the exact command for the selected bin directory and name.
+
+Canonical extension files stay present. Downgrade writes supported equivalent
+legacy hook blocks with retained before-images and provenance, so later ordinary
+old-version `skills sync` retains those additions. Re-upgrade deduplicates identical
+mixed definitions, but refuses conflicting old-client edits without overwriting
+either source. A narrowed capability selection or hook scope that the old version
+cannot represent is an explicit refusal. Unrelated config changes and foreign
+files remain intact. The target's existing workspace minimum version is honored.
+
+Ordinary files, nested binary references and literal source bytes are preserved.
+Source symlinks, special files, reserved render markers, core/plugin collisions
+and protected live destinations fail closed. Temporary copies are removed on exit.
+The actual target generates the skill bytes. 0.101.0 receives compatibility
+revision 0 and 0.105.3 receives revision 1, both with schema-1 ownership manifests.
 
 This guarantee covers the standalone installer transition and refresh. An old
 binary's later ordinary startup or explicit sync still has its historical
 behavior, including all-root bootstrap and destructive managed-tree replacement.
+Already-running historical ordinary CLI processes do not implement the new
+invocation guard; only their existing workspace locks coordinate them.
 Historical installers fail safely when the installed modern binary detects an
 incomplete downgrade protocol. Direct Cargo replacement, manual copying, old
 run wrappers and installation managers without this modern handoff are outside

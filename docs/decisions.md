@@ -6214,15 +6214,56 @@ inventory. Helper-embedded skill content is never relabeled as older output.
 
 Preflight and apply independently validate identity, inputs, local operation
 state and ownership. A frozen executable plus one expected SHA-256 binds their
-separate helper processes; apply executes the installed path. A separate protocol
+separate helper processes. Both directions migrate and apply the complete package
+from the staged candidate before executable replacement. A separate protocol
 1 acknowledgement rejects historical installers that cannot retain the helper
 and finish refresh. Neither value is authentication. No download framework,
 persistent ticket, provider recovery or second live installer is introduced.
 
-Profiles deliberately support only audited 0.101.0 and the running coordinator's
-exact current version. New target profiles require source and actual-binary
-acceptance evidence. The guarantee ends at installer refresh; an older release's
-later commands retain their historical limitations.
+Package publication alone cannot fence executable replacement: an ordinary modern
+startup could re-upgrade a just-published legacy package before the old binary
+lands. The existing Rust helper therefore owns finalization under one exclusive
+machine invocation guard, including migration, package apply, digest revalidation,
+atomic replacement and final verification. Ordinary main holds shared ownership
+through its entire lifetime, including a TUI and work waiting on workspace sync.
+Try-lock refusal prevents queued commands from surviving installation; a process
+loaded before replacement also checks compiled versus on-disk version after
+shared acquisition. Help/version stay side-effect free. Direct hidden maintenance
+must acquire ownership too. Existing historical TUI/server evidence conservatively
+refuses installation without stopping a process or deleting evidence.
+
+Protected finalization begins at coordinator 0.106.14. The current script refuses
+downgrade through modern-split 0.106.0-0.106.13 helpers before live transition,
+with an exact current-installer-first command. Historical pre-split fallback keeps
+its historical behavior. Already-running uninstrumented historical ordinary CLI
+processes cannot participate in the new guard, so their existing workspace locks
+remain the limit of coordination. No persistent installation ticket is needed.
+
+Profiles support audited 0.101.0 (manifest schema 1, revision 0), audited 0.105.3
+(schema 1, revision 1), and the running coordinator's exact version (schema 2,
+revision 2). New profiles require source and actual-binary acceptance evidence.
+The old targets' ordinary sync reads the persisted legacy projection, so it
+retains canonical customizations exported by downgrade. Other old-release
+behavior remains historical.
+
+The live read-only boundary validates retained archives against their canonical
+root and UUID. Private replicas receive the resulting typed plan, never rebound
+archive copies. Archive existence cannot prove a committed downgrade: applicable
+evidence must match the target identity and actual migration-owned instruction,
+config and source postimages. Unrelated config fields and skill entries do not
+invalidate that evidence. Re-upgrade compiles current live sources instead of
+restoring old source/config backups. Identical alias definitions deduplicate;
+differing old-client and canonical definitions retain both sources and refuse.
+
+Downgrade holds sync ownership before operation/task and install ownership, and
+refuses pending receive state. Every registered root must be available before any
+downgrade publication, because the old executable cannot repair a missing root
+when it later returns. Upgrade keeps the existing pending-root behavior. A failed
+publication or failed executable rename leaves the modern executable available;
+the existing journal recovers the coherent old or new package on retry.
+The exact frozen legacy instruction template is recognized as one span at a real
+Markdown heading even with surrounding user prose. Fenced and duplicate complete
+templates remain unclaimed; no fuzzy prose matching is used.
 
 
 ### Consent and recovery diagnostics share safe projections

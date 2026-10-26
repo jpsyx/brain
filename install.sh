@@ -154,6 +154,8 @@ PYTHON
 }
 expected_digest="$(sha256 "$stage/target")"
 [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || { echo 'error: invalid target digest.' >&2; exit 1; }
+installed_digest=""
+if [[ -n "$INSTALLED_VERSION" ]]; then installed_digest="$(sha256 "$INSTALLED_BINARY")"; fi
 coordinator_version="$BUILT_VERSION"
 downgrade=false
 if [[ -n "$INSTALLED_VERSION" ]] && version_is_greater "$INSTALLED_VERSION" "$BUILT_VERSION"; then
@@ -163,6 +165,12 @@ if [[ -n "$INSTALLED_VERSION" ]] && version_is_greater "$INSTALLED_VERSION" "$BU
 else
   install -m 0755 "$stage/target" "$stage/helper"
 fi
+if $downgrade && ! version_is_greater 0.106.0 "$coordinator_version" && version_is_greater 0.106.14 "$coordinator_version"; then
+  echo 'error: this installed coordinator cannot safely finalize a modern workspace downgrade.' >&2
+  echo '       Run the current installer first, then retry the requested --target-source downgrade:' >&2
+  printf '       BIN_DIR=%q %q --name %q\n' "$BIN_DIR" "$SCRIPT_DIR/install.sh" "$command_name" >&2
+  exit 1
+fi
 refresh=false
 if ! version_is_greater 0.102.25 "$coordinator_version"; then refresh=true; fi
 if [[ -n "$target_source" ]] && version_is_greater 0.102.25 "$BUILT_VERSION" && { ! $downgrade || ! $refresh; }; then
@@ -170,32 +178,49 @@ if [[ -n "$target_source" ]] && version_is_greater 0.102.25 "$BUILT_VERSION" && 
   exit 1
 fi
 refresh_skills() {
-  "$stage/helper" __refresh-workspace-skills --target-binary "$1" \
+  local replacement="${3:-}"
+  set -- __refresh-workspace-skills --target-binary "$1" \
     --target-version "$BUILT_VERSION" --phase "$2" \
     --expected-target-sha256 "$expected_digest"
+  if ! version_is_greater 0.106.0 "$coordinator_version" && [[ -n "$INSTALLED_VERSION" ]]; then
+    set -- "$@" --from-version "$INSTALLED_VERSION"
+  fi
+  if [[ -n "$replacement" ]]; then
+    set -- "$@" --replace-binary "$replacement"
+    if [[ -n "$installed_digest" ]]; then
+      set -- "$@" --expected-installed-sha256 "$installed_digest"
+    fi
+  fi
+  "$stage/helper" "$@"
 }
 if $refresh; then refresh_skills "$stage/target" preflight; fi
 [[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
-if $downgrade; then
-  echo "Migrating brain ${INSTALLED_VERSION} -> ${BUILT_VERSION} before downgrade…" >&2
-  if $refresh; then
-    "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" \
-      --to-version "$BUILT_VERSION" --installer-refresh-protocol 1
+if ! version_is_greater 0.106.14 "$coordinator_version"; then
+  echo "Migrating and publishing brain ${BUILT_VERSION} before replacement…" >&2
+  refresh_skills "$stage/target" apply "$INSTALLED_BINARY"
+else
+  if $downgrade; then
+    echo "Migrating brain ${INSTALLED_VERSION} -> ${BUILT_VERSION} before downgrade…" >&2
+    if $refresh; then
+      "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" \
+        --to-version "$BUILT_VERSION" --installer-refresh-protocol 1
+    else
+      "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" --to-version "$BUILT_VERSION"
+    fi
   else
-    "$stage/helper" __migrate --from-version "$INSTALLED_VERSION" --to-version "$BUILT_VERSION"
+    MIGRATION_FROM="${INSTALLED_VERSION:-$BUILT_VERSION}"
+    echo "Migrating brain ${MIGRATION_FROM} -> ${BUILT_VERSION} before replacement…" >&2
+    "$stage/helper" __migrate --from-version "$MIGRATION_FROM" --to-version "$BUILT_VERSION"
   fi
+  # Publish the compatible generation while the modern executable remains available
+  # to recover any interrupted package transaction.
+  if $refresh; then refresh_skills "$stage/target" apply; fi
+  [[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
+  mv -f -- "$stage/target" "$INSTALLED_BINARY"
 fi
-[[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
-mv -f -- "$stage/target" "$INSTALLED_BINARY"
 [[ -f "$INSTALLED_BINARY" && ! -L "$INSTALLED_BINARY" && -x "$INSTALLED_BINARY" ]] || { echo 'error: installed target is not a regular executable.' >&2; exit 1; }
 [[ "$(sha256 "$INSTALLED_BINARY")" = "$expected_digest" ]] || { echo 'error: installed target digest changed.' >&2; exit 1; }
 [[ "$(brain_version "$INSTALLED_BINARY")" = "$BUILT_VERSION" ]] || { echo 'error: installed target version changed.' >&2; exit 1; }
-if ! $downgrade; then
-  MIGRATION_FROM="${INSTALLED_VERSION:-$BUILT_VERSION}"
-  echo "Migrating brain ${MIGRATION_FROM} -> ${BUILT_VERSION}…" >&2
-  "$stage/helper" __migrate --from-version "$MIGRATION_FROM" --to-version "$BUILT_VERSION"
-fi
-if $refresh; then refresh_skills "$INSTALLED_BINARY" apply; fi
 
 echo "installed $command_name -> $INSTALLED_BINARY"
 

@@ -1,4 +1,6 @@
 //! Installer-only target rendering, ownership preflight and publication.
+mod package;
+mod replacement;
 mod replica;
 mod sources;
 mod target;
@@ -12,12 +14,28 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
-use target::Target;
+use target::{Profile, Target};
 
 /// Refresh every available registered workspace with the actual target's output.
 /// This route deliberately runs before ordinary startup or selected bootstrap.
 pub fn refresh_workspace_skills(args: &RefreshWorkspaceSkillsArgs) -> Result<()> {
+    let installation = super::invocation::Guard::exclusive()?;
     let target = Target::validate(args)?;
+    let replacement = replacement::Replacement::prepare(args, &target)?;
+    if replacement.is_some() {
+        super::run_explicit(
+            args.from_version.as_deref().unwrap_or(&target.version),
+            &target.version,
+        )?;
+    }
+    refresh_target(args, &target)?;
+    if let Some(replacement) = replacement {
+        replacement.publish(&target, installation)?;
+    }
+    Ok(())
+}
+
+fn refresh_target(args: &RefreshWorkspaceSkillsArgs, target: &Target) -> Result<()> {
     let home = super::home_dir()?;
     let store = RegistryStore::real();
     match fs::symlink_metadata(store.path()) {
@@ -27,6 +45,14 @@ pub fn refresh_workspace_skills(args: &RefreshWorkspaceSkillsArgs) -> Result<()>
         }
     }
     let registry = RegistryStore::load_readable(store.path()).context("read workspace registry")?;
+    if target.profile != Profile::Current {
+        for (name, record) in &registry.workspaces {
+            ensure!(
+                fs::metadata(&record.root).is_ok(),
+                "{name}: pending_unavailable; every registered root must be available before downgrade"
+            );
+        }
+    }
     let mut core = None;
     let mut failures = false;
     eprintln!(
@@ -43,7 +69,7 @@ pub fn refresh_workspace_skills(args: &RefreshWorkspaceSkillsArgs) -> Result<()>
             _ => {}
         }
         match refresh(
-            &home, &store, &registry, name, record, &target, &mut core, args.phase,
+            &home, &store, &registry, name, record, target, &mut core, args.phase,
         ) {
             Ok(()) => eprintln!(
                 "{name}: {}",
@@ -95,33 +121,51 @@ fn refresh(
         workspace.paths().cache_dir(),
     )
     .context("validate workspace identity")?;
+    identity.prepare_cache()?;
+    let _sync = identity.acquire_sync()?;
+    ensure!(
+        identity.receive_phase()?.is_none(),
+        crate::skills::diagnostic::Diagnostic::new(
+            crate::skills::diagnostic::Category::ReceivePending,
+            "target_refresh",
+            None,
+        )
+    );
     let sources = sources::Sources::read(registry, name, record, &target.version)
         .context("validate target workspace inputs")?;
-    if target.legacy {
-        validate_schema(&record.root).context("target task schema is incompatible")?;
-    }
-    identity.prepare_cache()?;
+    validate_schema(
+        sources.files.get("tasks/SCHEMA.json"),
+        target.profile.task_schema(),
+    )
+    .context("target task schema is incompatible")?;
     let _operations = crate::tasks::removal::prepare_downgrade(&workspace)
         .context("settle local removal recovery before target refresh")?;
+    let mut stamp = WorkspaceStamp::selected(&workspace);
+    let mut locked = LockedInstall::acquire(&identity)?;
+    locked.recover(&mut stamp)?;
+    let machine = crate::access::MachineCapabilityEnvironment::for_skill_ownership(
+        record.workspace_id,
+        &record.env,
+    )?;
+    crate::access::preflight_bundled_skill_ownership(&machine)?;
+    let provenance = locked.retained_packages()?;
+    let package = package::Package::prepare(&locked, &sources, target)?;
+    let projected = package.projected_sources(&sources)?;
     if core.is_none() {
         *core = Some(
             replica::render(target, name, record, &sources, false)
                 .context("render target core inventory")?,
         );
     }
-    replica::validate_plugins(core.as_ref().expect("core rendered"), &sources)?;
-    let output = replica::render(target, name, record, &sources, true)
-        .context("render target workspace skills")?;
-    replica::validate(
+    let package = replica::render_package(
+        target,
+        name,
+        record,
+        &projected,
         core.as_ref().expect("core rendered"),
-        &output,
-        &sources,
-        &target.version,
+        package,
     )
-    .context("validate complete target output")?;
-    let mut stamp = WorkspaceStamp::selected(&workspace);
-    let mut locked = LockedInstall::acquire(&identity)?;
-    locked.recover(&mut stamp)?;
+    .context("validate complete target package")?;
     let current =
         RegistryStore::load_readable(store.path()).context("revalidate workspace registry")?;
     ensure!(
@@ -132,32 +176,38 @@ fn refresh(
         sources::Sources::read(&current, name, record, &target.version)? == sources,
         "workspace skill sources changed during refresh"
     );
+    ensure!(
+        locked.retained_packages()? == provenance,
+        "package provenance changed during target rendering"
+    );
     target.verify()?;
     let version = InstallVersion {
         binary_version: target.version.clone(),
-        compatibility_revision: if target.legacy {
-            0
-        } else {
-            InstallVersion::current().compatibility_revision
-        },
+        compatibility_revision: target.profile.revision(),
     };
-    locked
-        .preflight(&output, &version)
+    package
+        .preflight(&locked, &version)
         .context("validate managed ownership")?;
     if phase == RefreshPhase::Apply {
-        locked
-            .install(output, &version, &mut stamp)
-            .context("publish actual target skills")?;
+        package
+            .install(&mut locked, &version, &mut stamp)
+            .context("publish actual target package")?;
+        ensure!(
+            locked
+                .manifest()?
+                .is_some_and(|manifest| manifest.schema_version == target.profile.schema()),
+            "target package schema mismatch"
+        );
     }
     Ok(())
 }
-fn validate_schema(root: &Path) -> Result<()> {
-    if let Some(bytes) = sources::optional_file(&root.join("tasks/SCHEMA.json"))? {
-        let schema: serde_json::Value = serde_json::from_slice(&bytes)?;
+fn validate_schema(bytes: Option<&Vec<u8>>, maximum: u64) -> Result<()> {
+    if let Some(bytes) = bytes {
+        let schema: serde_json::Value = serde_json::from_slice(bytes)?;
         ensure!(schema.is_object(), "invalid task schema");
         if let Some(version) = schema.get("task_schema_version") {
             ensure!(
-                version.as_u64().is_some_and(|v| v <= 2),
+                version.as_u64().is_some_and(|v| v <= maximum),
                 "unsupported task schema version"
             );
         }

@@ -20,7 +20,13 @@ if entry.get('phase') == os.environ.get('FAIL_PHASE', '-') or (args[0] == '__mig
 if entry.get('phase') == 'preflight' and os.environ.get('MUTATE_BUILD'):
     pathlib.Path(os.environ['MUTATE_BUILD']).write_text('changed mutable cargo artifact')
 if entry.get('phase') == 'apply':
+    if os.environ.get('FAIL_PHASE') == 'down':
+        sys.exit('migration failure')
     subprocess.run([entry['target'], '-w', 'canonical', 'skills', 'sync'], check=True)
+    if '--replace-binary' in args:
+        if os.environ.get('FAIL_RENAME'):
+            sys.exit('replacement failure')
+        os.replace(entry['target'], values['--replace-binary'])
 if entry.get('phase') == 'preflight' and os.environ.get('MUTATE_CANDIDATE'):
     with open(entry['target'], 'a') as candidate:
         candidate.write('\n# replaced same-version candidate\n')

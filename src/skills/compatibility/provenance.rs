@@ -34,6 +34,11 @@ impl SourcePatch {
         Ok(())
     }
 
+    /// Only exact exported postimages authorize reuse; later old-client edits remain live.
+    pub(crate) fn matches_postimage(&self, current: Option<&[u8]>) -> bool {
+        current.is_some_and(|bytes| self.validate_after(bytes).is_ok())
+    }
+
     pub(crate) fn validate_after(&self, current: &[u8]) -> Result<()> {
         ensure!(
             current == self.after,

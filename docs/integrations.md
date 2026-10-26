@@ -2842,3 +2842,48 @@ The catalog is composed and size-checked before probes. OpenCode and pi also rec
 the actual immutable directory through their existing native injection. Claude and
 Codex retain advisory enforcement; this does not isolate or freeze global native
 discovery. Empty selections add no read exception; unrestricted behavior is unchanged.
+
+### Exact installer package compatibility
+
+The current standalone installer supports audited 0.101.0 and 0.105.3 targets,
+plus its coordinator's exact current binary. Target digest checks bind preflight,
+private execution, package apply and executable replacement. Historical commands
+receive only their original `-w NAME skills sync` grammar in an isolated
+HOME/XDG/TMP environment, without live integration settings.
+
+Preflight captures no-follow instructions, config, extensions, plugins and local
+provenance. The shared checked projection prepares target inputs before the child
+runs; live canonical files are unchanged. The actual target skill inventory is
+validated against that projection, with compatible instructions and narrow config
+changes carried by the same typed package. Current packages always include managed
+instructions and a retained extension snapshot. Historical packages lower the
+manifest to schema 1 in the same transaction: revision 0 for 0.101.0 and revision 1
+for 0.105.3. Both audited targets share the frozen legacy instruction contract.
+
+Downgrade applies while the modern executable is still installed. Failure leaves
+that executable available to recover the journal. The installer requires every
+registered root and refuses pending receives under sync-before-install ownership.
+Upgrade still leaves unavailable roots pending. Optional installer `--from-version`
+evidence supplies split eligibility before traversal, while a verified current
+portable generation takes precedence over that older version claim.
+
+The 0.106.14 finalization protocol keeps migration, typed apply, installed/candidate
+digest revalidation, atomic replacement and final verification inside the existing
+Rust helper's exclusive machine invocation ownership. Ordinary commands retain
+shared ownership for their entire lifetime and validate their compiled version
+against the executable on disk after acquisition. Contention refuses immediately.
+Help/version bypass this guard without writes. Historical TUI/server evidence is
+read conservatively with bounded no-follow access. Close Brain TUIs and wait for
+commands to exit before retrying; installation does not terminate them or remove
+their evidence. Modern-split 0.106.0-0.106.13 helpers must be upgraded with the
+current installer before downgrade. Historical pre-split fallback retains its
+historical behavior, including the coordination limit for already-running ordinary
+CLI processes that do not implement invocation ownership.
+
+Exported legacy extension blocks retain original canonical files, before-images
+and authenticated projection provenance. Old ordinary sync uses those persisted
+legacy sources. Re-upgrade reads current live bytes: identical definitions collapse
+logically, differing definitions conflict, and old-client edits are never replaced
+with stale backups. Retained package candidates must match actual target identity
+and migration-owned postimages. Unrelated config fields and unrelated skill entries
+are not archive identity. Private replicas never bypass live archive root binding.

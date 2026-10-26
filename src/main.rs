@@ -30,6 +30,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let _invocation = brain::startup_migration::invocation::Guard::ordinary()?;
+
     if brain::skills::repair::is_requested(&cli) {
         let code = brain::skills::repair::run(&cli)?;
         if code != 0 {

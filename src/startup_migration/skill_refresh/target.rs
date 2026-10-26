@@ -45,10 +45,11 @@ impl Drop for PrivateDirectory {
     }
 }
 pub(super) struct Target {
-    path: PathBuf,
+    pub(super) path: PathBuf,
     digest: String,
     pub(super) version: String,
-    pub(super) legacy: bool,
+    pub(super) profile: Profile,
+    pub(super) legacy_evidence: bool,
 }
 impl Target {
     pub(super) fn validate(args: &RefreshWorkspaceSkillsArgs) -> Result<Self> {
@@ -72,16 +73,18 @@ impl Target {
                 .is_none_or(|expected| expected == &digest),
             "target executable digest changed"
         );
-        // Profiles are intentionally exact. Version/help do not authenticate code.
-        ensure!(
-            args.target_version == "0.101.0" || args.target_version == env!("CARGO_PKG_VERSION"),
-            "target version has no audited skill refresh profile"
-        );
+        let profile = Profile::for_version(&args.target_version)?;
         let target = Self {
             path: args.target_binary.clone(),
             digest,
             version: args.target_version.clone(),
-            legacy: args.target_version == "0.101.0",
+            profile,
+            legacy_evidence: args
+                .from_version
+                .as_deref()
+                .map(crate::startup_migration::brain_skills::predates_split)
+                .transpose()?
+                .unwrap_or(false),
         };
         let private = PrivateDirectory::new()?;
         let version = target.run(&private, &["--version"])?;
@@ -143,7 +146,7 @@ impl Target {
         Ok(output)
     }
 }
-fn digest(path: &Path) -> Result<String> {
+pub(super) fn digest(path: &Path) -> Result<String> {
     ensure!(
         path.is_absolute(),
         "target executable path must be absolute"
@@ -172,4 +175,49 @@ fn digest(path: &Path) -> Result<String> {
         hash.update(&buffer[..size]);
     }
     Ok(format!("{:x}", hash.finalize()))
+}
+
+/// Exact audited semantics, independent of the installed coordinator's version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Profile {
+    Legacy101,
+    Legacy105,
+    Current,
+}
+impl Profile {
+    fn for_version(version: &str) -> Result<Self> {
+        match version {
+            "0.101.0" => Ok(Self::Legacy101),
+            "0.105.3" => Ok(Self::Legacy105),
+            env!("CARGO_PKG_VERSION") => Ok(Self::Current),
+            _ => anyhow::bail!("target version has no audited skill refresh profile"),
+        }
+    }
+    pub(super) const fn revision(self) -> u32 {
+        match self {
+            Self::Legacy101 => 0,
+            Self::Legacy105 => 1,
+            Self::Current => 2,
+        }
+    }
+    pub(super) const fn schema(self) -> u32 {
+        match self {
+            Self::Legacy101 | Self::Legacy105 => 1,
+            Self::Current => 2,
+        }
+    }
+    pub(super) const fn task_schema(self) -> u64 {
+        match self {
+            Self::Legacy101 | Self::Legacy105 => 2,
+            Self::Current => crate::tasks::schema::TASK_SCHEMA_VERSION,
+        }
+    }
+    pub(super) const fn direction(self) -> crate::skills::compatibility::ProjectionDirection {
+        use crate::skills::compatibility::ProjectionDirection;
+        match self {
+            Self::Legacy101 => ProjectionDirection::Legacy101,
+            Self::Legacy105 => ProjectionDirection::Legacy105,
+            Self::Current => ProjectionDirection::Current,
+        }
+    }
 }

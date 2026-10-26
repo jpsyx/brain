@@ -518,6 +518,24 @@ existing completed-run journal is not sufficient evidence of a pending receive.
 
 ## Task 11: Make installer preflight and downgrade understand the full package
 
+Execution clarification from the observed replacement-window regression: extend
+the existing Rust helper to own migration, typed apply, digest revalidation and
+atomic replacement under one exclusive machine invocation guard. Both upgrade
+and downgrade migrate/apply before replacement. Ordinary main retains shared
+ownership through dispatch/TUI lifetime, refuses contention immediately, and checks
+compiled versus on-disk executable version after acquisition. Help/version precede
+the guard; hidden maintenance acquires ownership too. Conservatively refuse live
+historical TUI/server evidence without terminating processes or removing evidence.
+Preserve sync -> operation/task -> install ordering without reentrant acquisition.
+Protected finalization starts at 0.106.14; reject modern-split 0.106.0-0.106.13
+downgrade helpers before live mutation with an exact current-installer-first remedy.
+Historical pre-split helpers retain historical behavior; uninstrumented historical
+ordinary CLI processes remain limited to existing workspace locks. Add deterministic
+RED/GREEN coverage for the original contender at the actual Rust replacement
+boundary, active/queued commands, stale loaded image policy, migration/apply failure,
+help/version, candidate changes and interruption/retry. Use a cfg(test) seam rather
+than production test flags. No persistent ticket, new installer, dependency or unsafe.
+
 **Files:** Modify `src/startup_migration/skill_refresh/{target,sources,replica}.rs`,
 `src/startup_migration/skill_refresh.rs`, `install.sh`, and Task 1 provenance logic.
 Extend `tests/task_deletion_skill_refresh/` and add focused `installer`, `downgrade`,

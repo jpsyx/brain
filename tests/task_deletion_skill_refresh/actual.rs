@@ -21,6 +21,12 @@ fn actual_legacy_target_uses_private_sources_and_preserves_live_state() {
     f.registry["workspaces"]["alpha"]["env"] =
         serde_json::json!({"sync":{"remote":"sentinel:never"}});
     f.save();
+    assert!(!refresh(&f, &executable, "preflight").status.success());
+    f.registry["workspaces"]
+        .as_object_mut()
+        .unwrap()
+        .remove("missing");
+    f.save();
     let before_registry = fs::read(f.registry_path()).unwrap();
     let before_config = fs::read(root.join(".config/config.json")).unwrap();
     let before_source = fs::read(root.join(".config/extensions/todo.md")).unwrap();

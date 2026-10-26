@@ -299,3 +299,25 @@ fn plain_marker_names_in_user_prose_are_not_delimiters() {
     let malformed = REGION.replace("<!-- brain:", "<!--brain:");
     assert!(plan_document(Some(malformed.as_bytes()), "Core", None).is_err());
 }
+
+#[test]
+fn exact_legacy_target_contract_surrounded_by_user_text_is_removed_as_one_span() {
+    let before = format!("User prefix\n{LEGACY}User suffix\n");
+    let plan = plan_document(Some(before.as_bytes()), "Current core", None).unwrap();
+    assert_eq!(plan.removed_legacy.len(), 1);
+    assert_eq!(plan.removed_legacy[0].bytes, LEGACY.as_bytes());
+    assert!(plan.after.starts_with(b"User prefix\nUser suffix\n"));
+    assert!(!String::from_utf8_lossy(&plan.after).contains("## Things to avoid"));
+}
+
+#[test]
+fn duplicate_or_fenced_full_legacy_contracts_are_preserved() {
+    for text in [
+        format!("{LEGACY}{LEGACY}"),
+        format!("```markdown\n{LEGACY}```\n"),
+    ] {
+        let plan = plan_document(Some(text.as_bytes()), "Current core", None).unwrap();
+        assert!(plan.removed_legacy.is_empty());
+        assert!(plan.after.starts_with(text.as_bytes()));
+    }
+}

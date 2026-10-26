@@ -111,7 +111,7 @@ fn completed_mismatch_retains_evidence_without_repeated_transport() {
     assert_eq!(transfer.phase().as_deref(), Some("reconcile"));
 }
 
-fn receiving(fixture: &Fixture, phase: &str) {
+pub(super) fn receiving(fixture: &Fixture, phase: &str) {
     let path = fixture.cache().join("sync/journal.db");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let db = rusqlite::Connection::open(path).unwrap();

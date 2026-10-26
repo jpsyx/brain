@@ -3042,12 +3042,19 @@ the current installer owns the transition. It freezes one executable in a privat
 same-filesystem stage, carries its SHA-256 through preflight/apply, and renames
 that exact candidate into place. A downgrade retains the installed newer helper;
 other transitions retain the built helper. Preflight precedes replacement and
-down migration, and apply runs the installed target. Historical cross-boundary
+down migration. Both directions migrate and apply the staged target package before
+replacement. Historical cross-boundary
 `__migrate` calls without installer refresh protocol 1 fail before mutation.
 
 The hidden `__refresh-workspace-skills` route exits before ordinary bootstrap.
 Its arguments are `--target-binary`, `--target-version`, `--phase preflight|apply`
-and `--expected-target-sha256`. The modern installer supplies the digest in both
+and `--expected-target-sha256`, and optional `--from-version` generation evidence.
+Current installer apply also supplies `--replace-binary` and, when an executable
+exists, `--expected-installed-sha256`. `skill_refresh/replacement.rs` owns final
+digest revalidation, atomic rename and directory sync after migration and package
+publication. Protected finalization starts at coordinator 0.106.14; modern-split
+0.106.0-0.106.13 helpers must first be upgraded before a downgrade.
+The modern installer supplies the digest in both
 phases; apply requires it. `skill_refresh/{target,sources,replica}.rs` validate
 byte identity, snapshot complete no-follow inputs and render actual target bytes
 with exactly `-w NAME skills sync` in a disposable one-workspace registry.
@@ -3055,13 +3062,32 @@ Private HOME/XDG/TMP, empty integration env, original UUID/name and minimal conf
 contain the target's startup writes. The helper validates a target-only core
 inventory and full customized output, then uses the existing managed-install
 transaction and fallible workspace DB stamp. No target receives new flags.
-The exact current profile validates customized output with the shared checked
-compiler from captured installer source bytes. Audited historical profiles retain
-their original per-skill parser and do not inherit current projection semantics.
+`skill_refresh/package.rs` plans typed complete current or explicit legacy packages
+at the live read-only boundary. It projects source and config patches into separate
+private inputs. Current output uses the shared checked compiler and includes
+instructions plus the retained extension snapshot. Historical output is validated
+against the shared down projection and actual target core inventory. Only the
+customization-free core inventory is cached between roots. Live AGENTS/config/source
+snapshots and typed provenance are revalidated before the shared transaction.
+Exact target-template recognition supports re-upgrade without stale backup replay.
+The sync lock precedes operation/task and install ownership; any pending receive
+refuses the transition. Downgrade checks all registered roots before publication.
+
+`startup_migration/invocation.rs` holds a shared machine invocation lock through
+ordinary dispatch and the full TUI lifetime. Hidden maintenance takes exclusive
+ownership, with no inherited-environment bypass. Contention refuses immediately.
+After shared ownership, ordinary startup verifies its compiled version against
+the executable now on disk, rejecting a stale process loaded before replacement.
+Help/version exit before locking. Exclusive ownership continues through final
+replacement; `invocation/quiescence.rs` conservatively checks bounded no-follow
+historical TUI/server evidence. It never stops a process or removes that evidence.
+Uninstrumented historical ordinary commands cannot join this new guard; their
+existing workspace sync/install locks remain the available coordination.
 
 
-Supported profiles are the audited 0.101.0 target and the running coordinator's
-exact current version. Unknown target versions fail before replacement. These
+Supported profiles are audited 0.101.0 (schema 1/revision 0), audited 0.105.3
+(schema 1/revision 1), and the running coordinator's exact current version
+(schema 2/revision 2). Unknown target versions fail before replacement. These
 trusted-build profiles are not executable authentication or an OS sandbox; the
 digest detects changed bytes, not adversarial same-user hash/exec races.
 

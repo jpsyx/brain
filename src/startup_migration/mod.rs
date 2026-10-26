@@ -2,6 +2,7 @@
 
 pub(crate) mod brain_skills;
 mod capture_directory;
+pub mod invocation;
 mod job_socket_cutover;
 mod lifecycle;
 mod manual_session;
@@ -220,6 +221,7 @@ pub fn run_installer(args: &crate::cli::InternalMigrationArgs) -> Result<()> {
             || args.installer_refresh_protocol == Some(1),
         "this historical installer cannot complete the required skill refresh; use /path/to/current/install.sh --target-source /path/to/target-source"
     );
+    let _installation = invocation::Guard::exclusive()?;
     run_explicit(&args.from_version, &args.to_version)
 }
 

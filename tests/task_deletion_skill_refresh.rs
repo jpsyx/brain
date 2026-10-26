@@ -25,13 +25,20 @@ fn historical_migration_rejected_before_machine_state_changes() {
     assert_eq!(fs::read(stamp).unwrap(), before);
 }
 #[test]
-fn target_replica_publishes_target_bytes_and_missing_root_stays_pending() {
+fn target_replica_refuses_missing_down_root_then_publishes_when_all_are_available() {
     let mut f = Fixture::new();
     let root = legacy_root(&mut f, "alpha");
     let missing = legacy_root(&mut f, "missing");
     fs::remove_dir_all(&missing).unwrap();
     let executable = f.root("old target");
     target(&executable);
+    assert!(!refresh(&f, &executable, "preflight").status.success());
+    assert!(!root.join(".agents").exists());
+    f.registry["workspaces"]
+        .as_object_mut()
+        .unwrap()
+        .remove("missing");
+    f.save();
     let preflight = refresh(&f, &executable, "preflight");
     assert_ok(&preflight);
     assert!(!root.join(".agents").exists());

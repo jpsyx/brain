@@ -18,8 +18,27 @@ pub(crate) struct RemovedLegacySpan {
 }
 
 pub(super) fn remove_known_sections(text: &str) -> (Vec<u8>, Vec<RemovedLegacySpan>) {
-    if text == TEMPLATE {
-        return (Vec::new(), vec![removed(text, 0..text.len())]);
+    let occurrences: Vec<_> = text.match_indices(TEMPLATE).collect();
+    if occurrences.len() > 1 {
+        return (text.as_bytes().to_vec(), Vec::new());
+    }
+    if let [(offset, _)] = occurrences.as_slice() {
+        let is_heading = Parser::new(text).into_offset_iter().any(|(event, range)| {
+            range.start == *offset
+                && matches!(
+                    event,
+                    Event::Start(Tag::Heading {
+                        level: HeadingLevel::H1,
+                        ..
+                    })
+                )
+        });
+        if is_heading {
+            let range = *offset..*offset + TEMPLATE.len();
+            let mut retained = text.as_bytes().to_vec();
+            retained.drain(range.clone());
+            return (retained, vec![removed(text, range)]);
+        }
     }
     let known = sections(TEMPLATE);
     let observed = sections(text);

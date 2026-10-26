@@ -24,6 +24,14 @@ pub struct RefreshWorkspaceSkillsArgs {
     pub phase: RefreshPhase,
     #[arg(long)]
     pub expected_target_sha256: Option<String>,
+    /// Installed version supplied by the current installer before migration traversal.
+    #[arg(long)]
+    pub from_version: Option<String>,
+    /// Finalize this staged target under exclusive invocation ownership.
+    #[arg(long, requires = "expected_target_sha256")]
+    pub replace_binary: Option<std::path::PathBuf>,
+    #[arg(long, requires = "replace_binary")]
+    pub expected_installed_sha256: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum RefreshPhase {

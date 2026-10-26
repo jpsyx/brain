@@ -390,6 +390,27 @@ capabilities and managed-install manifest schema in the private replica, not
 only collect target skill trees. It must not mutate real sources to make its
 simulation work. Apply publishes the exact validated target package.
 
+Both upgrade and downgrade must run migration and complete package apply before
+executable replacement. The existing Rust helper owns finalization under one
+exclusive machine invocation guard through installed/candidate digest revalidation,
+atomic rename and final verification. Ordinary commands retain shared ownership
+through their full lifetime, including waiting work and TUIs; contention refuses
+immediately. After shared acquisition, compiled-versus-disk executable validation
+refuses stale processes loaded before replacement. Help/version remain side-effect
+free, and hidden maintenance acquires protection without an environment bypass.
+Conservative bounded no-follow historical TUI/server evidence also refuses an
+active transition. Do not terminate processes or remove their evidence; request
+that Brain sessions close and active commands finish before retry.
+
+Protected finalization starts at coordinator 0.106.14. Modern-split helpers from
+0.106.0 through 0.106.13 must refuse downgrade before live changes and print an
+exact current-installer-first command. Upgrade to current remains automatic with
+the new helper. Historical pre-split fallback retains historical behavior;
+already-running uninstrumented historical ordinary CLI processes remain limited
+to their existing workspace locks. Keep the existing sync, operation/task, install
+lock order. No persistent transition ticket, second installer, dependency or unsafe
+code is needed.
+
 Down restores the old complete skill generation and compatible instructions,
 removes only owned split outputs, retains user extras and all extension/plugin
 sources, and exports receipts/manifests readable by the target. Restore only

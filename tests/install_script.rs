@@ -85,7 +85,7 @@ impl Fixture {
 }
 
 #[test]
-fn upgrade_runs_migrations_with_the_new_binary_after_replacement() {
+fn upgrade_runs_migrations_with_the_new_binary_before_replacement() {
     let fixture = Fixture::new(Some("0.70.0"), "0.71.0");
 
     let output = fixture.run();
@@ -99,6 +99,20 @@ fn upgrade_runs_migrations_with_the_new_binary_after_replacement() {
         fixture.migration_log(),
         "target __migrate --from-version 0.70.0 --to-version 0.71.0\n"
     );
+}
+
+#[test]
+fn failed_upgrade_migration_preserves_the_installed_executable() {
+    let fixture = Fixture::new(Some("0.70.0"), "0.71.0");
+    let installed = fixture.bin.join("brain");
+    let before = std::fs::read(&installed).unwrap();
+    executable(
+        &fixture.root.join("target/release/brain"),
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'brain 0.71.0'; exit 0; fi\nexit 42\n",
+    );
+    let result = fixture.run();
+    assert!(!result.status.success());
+    assert_eq!(std::fs::read(installed).unwrap(), before);
 }
 
 #[test]
@@ -224,7 +238,7 @@ fn help_and_invalid_arguments_leave_installation_untouched() {
 }
 
 #[test]
-fn downgrade_retains_helper_for_post_replacement_target_refresh() {
+fn downgrade_retains_helper_for_complete_target_refresh() {
     let fixture = Fixture::new(Some("0.102.25"), "0.101.0");
     let output = fixture.run();
     assert!(output.status.success());

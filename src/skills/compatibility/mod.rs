@@ -14,7 +14,6 @@ use std::{collections::BTreeMap, ops::Range};
 pub(crate) enum ProjectionDirection {
     Current,
     Legacy105,
-    #[cfg_attr(not(test), allow(dead_code))] // The audited target adapter is integrated later.
     Legacy101,
 }
 
@@ -68,7 +67,6 @@ pub(crate) fn project_allowed_skills(
     names::project_allowed_skills(config)
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // The audited downgrade coordinator supplies recorded history.
 pub(crate) fn reverse_allowed_skills(
     config: &serde_json::Value,
     history: &[crate::skills::install_transaction::package::JsonFieldPatch],

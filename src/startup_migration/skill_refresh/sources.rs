@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct Sources {
     pub(super) files: BTreeMap<String, Vec<u8>>,
     pub(super) directories: Vec<PathBuf>,
@@ -81,6 +81,13 @@ impl Sources {
         }
         .to_owned();
         let mut files = BTreeMap::from([(".config/workspace.json".into(), manifest)]);
+        for relative in ["AGENTS.md", ".config/config.json", "tasks/SCHEMA.json"] {
+            if let Some(bytes) =
+                crate::skills::install_transaction::read_relative_source(root, relative)?
+            {
+                files.insert(relative.to_owned(), bytes);
+            }
+        }
         if let Some(users) = users {
             files.insert(".config/users.json".into(), users);
         }
@@ -101,6 +108,19 @@ impl Sources {
             access_mode,
         })
     }
+    pub(super) fn extensions(&self) -> Result<BTreeMap<String, String>> {
+        self.files
+            .iter()
+            .filter(|(path, _)| {
+                path.strip_prefix(".config/extensions/")
+                    .is_some_and(|name| {
+                        !name.contains('/')
+                            && Path::new(name).extension().is_some_and(|ext| ext == "md")
+                    })
+            })
+            .map(|(path, bytes)| Ok((path.clone(), String::from_utf8(bytes.clone())?)))
+            .collect()
+    }
     pub(super) fn copy_to(&self, root: &Path, customization: bool) -> Result<()> {
         for dir in &self.directories {
             if customization {
@@ -108,8 +128,13 @@ impl Sources {
             }
         }
         for (relative, bytes) in &self.files {
+            if relative == "tasks/SCHEMA.json" {
+                continue;
+            }
             if !customization
-                && (relative.starts_with(".config/extensions/")
+                && (relative == "AGENTS.md"
+                    || relative == ".config/config.json"
+                    || relative.starts_with(".config/extensions/")
                     || relative.starts_with(".config/plugins/"))
             {
                 continue;
@@ -118,21 +143,26 @@ impl Sources {
             fs::create_dir_all(path.parent().expect("relative source parent"))?;
             fs::write(path, bytes)?;
         }
+        let mut config: serde_json::Value = if customization {
+            self.files.get(".config/config.json").map_or_else(
+                || Ok(serde_json::json!({})),
+                |bytes| serde_json::from_slice(bytes),
+            )?
+        } else {
+            serde_json::json!({})
+        };
+        config["access_mode"] = self.access_mode.clone().into();
+        config["skills_auto_sync"] = false.into();
         fs::write(
             root.join(".config/config.json"),
-            serde_json::to_vec(
-                &serde_json::json!({"access_mode":self.access_mode, "skills_auto_sync": false}),
-            )?,
+            serde_json::to_vec(&config)?,
         )?;
         Ok(())
     }
 }
 pub(super) fn read_file(path: &Path) -> Result<Vec<u8>> {
-    ensure!(
-        fs::symlink_metadata(path)?.is_file(),
-        "expected regular file"
-    );
-    Ok(fs::read(path)?)
+    crate::skills::install_transaction::read_source_file(path)?
+        .ok_or_else(|| anyhow::anyhow!("expected regular source file"))
 }
 pub(super) fn optional_file(path: &Path) -> Result<Option<Vec<u8>>> {
     match fs::symlink_metadata(path) {
@@ -188,8 +218,8 @@ pub(super) fn walk(
                 files
                     .insert(
                         key.clone(),
-                        fs::read(entry.path())
-                            .map_err(|error| Diagnostic::source(&error.into(), &key))?
+                        read_file(&entry.path())
+                            .map_err(|error| Diagnostic::source(&error, &key))?
                     )
                     .is_none(),
                 "duplicate source path"

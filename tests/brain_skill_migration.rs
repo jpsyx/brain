@@ -69,8 +69,18 @@ fn read_json(path: &Path) -> Value {
 
 #[path = "brain_skill_migration/capabilities.rs"]
 mod capabilities;
+#[path = "brain_skill_migration/downgrade.rs"]
+mod downgrade;
+#[path = "brain_skill_migration/installer.rs"]
+mod installer;
 #[path = "brain_skill_migration/instructions.rs"]
 mod instructions;
+#[path = "brain_skill_migration/invocations.rs"]
+mod invocations;
+#[path = "brain_skill_migration/replacement.rs"]
+mod replacement;
+#[path = "brain_skill_migration/source_projection.rs"]
+mod source_projection;
 #[path = "brain_skill_migration/startup.rs"]
 mod startup;
 #[path = "brain_skill_migration/sync_arrival.rs"]

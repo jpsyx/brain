@@ -7,7 +7,6 @@ use super::{
     TargetInstructionContract, ensure, instructions, planning, snapshot,
 };
 
-#[cfg_attr(not(test), allow(dead_code))] // Audited target integration follows this transaction layer.
 impl LockedInstall {
     pub(crate) fn preflight_legacy_package(
         &self,
@@ -59,7 +58,6 @@ impl LockedInstall {
         self.publish(&plan, previous, stamp, checkpoint)
     }
 }
-#[cfg_attr(not(test), allow(dead_code))]
 fn plan_legacy(
     identity: &InstallIdentity,
     previous: Option<&ManagedSkillManifest>,

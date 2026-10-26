@@ -1985,3 +1985,18 @@ outside sentinel files and links survive refusal without package publication.
 Completed-receive diagnostics cover invalid extension bytes and a failed receipt
 write, including retained evidence and retry. Nested-cause tests check JSON/text
 redaction, and the actual instruction mismatch still identifies its AGENTS target.
+
+The installer package regressions are split between `tests/brain_skill_migration/`
+(`installer`, `downgrade`, `source_projection`, `invocations`, `replacement`) and the existing task-deletion refresh
+suite. Actual historical roundtrips are opt-in: supply audited `BRAIN_TEST_LEGACY_BINARY`
+(0.101.0) and `BRAIN_TEST_105_BINARY` (0.105.3), then run the ignored downgrade case.
+Run the two existing ignored actual-target refresh cases with the same 0.101.0
+fixture. These tests isolate HOME/XDG/TMP, never replace the real installed binary,
+and exercise upgrade, down, old ordinary sync and re-upgrade without model calls.
+Finalization tests include a cfg(test)-only contender at the Rust replacement
+boundary, candidate changes and retry, and a real modern ordinary command already
+waiting on workspace sync. Shared-lock ordering and compiled-versus-disk version
+policy are deterministic unit tests. Historical TUI refusal uses live PID evidence
+without launching a frontend. Isolated actual-helper tests cover migration/apply
+failure and retry; shell fixtures cover protocol selection and unsupported old
+modern coordinators. No production test bypass or transition ticket is used.

@@ -20,6 +20,10 @@ mod package_recovery_tests;
 #[cfg(test)]
 mod package_tests;
 mod snapshot;
+
+pub(crate) fn prepare_cache_directory(path: &std::path::Path) -> anyhow::Result<()> {
+    snapshot::ensure_absolute_directory(path)
+}
 mod validation;
 pub(crate) use identity::{InstallIdentity, SyncBusy};
 pub(crate) use inspection::{Currentness, InstallBusy};
@@ -32,7 +36,7 @@ use std::{collections::BTreeMap, fs};
 
 pub(crate) type RenderedInstall = BTreeMap<String, BTreeMap<String, Vec<u8>>>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedSkillManifest {
     pub schema_version: u32,
@@ -96,6 +100,18 @@ pub(crate) struct LockedInstall {
     identity: InstallIdentity,
     _lock: fs::File,
 }
+pub(crate) fn read_source_file(path: &std::path::Path) -> Result<Option<Vec<u8>>> {
+    snapshot::read_optional_file(path)
+}
+
+pub(crate) fn read_relative_source(
+    root: &std::path::Path,
+    relative: &str,
+) -> Result<Option<Vec<u8>>> {
+    snapshot::check_parent(root, relative)?;
+    snapshot::read_optional_file(&root.join(relative))
+}
+
 impl LockedInstall {
     pub(crate) fn read_package_file(&self, path: &str) -> Result<Option<Vec<u8>>> {
         ensure!(
@@ -105,6 +121,7 @@ impl LockedInstall {
         snapshot::check_parent(&self.identity.root, path)?;
         snapshot::read_optional_file(&self.identity.root.join(path))
     }
+    #[cfg(test)]
     pub(crate) fn preflight(
         &self,
         rendered: &RenderedInstall,
@@ -133,6 +150,7 @@ impl LockedInstall {
         Ok(parsed)
     }
 
+    #[cfg(test)]
     pub(crate) fn install(
         &mut self,
         rendered: RenderedInstall,
@@ -334,3 +352,6 @@ impl LockedInstall {
         Ok(recovered)
     }
 }
+
+#[cfg(test)]
+mod package_down_boundary_tests;

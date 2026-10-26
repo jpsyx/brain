@@ -416,6 +416,13 @@ The accepted registration is also the source for local habits and triage URL
 generation, so a later portable-manifest change cannot redirect a live TUI or
 selected short-lived command through a peer workspace's ingress.
 
+Brain retains one local `~/.cache/brain/invocations.lock` inode. Ordinary processes
+hold shared ownership for their lifetime; installer maintenance holds exclusive
+ownership through migration, package publication and executable replacement.
+The lock contains no portable workspace state or persistent transition ticket.
+Help/version do not create it. Historical TUI/server evidence is checked without
+removing it before exclusive installation work.
+
 The machine-wide lifecycle record is deliberately smaller than a lease. Brain
 publishes `~/.cache/brain/server/process.json` with only the process PID,
 loopback HTTP port, generation UUID, and RFC3339 start time. Sibling

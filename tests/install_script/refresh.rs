@@ -115,28 +115,25 @@ fn modern_source_selector_retains_helper_and_installs_frozen_target_with_exact_o
         String::from_utf8_lossy(&output.stderr)
     );
     let entries = f.entries();
-    assert_eq!(entries.len(), 4, "{entries:?}");
+    assert_eq!(entries.len(), 3, "{entries:?}");
     assert_eq!(entries[0]["phase"], "preflight");
-    assert_eq!(entries[1]["args"][0], "__migrate");
-    assert_eq!(entries[1]["args"][5], "--installer-refresh-protocol");
-    assert_eq!(entries[2]["phase"], "apply");
-    assert_eq!(entries[0]["identity"], "installed-helper");
-    assert_eq!(entries[2]["identity"], "installed-helper");
-    assert_eq!(entries[0]["digest"], entries[2]["digest"]);
-    assert_ne!(entries[0]["target"], entries[2]["target"]);
-    assert_eq!(
-        entries[2]["target"],
-        f.bin.join("brain-custom").to_str().unwrap()
+    assert_eq!(entries[1]["phase"], "apply");
+    assert!(
+        entries[1]["args"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("--replace-binary"))
     );
-    assert_eq!(entries[3]["identity"], "selected-target");
+    assert_eq!(entries[0]["identity"], "installed-helper");
+    assert_eq!(entries[1]["identity"], "installed-helper");
+    assert_eq!(entries[0]["digest"], entries[1]["digest"]);
+    assert_eq!(entries[0]["target"], entries[1]["target"]);
+    assert_eq!(entries[2]["identity"], "selected-target");
     assert_eq!(
-        entries[3]["args"],
+        entries[2]["args"],
         serde_json::json!(["-w", "canonical", "skills", "sync"])
     );
-    assert_eq!(
-        entries[3]["executable"],
-        f.bin.join("brain-custom").to_str().unwrap()
-    );
+    assert_eq!(entries[2]["executable"], entries[0]["target"]);
     assert!(
         fs::read_to_string(f.temp.path().join("cargo.log"))
             .unwrap()
@@ -155,13 +152,26 @@ fn upgrade_same_version_and_fresh_install_use_new_coordinator() {
             String::from_utf8_lossy(&output.stderr)
         );
         let entries = f.entries();
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 3);
         assert_eq!(entries[0]["phase"], "preflight");
         assert_eq!(entries[0]["identity"], "selected-target");
-        assert_eq!(entries[1]["args"][0], "__migrate");
-        assert_eq!(entries[2]["phase"], "apply");
+        assert_eq!(entries[1]["phase"], "apply");
         f.clean();
     }
+}
+
+#[test]
+fn split_coordinator_without_protected_finalization_refuses_before_live_changes() {
+    let f = Fixture::new(Some("0.106.13"), "0.101.0");
+    let before = fs::read(f.bin.join("brain-custom")).unwrap();
+    let output = f.run();
+    assert!(
+        !output.status.success(),
+        "unprotected modern downgrade was accepted"
+    );
+    assert_eq!(fs::read(f.bin.join("brain-custom")).unwrap(), before);
+    assert!(f.entries().is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("current installer"));
 }
 #[test]
 fn rejected_phases_clean_helper_and_do_not_claim_success() {
@@ -171,11 +181,7 @@ fn rejected_phases_clean_helper_and_do_not_claim_success() {
         let output = f.command().env("FAIL_PHASE", phase).output().unwrap();
         assert!(!output.status.success());
         assert!(!String::from_utf8_lossy(&output.stdout).contains("installed brain-custom"));
-        if phase == "apply" {
-            assert_ne!(fs::read(f.bin.join("brain-custom")).unwrap(), before);
-        } else {
-            assert_eq!(fs::read(f.bin.join("brain-custom")).unwrap(), before);
-        }
+        assert_eq!(fs::read(f.bin.join("brain-custom")).unwrap(), before);
         f.clean();
     }
 }
@@ -270,7 +276,7 @@ fn changed_frozen_candidate_and_failed_rename_cleanup_without_success() {
         if fault == "candidate" {
             cmd.env("MUTATE_CANDIDATE", "1");
         } else {
-            executable(&f.temp.path().join("tools/mv"), "#!/bin/sh\nexit 1\n");
+            cmd.env("FAIL_RENAME", "1");
         }
         let output = cmd.output().unwrap();
         assert!(!output.status.success());

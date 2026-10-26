@@ -38,6 +38,13 @@ fn acceptance_two_roots_upgrade_downgrade_and_remount_preserve_customizations() 
     let before_receipt = fs::read(beta_cache.join("skills-install/managed.json")).unwrap();
     let executable = f.root("old target");
     target(&executable);
+    assert!(!refresh(&f, &executable, "preflight").status.success());
+    assert!(!beta.exists());
+    assert_eq!(
+        fs::read(beta_cache.join("skills-install/managed.json")).unwrap(),
+        before_receipt
+    );
+    fs::rename(&parked, &beta).unwrap();
     assert_ok(&refresh(&f, &executable, "preflight"));
     assert_ok(&f.run(&[
         "__migrate",
@@ -48,18 +55,6 @@ fn acceptance_two_roots_upgrade_downgrade_and_remount_preserve_customizations() 
         "--installer-refresh-protocol",
         "1",
     ]));
-    assert_ok(&refresh(&f, &executable, "apply"));
-    assert!(!beta.exists());
-    assert_eq!(
-        fs::read(beta_cache.join("skills-install/managed.json")).unwrap(),
-        before_receipt
-    );
-    assert_eq!(
-        fs::read_to_string(support::todo(&alpha)).unwrap(),
-        "legacy target body\nalpha extension"
-    );
-    fs::rename(&parked, &beta).unwrap();
-    assert_ok(&refresh(&f, &executable, "preflight"));
     assert_ok(&refresh(&f, &executable, "apply"));
     for (index, (root, name)) in [(&alpha, "alpha"), (&beta, "beta")].into_iter().enumerate() {
         assert_eq!(
