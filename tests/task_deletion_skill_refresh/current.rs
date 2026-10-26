@@ -4,7 +4,8 @@ use sha2::{Digest as _, Sha256};
 use std::{fs, path::Path};
 
 #[test]
-fn exact_current_target_preflight_and_apply_preserve_unmoved_customization_and_legacy_sources() {
+fn exact_current_target_preflight_and_apply_preserve_moved_and_unmoved_customization_and_legacy_sources()
+ {
     let mut fixture = Fixture::new();
     let root = fixture.add("alpha");
     let source = root.join(".config/extensions/todo.md");
@@ -38,5 +39,8 @@ fn exact_current_target_preflight_and_apply_preserve_unmoved_customization_and_l
     assert_eq!(rendered.matches("CURRENT TASK CUSTOMIZATION").count(), 1);
     assert!(rendered.contains("read its `AGENTS.md`"));
     assert!(rendered.contains("brain tasks remove T17 --dry-run --json"));
+    let agenda = fs::read_to_string(root.join(".agents/skills/agenda/SKILL.md")).unwrap();
+    assert_eq!(agenda.matches("alpha extension").count(), 1);
+    assert!(!rendered.contains("alpha extension"));
     assert_eq!(fs::read(&source).unwrap(), before_source);
 }

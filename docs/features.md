@@ -1690,7 +1690,8 @@ brain (synced, never committed to the repo):
   exists, so a premature "done" can't kill the session before an extension's
   printable is written. An empty list closes immediately, keeping the generic
   core and any fork identical to the old behavior.
-  The bundled `todo` skill similarly exposes `todo:agenda-after-build` as a
+  The bundled `agenda` skill exposes `agenda:after-build` (legacy
+  `todo:agenda-after-build`) as a
   generic no-op seam. Any installed extension supplies its own runtime content
   and paths explicitly; core does not discover or name extension artifacts.
 - **Plugins** — whole skills you own, in `<root>/.config/plugins/<name>/`. The
@@ -3200,3 +3201,22 @@ its temporary projection. A later external reopen or restoration becomes visible
 refresh errors keep the saved change projected until fresh evidence arrives.
 Contradictory deletion recovery records remain explicitly uncertain and retain
 the operation's recovery controls.
+
+
+### Agenda planning and task-only requests
+
+`/agenda` owns first builds, routine plan revisions, explicit regeneration, and
+printable agenda artifacts. `/todo agenda` and `/todo plan-day` forward to it;
+`/todo today`, `what`, `next`, and counts keep their task-only meaning and create
+no agenda or PDF. Planning resolves `brain env get agenda_markdown_dir` and
+`brain config get agenda_dir`, uses real task/habit state and explicit anchors,
+calendar occupancy, and cutoff settings. Empty extensions impose no personal
+schedule, named mandatory habits, or task-type quota. The existing document
+structure and two-page body target remain, with Completed today allowed to spill.
+
+Native task/habit mutations, including keyed managed-triage completion, continue
+to synchronize existing Markdown and refresh an existing PDF. A deliberate plan
+revision uses the agenda skill; a native mutation does not ask the agent to
+rebuild it. Daily/weekly triage keeps its seven hook phases and runtime `require`
+gate. Capture and agenda procedures load only when the run actually needs them;
+weekly-to-daily chaining begins at the daily opening phase, including maintenance.

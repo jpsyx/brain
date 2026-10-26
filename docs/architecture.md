@@ -1190,7 +1190,8 @@ contains one versioned aggregate, even with `--verbose` or a logger failure.
 Startup, logger and enumeration failures remain top-level diagnostics; a hook
 failure does not turn successful skill repairs into failed skill outcomes.
 
-The bundled `todo` workflow declares `todo:agenda-after-build` as a generic
+The bundled `agenda` workflow declares `agenda:after-build` (legacy
+`todo:agenda-after-build`) as a generic
 no-op hook. If an installed extension adds a post-build step, that runtime step
 owns every input and output path and passes optional markdown to the generic
 helper explicitly. Core does not discover extension artifacts or external
@@ -3107,3 +3108,10 @@ its pending start notice is attempted before the final answer.
 
 The receipt checks the same two-hour freshness rule as dispatch using a
 non-creating, zero-wait journal reader that includes committed WAL data.
+
+
+The focused `agenda` bundle owns planning and artifact references. `todo` retains
+native task/habit ownership and compatibility handoffs, and triage orchestrates
+its focused collaborators only when needed. The shared checked compiler supplies
+the workspace prelude and self-contained legacy task context to both ordinary
+installs and selected agenda-only capability views; there is no new loader.

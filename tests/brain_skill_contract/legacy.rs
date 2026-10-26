@@ -120,3 +120,50 @@ fn adjacent_skills_keep_their_previous_entry_anchors() {
         );
     }
 }
+
+#[test]
+fn todo_agenda_and_triage_legacy_anchors_remain_resolvable() {
+    for rendered in [false, true] {
+        let documents = catalog::documents(rendered);
+        for (path, expected) in [
+            (
+                "todo/SKILL.md",
+                vec![
+                    "first-agenda-preparation-collaborative-working-mode",
+                    "updates-vs-regeneration--default-to-update",
+                    "agenda-generation--phased-procedure",
+                    "phase-1--load-state-read-only",
+                    "phase-3--apply-daily-anchors-fixed-time-blocks",
+                    "phase-10--work-hours-cutoff-optional",
+                    "agenda-rules-and-constraints-daily-anchors",
+                    "calendar-busy-blocks",
+                    "work-hours-cutoff-optional-personal",
+                    "surfacing-chunks-in-the-agenda--todo-today--todo-what",
+                ],
+            ),
+            (
+                "triage/SKILL.md",
+                vec![
+                    "skip-daily-triage-today--skip-the-morning-triage-habit-run-nothing-else",
+                    "step-3--bulk-operations-per-group",
+                    "step-9--mark-morning-triage-habit-done",
+                    "1b--the-capture-in-basket",
+                    "asking-the-user-for-per-task-actions-use-askuserquestion",
+                ],
+            ),
+            (
+                "todo/references/triage-heuristics.md",
+                vec!["step-3--bulk-operations-per-group", "hard-deadline-tasks"],
+            ),
+            (
+                "triage/references/heuristics.md",
+                vec!["step-3--bulk-operations-per-group", "hard-deadline-tasks"],
+            ),
+        ] {
+            let actual = markdown::anchors(&documents[path]);
+            for anchor in expected {
+                assert!(actual.contains(anchor), "{path} lost {anchor}");
+            }
+        }
+    }
+}

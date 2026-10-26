@@ -265,12 +265,34 @@ mod tests {
             .expect("todo should be embedded");
         let text = skill_md_text(todo);
         assert!(text.contains("# todo"), "has the heading");
-        // The personal integrations (Linear, calendar/cutoff) are hooks.
-        for hook in ["todo:linear", "todo:calendar"] {
+        // Task integrations remain with todo; scheduling hooks belong to agenda.
+        for hook in ["todo:linear", "todo:linear-backlog"] {
             assert!(
                 text.contains(&format!("brain:ext {hook}")),
                 "declares the `{hook}` extension hook"
             );
+        }
+        let agenda = skills
+            .iter()
+            .find(|skill| skill.name == "agenda")
+            .expect("agenda should be embedded");
+        let agenda_text = skill_md_text(agenda);
+        for hook in [
+            "agenda:anchors",
+            "agenda:calendar",
+            "agenda:cutoff",
+            "agenda:after-build",
+        ] {
+            assert!(agenda_text.contains(&format!("brain:ext {hook}")));
+            assert!(!text.contains(&format!("brain:ext {hook}")));
+        }
+        for legacy in [
+            "todo:anchors",
+            "todo:calendar",
+            "todo:cutoff",
+            "todo:agenda-after-build",
+        ] {
+            assert!(!text.contains(&format!("brain:ext {legacy}")));
         }
         // Ships its generic references.
         for r in ["references/schema.md", "references/commands.md"] {

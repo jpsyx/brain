@@ -73,3 +73,53 @@ fn exact_selected_machine_source_disappearing_after_resolution_is_an_error() {
     fs::remove_file(source.join("SKILL.md")).unwrap();
     assert!(brain::skills::render_workspace_capabilities(&workspace, &actor(), &plan).is_err());
 }
+
+#[test]
+fn actual_agenda_only_capability_matches_ordinary_legacy_projection() {
+    let (_home, workspace) = temporary_workspace();
+    let extensions = workspace.root().join(".config/extensions");
+    fs::create_dir_all(&extensions).unwrap();
+    let source = "MIXED task and scheduling preferences\n[todo:anchors]\nLEGACY ANCHOR\n[todo:unknown]\nUNKNOWN\n";
+    fs::write(extensions.join("todo.md"), source).unwrap();
+    let sources = brain::skills::real_sources(&workspace);
+    brain::skills::install::sync(
+        &brain::skills::layout::Layout::under_root(workspace.root()),
+        &sources,
+    )
+    .unwrap();
+    let config = Config {
+        access_mode: AccessMode::WorkspaceOnly,
+        allowed_skills: vec!["agenda".to_owned()],
+        ..Config::default()
+    };
+    let machine =
+        MachineCapabilityEnvironment::from_value(family_id(), serde_json::json!({})).unwrap();
+    let plan = capability_plan(&config, &machine).unwrap();
+    assert_eq!(plan.skills.available_names(), ["agenda"]);
+    let report = brain::skills::render_workspace_capabilities(&workspace, &actor(), &plan).unwrap();
+    assert_eq!(report.rendered, ["agenda"]);
+    let ordinary = workspace.root().join(".agents/skills/agenda");
+    let selected = report.rendered_dir.join("agenda");
+    for path in ["SKILL.md", "references/legacy-task-context.md"] {
+        assert_eq!(
+            fs::read(ordinary.join(path)).unwrap(),
+            fs::read(selected.join(path)).unwrap()
+        );
+    }
+    let agenda = fs::read_to_string(selected.join("SKILL.md")).unwrap();
+    assert_eq!(agenda.matches("LEGACY ANCHOR").count(), 1);
+    assert!(agenda.contains("read its `AGENTS.md`"));
+    let legacy = fs::read_to_string(selected.join("references/legacy-task-context.md")).unwrap();
+    for required in [
+        "MIXED",
+        "UNKNOWN",
+        "sha256:",
+        "Do not rerun completed side effects",
+    ] {
+        assert!(legacy.contains(required));
+    }
+    assert_eq!(
+        fs::read(extensions.join("todo.md")).unwrap(),
+        source.as_bytes()
+    );
+}

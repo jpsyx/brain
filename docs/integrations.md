@@ -2735,3 +2735,22 @@ retain their existing durable retry policy. Control commands have no start SMS.
 
 A verified final completion also proves receipt when the submit hook was missed;
 its pending start notice is attempted before the final answer.
+
+
+### Agenda skill ownership
+
+The brain panel's Generate agenda action uses the pure `generate_agenda_prompt`
+and invokes `/agenda` through the existing AgentController prompt path for every
+registered frontend. The skill resolves Markdown with `brain env get
+agenda_markdown_dir` and PDF output with `brain config get agenda_dir`, then uses
+`brain tasks agenda-pdf --date <date>` for native rendering. Native mutations
+remain the sole owner of automatic agenda synchronization and existing-PDF refresh.
+
+Agenda hooks are `agenda:anchors`, `agenda:calendar`, `agenda:cutoff`, and
+`agenda:after-build`. The checked compiler projects the corresponding legacy
+`todo` hooks without changing user sources, including agenda-only capability views
+and exact-current installer replicas. Todo retains short handoffs and legacy
+heading/reference anchors; task-only operations do not require agenda references.
+Triage completes managed daily/weekly rows by `system_key` through the native
+helper, which also syncs existing artifacts. Disabled managed habits remain a
+no-op, and generic triage declares no completion artifacts of its own.

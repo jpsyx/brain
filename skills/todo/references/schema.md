@@ -75,7 +75,7 @@ the user can reference rows in follow-ups** ("done T42", "defer 17 +3d").
 | 15 | `context` | enum \| empty | `home`, `office`, `computer`, `calls`, `errand`. Empty until needed. |
 | 16 | `estimated_duration` | int (minutes) \| empty | Thresholds: 5/15/30/45/60+. Best-guess silently when confident, ask user only when it would change an assistant decision. |
 | 17 | `blocked_by` | task_id list, `\|`-sep \| empty | Dependencies. |
-| 18 | `defer_count` | int | Starts at 0. Increments on every defer. `>=3` triggers triage warning. |
+| 18 | `defer_count` | int | Starts at 0. Increments on counted defers; waiting, blocked, and `--no-count` defers preserve it. `>=3` triggers triage warning. |
 | 19 | `created_date` | date | Auto-set on insert. |
 | 20 | `completed_date` | date \| empty | Auto-set when `status` flips to `done`. |
 | 21 | `last_touched` | date | Auto-bumped to today by every row mutator (`brain tasks add`, `brain tasks defer`, `brain habits defer`, `brain habits skip`, `brain tasks complete`, `brain tasks touch`, `brain backlog park`, `brain tasks set`, and `brain tasks lint --fix`). Drives chronic-ignore detection for tasks and last-writer-wins CSV sync for both tasks and habits. Backfilled from `created_date` on migration. |
@@ -93,7 +93,7 @@ description, and `system_key` columns with tasks, plus:
 | `recur_unit` | `days` / `weeks` / `months` |
 
 `defer_count`, `blocked_by`, `start_date`, and `task_type` are
-omitted from habits.csv — habits don't get deferred (they recur)
+omitted from habits.csv; habits use cadence-aware skip/defer without a task defer counter
 and don't need a type (they're all "habit").
 
 When a habit row is marked `done`, the system anchors to the
@@ -114,7 +114,7 @@ Computed on read. See [sync-rules.md](sync-rules.md).
 - `is_backlogged` = `status == 'backlog'` (parked indefinitely; no `due_date`/`start_date`; `backlogged_date` set; auto-deleted >6mo)
 - `is_stuck_in_progress` = `status == 'in_progress' AND (today - last_touched) >= 14`
 - `is_captured_forgotten` = `(today - created_date) >= 60 AND status == 'not_started' AND notes == '' AND estimated_duration == '' AND project == ''`
-- `is_chronic_ignore` = `(is_stale OR is_stuck_in_progress OR is_captured_forgotten) AND NOT past_due AND (due_date == '' OR due_date > today + 14)` — the set surfaced by `brain tasks chronic` and swept in `/triage` Step 7.
+- `is_chronic_ignore`: use `brain tasks chronic`; excludes done/backlog, future starts, and past-due. An undated row or one due from today through today + 3 days qualifies when any age signal above applies.
 
 ## Estimated-duration thresholds
 

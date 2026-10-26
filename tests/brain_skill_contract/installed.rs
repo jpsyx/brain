@@ -43,3 +43,54 @@ fn legacy_resource_hook_reaches_organize_once_without_changing_user_sources() {
             .contains("read its `AGENTS.md`")
     );
 }
+
+#[test]
+fn all_legacy_agenda_hooks_land_once_in_their_semantic_sections() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path();
+    let extensions = root.join("extensions");
+    fs::create_dir(&extensions).unwrap();
+    let source = "[todo:anchors]\nANCHOR SENTINEL\n[todo:calendar]\nCALENDAR SENTINEL\n[todo:cutoff]\nCUTOFF SENTINEL\n[todo:agenda-after-build]\nBUILD SENTINEL\n";
+    fs::write(extensions.join("todo.md"), source).unwrap();
+    install::sync(
+        &Layout::under_root(root),
+        &install::Sources {
+            extensions_dir: Some(extensions.clone()),
+            plugins_dir: None,
+        },
+    )
+    .unwrap();
+    let built = root.join(".agents/skills");
+    let agenda = fs::read_to_string(built.join("agenda/SKILL.md")).unwrap();
+    let todo = fs::read_to_string(built.join("todo/SKILL.md")).unwrap();
+    for (section, sentinel, next) in [
+        (
+            "## Daily anchors",
+            "ANCHOR SENTINEL",
+            Some("## Calendar busy blocks"),
+        ),
+        (
+            "## Calendar busy blocks",
+            "CALENDAR SENTINEL",
+            Some("## Work-hours cutoff"),
+        ),
+        (
+            "## Work-hours cutoff",
+            "CUTOFF SENTINEL",
+            Some("## After build"),
+        ),
+        ("## After build", "BUILD SENTINEL", None),
+    ] {
+        assert_eq!(agenda.matches(sentinel).count(), 1);
+        assert!(!todo.contains(sentinel));
+        let position = agenda.find(sentinel).unwrap();
+        assert!(agenda.find(section).unwrap() < position);
+        if let Some(next) = next {
+            assert!(position < agenda.find(next).unwrap());
+        }
+    }
+    assert_eq!(
+        fs::read(extensions.join("todo.md")).unwrap(),
+        source.as_bytes()
+    );
+}

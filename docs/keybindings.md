@@ -396,3 +396,10 @@ There are no single-letter policy shortcuts. Recovery offers Check
 progress, Retry deletion, and Stop trying to delete. The last opens a second
 confirmation with Go back selected, explaining that already canceled linked
 issues will stay canceled.
+
+
+Generate agenda, including the confirmation after Ctrl+A finds no plan, sends the
+canonical `/agenda` prompt through the existing brain-panel controller. The prompt
+resolves `agenda_markdown_dir` through `brain env get` and `agenda_dir` through
+`brain config get`. Opening and generation keep their existing keys and palette
+entries; generation does not embed a Markdown directory.

@@ -31,3 +31,13 @@ fn reassign_task_prompt_targets_the_selected_task() {
     assert!(prompt.contains("/todo assign T7"));
     assert!(prompt.contains("workspace member"));
 }
+
+#[test]
+fn agenda_prompt_delegates_to_canonical_skill_and_configured_destinations() {
+    let prompt = super::generate_agenda_prompt();
+    assert!(prompt.contains("/agenda"));
+    assert!(prompt.contains("brain env get agenda_markdown_dir"));
+    assert!(prompt.contains("brain config get agenda_dir"));
+    assert!(!prompt.contains("/tmp"));
+    assert!(!prompt.contains("/todo"));
+}

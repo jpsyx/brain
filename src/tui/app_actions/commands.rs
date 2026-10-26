@@ -125,13 +125,11 @@ impl App {
     }
 
     /// Yes-path for the no-agenda confirm modal. Hands off to the brain
-    /// agent rather than calling /todo scripts directly because agenda
+    /// agent through the canonical agenda skill because agenda
     /// generation is structured-with-judgement: the agent picks today's
     /// MITs, deduplicates against yesterday's, and writes the markdown.
     pub(crate) fn run_generate_agenda(&mut self) {
-        let message = "Generate today's agenda. Use the /todo skill's agenda flow to write \
-             /tmp/<today>.md, then let me know it's ready so I can open it with Ctrl+A.";
-        self.send_brain_prompt(message);
+        self.send_brain_prompt(generate_agenda_prompt());
     }
 
     pub(super) fn open_url(&self, url: &str) -> FlashKind {
@@ -140,6 +138,13 @@ impl App {
             Err(error) => FlashKind::Error(format!("⚠ open failed: {error}")),
         }
     }
+}
+
+#[must_use]
+pub(crate) const fn generate_agenda_prompt() -> &'static str {
+    "Generate today's agenda using /agenda. Resolve the Markdown destination with \
+     brain env get agenda_markdown_dir and the PDF destination with \
+     brain config get agenda_dir, then let me know it is ready to open with Ctrl+A."
 }
 
 /// Build the "start task" brain prompt, interpolating the configured brain root

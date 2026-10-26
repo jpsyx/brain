@@ -1,4 +1,6 @@
 //! Bundled navigation must resolve both before and after installation rendering.
+#[path = "brain_skill_contract/agenda.rs"]
+mod agenda;
 #[path = "brain_skill_contract/catalog.rs"]
 mod catalog;
 #[path = "brain_skill_contract/installed.rs"]
