@@ -304,7 +304,38 @@ No real environment/configuration dump, credentials or personal data are include
 The native-schema semantic follow-up used an earlier default build of 0.106.16
 before the subsequent lock and test-fixture corrections. Its executable hash is
 retained; task/agenda/schema behavior was unchanged by those later corrections.
-Final whole-branch review and publication remain pending controller ownership.
+At Task 12 completion, final whole-branch review and publication remained pending
+controller ownership. The dated closure below records the subsequent review.
+
+## Final review closure, 2026-10-26
+
+All twelve implementation tasks are complete and independently reviewed.
+Whole-branch review of `b04a64c7..192bdc2c` is PASS within the verification scope
+recorded above, with zero Critical or Important findings and two Minor documentation
+findings. The final cleanup removes stale SQLite size-refusal wording while retaining
+malformed, unsafe and unstable-evidence refusal, and closes the spec, plan and
+verification status consistently. These are documentation-only corrections, with the
+required patch version bump to `0.106.17`; no functional source, skill, template,
+schema, migration, test or dependency change is included.
+
+The pre-existing registry diagnostic wording remains a separate, non-blocking
+follow-up: the timeout describes a configured wait budget, and the sidecar records
+the last successful writer rather than an atomic live-owner observation. This review
+established no registry exclusion or lost-update defect and requests no production
+change for that wording.
+
+Historical attempts, hashes, versions and synthetic/native limitations above remain
+unchanged. At this review checkpoint, publication and local installation had not
+yet run; they are separate controller release steps after scoped re-review.
+
+Final cleanup checks at `0.106.17`: `cargo fmt --check` passed;
+`cargo test --release --test workspace_docs` passed all 28 tests with the default
+release profile (1m 49s build, 0.33s tests), including the README identity guard;
+`git diff --check` passed. Version/lock agreement and the exact documentation-plus-
+version diff were checked. Existing identity guards cover README and the canonical
+schema rather than these edited docs; added prose was separately checked for known
+private identity/path values and none were found. The full release suite was not
+rerun for these documentation-only corrections; its retained results above stand.
 
 ## Documentation consistency
 

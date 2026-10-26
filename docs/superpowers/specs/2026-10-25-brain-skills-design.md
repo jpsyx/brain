@@ -1,7 +1,12 @@
 # Brain workspace instructions and focused skills
 
 Date: 2026-10-25
-Status: Approved on 2026-10-25. Implementation is in progress.
+Status: Approved on 2026-10-25. As of 2026-10-26, all twelve implementation
+tasks are complete and independently reviewed. Whole-branch review of
+`b04a64c7..192bdc2c` is PASS with no Critical or Important findings. Its two Minor
+documentation findings are addressed in the final documentation cleanup. At this
+review checkpoint, publication and local installation had not yet run; they are
+separate controller release steps after scoped re-review. See the [verification record](../../verification/brain-skills-2026-10-26.md).
 Baseline: `b04a64c7`, Brain `0.105.3`.
 Feature migration boundary: `0.106.0`. Later implementation commits increment
 the patch version under the repository's commit policy.
@@ -479,6 +484,7 @@ must nevertheless agree across prompts, palette documentation, and skills.
 
 The high-level split was approved in conversation. This written design adds the
 concrete ownership, compatibility, and migration decisions needed for safe
-execution. The accompanying implementation plan is a reviewable draft. Product
-implementation follows the written-spec review required by the requested
-Superpowers workflow.
+execution. The implementation and review are now complete as recorded in the
+status above. The [implementation plan](../plans/2026-10-25-brain-skills.md) retains
+the original task sequence; the verification record preserves historical attempts
+and the limits of deterministic, synthetic and native-schema evidence.

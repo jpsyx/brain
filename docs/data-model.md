@@ -3142,7 +3142,7 @@ files 0600. Raw snapshot bytes are retained as private machine state.
 
 Receive and managed-receipt lookups use a stable private SQLite main-plus-WAL
 snapshot. Missing databases, schema or receipts can enter the existing locked
-repair path. Malformed, unsafe, oversized or unstable evidence is refused; it is
+repair path. Malformed, unsafe or unstable evidence is refused; it is
 never interpreted as absence. The probe creates no sidecars beside the source.
 
 

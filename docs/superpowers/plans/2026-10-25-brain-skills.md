@@ -14,11 +14,16 @@ conditional compatibility routes while making focused skills the canonical owner
 **Tech Stack:** Existing Rust 2024, serde/serde_json, SHA-256, filesystem snapshots,
 SQLite receipts, embedded Markdown, native agenda renderer, and existing frontend adapters.
 
-**Status:** Approved on 2026-10-25. Tasks 1-11 are implemented and independently
-reviewed; Task 12 implementation, semantic checks and default release verification
-are complete, including all four audited historical cases. Durable scenario results, limitations, exact
-commands and release outcomes are recorded in the [verification record](../../verification/brain-skills-2026-10-26.md).
-Publication and final whole-branch review remain outside this execution status.
+**Status:** Approved on 2026-10-25. As of 2026-10-26, all twelve tasks are complete
+and independently reviewed, including semantic checks, default release verification
+and all four audited historical cases. Whole-branch review of `b04a64c7..192bdc2c`
+is PASS with no Critical or Important findings. Its two Minor documentation findings
+are addressed in the final documentation cleanup. Durable scenario results,
+limitations, exact commands and release outcomes are recorded in the
+[verification record](../../verification/brain-skills-2026-10-26.md). At this review
+checkpoint, publication and local installation had not yet run; they are separate
+controller release steps after scoped re-review. The original task checklists below
+are retained as planning history.
 **Spec:** [Brain workspace instructions and focused skills](../specs/2026-10-25-brain-skills-design.md).
 **Review:** [Pre-refactor findings](../../investigations/2026-10-25-brain-skills-review.md).
 **Baseline:** `b04a64c7`, version `0.105.3`.
