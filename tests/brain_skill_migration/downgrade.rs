@@ -68,6 +68,8 @@ fn audited_targets_upgrade_down_ordinary_sync_and_reupgrade_complete_packages() 
             [b"USER PREFIX\n".as_slice(), &modern, b"USER SUFFIX\n"].concat(),
         )
         .unwrap();
+        success(&f.run(&["skills", "sync"]));
+        assert_eq!(std::fs::read(&agents).unwrap(), modern);
         let config_path = f.root.join(".config/config.json");
         let mut config = read_json(&config_path);
         config["agenda_dir"] = "custom-agenda".into();
@@ -85,8 +87,8 @@ fn audited_targets_upgrade_down_ordinary_sync_and_reupgrade_complete_packages() 
         ]));
         success(&refresh(&f, &old, version, "apply"));
         let down = std::fs::read_to_string(&agents).unwrap();
-        assert!(down.starts_with("USER PREFIX\n"));
-        assert!(down.ends_with("USER SUFFIX\n"));
+        assert!(!down.contains("USER PREFIX"));
+        assert!(!down.contains("USER SUFFIX"));
         assert!(down.contains(include_str!(
             "../../templates/workspace/legacy/AGENTS-v0.105.3.md"
         )));

@@ -136,7 +136,12 @@ pub(crate) fn restore_instructions(
     };
     let body = instructions::verified_body(current, &owned.receipt)?;
     let unowned = strip_frame(current, &owned.receipt)?;
-    let initial = instructions::plan_document(original.as_deref(), body, None)?;
+    let initial = instructions::plan_for_revision(
+        original.as_deref(),
+        body,
+        None,
+        owned.receipt.generated_revision,
+    )?;
     let original_unowned = strip_frame(&initial.after, &initial.receipt)?;
     if unowned == original_unowned {
         return Ok(original);

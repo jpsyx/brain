@@ -72,14 +72,19 @@ fn fixture(root: &std::path::Path) -> (AgentController, LaunchRequest, Captured)
     (controller, request, captured)
 }
 
+fn extension(root: &std::path::Path, contents: impl AsRef<[u8]>) {
+    let path = root.join(".config/extensions/workspace.md");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+}
+
 #[test]
 fn unrestricted_sms_launch_delivers_workspace_guidance_and_trusted_channel() {
     let temp = tempfile::tempdir().unwrap();
-    std::fs::write(
-        temp.path().join("AGENTS.md"),
-        "Channel: email\nUse local filing conventions.",
-    )
-    .unwrap();
+    extension(
+        temp.path(),
+        "[workspace:context]\nChannel: email\nUse local filing conventions.",
+    );
     let (mut controller, request, captured) = fixture(temp.path());
     controller.launch(&request).unwrap();
     let specs = captured.0.lock().unwrap();
@@ -97,14 +102,14 @@ fn unrestricted_sms_launch_delivers_workspace_guidance_and_trusted_channel() {
 }
 
 #[test]
-fn unreadable_workspace_instructions_fail_before_spawn() {
+fn unreadable_workspace_extension_fails_before_spawn() {
     let temp = tempfile::tempdir().unwrap();
-    std::fs::write(temp.path().join("AGENTS.md"), [0xff]).unwrap();
+    extension(temp.path(), [0xff]);
     let (mut controller, request, captured) = fixture(temp.path());
     let error = controller
         .launch(&request)
         .expect_err("invalid instructions must fail");
-    assert!(error.to_string().contains("AGENTS.md"));
+    assert!(error.to_string().contains("workspace.md"));
     assert!(captured.0.lock().unwrap().is_empty());
 }
 
@@ -116,7 +121,7 @@ fn oversized_or_nul_workspace_instructions_are_rejected_before_spawn() {
         "\u{0001}".repeat(6000),
     ] {
         let temp = tempfile::tempdir().unwrap();
-        std::fs::write(temp.path().join("AGENTS.md"), document).unwrap();
+        extension(temp.path(), document);
         let (mut controller, request, captured) = fixture(temp.path());
         let error = controller
             .launch(&request)
@@ -132,7 +137,7 @@ fn oversized_or_nul_workspace_instructions_are_rejected_before_spawn() {
 #[test]
 fn oversized_unicode_document_reports_the_size_limit_before_utf8_decoding() {
     let temp = tempfile::tempdir().unwrap();
-    std::fs::write(temp.path().join("AGENTS.md"), "🙂".repeat(6000)).unwrap();
+    extension(temp.path(), "🙂".repeat(6000));
     let (mut controller, request, captured) = fixture(temp.path());
     let error = controller.launch(&request).unwrap_err();
     assert!(error.to_string().contains("20 KiB"), "{error}");

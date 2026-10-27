@@ -29,9 +29,15 @@ pub(crate) fn prepare_compiled(
     let mut package = compiled.compose_package(existing.as_deref(), prior)?;
     let current_portable = existing.as_deref().is_some_and(|bytes| {
         crate::workspace::instructions::has_managed_region(bytes).unwrap_or(false)
-            && (compiled.compose_package(Some(bytes), None).is_ok()
+            && (compiled
+                .compose_package(Some(bytes), None)
+                .is_ok_and(|package| {
+                    package
+                        .instructions
+                        .is_some_and(|document| !document.changed)
+                })
                 || prior.is_some_and(|receipt| {
-                    receipt.generated_revision == 2
+                    receipt.generated_revision >= 2
                         && crate::workspace::instructions::verified_body(bytes, receipt).is_ok()
                 }))
     });

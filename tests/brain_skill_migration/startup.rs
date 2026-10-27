@@ -74,7 +74,7 @@ fn both_upgrade_paths_prepare_the_complete_package_once() {
         );
         assert_eq!(
             manifest["package"]["instructions"]["receipt"]["generated_revision"],
-            2
+            3
         );
         let before = std::fs::metadata(fixture.root.join("AGENTS.md"))
             .unwrap()

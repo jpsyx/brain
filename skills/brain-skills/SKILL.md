@@ -42,7 +42,10 @@ persistent source; the next refresh regenerates them.
 
 Put workspace customization in `.config/extensions/<skill-name>.md` using the
 hooks declared by that workflow. Use `.config/extensions/workspace.md` for
-shared context, and the focused owner for domain-specific additions. New
+shared context under `[workspace:context]`, and the focused owner for
+domain-specific additions. The workspace `AGENTS.md` is fully generated: do not
+customize it directly or append rules outside its managed markers. Reconciliation
+replaces the entire document from core and extension sources. New
 resource-manager additions target `organize:reference-manager`; legacy
 `second-brain:reference-manager` remains a supported alias. Existing source
 bytes remain user-owned; sync projects aliases without rewriting their files.

@@ -86,9 +86,12 @@ fn localized_attachment_prompts_are_bounded_after_final_paths_for_every_frontend
             let cli = Cli::parse_from(["tasks"]);
             let mut app = test_app(&temporary, &cli, kind);
             std::fs::write(
-                app.context.workspace().root().join("AGENTS.md"),
+                app.context
+                    .workspace()
+                    .root()
+                    .join(".config/extensions/workspace.md"),
                 format!(
-                    "Shared fixture instructions.\n{}",
+                    "[workspace:context]\nShared fixture instructions.\n{}",
                     "Rules '\"$` é🙂\n".repeat(300)
                 ),
             )

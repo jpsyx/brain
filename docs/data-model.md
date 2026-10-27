@@ -3052,8 +3052,10 @@ and source-projection history with canonical source bytes and per-block origins.
 A skill-only refresh retains that record.
 
 The instruction receipt records schema, generated revision, owned body digest,
-and source snapshot digest. Changes outside the owned frame do not invalidate
-currentness. A complete supported render can be adopted with stale local evidence;
+and source snapshot digest. Revision 3 owns a whole generated file: text outside the frame invalidates
+currentness, and reconciliation replaces the document from core and extension
+sources. Revisions 1/2 retain their historical frame-only verification for recovery.
+The whole observed before-image still fences publication against concurrent edits;
 a caller-supplied hash alone does not establish ownership.
 
 Package journals add typed regular-file entries for `AGENTS.md`, the

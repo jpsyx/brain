@@ -79,14 +79,16 @@ fn portable_modern_instructions_without_local_ownership_refuse_legacy_publicatio
             env!("CARGO_PKG_VERSION"),
             "apply",
         ));
-        assert_eq!(std::fs::read(f.root.join("AGENTS.md")).unwrap(), document);
+        let replaced = std::fs::read_to_string(f.root.join("AGENTS.md")).unwrap();
+        assert!(!replaced.contains("USER PREFIX"));
+        assert!(!replaced.contains("USER SUFFIX"));
         for phase in ["preflight", "apply"] {
             success(&refresh(&f, &target(&f, version), version, phase));
         }
         let restored = std::fs::read_to_string(f.root.join("AGENTS.md")).unwrap();
         assert!(!restored.contains("brain:managed-workspace"));
-        assert!(restored.starts_with("USER PREFIX\n"));
-        assert!(restored.ends_with("USER SUFFIX WITHOUT NEWLINE"));
+        assert!(!restored.contains("USER PREFIX"));
+        assert!(!restored.contains("USER SUFFIX"));
         assert!(restored.contains(include_str!(
             "../../templates/workspace/legacy/AGENTS-v0.105.3.md"
         )));
@@ -138,7 +140,16 @@ fn current_target_adopts_portable_instructions_without_broadening_canonical_scop
             std::fs::read(f.root.join(".config/config.json")).unwrap(),
             config
         );
-        assert_eq!(std::fs::read(f.root.join("AGENTS.md")).unwrap(), document);
+        let expected = if phase == "preflight" {
+            document.as_slice()
+        } else {
+            document
+                .strip_prefix(b"USER PREFIX\n")
+                .unwrap()
+                .strip_suffix(b"USER SUFFIX WITHOUT NEWLINE")
+                .unwrap()
+        };
+        assert_eq!(std::fs::read(f.root.join("AGENTS.md")).unwrap(), expected);
     }
     let manifest = read_json(&f.cache().join("skills-install/managed.json"));
     assert!(manifest["package"]["instructions"].is_object());

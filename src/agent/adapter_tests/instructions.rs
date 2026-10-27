@@ -53,7 +53,14 @@ fn every_frontend_delivers_shared_instructions_for_every_channel_access_mode_and
     for kind in AgentKind::ALL {
         let temp = tempfile::tempdir().unwrap();
         let guidance = "Channel: email\nUser guidance: quotes '\"$`\\ and Unicode é🙂";
-        std::fs::write(temp.path().join("AGENTS.md"), guidance).unwrap();
+        std::fs::write(
+            temp.path().join("AGENTS.md"),
+            "Obsolete inline rule.\n".repeat(2_000),
+        )
+        .unwrap();
+        let extension = temp.path().join(".config/extensions/workspace.md");
+        std::fs::create_dir_all(extension.parent().unwrap()).unwrap();
+        std::fs::write(extension, format!("[workspace:context]\n{guidance}\n")).unwrap();
         crate::workspace::WorkspaceManifest::new(
             WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),
         )
@@ -141,7 +148,8 @@ fn every_frontend_delivers_shared_instructions_for_every_channel_access_mode_and
                         .find(|line| line.starts_with('"'))
                         .expect("JSON workspace guidance");
                     let published = std::fs::read_to_string(temp.path().join("AGENTS.md")).unwrap();
-                    assert!(published.starts_with(guidance));
+                    assert!(published.contains(guidance));
+                    assert!(!published.contains("Obsolete inline rule."));
                     assert_eq!(serde_json::from_str::<String>(line).unwrap(), published);
                     assert!(
                         payload.contains(&format!("Channel: {}", channel.as_str())),

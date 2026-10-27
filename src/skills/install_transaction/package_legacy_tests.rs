@@ -2,8 +2,19 @@ use super::{
     InstallIdentity, InstallVersion, LockedInstall, NoStamp,
     package::{InstructionRestore, LegacyWorkspacePackage, ManagedWorkspacePackage},
 };
-use crate::{skills::transaction_tests::rendered, workspace::instructions::plan_document};
+use crate::{
+    skills::transaction_tests::rendered,
+    workspace::instructions::{DocumentPlan, InstructionReceipt, plan_for_revision},
+};
 use std::fs;
+
+fn plan_document(
+    existing: Option<&[u8]>,
+    body: &str,
+    prior: Option<&InstructionReceipt>,
+) -> anyhow::Result<DocumentPlan> {
+    plan_for_revision(existing, body, prior, 2)
+}
 
 #[test]
 fn down_commits_restored_instructions_and_a_real_schema_one_manifest_together() {
@@ -237,12 +248,12 @@ fn target_contract_replaces_only_owned_frame_or_preserves_surviving_text_when_ab
         let mut locked = LockedInstall::acquire(&identity).unwrap();
         let agents = root.path().join("AGENTS.md");
         fs::write(&agents, "User prefix\nAudited target core\n").unwrap();
+        let mut historical = super::package_tests::package(root.path(), "old");
+        historical.instructions = Some(
+            plan_document(Some(&fs::read(&agents).unwrap()), "old instructions", None).unwrap(),
+        );
         locked
-            .install_package(
-                super::package_tests::package(root.path(), "old"),
-                &InstallVersion::current(),
-                &mut NoStamp,
-            )
+            .install_package(historical, &InstallVersion::current(), &mut NoStamp)
             .unwrap();
         match observation {
             "frame" => {

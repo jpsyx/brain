@@ -25,34 +25,29 @@ Both normalize names the same way (lowercased, `-`→`_`).
 
 ## Workspace instruction ownership
 
-A knowledge workspace's `AGENTS.md` contains one generated contract between
-`<!-- brain:managed-workspace:start schema=1 -->` and
-`<!-- brain:managed-workspace:end -->`. Text outside that region stays user-owned.
-The contract resolves the launched workspace and acting person, gives shared PARA,
-naming, native-data and authorization rules, and routes to focused workflows with
-conditional legacy fallbacks. Response presentation is rendered from the same
-central channel sources used by launch context. This document is separate from
-Brain's software-repository contributor instructions.
+A knowledge workspace's `AGENTS.md` is entirely generated from Brain's core
+contract and checked workspace extension sources. Customize shared rules through
+`.config/extensions/workspace.md` (the `[workspace:context]` hook), and workflow
+rules through the owning skill's extension hooks. Run `brain skills sync` after
+editing a source. Direct edits to `AGENTS.md`, including text outside its managed
+markers, are replaced during reconciliation. The software repository's contributor
+`AGENTS.md` is a separate, author-maintained document.
 
-The pure planner in `workspace/instructions/` records the complete before-image
-(including absence), proposed bytes, a region-only body digest, schema `1`, and
-generated revision `2`. Its `sources_sha256` initially hashes the supplied body
-rendering input; the package composer may replace it with its verified source
-snapshot digest. It does not claim to identify raw extension sources on its own.
-A surrounding-text edit does not change region ownership. Publication must still
-compare the complete before-image to detect concurrent edits.
+The 0.106.18 upgrade fully replaces historical and previously mixed documents;
+it does not retain inline customizations or obsolete core prose. Existing extension
+sources are rendered normally. Every ordinary invocation checks the complete
+published package, even when optional skill auto-sync is disabled. Missing or
+edited generated instructions are repaired, and unchanged output is not rewritten.
+Help and version remain side-effect free.
 
-Exact historical templates can be adopted. In customized documents, only unique,
-complete, byte-identical historical sections are removed; edited or ambiguous
-sections remain untouched. Removed spans retain original byte offsets and bytes
-for downgrade planning. Missing documents or regions can be recreated. Modified
-managed content, invalid UTF-8, malformed/duplicate markers, and unsupported
-receipt revisions are conflicts. Missing/stale receipts can adopt only a complete
-known render, never a digest asserted by the document itself.
-
-This model performs no filesystem writes. The existing fresh-workspace seeding
-path uses it to render a missing document while leaving existing documents alone;
-coordinated package publication owns subsequent reconciliation and backups.
+The pure planner records the complete before-image and desired generated file.
+Instruction receipt revision `3` requires a whole managed frame, with no prefix
+or suffix; its body and source digests identify the generated inputs. Publication
+still compares the entire observed before-image to reject concurrent changes and
+refuses redirected paths. Old receipt revisions remain readable for interrupted
+transaction recovery and explicit downgrades. Original bytes and rollback evidence
+live in the machine-local workspace cache, never as active legacy workspace rules.
+Unsupported receipt revisions remain errors.
 
 ## Deciding which store owns a new variable
 

@@ -16,7 +16,7 @@ pub(in crate::skills::install_transaction) fn validate_metadata(
     {
         ensure!(
             owned.receipt.schema_version == 1
-                && (1..=2).contains(&owned.receipt.generated_revision)
+                && (1..=instructions::CURRENT_REVISION).contains(&owned.receipt.generated_revision)
                 && super::super::validation::hash(&owned.receipt.body_sha256)
                 && super::super::validation::hash(&owned.receipt.sources_sha256),
             "invalid instruction ownership receipt"
@@ -158,10 +158,11 @@ pub(in crate::skills::install_transaction) fn validate_artifacts(
         let prior = old
             .and_then(|manifest| manifest.package.as_ref())
             .and_then(|metadata| metadata.instructions.as_ref());
-        let expected = instructions::plan_document(
+        let expected = instructions::plan_for_revision(
             change.before.as_deref(),
             body,
             prior.map(|owned| &owned.receipt),
+            receipt.generated_revision,
         )?;
         ensure!(
             Some(expected.after) == change.after,

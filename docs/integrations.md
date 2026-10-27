@@ -2867,7 +2867,8 @@ receipt retains the stricter narrowed-selection check. Only authenticated config
 history authorizes removing migration-added names. A portable managed AGENTS frame
 without local instruction ownership refuses legacy preflight and apply before
 publication. Reconcile it with the current version's `brain skills sync --all-workspaces`
-and resolve any reported conflict before retrying. Prefix and suffix bytes remain intact.
+and resolve any reported conflict before retrying. Current reconciliation replaces
+the entire document; customization must come from extension sources.
 
 Downgrade applies while the modern executable is still installed. Failure leaves
 that executable available to recover the journal. The installer requires every
@@ -2908,3 +2909,11 @@ Skill receipt and pending-receive inspection streams stable private SQLite image
 in bounded memory, including committed WAL, without a database-size ceiling or
 live sidecar creation. Ordinary historical schema reconciliation may still open
 and checkpoint its live state DB; that separate migration behavior is unchanged.
+
+
+Workspace instruction reconciliation in 0.106.18 replaces the complete generated
+`AGENTS.md`, including legacy prefixes/suffixes and direct edits, before capturing
+a launch generation. Shared customizations enter through
+`.config/extensions/workspace.md` and workflow customizations through their own
+extension hooks. This removes duplicated inline legacy rules from all four
+frontends' launch payloads. The encoded 20 KiB allowance remains unchanged.

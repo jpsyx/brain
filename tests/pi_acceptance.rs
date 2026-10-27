@@ -192,7 +192,12 @@ impl Fixture {
         let home = temporary.path().join("home");
         let root = temporary.path().join("family");
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("AGENTS.md"), "Acceptance workspace guidance.").unwrap();
+        std::fs::create_dir_all(root.join(".config/extensions")).unwrap();
+        std::fs::write(
+            root.join(".config/extensions/workspace.md"),
+            "[workspace:context]\nAcceptance workspace guidance.",
+        )
+        .unwrap();
         let id = WorkspaceId::parse("11111111-1111-4111-8111-111111111111").unwrap();
         brain::workspace::WorkspaceManifest::new(id)
             .write_new(&root)

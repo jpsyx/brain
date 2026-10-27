@@ -7,7 +7,9 @@ pub(super) fn complete(manifest: Option<&ManagedSkillManifest>) -> bool {
     manifest
         .and_then(|manifest| manifest.package.as_ref())
         .is_some_and(|package| {
-            package.instructions.is_some() && package.extension_snapshot.is_some()
+            package.instructions.as_ref().is_some_and(|owned| {
+                owned.receipt.generated_revision == crate::workspace::instructions::CURRENT_REVISION
+            }) && package.extension_snapshot.is_some()
         })
 }
 

@@ -7,9 +7,9 @@ use crate::{
 use std::{os::unix::fs::PermissionsExt as _, sync::Arc};
 
 fn prepared(root: &Path) -> LaunchRequest {
-    if !root.join("AGENTS.md").exists() {
-        std::fs::write(root.join("AGENTS.md"), "Shared workspace rules").unwrap();
-    }
+    let extension = root.join(".config/extensions/workspace.md");
+    std::fs::create_dir_all(extension.parent().unwrap()).unwrap();
+    std::fs::write(extension, "[workspace:context]\nShared workspace rules\n").unwrap();
     if !crate::workspace::WorkspaceManifest::path(root).exists() {
         crate::workspace::WorkspaceManifest::new(
             WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),

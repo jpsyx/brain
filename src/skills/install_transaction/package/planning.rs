@@ -21,10 +21,11 @@ pub(super) fn plan(
             .and_then(|manifest| manifest.package.as_ref())
             .and_then(|metadata| metadata.instructions.as_ref());
         let body = instructions::verified_body(&document.after, &document.receipt)?;
-        let verified = instructions::plan_document(
+        let verified = instructions::plan_for_revision(
             document.before.as_deref(),
             body,
             prior.map(|owned| &owned.receipt),
+            document.receipt.generated_revision,
         )?;
         ensure!(
             verified.after == document.after
@@ -49,19 +50,18 @@ pub(super) fn plan(
             .manifest
             .package
             .get_or_insert_with(PackageMetadata::default);
-        let original_receipt = if let Some(prior) = prior {
-            prior.original_receipt.clone()
-        } else if document
-            .before
-            .as_deref()
-            .map(instructions::has_managed_region)
-            .transpose()?
-            .unwrap_or(false)
-        {
-            Some(document.receipt.clone())
-        } else {
-            None
-        };
+        let original_receipt = prior.map_or_else(
+            || {
+                document
+                    .before
+                    .as_deref()
+                    .is_some_and(|bytes| {
+                        instructions::verified_body(bytes, &document.receipt).is_ok()
+                    })
+                    .then(|| document.receipt.clone())
+            },
+            |prior| prior.original_receipt.clone(),
+        );
         metadata.instructions = Some(InstructionOwnership {
             original_receipt,
             receipt: document.receipt,

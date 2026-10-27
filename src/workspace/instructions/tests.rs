@@ -1,3 +1,4 @@
+use super::document::plan_legacy_document as plan_document;
 use super::*;
 
 const LEGACY: &str = include_str!("../../../templates/workspace/legacy/AGENTS-v0.105.3.md");
@@ -93,7 +94,7 @@ fn modified_managed_body_is_a_conflict() {
 #[test]
 fn unsupported_receipt_revisions_are_not_downgraded() {
     let first = plan_document(None, "Core", None).unwrap();
-    for (schema_version, generated_revision) in [(1, 3), (2, 2), (0, 2), (1, 0)] {
+    for (schema_version, generated_revision) in [(1, 4), (2, 2), (0, 2), (1, 0)] {
         let prior = InstructionReceipt {
             schema_version,
             generated_revision,
@@ -286,7 +287,7 @@ fn transaction_verification_reuses_owned_body_without_claiming_user_text() {
     assert!(verified_body(REGION.replace("Core", "Edited").as_bytes(), &first.receipt).is_err());
     assert!(verified_body(b"\xff", &first.receipt).is_err());
     let mut newer = first.receipt;
-    newer.generated_revision = 3;
+    newer.generated_revision = 4;
     assert!(verified_body(&decorated, &newer).is_err());
 }
 

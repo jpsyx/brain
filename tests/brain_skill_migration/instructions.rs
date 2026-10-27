@@ -158,7 +158,7 @@ fn retained_extension_snapshot_state_is_owner_only() {
 }
 
 #[test]
-fn modified_or_unknown_managed_documents_fail_before_para_creation() {
+fn modified_or_unknown_generated_documents_are_repaired_before_para_creation() {
     for unknown in [false, true] {
         let fixture = Fixture::new("0.105.3");
         fixture.startup();
@@ -172,8 +172,69 @@ fn modified_or_unknown_managed_documents_fail_before_para_creation() {
         assert_ne!(changed, original);
         std::fs::write(&path, &changed).unwrap();
         let output = fixture.run(&["config", "list", "-w", "alpha"]);
-        assert!(!output.status.success());
-        assert!(!fixture.root.join("areas").exists());
-        assert_eq!(std::fs::read_to_string(path).unwrap(), changed);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(fixture.root.join("areas").exists());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
     }
+}
+
+#[test]
+fn startup_replaces_oversized_inline_rules_with_core_and_extension_sources() {
+    let fixture = Fixture::new("0.106.17");
+    let inline = "Obsolete inline rule.\n".repeat(2_000);
+    std::fs::write(fixture.root.join("AGENTS.md"), &inline).unwrap();
+    let source = fixture.root.join(".config/extensions/workspace.md");
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+    std::fs::write(&source, "[workspace:context]\nCustom source rule.\n").unwrap();
+    fixture.startup();
+    let document = std::fs::read_to_string(fixture.root.join("AGENTS.md")).unwrap();
+    assert!(!document.contains("Obsolete inline rule."));
+    assert!(document.contains("Custom source rule."));
+    assert!(document.len() < 20 * 1024);
+    assert_eq!(
+        std::fs::read_to_string(source).unwrap(),
+        "[workspace:context]\nCustom source rule.\n"
+    );
+}
+
+#[test]
+fn startup_removes_old_prefixes_after_an_earlier_managed_migration() {
+    let fixture = Fixture::new("0.106.17");
+    fixture.startup();
+    let path = fixture.root.join("AGENTS.md");
+    let generated = std::fs::read(&path).unwrap();
+    let mixed = [b"Old prefix\n".as_slice(), &generated, b"Old suffix\n"].concat();
+    std::fs::write(&path, mixed).unwrap();
+    let manifest_path = fixture.cache().join("skills-install/managed.json");
+    let mut manifest = read_json(&manifest_path);
+    manifest["package"]["instructions"]["receipt"]["generated_revision"] = json!(2);
+    write_json(&manifest_path, &manifest);
+    fixture.startup();
+    assert_eq!(std::fs::read(&path).unwrap(), generated);
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    fixture.startup();
+    assert_eq!(
+        std::fs::metadata(path).unwrap().modified().unwrap(),
+        modified
+    );
+}
+
+#[test]
+fn startup_removes_appended_rules_at_equal_version() {
+    let fixture = Fixture::new(env!("CARGO_PKG_VERSION"));
+    fixture.startup();
+    let path = fixture.root.join("AGENTS.md");
+    let generated = std::fs::read(&path).unwrap();
+    let mixed = [
+        generated.as_slice(),
+        b"Inline customization is not a source.\n",
+    ]
+    .concat();
+    std::fs::write(&path, mixed).unwrap();
+    fixture.startup();
+    assert_eq!(std::fs::read(path).unwrap(), generated);
 }

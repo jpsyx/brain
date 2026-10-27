@@ -21,9 +21,9 @@ fn oversized_unicode_append_file_reports_size_before_utf8_decoding() {
 }
 
 fn prepared(root: &std::path::Path) -> LaunchRequest {
-    if !root.join("AGENTS.md").exists() {
-        std::fs::write(root.join("AGENTS.md"), "Workspace rule").unwrap();
-    }
+    let extension = root.join(".config/extensions/workspace.md");
+    std::fs::create_dir_all(extension.parent().unwrap()).unwrap();
+    std::fs::write(extension, "[workspace:context]\nWorkspace rule\n").unwrap();
     if !crate::workspace::WorkspaceManifest::path(root).exists() {
         crate::workspace::WorkspaceManifest::new(
             WorkspaceId::parse("8ccd7c41-1b6e-4a3c-b91e-1b0117b77a2b").unwrap(),

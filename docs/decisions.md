@@ -6587,3 +6587,20 @@ A live sync lock is ownership state, not a package artifact. Compatibility
 acquisition validates its kind without snapshotting its bytes. A deterministic
 owner-release test reproduces the former metadata/content-read disappearance
 race; the correction preserves the same lock primitive and acquisition deadlines.
+
+## Why workspace instructions are fully generated
+
+The earlier instruction migration retained all customized legacy sections outside
+a managed frame. That left obsolete and contradictory core rules active beside
+their replacements, and could exceed the launch allowance before trusted context
+was added. Full replacement is now the workspace contract: customizations are
+source extensions, not edits to generated `AGENTS.md`. The 0.106.18 reconciler
+replaces old, mixed, missing, or edited documents with one complete generated frame.
+It deliberately does not copy obsolete inline instructions into an extension.
+
+Receipt revision 3 verifies whole-document shape as well as the body digest.
+Earlier revisions remain readable only for historical transactions and downgrade
+compatibility; they cannot satisfy current package completeness. Existing automatic
+package up/down coordination handles the patch transition. The same transactional
+before-image checks, path protection, and machine-cache recovery evidence remain
+in force. No legacy instruction backup is published into the workspace.

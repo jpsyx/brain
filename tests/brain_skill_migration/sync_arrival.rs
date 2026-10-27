@@ -77,38 +77,35 @@ fn a_crashed_receive_restarts_with_one_verified_pull_before_reconciliation() {
 }
 
 #[test]
-fn completed_mismatch_retains_evidence_without_repeated_transport() {
+fn received_generated_text_is_replaced_from_available_extension_sources() {
     let transfer = super::sync_fixture::Transfer::new();
-    let failed = transfer.pull("mismatch");
-    assert!(!failed.status.success());
-    let diagnostic = String::from_utf8_lossy(&failed.stderr);
-    assert!(diagnostic.contains("receive_conflict"));
-    assert!(diagnostic.contains("compose_instructions"));
-    assert!(diagnostic.contains("AGENTS.md"));
-    assert_eq!(transfer.phase().as_deref(), Some("reconcile"));
-    let db = rusqlite::Connection::open(transfer.fixture.cache().join("sync/journal.db")).unwrap();
-    let outcome: String = db
-        .query_row(
-            "SELECT outcome FROM sync_runs ORDER BY id DESC LIMIT 1",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_ne!(
-        outcome, "clean",
-        "package conflicts must not be journaled as clean"
+    let first = transfer.pull("mismatch");
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(transfer.phase(), None);
+    let path = transfer.fixture.root.join("AGENTS.md");
+    assert!(
+        !std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("Arrived together.")
     );
     let before = transfer.transfers();
-    let retry = transfer.pull("complete");
-    assert!(!retry.status.success());
+    let next = transfer.pull("complete");
     assert!(
-        !transfer
-            .run(&["sync", "repair", "-w", "alpha"], "complete")
-            .status
-            .success()
+        next.status.success(),
+        "{}",
+        String::from_utf8_lossy(&next.stderr)
     );
-    assert_eq!(transfer.transfers(), before);
-    assert_eq!(transfer.phase().as_deref(), Some("reconcile"));
+    assert_eq!(transfer.transfers(), before + 1);
+    assert_eq!(transfer.phase(), None);
+    assert!(
+        std::fs::read_to_string(path)
+            .unwrap()
+            .contains("Arrived together.")
+    );
 }
 
 pub(super) fn receiving(fixture: &Fixture, phase: &str) {
@@ -223,7 +220,7 @@ fn completed_supported_arrivals_adopt_missing_or_stale_receipts_in_either_order(
 }
 
 #[test]
-fn unknown_newer_region_and_unproven_modified_document_never_gain_receive_bypass() {
+fn generated_document_edits_are_repaired_during_receive_reconciliation() {
     for pending in [false, true] {
         let transfer = super::sync_fixture::Transfer::new();
         let path = transfer.fixture.root.join("AGENTS.md");
@@ -239,12 +236,17 @@ fn unknown_newer_region_and_unproven_modified_document_never_gain_receive_bypass
             receiving(&transfer.fixture, "reconcile");
         }
         let output = transfer.pull("complete");
-        assert!(!output.status.success());
-        assert_eq!(transfer.transfers(), 0);
-        assert_eq!(std::fs::read_to_string(path).unwrap(), changed);
-        if pending {
-            assert_eq!(transfer.phase().as_deref(), Some("reconcile"));
-        }
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(transfer.transfers(), 1);
+        assert_eq!(transfer.phase(), None);
+        let repaired = std::fs::read_to_string(path).unwrap();
+        assert!(!repaired.contains("schema=99"));
+        assert!(!repaired.contains("# Edited workspace"));
+        assert!(repaired.contains("Arrived together."));
     }
 }
 

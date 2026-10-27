@@ -81,7 +81,7 @@ fn first_published_artifact_failure_restores_instructions_skills_extras_and_fron
 }
 
 #[test]
-fn currentness_owns_only_the_instruction_region_and_skill_only_updates_keep_ownership() {
+fn currentness_owns_the_whole_document_and_skill_only_updates_keep_ownership() {
     use super::Currentness;
     let root = tempfile::tempdir().unwrap();
     let cache = tempfile::tempdir().unwrap();
@@ -98,6 +98,8 @@ fn currentness_owns_only_the_instruction_region_and_skill_only_updates_keep_owne
         [b"new user prefix\n".as_slice(), &bytes, b"user suffix\n"].concat(),
     )
     .unwrap();
+    assert!(locked.inspect(&version).is_err());
+    fs::write(&agents, &bytes).unwrap();
     assert!(matches!(
         locked.inspect(&version).unwrap(),
         Currentness::Current(_)

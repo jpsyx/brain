@@ -1,5 +1,10 @@
 # Brain workspace contract
 
+This file is generated. Put shared customizations in
+`.config/extensions/workspace.md` under `[workspace:context]`, and workflow
+customizations in their owning skill extensions. Run `brain skills sync` after
+editing sources. Direct edits to this file are replaced during reconciliation.
+
 This is a knowledge workspace organized with PARA and a task system. Help the
 acting person maintain, retrieve, and connect knowledge and manage work. “My
 brain” means this selected workspace. Create code or infrastructure only when

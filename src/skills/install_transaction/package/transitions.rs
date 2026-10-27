@@ -29,24 +29,24 @@ pub(super) fn validate(
             change.after.as_deref().unwrap_or_default(),
             &owned.receipt,
         )?;
-        let plan = crate::workspace::instructions::plan_document(
+        let plan = crate::workspace::instructions::plan_for_revision(
             change.before.as_deref(),
             body,
             prior.instructions.as_ref().map(|value| &value.receipt),
+            owned.receipt.generated_revision,
         )?;
-        let original_receipt = if let Some(prior) = &prior.instructions {
-            prior.original_receipt.clone()
-        } else if change
-            .before
-            .as_deref()
-            .map(crate::workspace::instructions::has_managed_region)
-            .transpose()?
-            .unwrap_or(false)
-        {
-            Some(owned.receipt.clone())
-        } else {
-            None
-        };
+        let original_receipt = prior.instructions.as_ref().map_or_else(
+            || {
+                change
+                    .before
+                    .as_deref()
+                    .is_some_and(|bytes| {
+                        crate::workspace::instructions::verified_body(bytes, &owned.receipt).is_ok()
+                    })
+                    .then(|| owned.receipt.clone())
+            },
+            |prior| prior.original_receipt.clone(),
+        );
         Some(InstructionOwnership {
             receipt: owned.receipt.clone(),
             original_receipt,

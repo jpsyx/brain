@@ -3308,3 +3308,14 @@ See [configuration](config.md#repairing-machine-skill-declarations).
 Triage resolves the effective `BRAIN_ACTOR_ID` in shared workspaces, including
 receiver runs for a member other than this machine's local user. A contact or
 task lookup never acquires unrelated workflows merely to format its reply.
+
+
+### Fully generated workspace instructions
+
+As of 0.106.18, startup and skill synchronization replace the entire workspace
+`AGENTS.md` with the core contract plus checked extension contributions. Historical
+prefixes, suffixes, and inline edits are not retained. Shared customizations belong
+in `.config/extensions/workspace.md` under `[workspace:context]`; workflow details
+belong in the owning skill extension. Existing extension sources are preserved.
+This also repairs workspaces that already completed the earlier partial migration,
+including oversized documents that prevented agent launch.

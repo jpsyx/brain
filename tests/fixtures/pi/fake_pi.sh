@@ -16,7 +16,7 @@ if [ -n "${PI_TEST_LOG:-}" ]; then
         if [ "$index" -gt 0 ]; then
             printf ' ' >> "$PI_TEST_LOG"
         fi
-        printf '%s' "$argument" | head -c 4096 >> "$PI_TEST_LOG"
+        printf '%s' "$argument" | head -c 20480 >> "$PI_TEST_LOG"
         index=$((index + 1))
     done
     printf '\n' >> "$PI_TEST_LOG"
@@ -43,7 +43,8 @@ case "$*" in
                     break
                 fi
                 printf 'arg|%s|' "$index" >> "$PI_TEST_LOG"
-                printf '%s' "$argument" | head -c 4096 >> "$PI_TEST_LOG"
+                # Keep the full allowed instruction payload, including extensions.
+                printf '%s' "$argument" | head -c 20480 >> "$PI_TEST_LOG"
                 printf '\n' >> "$PI_TEST_LOG"
                 index=$((index + 1))
             done

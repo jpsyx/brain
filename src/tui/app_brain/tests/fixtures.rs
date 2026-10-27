@@ -27,9 +27,10 @@ impl TestWorkspaceFixture {
             crate::workspace::WorkspaceManifest::new(WorkspaceId::parse(WORKSPACE_ID).unwrap())
                 .write_new(&root)
                 .unwrap();
+            std::fs::create_dir_all(root.join(".config/extensions")).unwrap();
             std::fs::write(
-                root.join("AGENTS.md"),
-                "Shared fixture instructions.\nChannel: email",
+                root.join(".config/extensions/workspace.md"),
+                "[workspace:context]\nShared fixture instructions.\nChannel: email",
             )
             .unwrap();
         }

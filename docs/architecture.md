@@ -693,14 +693,19 @@ sync status, receiver status, and tasks doctor call it with the already-pinned
 `CommandContext`; none consults a peer workspace or repairs state while
 observing it.
 
-`instructions/` owns the pure managed workspace document model: `document`
-validates marker/receipt ownership and produces before/after plans, `legacy`
-recognizes frozen historical bytes and records removed spans, and `render`
-combines the authored contract with central response policy. Region digests exclude
-user-owned prefix/suffix bytes. `verified_body` reuses the same parser and receipt
-validation for transaction currentness without inspecting sources. `templates`
-uses the planner only at its existing
-missing-document seed seam; package coordination owns later publication.
+`instructions/` owns the pure generated workspace document model. `document`
+produces full before/after replacement plans and verifies receipt revision 3's
+whole-frame shape and body digest. Historical planning and `legacy` matching
+remain only to validate old transactions and support explicit downgrades. `render`
+combines the authored contract with central response policy. `templates` uses the
+planner at its missing-document seed seam; package coordination owns subsequent
+replacement and checked extension rendering. Direct inline customization is not
+an input to the current planner.
+
+The existing mandatory package up/down coordinator applies this 0.106.18 patch
+on every registered workspace; no standalone user-run migration is introduced.
+Old instruction receipts cannot satisfy current package completeness. Rollback
+before-images remain machine-local, not portable active instructions.
 
 ### `actor/`
 
@@ -1111,10 +1116,12 @@ phase against the same 16 MiB bound enforced on every state read and write.
 compatibility revision, and SHA-256 map of generated regular-file paths. Missing
 owned files can be repaired; present changed bytes or changed types conflict.
 Schema 2 keeps instruction ownership and config/source provenance separate from
-that skill-path map. Only the managed AGENTS region determines instruction
-currentness; replacing the document compares its entire observed before-file.
-User text and existing modes survive publication. The first observed instruction
-file or its absence, recognized removed legacy spans, field patches, and canonical
+that skill-path map. Instruction revision 3 requires the entire AGENTS document
+to be one generated frame; prefix, suffix, and body edits trigger repair.
+Replacing the document compares its entire observed before-file, and existing
+modes survive publication. Inline user text is replaced; customization lives in
+checked extension sources. The first observed instruction file or its absence,
+recognized removed legacy spans, field patches, and canonical
 projection inputs remain available as restoration evidence. Schema-1 manifests
 and interrupted journals remain readable. The same package metadata retains a checked,
 content-digested workspace extension snapshot. Older metadata without that snapshot
@@ -1128,7 +1135,8 @@ commit boundary controls skills, instructions, configuration and legacy sources;
 no second manifest rewrite is needed. Completed legacy publication removes its
 schema-2 pending journal. `InstructionRestore` can supply a target contract bound
 to the audited next binary version. That mode replaces the verified current frame
-in place, preserving its exact user prefix/suffix; with a missing frame it keeps
+in place. Historical revision-1/2 receipts preserve their exact user prefix/suffix;
+current receipts require a whole generated frame. With a missing frame it keeps
 surviving user bytes and appends or creates the supplied core. It does not restore
 legacy spans as a second core copy or resurrect stale user text. Target auditing
 belongs to the caller; desired output never proves ownership of existing bytes.
@@ -3190,8 +3198,9 @@ the selected catalog before instruction composition and native probes.
 
 Empty-root classification uses the shared exact whole-managed-frame shape predicate
 after mandatory package ownership verification. It does not recompile unapplied
-optional sources or treat the predicate as ownership proof. User prefix/suffix
-prose remains content.
+optional sources or treat the predicate as ownership proof. Current generated
+instructions cannot retain user prefix/suffix prose; reconciliation replaces it
+before this classification.
 
 Current compatibility checks inspect the complete owned package under installation
 ownership without creating sync state. They check the receipt, pending receive and

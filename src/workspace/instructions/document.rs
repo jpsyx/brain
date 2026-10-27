@@ -30,7 +30,51 @@ pub(crate) struct DocumentPlan {
     pub removed_legacy: Vec<RemovedLegacySpan>,
 }
 
+pub(crate) const CURRENT_REVISION: u32 = 3;
+
+/// The whole document is generated; customization enters through checked sources.
 pub(crate) fn plan_document(
+    existing: Option<&[u8]>,
+    desired_body: &str,
+    prior: Option<&InstructionReceipt>,
+) -> Result<DocumentPlan> {
+    if let Some(receipt) = prior {
+        validate_revision(receipt)?;
+    }
+    ensure!(
+        marker_count(desired_body) == 0,
+        "generated workspace instructions contain reserved managed markers"
+    );
+    let after = format!("{START}\n{desired_body}\n{END}\n").into_bytes();
+    Ok(DocumentPlan {
+        before: existing.map(<[u8]>::to_vec),
+        changed: existing != Some(after.as_slice()),
+        after,
+        receipt: InstructionReceipt {
+            schema_version: 1,
+            generated_revision: CURRENT_REVISION,
+            body_sha256: digest(desired_body.as_bytes()),
+            sources_sha256: digest(desired_body.as_bytes()),
+        },
+        removed_legacy: Vec::new(),
+    })
+}
+
+/// Replay historical transactions using the policy recorded in their after-image.
+pub(crate) fn plan_for_revision(
+    existing: Option<&[u8]>,
+    desired_body: &str,
+    prior: Option<&InstructionReceipt>,
+    revision: u32,
+) -> Result<DocumentPlan> {
+    match revision {
+        1 | 2 => plan_legacy_document(existing, desired_body, prior),
+        CURRENT_REVISION => plan_document(existing, desired_body, prior),
+        _ => anyhow::bail!("unsupported workspace instruction receipt revision"),
+    }
+}
+
+pub(super) fn plan_legacy_document(
     existing: Option<&[u8]>,
     desired_body: &str,
     prior: Option<&InstructionReceipt>,
@@ -118,7 +162,7 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Verify currentness without claiming ownership of the surrounding user text.
+/// Verify the generated file; historical receipts retain their frame-only scope.
 /// Transaction publication must separately compare its complete before-image.
 pub(crate) fn verified_body<'a>(
     document: &'a [u8],
@@ -127,6 +171,10 @@ pub(crate) fn verified_body<'a>(
     validate_revision(receipt)?;
     let text = std::str::from_utf8(document).context("workspace AGENTS.md is not valid UTF-8")?;
     let region = parse_region(text)?.context("workspace AGENTS.md managed region is absent")?;
+    ensure!(
+        receipt.generated_revision < CURRENT_REVISION || region.entire == (0..text.len()),
+        "workspace AGENTS.md contains text outside its generated frame"
+    );
     let body = &text[region.body];
     ensure!(
         digest(body.as_bytes()) == receipt.body_sha256,
@@ -137,7 +185,7 @@ pub(crate) fn verified_body<'a>(
 
 fn validate_revision(receipt: &InstructionReceipt) -> Result<()> {
     ensure!(
-        receipt.schema_version == 1 && (1..=2).contains(&receipt.generated_revision),
+        receipt.schema_version == 1 && (1..=CURRENT_REVISION).contains(&receipt.generated_revision),
         "unsupported workspace instruction receipt schema or revision"
     );
     Ok(())

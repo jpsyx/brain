@@ -2033,3 +2033,10 @@ Only the native exit-1 LockTimeout rendering is accepted; unrelated errors and
 post-commit failures remain failures. At least two successes are needed for this
 fixture's lost-update oracle. This is not a promise that 20 durable creates always
 finish within the registry's existing ten-second acquisition budget.
+
+
+Workspace-instruction replacement regressions cover oversized arbitrary documents,
+old mixed managed documents, extension preservation, repair at equal versions, and
+idempotent publication. Historical instruction receipts remain covered by journal
+recovery and downgrade tests. All four frontend delivery tests source customization
+from extensions and verify obsolete inline guidance does not reach the launch.
