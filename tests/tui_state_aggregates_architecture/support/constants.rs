@@ -142,6 +142,7 @@ pub(crate) const BRAIN_FIELDS: &[&str] = &[
     "brain_turn_active",
     "session_tabs",
     "configured_skill_sessions",
+    "pending_skills",
     "main_manual_session_id",
     "manual_sessions_to_restore",
     "interactive_actor",

@@ -1108,3 +1108,8 @@ still apply. After the correction commits, all mandatory reconciliation must pas
 before the command succeeds. If it fails, the diagnostic says the correction was
 committed and the remaining managed-package problem must be repaired. Unrelated
 env setters do not bypass startup.
+
+
+Skill sessions automatically wait for active workspace sync before retrying a contended
+launch. This transient pending state introduces no configuration variable and is not
+persisted across TUI restarts.

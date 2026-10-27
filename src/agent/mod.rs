@@ -108,6 +108,8 @@ pub enum AgentError {
     EmptySessionId,
     /// A launch request did not match its controller's immutable context.
     ContextMismatch,
+    /// Workspace sync temporarily owns the package needed before launch.
+    WorkspaceSyncBusy,
     /// A frontend rejected an otherwise valid facade request.
     Frontend(String),
     /// A transport could not start or communicate with its child process.
@@ -123,6 +125,9 @@ impl Display for AgentError {
             Self::EmptySessionId => formatter.write_str("agent session id cannot be blank"),
             Self::ContextMismatch => {
                 formatter.write_str("launch request does not match controller context")
+            }
+            Self::WorkspaceSyncBusy => {
+                formatter.write_str("workspace sync is in progress; retry after it completes")
             }
             Self::Frontend(message) => write!(formatter, "frontend error: {message}"),
             Self::Transport(message) => write!(formatter, "transport error: {message}"),

@@ -403,3 +403,8 @@ canonical `/agenda` prompt through the existing brain-panel controller. The prom
 resolves `agenda_markdown_dir` through `brain env get` and `agenda_dir` through
 `brain config get`. Opening and generation keep their existing keys and palette
 entries; generation does not embed a Markdown directory.
+
+
+The palette's Run daily triage action and Yes on the daily-triage confirmation both
+retain a pending start when sync temporarily prevents skill preparation. The run starts
+automatically after sync releases ownership; no second keypress is required.

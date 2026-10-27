@@ -161,6 +161,14 @@ impl App {
                     self.context.agent_kind().label()
                 ));
             }
+            Err(crate::agent::AgentError::WorkspaceSyncBusy) => {
+                crate::skill_session::signal::clear(self.context.workspace(), &token);
+                self.brain.defer_skill_start(spec);
+                self.status.set_flash(FlashKind::Info(format!(
+                    "{} is waiting for workspace sync; it will start automatically",
+                    spec.title
+                )));
+            }
             Err(error) => {
                 // The tab was never added, so whatever is showing stays showing;
                 // only the flash reports the failure.
@@ -226,6 +234,14 @@ impl App {
     /// its run's completion signal arrives carrying that tab's one-time token (a
     /// signal for another tab, or a stale one from an earlier run, is ignored).
     pub(crate) fn tick_skill_sessions(&mut self) {
+        if self.brain.has_pending_skill_starts()
+            && !crate::sync::lock::is_active(&self.context.workspace().paths().sync_lock())
+                .unwrap_or(false)
+        {
+            for spec in self.brain.take_pending_skill_starts() {
+                self.open_skill_session(&spec);
+            }
+        }
         let mut exited = Vec::new();
         let mut completed = Vec::new();
         for session in self.brain.skill_session_observations() {

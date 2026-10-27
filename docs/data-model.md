@@ -3153,3 +3153,9 @@ unrelated state growth does not invalidate them. The read-only observation path
 streams the complete database and WAL to private files, checks repeated SHA-256
 content plus file identity/timestamps, and queries the private SQLite image.
 The capture has bounded memory and retries, not a 64 MiB state-file limit.
+
+
+Pending skill starts are process-local `SkillSessionSpec` values keyed by
+`SkillSessionKey`. They have no running tab or persisted session until launch succeeds.
+Sync contention retains the request; success or a non-contention failure removes it.
+Exiting the TUI discards this pending state.

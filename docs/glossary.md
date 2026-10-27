@@ -113,3 +113,7 @@ These are deliberately distinct and use different modifiers:
 | --- | --- | --- |
 | **temporary download link** | A signed URL for one private B2 object, valid for at most seven days. A directory becomes a filtered ZIP first. | `share/`; `brain share` |
 | **share modal** | Path selection when needed, expiration input, background progress, and a copyable result. | `tui/share/`; `Overlay::Share`; `EntryCommand::Share` |
+
+
+**Pending skill start**: an accepted skill-session request waiting for workspace sync
+ownership to clear. It is held by `BrainPanelState` and has no running tab yet.

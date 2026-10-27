@@ -2917,3 +2917,10 @@ a launch generation. Shared customizations enter through
 `.config/extensions/workspace.md` and workflow customizations through their own
 extension hooks. This removes duplicated inline legacy rules from all four
 frontends' launch payloads. The encoded 20 KiB allowance remains unchanged.
+
+
+A skill-session launch that encounters typed workspace sync contention is deferred
+before frontend probing or process spawn. The TUI retries through `AgentController`
+after sync ownership clears, preserving the same package checks for Claude, Codex,
+OpenCode, and pi. It does not launch against an unverified package or retry arbitrary
+frontend failures.

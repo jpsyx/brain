@@ -6604,3 +6604,10 @@ compatibility; they cannot satisfy current package completeness. Existing automa
 package up/down coordination handles the patch transition. The same transactional
 before-image checks, path protection, and machine-cache recovery evidence remain
 in force. No legacy instruction backup is published into the workspace.
+
+
+Skill-session launch contention is a wait condition because background auto-sync can
+begin after the triage nudge appears. Keep the package lock and validation boundary
+intact, preserve typed contention, and retry the accepted request from the TUI tick. Do
+not sleep on the event loop or retry arbitrary launch errors, which may represent
+invalid packages or frontend failures.

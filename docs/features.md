@@ -3319,3 +3319,10 @@ in `.config/extensions/workspace.md` under `[workspace:context]`; workflow detai
 belong in the owning skill extension. Existing extension sources are preserved.
 This also repairs workspaces that already completed the earlier partial migration,
 including oversized documents that prevented agent launch.
+
+
+Skill-session requests, including Yes on the daily-triage nudge and Run daily triage in
+the palette, wait when workspace sync owns the launch-preparation lock. Brain reports
+that the run is waiting and retries after sync releases ownership. Repeated requests for
+the same skill do not start duplicate tabs. Closing Brain discards pending requests;
+other launch errors remain visible.

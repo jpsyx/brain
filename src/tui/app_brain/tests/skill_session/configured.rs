@@ -278,3 +278,65 @@ fn option_one_selects_permanent_main_even_without_its_controller() {
     assert_eq!(app.effective_brain_tab(), BrainTab::Main);
     assert_eq!(app.shell.focus(), Panel::Brain);
 }
+
+#[test]
+fn triage_launch_retries_after_background_sync_releases_workspace() {
+    for (kind, from_palette) in AgentKind::ALL
+        .into_iter()
+        .flat_map(|kind| [(kind, false), (kind, true)])
+    {
+        let cli = Cli::parse_from(["tasks"]);
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let mut app = test_app(&temporary, &cli, kind);
+        let recording = TransportRecording::default();
+        let lock =
+            crate::skills::install_transaction::InstallIdentity::workspace(app.context.workspace())
+                .unwrap()
+                .acquire_sync()
+                .unwrap();
+        inject_skill_session_transport(&mut app, recording.transport());
+
+        if from_palette {
+            app.status.set_daily_triage_check_disabled(false);
+            app.execute_global_action(crate::tui::action::GlobalAction::RunSkillSession(
+                SkillSessionKey::DailyTriage,
+            ));
+        } else {
+            app.run_triage();
+        }
+        app.tick_skill_sessions();
+        assert!(recording.launch_specs().is_empty());
+        drop(lock);
+        // A real retry gets another transport after a refused controller launch.
+        inject_skill_session_transport(&mut app, recording.transport());
+        app.tick_skill_sessions();
+
+        assert!(app.brain.has_skill_session(SkillSessionKey::DailyTriage));
+        assert_eq!(recording.launch_specs().len(), 1);
+        app.tick_skill_sessions();
+        assert_eq!(recording.launch_specs().len(), 1);
+    }
+}
+
+#[test]
+fn invalid_sync_lock_is_reported_without_queueing_a_skill_retry() {
+    let cli = Cli::parse_from(["tasks"]);
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    let recording = TransportRecording::default();
+    let lock_path = app.context.workspace().paths().sync_lock();
+    std::fs::create_dir_all(&lock_path).unwrap();
+    inject_skill_session_transport(&mut app, recording.transport());
+
+    app.run_triage();
+
+    assert!(matches!(
+        app.status.flash(),
+        Some(crate::tui::modal_state::FlashKind::Error(_))
+    ));
+    std::fs::remove_dir(&lock_path).unwrap();
+    inject_skill_session_transport(&mut app, recording.transport());
+    app.tick_skill_sessions();
+    assert!(recording.launch_specs().is_empty());
+    assert!(!app.brain.has_skill_session(SkillSessionKey::DailyTriage));
+}

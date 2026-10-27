@@ -8,6 +8,7 @@ use crate::tui::model::{BrainTab, SessionTabId};
 
 #[cfg(test)]
 pub(super) mod exhausted_tab_ids;
+mod pending_skills;
 mod receiver;
 mod sessions;
 
@@ -31,6 +32,7 @@ pub(crate) struct BrainPanelState {
     brain_turn_active: bool,
     session_tabs: SessionTabs,
     configured_skill_sessions: Option<serde_json::Value>,
+    pending_skills: Vec<crate::skill_session::SkillSessionSpec>,
     main_manual_session_id: ManualSessionId,
     manual_sessions_to_restore: Option<Vec<ManualSessionRecord>>,
     interactive_actor: ActorContext,
@@ -65,6 +67,7 @@ impl BrainPanelState {
             brain_turn_active: false,
             session_tabs: SessionTabs::default(),
             configured_skill_sessions: init.configured_skill_sessions,
+            pending_skills: Vec::new(),
             main_manual_session_id,
             manual_sessions_to_restore: Some(init.manual_sessions),
             interactive_actor: init.interactive_actor,

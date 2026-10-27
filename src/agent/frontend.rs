@@ -125,12 +125,8 @@ impl LaunchRequest {
     }
 
     pub(crate) fn prepare_instructions(&self) -> Result<Self, AgentError> {
-        let generation =
-            crate::skills::generation::prepare_launch(self.workspace()).map_err(|error| {
-                AgentError::Frontend(format!(
-                    "cannot prepare workspace instructions and skills: {error:#}"
-                ))
-            })?;
+        let generation = crate::skills::generation::prepare_launch(self.workspace())
+            .map_err(|error| workspace_preparation_error(&error))?;
         let selected_capabilities = self
             .access_policy()
             .capability_plan()
@@ -144,7 +140,7 @@ impl LaunchRequest {
                 )
             })
             .transpose()
-            .map_err(|error| AgentError::Frontend(error.to_string()))?;
+            .map_err(|error| workspace_preparation_error(&error))?;
         let instructions = crate::agent::instructions::from_captured(
             self,
             &generation.instructions,
@@ -419,6 +415,16 @@ fn ambient_frontend_environment(
         .into_iter()
         .filter(|(name, _)| name.starts_with("OPENCODE_"))
         .collect()
+}
+
+fn workspace_preparation_error(error: &anyhow::Error) -> AgentError {
+    if error.is::<crate::skills::install_transaction::SyncBusy>() {
+        AgentError::WorkspaceSyncBusy
+    } else {
+        AgentError::Frontend(format!(
+            "cannot prepare workspace instructions and skills: {error:#}"
+        ))
+    }
 }
 
 #[cfg(test)]

@@ -3240,3 +3240,10 @@ lock's non-following file kind, then delegates ownership to the existing sync
 lock primitive. It does not fingerprint live lock contents: an owner may unlink
 its path while an observer is between metadata and content reads. Regular files
 and absence are accepted; symlinks, directories and special files remain refused.
+
+
+Skill-session launch preparation preserves typed sync contention through
+`AgentController`. `BrainPanelState` retains pending skill specifications, deduplicated
+by session key. The skill-session tick observes sync ownership before retrying through
+the same controller launch path; it never blocks the event loop waiting for the sync
+lock.
