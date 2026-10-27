@@ -27,6 +27,9 @@ pub struct RefreshWorkspaceSkillsArgs {
     /// Installed version supplied by the current installer before migration traversal.
     #[arg(long)]
     pub from_version: Option<String>,
+    /// Stable executable to name in installer recovery guidance.
+    #[arg(long)]
+    pub recovery_binary: Option<std::path::PathBuf>,
     /// Finalize this staged target under exclusive invocation ownership.
     #[arg(long, requires = "expected_target_sha256")]
     pub replace_binary: Option<std::path::PathBuf>,
@@ -35,6 +38,7 @@ pub struct RefreshWorkspaceSkillsArgs {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum RefreshPhase {
+    Prepare,
     Preflight,
     Apply,
 }

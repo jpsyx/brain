@@ -115,7 +115,9 @@ fn modern_source_selector_retains_helper_and_installs_frozen_target_with_exact_o
         String::from_utf8_lossy(&output.stderr)
     );
     let entries = f.entries();
-    assert_eq!(entries.len(), 3, "{entries:?}");
+    assert_eq!(entries.len(), 4, "{entries:?}");
+    assert_eq!(entries[0]["phase"], "prepare");
+    let entries = &entries[1..];
     assert_eq!(entries[0]["phase"], "preflight");
     assert_eq!(entries[1]["phase"], "apply");
     assert!(
@@ -152,7 +154,9 @@ fn upgrade_same_version_and_fresh_install_use_new_coordinator() {
             String::from_utf8_lossy(&output.stderr)
         );
         let entries = f.entries();
-        assert_eq!(entries.len(), 3);
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0]["phase"], "prepare");
+        let entries = &entries[1..];
         assert_eq!(entries[0]["phase"], "preflight");
         assert_eq!(entries[0]["identity"], "selected-target");
         assert_eq!(entries[1]["phase"], "apply");
@@ -175,7 +179,7 @@ fn split_coordinator_without_protected_finalization_refuses_before_live_changes(
 }
 #[test]
 fn rejected_phases_clean_helper_and_do_not_claim_success() {
-    for phase in ["preflight", "down", "apply"] {
+    for phase in ["prepare", "preflight", "down", "apply"] {
         let f = Fixture::new(Some(env!("CARGO_PKG_VERSION")), "0.101.0");
         let before = fs::read(f.bin.join("brain-custom")).unwrap();
         let output = f.command().env("FAIL_PHASE", phase).output().unwrap();

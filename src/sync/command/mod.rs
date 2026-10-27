@@ -66,7 +66,16 @@ pub fn sync_once(
     dir: Direction,
     now: (&str, &str, &str),
 ) -> Result<Outcome> {
-    sync_once_with_task_state(workspace, cfg, dir, now, true)
+    sync_once_with_task_state(workspace, cfg, dir, now, true, false)
+}
+
+/// Installer continuation never escalates an interrupted pull into repair/resync.
+pub(crate) fn recover_installer_receive(
+    workspace: &crate::workspace::WorkspaceContext,
+    config: &SyncConfig,
+    now: (&str, &str, &str),
+) -> Result<Outcome> {
+    sync_once_with_task_state(workspace, config, Direction::Pull, now, true, true)
 }
 
 fn sync_once_with_task_state(
@@ -75,6 +84,7 @@ fn sync_once_with_task_state(
     dir: Direction,
     now: (&str, &str, &str),
     reconcile_task_state: bool,
+    installer_recovery: bool,
 ) -> Result<Outcome> {
     if !cfg.is_configured() {
         bail!(
@@ -166,7 +176,7 @@ fn sync_once_with_task_state(
         run.exit_ok, run.transferred, run.deleted, run.errors, run.abort
     ));
     reporter.line(&theme.muted(&format_file_findings(&run)));
-    let resumed = if should_auto_resync(dir, run.abort.as_ref()) {
+    let resumed = if !installer_recovery && should_auto_resync(dir, run.abort.as_ref()) {
         crate::logging::log("sync auto-resync start");
         reporter.line(&theme.warning(
             "rclone reported that its baseline listing is incomplete; establishing it with a one-time resync…",
@@ -182,7 +192,9 @@ fn sync_once_with_task_state(
     } else {
         false
     };
-    let auto_repaired = if should_auto_repair_check_access(dir, run.abort.as_ref()) {
+    let auto_repaired = if !installer_recovery
+        && should_auto_repair_check_access(dir, run.abort.as_ref())
+    {
         crate::logging::log("sync auto-repair check-access marker");
         reporter.line(&theme.warning(&format!(
             "The check-access marker is missing; running `{}` automatically to recreate it and re-establish the baseline…",
@@ -257,7 +269,12 @@ fn sync_once_with_task_state(
     {
         journal.complete_receive(&workspace_id.to_string())?;
         reporter.line(&theme.info("Reconciling received workspace instructions and skills…"));
-        crate::skills::reconcile::after_receive(workspace)
+        if installer_recovery && outcome != Outcome::Clean {
+            // Keep completed conflict evidence until the user resolves both copies.
+            Ok(())
+        } else {
+            crate::skills::reconcile::after_receive(workspace)
+        }
     } else {
         Ok(())
     };
@@ -334,6 +351,7 @@ pub fn run_legacy_migration_sync(
         Direction::Both,
         (&started_at, &finished_at, &date),
         reconcile_task_state,
+        false,
     )?;
     match outcome {
         Outcome::Clean => {}

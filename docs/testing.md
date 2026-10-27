@@ -2040,3 +2040,15 @@ old mixed managed documents, extension preservation, repair at equal versions, a
 idempotent publication. Historical instruction receipts remain covered by journal
 recovery and downgrade tests. All four frontend delivery tests source customization
 from extensions and verify obsolete inline guidance does not reach the launch.
+
+
+Installer receive recovery acceptance lives in
+`tests/brain_skill_migration/install_receive.rs`, reusing the focused temporary
+workspace/SQLite and local rclone transport fixtures. The real installer and
+coordinator run against temporary HOME/state and custom bin/name paths; only cargo
+and remote transport are replaced. Cases cover recovery then publication, offline
+failure and retry, active sync, existing/completed and newly received conflicts,
+repeat interruption, local/remote identity refusal, completed local reconciliation,
+clean offline preparation, and refusal to escalate into baseline/check-access
+repair. The existing installer preflight tests continue to prove pending receives
+are refused without mutation when preparation has not completed.

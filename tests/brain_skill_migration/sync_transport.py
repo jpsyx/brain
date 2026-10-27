@@ -67,8 +67,18 @@ elif operation == "bisync":
     if mode == "crash":
         os.kill(os.getppid(), signal.SIGKILL)
         sys.exit(0)
+    if mode == "baseline":
+        print("ERROR : cannot find prior Path1 or Path2 listings", file=sys.stderr)
+        print("ERROR : Bisync aborted. Must run --resync to recover.", file=sys.stderr)
+        sys.exit(7)
+    if mode == "check-access":
+        print("ERROR : Access test failed: Path1 count 0, Path2 count 0 - RCLONE_TEST", file=sys.stderr)
+        print("ERROR : Bisync aborted. Must run --resync to recover.", file=sys.stderr)
+        sys.exit(7)
     if mode == "fail":
         sys.exit(5)
+    if mode == "conflict":
+        (local / "note.md.__brainconflict__1").write_text("preserve conflicting content")
     if mode != "mismatch":
         for source in (remote / ".config/extensions").glob("*.md"):
             copy(source, local / ".config/extensions" / source.name)

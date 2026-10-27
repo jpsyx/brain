@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 pub(super) struct Transfer {
     pub fixture: Fixture,
     pub remote: PathBuf,
-    bin: PathBuf,
+    pub bin: PathBuf,
     pub trace: PathBuf,
 }
 
@@ -79,8 +79,13 @@ impl Transfer {
     }
 
     pub fn run(&self, args: &[&str], mode: &str) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_brain"))
-            .args(args)
+        self.command(mode).args(args).output().unwrap()
+    }
+
+    pub fn command(&self, mode: &str) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_brain"));
+        command
+            .env_clear()
             .env("HOME", &self.fixture.home)
             .env("XDG_CONFIG_HOME", self.fixture.home.join(".config"))
             .env(
@@ -97,9 +102,8 @@ impl Transfer {
             .env("BRAIN_FIXTURE_RECEIVE", mode)
             .env_remove("BRAIN_WORKSPACE")
             .env_remove("BRAIN_WORKSPACE_ID")
-            .current_dir(self.fixture.temp.path())
-            .output()
-            .unwrap()
+            .current_dir(self.fixture.temp.path());
+        command
     }
 
     pub fn phase(&self) -> Option<String> {

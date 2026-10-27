@@ -179,11 +179,15 @@ if [[ -n "$target_source" ]] && version_is_greater 0.102.25 "$BUILT_VERSION" && 
 fi
 refresh_skills() {
   local replacement="${3:-}"
+  local phase="$2"
   set -- __refresh-workspace-skills --target-binary "$1" \
     --target-version "$BUILT_VERSION" --phase "$2" \
     --expected-target-sha256 "$expected_digest"
   if ! version_is_greater 0.106.0 "$coordinator_version" && [[ -n "$INSTALLED_VERSION" ]]; then
     set -- "$@" --from-version "$INSTALLED_VERSION"
+  fi
+  if [[ "$phase" = prepare ]]; then
+    set -- "$@" --recovery-binary "${recovery_binary}"
   fi
   if [[ -n "$replacement" ]]; then
     set -- "$@" --replace-binary "$replacement"
@@ -193,6 +197,12 @@ refresh_skills() {
   fi
   "$stage/helper" "$@"
 }
+recovery_binary="$BUILD_DIR/release/brain"
+if [[ -n "$INSTALLED_VERSION" ]]; then recovery_binary="$INSTALLED_BINARY"; fi
+if ! version_is_greater 0.106.20 "$coordinator_version"; then
+  echo "Checking interrupted workspace receives before installation preflight…" >&2
+  refresh_skills "$stage/target" prepare
+fi
 if $refresh; then refresh_skills "$stage/target" preflight; fi
 [[ "$(sha256 "$stage/target")" = "$expected_digest" ]] || { echo 'error: frozen target changed; installation stopped.' >&2; exit 1; }
 if ! version_is_greater 0.106.14 "$coordinator_version"; then

@@ -3055,7 +3055,7 @@ replacement. Historical cross-boundary
 `__migrate` calls without installer refresh protocol 1 fail before mutation.
 
 The hidden `__refresh-workspace-skills` route exits before ordinary bootstrap.
-Its arguments are `--target-binary`, `--target-version`, `--phase preflight|apply`
+Its arguments are `--target-binary`, `--target-version`, `--phase prepare|preflight|apply`
 and `--expected-target-sha256`, and optional `--from-version` generation evidence.
 Current installer apply also supplies `--replace-binary` and, when an executable
 exists, `--expected-installed-sha256`. `skill_refresh/replacement.rs` owns final
@@ -3078,8 +3078,18 @@ against the shared down projection and actual target core inventory. Only the
 customization-free core inventory is cached between roots. Live AGENTS/config/source
 snapshots and typed provenance are revalidated before the shared transaction.
 Exact target-template recognition supports re-upgrade without stale backup replay.
-The sync lock precedes operation/task and install ownership; any pending receive
-refuses the transition. Downgrade checks all registered roots before publication.
+The sync lock precedes operation/task and install ownership. Preflight and apply
+still refuse pending receives. Coordinator 0.106.20 adds `skill_refresh/recovery.rs`
+as an explicit preparation phase before read-only preflight. It validates available
+registered identities, acquires each affected UUID's sync lock, and continues one
+interrupted pull through `startup_migration/receive.rs` and the actual sync pipeline.
+Completed receives use the shared package reconciler without transport. The bounded
+installer pull disables automatic resync/check-access repair and retains completed
+conflict evidence. Preparation runs no machine migrations, target projections, task
+schema seeding, or version stamping. No pending receive means no network work.
+Optional `--recovery-binary` carries the stable installed path (or built executable
+for a fresh install) solely for shell-quoted diagnostics. Downgrade checks all
+registered roots before preparation or publication.
 
 `startup_migration/invocation.rs` holds a shared machine invocation lock through
 ordinary dispatch and the full TUI lifetime. Hidden maintenance takes exclusive

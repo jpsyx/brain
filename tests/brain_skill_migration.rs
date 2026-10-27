@@ -91,3 +91,6 @@ mod startup;
 mod sync_arrival;
 #[path = "brain_skill_migration/sync_fixture.rs"]
 mod sync_fixture;
+
+#[path = "brain_skill_migration/install_receive.rs"]
+mod install_receive;

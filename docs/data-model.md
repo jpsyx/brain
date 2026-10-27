@@ -3159,3 +3159,12 @@ Pending skill starts are process-local `SkillSessionSpec` values keyed by
 `SkillSessionKey`. They have no running tab or persisted session until launch succeeds.
 Sync contention retains the request; success or a non-contention failure removes it.
 Exiting the TUI discards this pending state.
+
+
+Installer receive preparation (coordinator 0.106.20) consumes the existing UUID-bound
+`portable_receive` phases without a new marker or journal schema. `receiving`
+permits one verified bounded pull; `reconcile` permits local package reconciliation.
+A completed automatic pull with conflicts retains `reconcile` instead of clearing
+its recovery evidence. Clean workspaces require no transport. Failed preparation
+retains the installed executable, machine version stamp, and remaining receive
+state; the installer performs its read-only target preflight afterward.

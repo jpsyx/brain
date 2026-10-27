@@ -6611,3 +6611,24 @@ begin after the triage nudge appears. Keep the package lock and validation bound
 intact, preserve typed contention, and retry the accepted request from the TUI tick. Do
 not sleep on the event loop or retry arbitrary launch errors, which may represent
 invalid packages or frontend failures.
+
+
+## Installer recovery precedes read-only target preflight
+
+An interrupted receive previously wedged installation at `receive_pending` even
+though an explicit pull could complete it. A separate preparation phase makes that
+same continuation automatic without weakening preflight or deleting evidence.
+It runs in-process beneath the installer's exclusive invocation guard and acquires
+the existing UUID sync lock; spawning an ordinary Brain child there would conflict
+with exclusive invocation ownership. Preparation performs no migration traversal,
+version stamping, or target schema seeding, so a rejected downgrade cannot leave
+the machine stamped for an unaccepted target. Missing downgrade roots fail before
+preparation; upgrades continue to leave unavailable roots pending.
+
+One interrupted pull is the limit. Ordinary sync's baseline/check-access fallbacks
+are intentionally disabled in this path, and completed conflicts retain their
+reconciliation phase. Clean and completed-receive workspaces require no network
+access. Failure leaves the installed executable available and reports the actual
+cause with a shell-quoted recovery command for its custom install path. Historical
+coordinators retain their existing refusal rather than receiving an unsupported
+new phase.

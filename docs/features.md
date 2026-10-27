@@ -3176,10 +3176,21 @@ BIN_DIR="$HOME/.local/bin" /path/to/current-brain/install.sh \
 An old target requires an already installed migration-capable coordinator.
 Current profiles support audited 0.101.0, audited 0.105.3, and the coordinator's
 exact current version. The installer rejects unknown targets and incompatible
-workspace identity, schema, active removal, pending receives, or managed ownership
+workspace identity, schema, active removal, unresolved receives, or managed ownership
 before replacement. Every registered root must be available for downgrade; none
 is invented. Upgrades continue to retain missing roots as pending. Available roots
 are attempted independently after this downgrade availability check.
+
+With a coordinator at least 0.106.20, installation first prepares interrupted
+receives for available workspaces. It attempts one verified pull per incomplete
+receive, or reconciles an already completed receive without network access. Clean
+workspaces add no network dependency. Active syncs, identity errors, offline
+failures and unresolved conflicts stop installation while retaining the installed
+executable and recovery evidence. Diagnostics name the workspace, actual cause,
+and an exact recovery command using the selected executable path and workspace.
+Preparation never invokes destructive repair/resync or changes the machine version
+stamp. Preflight remains read-only. Earlier coordinators retain their existing
+safe refusal and explicit recovery behavior.
 
 Preflight renders private copies of instructions, config, extensions and plugins
 without editing live customization. Apply publishes compatible instructions,

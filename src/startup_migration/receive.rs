@@ -49,34 +49,12 @@ pub(super) fn recover_pull(cli: &mut Cli) -> Result<bool> {
         );
         crate::migration::require_no_active_rollout(&paths)?;
         crate::tasks::schema::ensure_schema_document(command.workspace.root())?;
-        let now = chrono::Utc::now();
-        let timestamp = now.to_rfc3339();
-        let date = now.format("%Y-%m-%d").to_string();
-        eprintln!(
-            "{}",
-            crate::theme::Theme::active()
-                .info("Completing the interrupted workspace receive before startup…")
-        );
-        let outcome = crate::sync::command::sync_once(
+        transfer(
             &command.workspace,
             &crate::sync::config::SyncConfig::load(&command),
             direction,
-            (&timestamp, &timestamp, &date),
-        )?;
-        match outcome {
-            Outcome::Clean => {
-                if direction == Direction::Resync {
-                    crate::command::sync::reconcile_after_successful_repair(
-                        &command.workspace,
-                        true,
-                    )?;
-                }
-                Ok(())
-            }
-            Outcome::NeedsAttention(message) | Outcome::Aborted(message) => {
-                anyhow::bail!("receive recovery did not complete cleanly: {message}")
-            }
-        }
+            false,
+        )
     })?;
     eprintln!(
         "{}",
@@ -84,4 +62,45 @@ pub(super) fn recover_pull(cli: &mut Cli) -> Result<bool> {
             .success("Workspace receive and package reconciliation complete.")
     );
     Ok(true)
+}
+
+/// Continue a receive under the caller's validated UUID sync ownership.
+pub(super) fn transfer(
+    workspace: &crate::workspace::WorkspaceContext,
+    config: &crate::sync::config::SyncConfig,
+    direction: Direction,
+    installer: bool,
+) -> Result<()> {
+    let now = chrono::Utc::now();
+    let timestamp = now.to_rfc3339();
+    let date = now.format("%Y-%m-%d").to_string();
+    eprintln!(
+        "{}",
+        crate::theme::Theme::active().info("Completing the interrupted workspace receive…")
+    );
+    let outcome = if installer {
+        crate::sync::command::recover_installer_receive(
+            workspace,
+            config,
+            (&timestamp, &timestamp, &date),
+        )?
+    } else {
+        crate::sync::command::sync_once(
+            workspace,
+            config,
+            direction,
+            (&timestamp, &timestamp, &date),
+        )?
+    };
+    match outcome {
+        Outcome::Clean => {
+            if direction == Direction::Resync {
+                crate::command::sync::reconcile_after_successful_repair(workspace, true)?;
+            }
+            Ok(())
+        }
+        Outcome::NeedsAttention(message) | Outcome::Aborted(message) => {
+            anyhow::bail!("receive recovery did not complete cleanly: {message}")
+        }
+    }
 }

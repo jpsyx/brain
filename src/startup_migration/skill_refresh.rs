@@ -1,5 +1,6 @@
 //! Installer-only target rendering, ownership preflight and publication.
 mod package;
+mod recovery;
 mod replacement;
 mod replica;
 mod sources;
@@ -52,6 +53,9 @@ fn refresh_target(args: &RefreshWorkspaceSkillsArgs, target: &Target) -> Result<
                 "{name}: pending_unavailable; every registered root must be available before downgrade"
             );
         }
+    }
+    if args.phase == RefreshPhase::Prepare {
+        return recovery::prepare(&home, &store, &registry, args.recovery_binary.as_deref());
     }
     let mut core = None;
     let mut failures = false;

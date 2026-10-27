@@ -2826,7 +2826,7 @@ receiver recovery and manual/skill sessions.
 
 Portable receive uses the existing sync lock before managed installation. After
 a successful verified pull and task merge, sync calls the shared locked package
-coordinator directly. An interrupted receive can resume only through explicit
+coordinator directly. An interrupted receive normally resumes through explicit
 `brain sync --pull -w <workspace>` or `brain sync repair -w <workspace>` after
 prerequisite migrations. The hidden `sync init` repair alias is preserved. Recovery
 performs one pull or resync repair and consumes that invocation; successful repair
@@ -2872,7 +2872,17 @@ the entire document; customization must come from extension sources.
 
 Downgrade applies while the modern executable is still installed. Failure leaves
 that executable available to recover the journal. The installer requires every
-registered root and refuses pending receives under sync-before-install ownership.
+registered root before receive preparation, and preflight/apply refuse remaining
+pending receives under sync-before-install ownership. Coordinator 0.106.20's
+separate `prepare` phase reuses the actual receive transfer and package reconciler
+in-process under exclusive invocation ownership. It does not spawn an ordinary
+Brain child beneath that exclusive guard. Only affected available workspaces
+contact the remote; existing local/remote identity, rollout, sync/task/install lock,
+CSV merge and package transaction checks remain authoritative. Automatic recovery
+attempts one pull and never escalates into resync/check-access repair. Completed
+conflicts retain their journal state for user resolution. No target migration or
+version stamp runs before preflight. The optional recovery executable argument is
+presentation-only, preserving custom install names and bin directories in guidance.
 Upgrade still leaves unavailable roots pending. Optional installer `--from-version`
 evidence supplies split eligibility before traversal, while a verified current
 portable generation takes precedence over that older version claim.
