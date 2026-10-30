@@ -1881,7 +1881,11 @@ under one lock; the coordinator reuses that boundary and its ownership planner.
 Explicit sync also checks source changes at equal versions. Routine mutations
 remain optional, and the configured preference is never silently rewritten.
 Compatibility refresh is mandatory before every non-help/version dispatch,
-including saved-operation status. User-owned extension/plugin sources feed the
+including saved-operation status. It is deferred, not failed, when an active
+sync or skill update holds the workspace past the bounded wait: the
+change-triggered sync watcher makes that contention routine, the active sync
+reconciles what it receives, and failing every command started mid-sync with an
+ownership hint misdirected users toward a problem that did not exist. User-owned extension/plugin sources feed the
 renderer; generated managed trees are outputs. Repair changes those outputs
 through the ownership transaction, never the customization sources. A supported
 installer downgrade must render with the actual target binary because newer

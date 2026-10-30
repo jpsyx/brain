@@ -14,6 +14,7 @@ pub(crate) enum Category {
     UnreadableSource,
     InvalidSource,
     RefreshFailed,
+    SyncBusy,
     ReceivePending,
     ReceiveConflict,
     ReceiptWriteFailed,
@@ -32,6 +33,7 @@ impl Category {
             Self::UnreadableSource => "unreadable_source",
             Self::InvalidSource => "invalid_source",
             Self::RefreshFailed => "refresh_failed",
+            Self::SyncBusy => "sync_busy",
             Self::ReceivePending => "receive_pending",
             Self::ReceiveConflict => "receive_conflict",
             Self::ReceiptWriteFailed => "receipt_write_failed",
@@ -65,6 +67,9 @@ impl Category {
             }
             Self::RefreshFailed => {
                 "Inspect managed skill ownership and installation state for this workspace, then retry brain skills sync --all-workspaces"
+            }
+            Self::SyncBusy => {
+                "Another workspace sync or skill update is still running; retry after it finishes (automatic refreshes retry on the next command)"
             }
             Self::ReceivePending => {
                 "Complete the interrupted receive with brain sync --pull -w <workspace> or brain sync repair -w <workspace> before running other commands or launching an agent"
@@ -137,7 +142,9 @@ impl Diagnostic {
                 _ => Self::new(Category::Membership, stage, Some(".config/users.json")),
             };
         }
-        let category = if error.downcast_ref::<std::io::Error>().is_some() {
+        let category = if super::reconcile::is_contention(error) {
+            Category::SyncBusy
+        } else if error.downcast_ref::<std::io::Error>().is_some() {
             Category::UnreadableSource
         } else if error.downcast_ref::<serde_json::Error>().is_some() {
             Category::InvalidSource

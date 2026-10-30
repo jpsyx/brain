@@ -23,6 +23,16 @@ impl std::fmt::Display for LockTimeout {
 }
 impl std::error::Error for LockTimeout {}
 
+/// Whether `error` only reports that another sync or skill update owns the
+/// workspace: the bounded wait expired, or an immediate attempt found it busy.
+pub(super) fn is_contention(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<LockTimeout>().is_some()
+        || error
+            .downcast_ref::<super::super::install_transaction::SyncBusy>()
+            .is_some()
+        || error.downcast_ref::<InstallBusy>().is_some()
+}
+
 pub(super) fn acquire(identity: &InstallIdentity) -> Result<LockedInstall> {
     let deadline = Instant::now()
         .checked_add(WAIT)

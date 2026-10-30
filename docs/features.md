@@ -1598,8 +1598,12 @@ Missing roots remain absent and pending, and are retried after remounting.
 `--all-workspaces` conflicts with an explicit `-w` or `--root`; inherited workspace
 selection is ignored. `--json` requires `--all-workspaces` and emits one schema-1
 document with `workspaces`, `startup_error`, `logger_error`, and `refresh_error`.
-Each named workspace has status `current`, `updated`, `pending_unavailable`, or
-`failed`. An unavailable root alone is success. Available-root failures and any
+Each named workspace has status `current`, `updated`, `pending_unavailable`,
+`deferred`, or `failed`. An unavailable root alone is success. Automatic
+compatibility refresh waits up to 30 seconds for an active workspace sync or
+skill update; if it still owns the workspace, the row is `deferred` (not a
+failure, so the invoking command continues and the next one retries). Explicit
+repair keeps its immediate busy semantics and fails with category `sync_busy`. Available-root failures and any
 top-level diagnostic make the exit nonzero. Mandatory startup still runs once;
 if an earlier hook migration fails, independent skill repair completes and its
 truthful outcomes are reported while the machine migration stamp stays unchanged.
@@ -1608,8 +1612,8 @@ Managed failures identify the workspace name/UUID and a safe category, relative
 artifact, and corrective hint. Failed JSON rows add `diagnostic` with `category`,
 `stage`, `artifact` and `hint`, while retaining `message`. Categories distinguish
 modified managed content, ownership conflicts, core/plugin overrides, target
-minimum-version and membership problems, unreadable or invalid sources, and
-other refresh failures. Source bodies, parser values and target child output are
+minimum-version and membership problems, unreadable or invalid sources, an
+active sync or skill update (`sync_busy`), and other refresh failures. Source bodies, parser values and target child output are
 never diagnostic content. Preserve edits before restoring a modified generated
 file; rename conflicting plugins or use the matching extension, then retry.
 

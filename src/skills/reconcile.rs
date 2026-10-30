@@ -28,6 +28,12 @@ pub(crate) enum WorkspaceRefresh {
         workspace_id: String,
         root: PathBuf,
     },
+    /// Another sync or skill update owned the workspace for the whole bounded
+    /// wait. The receipt stays stale, so the next invocation retries; the
+    /// active sync reconciles anything it receives itself.
+    Deferred {
+        workspace_id: String,
+    },
     Failed {
         workspace_id: String,
         message: String,
@@ -142,14 +148,29 @@ fn refresh_record(
                 legacy_machine,
             )
         });
+    outcome(workspace_id, mode, result)
+}
+
+/// Classify one workspace's refresh. Lock contention is transient: automatic
+/// compatibility defers it instead of failing the invoking command, while an
+/// explicit repair reports it as `sync_busy`.
+fn outcome(workspace_id: String, mode: RefreshMode, result: Result<bool>) -> WorkspaceRefresh {
     match result {
         Ok(true) => WorkspaceRefresh::Updated { workspace_id },
         Ok(false) => WorkspaceRefresh::Current { workspace_id },
+        Err(error) if matches!(mode, RefreshMode::Compatibility) && is_contention(&error) => {
+            WorkspaceRefresh::Deferred { workspace_id }
+        }
         Err(error) => failure(
             workspace_id,
             Diagnostic::from_error(&error, "reconcile", None),
         ),
     }
+}
+
+/// Whether an error only means another sync or skill update owns the workspace.
+pub(crate) fn is_contention(error: &anyhow::Error) -> bool {
+    lock::is_contention(error)
 }
 pub(crate) fn sources(root: &Path) -> install::Sources {
     install::Sources {
@@ -320,5 +341,47 @@ fn failure(workspace_id: String, diagnostic: Diagnostic) -> WorkspaceRefresh {
         workspace_id,
         message: diagnostic.to_string(),
         diagnostic,
+    }
+}
+
+#[cfg(test)]
+mod outcome_tests {
+    use super::*;
+    use crate::skills::install_transaction::SyncBusy;
+
+    fn busy() -> anyhow::Error {
+        anyhow::Error::new(SyncBusy).context("acquire workspace sync")
+    }
+
+    #[test]
+    fn automatic_refresh_defers_while_another_sync_owns_the_workspace() {
+        let outcome = outcome("ws".into(), RefreshMode::Compatibility, Err(busy()));
+        assert!(matches!(outcome, WorkspaceRefresh::Deferred { .. }), "{outcome:?}");
+        let report = RefreshReport {
+            workspaces: vec![NamedRefresh { name: "brain".into(), outcome }],
+            refresh_error: None,
+        };
+        assert!(!report.failed(), "contention is not a refresh failure");
+    }
+
+    #[test]
+    fn explicit_refresh_reports_contention_as_sync_busy_not_ownership() {
+        let outcome = outcome("ws".into(), RefreshMode::Explicit, Err(busy()));
+        let WorkspaceRefresh::Failed { diagnostic, .. } = outcome else {
+            panic!("explicit contention must still fail: {outcome:?}");
+        };
+        let text = diagnostic.to_string();
+        assert!(text.starts_with("sync_busy"), "{text}");
+        assert!(!text.contains("ownership"), "{text}");
+    }
+
+    #[test]
+    fn other_errors_still_fail_automatic_refresh() {
+        let outcome = outcome(
+            "ws".into(),
+            RefreshMode::Compatibility,
+            Err(anyhow::anyhow!("broken")),
+        );
+        assert!(matches!(outcome, WorkspaceRefresh::Failed { .. }));
     }
 }

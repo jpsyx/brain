@@ -1198,6 +1198,11 @@ currentness; a committed install with a failed DB stamp retains its journal for
 retry. An equal receipt is current only when the managed files and frontend
 links are intact. Missing artifacts are repaired; modified owned files conflict.
 Mandatory compatibility refresh ignores `skills_auto_sync` without changing it.
+Compatibility refresh takes the workspace sync and install locks through the
+bounded 30-second wait in `src/skills/reconcile/lock.rs`; explicit refresh keeps
+immediate typed busy errors. `reconcile::is_contention` classifies both:
+compatibility rows become `Deferred` (the stale receipt makes the next
+invocation retry), explicit rows fail as `sync_busy`.
 Explicit repair also compares current extension/plugin sources through the same
 ownership planner, even when the stored receipt already matches.
 

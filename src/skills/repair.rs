@@ -115,6 +115,10 @@ pub fn run(cli: &crate::cli::Cli) -> Result<i32> {
                 reconcile::WorkspaceRefresh::PendingUnavailable { workspace_id, .. } => {
                     format!("{} ({workspace_id}): pending_unavailable", row.name)
                 }
+                reconcile::WorkspaceRefresh::Deferred { workspace_id } => format!(
+                    "{} ({workspace_id}): deferred (another sync is running; retries on the next command)",
+                    row.name
+                ),
                 reconcile::WorkspaceRefresh::Failed {
                     workspace_id,
                     diagnostic,
@@ -124,7 +128,8 @@ pub fn run(cli: &crate::cli::Cli) -> Result<i32> {
             let theme = crate::theme::Theme::active();
             let message = match &row.outcome {
                 reconcile::WorkspaceRefresh::Failed { .. } => theme.error(&message),
-                reconcile::WorkspaceRefresh::PendingUnavailable { .. } => theme.warning(&message),
+                reconcile::WorkspaceRefresh::PendingUnavailable { .. }
+                | reconcile::WorkspaceRefresh::Deferred { .. } => theme.warning(&message),
                 reconcile::WorkspaceRefresh::Updated { .. } => theme.success(&message),
                 reconcile::WorkspaceRefresh::Current { .. } => theme.info(&message),
             };
