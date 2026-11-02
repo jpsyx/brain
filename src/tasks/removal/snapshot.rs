@@ -72,6 +72,15 @@ impl Snapshot {
         owner
             .recover(workspace)
             .map_err(|error| problem("snapshot_recovery_failed", &error, ""))?;
+        Self::read_observed(context, today)
+    }
+
+    /// Speculative input only: never recover or authorize a write without ownership.
+    pub(crate) fn read_observed(
+        context: &SnapshotContext<'_>,
+        today: NaiveDate,
+    ) -> Result<Self, Problem> {
+        let workspace = context.workspace;
         let root = workspace.root();
         validate_path(root, root)?;
         validate_file(root, &root.join(".config/config.json"))?;
@@ -238,7 +247,7 @@ fn read_csv(root: &Path, relative: &str) -> Result<CsvSnapshot, Problem> {
 }
 
 /// Removal preserves every original column, including legacy assignment fields.
-fn parse_raw_csv(bytes: &[u8]) -> anyhow::Result<CsvFile> {
+pub(super) fn parse_raw_csv(bytes: &[u8]) -> anyhow::Result<CsvFile> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(bytes);
     let header: Vec<_> = reader.headers()?.iter().map(str::to_owned).collect();
     anyhow::ensure!(

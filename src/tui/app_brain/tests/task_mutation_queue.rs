@@ -333,3 +333,47 @@ fn failed_habit_refresh_keeps_the_last_authoritative_rows() {
             .is_some()
     );
 }
+
+#[test]
+fn pending_deletion_restores_synced_task_and_reports_changed_consent() {
+    let temp = tempfile::tempdir().unwrap();
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temp, &cli, AgentKind::Claude);
+    let path = app.context.tasks_csv_path().to_path_buf();
+    seed(&path, "task_id,task_name,status\nT1,Original,not_started\n").unwrap();
+    app.reload_tasks().unwrap();
+    let owner = crate::tasks::store_lock::TaskStoreOwner::acquire(app.context.workspace()).unwrap();
+    app.run_remove("T1");
+    wait_preview(&mut app);
+    key(&mut app, KeyCode::Char('d'));
+    assert!(app.overlay.is_none());
+    assert!(
+        app.tasks
+            .completion_identity("T1", app.context.workspace().id())
+            .is_none()
+    );
+    assert!(std::fs::read_to_string(&path).unwrap().contains("Original"));
+    seed(
+        &path,
+        "task_id,task_name,status\nT1,Synced edit,not_started\n",
+    )
+    .unwrap();
+    app.reload_tasks().unwrap();
+    assert!(
+        app.tasks
+            .completion_identity("T1", app.context.workspace().id())
+            .is_none()
+    );
+    drop(owner);
+    drain(&mut app);
+    let restored = app
+        .tasks
+        .completion_identity("T1", app.context.workspace().id())
+        .unwrap();
+    assert_eq!(restored.0.task_name, "Synced edit");
+    assert!(app.status.error().unwrap().contains("Deletion canceled"));
+    assert!(
+        !app.reopen_removal(),
+        "a canceled pending deletion needs no recovery"
+    );
+}

@@ -3274,3 +3274,21 @@ the wrapped content's last page, including on initial opening and resizing.
 and clipboard adapters in `open_target`. Log palette commands are global and
 require no task or directory target. `brain logs FILE [--copy]` has no workspace
 bootstrap requirement and still follows ordinary machine migration ordering.
+
+
+### Speculative removal previews
+
+`tasks/removal/pending.rs` owns read-only speculative previews and comparison of
+consented effects against an owned fresh snapshot. A transient consent digest
+is never serialized into CLI plans or saved operations. CSV comparison includes
+the complete before/after rows changed by deletion, while unrelated rows are
+excluded; non-CSV edits retain complete before/after content. The execution
+context, integration configuration, targets and relationship labels are also
+checked. The worker commits a newly rebuilt plan so unrelated received edits
+are retained. Existing strict validation and transaction ownership still guard
+all writes and external actions.
+
+The native task worker has separate bounded serial lanes for read-only previews
+and mutations. A preview can finish while a mutation waits for task ownership;
+mutations retain FIFO order. Existing job-scoped projections hide confirmed
+pending deletions and restore current authoritative rows on rejection.

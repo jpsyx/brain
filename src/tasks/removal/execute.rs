@@ -80,6 +80,15 @@ pub(crate) fn apply_queued(
         .acquire(&context.workspace)
         .map_err(|error| operational("ownership_failed", &error))?;
     let snapshot = snapshot_for_plan(context, today, &owner, plan)?;
+    if plan.fingerprint != expected {
+        return Err(problem(
+            "stale_plan",
+            "Task removal inputs changed; preview and confirm again",
+        ));
+    }
+    let rebased = super::pending::rebase(&snapshot, plan)?;
+    let plan = &rebased;
+    let expected = plan.fingerprint.as_str();
     validate(&snapshot, plan, expected)?;
     let canonical_inputs = serde_json::to_value(snapshot.canonical_for(
         &plan.options,

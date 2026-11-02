@@ -12,12 +12,8 @@ pub(super) fn execute(context: &CommandContext, request: Request) -> Response {
         today,
     } = request
     {
-        return Response::Preview(removal::preview_with(
-            context,
-            &targets,
-            &options,
-            today,
-            Acquisition::Queued,
+        return Response::Preview(removal::pending::preview(
+            context, &targets, &options, today,
         ));
     }
     let recover = !matches!(request, Request::Status(_));
@@ -145,6 +141,14 @@ fn load_rows(context: &CommandContext, recover: bool) -> Result<super::Rows, Str
 
 /// Reconcile evidence only after a disconnected worker. Never replay its mutation.
 pub(super) fn reconcile(context: &CommandContext, request: &Request) -> Response {
+    // Preview jobs run independently and cannot establish mutation snapshot coverage.
+    if matches!(request, Request::Preview { .. }) {
+        return Response::Preview(Err(removal::model::Problem::new(
+            "worker_failed",
+            "Could not check deletion details. Nothing was deleted by this preview.",
+            serde_json::json!({}),
+        )));
+    }
     let rows = load_rows(
         context,
         !matches!(request, Request::Preview { .. } | Request::Status(_)),
@@ -205,11 +209,7 @@ pub(super) fn reconcile(context: &CommandContext, request: &Request) -> Response
                 },
             )
         }
-        Request::Preview { .. } => Response::Preview(Err(removal::model::Problem::new(
-            "worker_failed",
-            "Could not check deletion details. Nothing was deleted by this preview.",
-            serde_json::json!({}),
-        ))),
+        Request::Preview { .. } => unreachable!(),
     };
     Response::Settled(
         Box::new(Response::Warning(
@@ -230,6 +230,38 @@ fn reconcile_removal(context: &CommandContext, id: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disconnected_preview_never_returns_mutation_snapshot_coverage() {
+        use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = WorkspaceContext::new(
+            temporary.path(),
+            WorkspaceId::new(),
+            WorkspaceName::parse("test").unwrap(),
+            temporary.path(),
+            "member",
+            temporary.path(),
+        )
+        .unwrap();
+        let context = CommandContext::for_test(
+            std::sync::Arc::new(workspace),
+            RegistryStore::from_path(temporary.path().join("env.json")),
+            "member",
+        );
+        let response = reconcile(
+            &context,
+            &Request::Preview {
+                targets: vec!["T1".into()],
+                options: removal::model::Options::default(),
+                today: chrono::Local::now().date_naive(),
+            },
+        );
+        assert!(
+            matches!(response, Response::Preview(Err(problem)) if problem.code == "worker_failed")
+        );
+    }
+
     #[test]
     fn failed_apply_clears_identity_only_with_absent_durable_evidence() {
         use crate::workspace::{RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName};

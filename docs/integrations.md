@@ -2947,3 +2947,13 @@ the current workspace selector is added to the recovery commands in that log.
 Active sync ownership remains `WorkspaceSyncBusy` and asks the user to wait.
 The TUI does not bypass either guard or recover a sync as a side effect of
 starting a session.
+
+
+Native TUI deletion previews may read local inputs while sync owns the task
+store. These speculative reads perform no transaction recovery or external
+calls. A confirmed pending deletion waits for task-store ownership, rebuilds
+its effects from current data, and checks the original affected-data consent
+before creating a durable operation or canceling linked issues. Changed consent
+restores the task projection and reports cancellation in the status line.
+Unrelated CSV edits remain in the newly built plan. CLI saved-plan execution
+continues to use complete fingerprint validation.

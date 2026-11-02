@@ -50,12 +50,30 @@ pub(crate) trait RemovalService {
 }
 #[derive(Default)]
 pub(crate) struct NativeService {
+    previews: WorkerLane,
+    mutations: WorkerLane,
+}
+impl RemovalService for NativeService {
+    fn start(&mut self, context: CommandContext, generation: u64, request: Request) {
+        let lane = if matches!(request, Request::Preview { .. }) {
+            &mut self.previews
+        } else {
+            &mut self.mutations
+        };
+        lane.start(context, generation, request);
+    }
+    fn poll(&mut self) -> Option<(u64, Response)> {
+        self.mutations.poll().or_else(|| self.previews.poll())
+    }
+}
+#[derive(Default)]
+struct WorkerLane {
     pending: Vec<(u64, Receiver<Response>)>,
     active: Option<(CommandContext, Request, bool)>,
     handles: Vec<std::thread::JoinHandle<()>>,
     queued: VecDeque<(CommandContext, u64, Request)>,
 }
-impl RemovalService for NativeService {
+impl WorkerLane {
     fn start(&mut self, context: CommandContext, generation: u64, request: Request) {
         if !self.pending.is_empty() {
             self.queued.push_back((context, generation, request));
@@ -91,7 +109,7 @@ impl RemovalService for NativeService {
     }
 }
 
-impl NativeService {
+impl WorkerLane {
     fn launch(
         &mut self,
         context: CommandContext,
@@ -185,12 +203,9 @@ mod tests {
                 },
             );
         }
-        let in_flight = service.pending.len();
+        let in_flight = service.previews.pending.len() + service.mutations.pending.len();
         drop(owner);
-        assert_eq!(
-            in_flight, 1,
-            "preview replacement must not accumulate lock-waiting workers"
-        );
+        assert_eq!(in_flight, 2, "each lane has at most one active worker");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let mut generations = Vec::new();
         while generations.len() < 9 {
@@ -200,6 +215,20 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
-        assert_eq!(generations, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(
+            generations
+                .iter()
+                .copied()
+                .filter(|id| matches!(id, 1..=3 | 8..=9))
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 8, 9]
+        );
+        assert_eq!(
+            generations
+                .into_iter()
+                .filter(|id| matches!(id, 4..=7))
+                .collect::<Vec<_>>(),
+            [4, 5, 6, 7]
+        );
     }
 }

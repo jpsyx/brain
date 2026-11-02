@@ -21,6 +21,7 @@ impl RemovalService for NativeRecorder {
         self.calls.lock().unwrap().push(request.clone());
         let response = match request {
             Request::Preview { options, .. } => Response::Preview(Ok(RemovalPlan {
+                pending_consent: None,
                 presentation_labels: std::collections::BTreeMap::new(),
                 maintenance: None,
                 fingerprint: "saved-consent".into(),
@@ -157,6 +158,7 @@ impl RemovalService for Controlled {
 }
 fn plan() -> RemovalPlan {
     RemovalPlan {
+        pending_consent: None,
         presentation_labels: std::collections::BTreeMap::new(),
         maintenance: None,
         fingerprint: "consent".into(),

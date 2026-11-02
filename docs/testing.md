@@ -2052,3 +2052,11 @@ repeat interruption, local/remote identity refusal, completed local reconciliati
 clean offline preparation, and refusal to escalate into baseline/check-access
 repair. The existing installer preflight tests continue to prove pending receives
 are refused without mutation when preparation has not completed.
+
+
+Pending deletion tests hold real task-store ownership while requesting a native
+preview, including a preview queued behind a waiting mutation. They verify
+that apply waits, unrelated CSV edits survive, and changed target data or new
+dependencies reject the deletion without modifying files. A composed TUI test
+checks immediate hiding, retention across refresh, restoration of the synced
+row and the status-line cancellation message.

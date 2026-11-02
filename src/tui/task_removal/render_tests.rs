@@ -11,6 +11,7 @@ pub(in crate::tui::task_removal) fn preview_state() -> RemovalState {
         scroll: 0,
         selected: 0,
         screen: RemovalScreen::Preview(RemovalPlan {
+            pending_consent: None,
             presentation_labels: std::collections::BTreeMap::new(),
             maintenance: None,
             fingerprint: "consent".into(),
@@ -90,6 +91,7 @@ fn blocked_modal_identifies_the_named_dependent_edge_without_confirm() {
         scroll: 0,
         selected: 0,
         screen: RemovalScreen::Preview(RemovalPlan {
+            pending_consent: None,
             presentation_labels: std::collections::BTreeMap::new(),
             maintenance: None,
             fingerprint: "consent".into(),

@@ -84,6 +84,8 @@ pub(crate) struct ExternalAction {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RemovalPlan {
+    #[serde(skip)]
+    pub pending_consent: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub presentation_labels: std::collections::BTreeMap<String, super::presentation::Task>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

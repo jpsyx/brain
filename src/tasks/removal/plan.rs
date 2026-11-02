@@ -18,6 +18,7 @@ pub(crate) fn plan_with_maintenance(
     maintenance: Option<super::maintenance::MaintenanceIntent>,
 ) -> RemovalPlan {
     let mut preview = RemovalPlan {
+        pending_consent: None,
         presentation_labels: std::collections::BTreeMap::new(),
         maintenance,
         fingerprint: String::new(),

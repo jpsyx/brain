@@ -18,7 +18,8 @@ mod tests;
 mod execute;
 mod external;
 pub(crate) mod maintenance;
-pub(crate) use execute::{apply, apply_queued, preview, preview_with};
+pub(crate) mod pending;
+pub(crate) use execute::{apply, apply_queued, preview};
 
 mod downgrade;
 mod lifecycle;

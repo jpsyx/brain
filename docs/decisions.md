@@ -6636,3 +6636,15 @@ access. Failure leaves the installed executable available and reports the actual
 cause with a shell-quoted recovery command for its custom install path. Historical
 coordinators retain their existing refusal rather than receiving an unsupported
 new phase.
+
+
+### Optimistic deletion defers effects until validation
+
+A deletion preview must not wait for a network sync to release task ownership.
+The TUI therefore permits speculative reads and projects confirmed deletions
+locally. Speculative reads neither recover transactions nor authorize writes.
+After acquiring ownership, the worker rebuilds the plan and checks the affected
+data and consequences. It can preserve unrelated CSV edits while rejecting
+changed targets, relationships, project edits or integration settings. This
+avoids rollback of synced files or irreversible external issue actions. CLI
+saved plans continue to require their original complete fingerprint.

@@ -3358,3 +3358,21 @@ the palette, wait when workspace sync owns the launch-preparation lock. Brain re
 that the run is waiting and retries after sync releases ownership. Repeated requests for
 the same skill do not start duplicate tabs. Closing Brain discards pending requests;
 other launch errors remain visible.
+
+
+### Pending task deletion during sync
+
+The native Remove dialog reads a speculative, read-only preview without waiting
+for sync or another task save. Confirming closes the dialog and hides the selected
+task immediately; the status line continues to show the pending task change.
+The worker waits for task-store ownership before changing files or linked issues.
+It rebuilds the deletion against current data and compares the affected rows,
+project edits, relationship labels, integration policy and execution context.
+Unrelated task edits survive. Changed deletion consequences cancel the pending
+deletion, restore the current task in the UI, and report the cancellation in the
+status line. Review and confirm again to delete the changed task.
+
+Preview cancellation does not delete anything. Confirmed pending changes keep
+Brain's existing quit guard until settlement. Read errors fail the preview
+without making changes. CLI saved-plan removal retains its strict fingerprint
+validation; this speculative interaction is specific to the live TUI.
