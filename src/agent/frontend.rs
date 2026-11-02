@@ -420,6 +420,18 @@ fn ambient_frontend_environment(
 fn workspace_preparation_error(error: &anyhow::Error) -> AgentError {
     if error.is::<crate::skills::install_transaction::SyncBusy>() {
         AgentError::WorkspaceSyncBusy
+    } else if error
+        .downcast_ref::<crate::skills::diagnostic::Diagnostic>()
+        .is_some_and(|diagnostic| {
+            matches!(
+                diagnostic.category,
+                crate::skills::diagnostic::Category::ReceivePending
+            )
+        })
+    {
+        AgentError::WorkspaceSyncInterrupted(format!(
+            "cannot prepare workspace instructions and skills: {error:#}"
+        ))
     } else {
         AgentError::Frontend(format!(
             "cannot prepare workspace instructions and skills: {error:#}"
@@ -430,6 +442,17 @@ fn workspace_preparation_error(error: &anyhow::Error) -> AgentError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupted_receive_preserves_a_typed_cause_and_full_diagnostic() {
+        use crate::skills::diagnostic::{Category, Diagnostic};
+        let error = anyhow::Error::new(Diagnostic::new(Category::ReceivePending, "receive", None))
+            .context("preparation context");
+        let mapped = workspace_preparation_error(&error);
+        assert!(matches!(mapped, AgentError::WorkspaceSyncInterrupted(_)));
+        assert!(mapped.to_string().contains("receive_pending [receive]"));
+        assert!(mapped.to_string().contains("preparation context"));
+    }
 
     #[test]
     fn opencode_preserves_its_documented_environment_namespace_only_for_opencode() {

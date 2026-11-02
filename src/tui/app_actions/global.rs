@@ -49,6 +49,8 @@ impl App {
                 crate::logging::log("palette request brain TUI logs");
                 self.show_logs_view(LogKind::Brain);
             }
+            GlobalAction::OpenBrainLogs => self.export_brain_logs(false),
+            GlobalAction::CopyBrainLogs => self.export_brain_logs(true),
             GlobalAction::OpenHabits => self.run_open_habits(),
             GlobalAction::SyncBrainNow => self.run_sync_now(),
             GlobalAction::ShowSyncStatus => {

@@ -42,6 +42,8 @@ pub(crate) enum GlobalAction {
     ShowReceiverServerStatus,
     ShowReceiverServerLogs,
     ShowBrainLogs,
+    OpenBrainLogs,
+    CopyBrainLogs,
     OpenHabits,
     SyncBrainNow,
     ShowSyncStatus,
@@ -108,6 +110,8 @@ impl GlobalAction {
             | Self::ShowReceiverServerStatus
             | Self::ShowReceiverServerLogs
             | Self::ShowBrainLogs
+            | Self::OpenBrainLogs
+            | Self::CopyBrainLogs
             | Self::OpenHabits
             | Self::SyncBrainNow
             | Self::ShowSyncStatus

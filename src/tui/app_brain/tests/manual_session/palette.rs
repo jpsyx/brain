@@ -193,3 +193,20 @@ fn stable_palette_show_actions_survive_a_neighbor_closing() {
     app.close_user_session(atlas);
     assert!(app.brain.user_session_rows().is_empty());
 }
+
+#[test]
+fn log_exports_are_available_from_every_main_view_without_a_target() {
+    let temporary = tempfile::tempdir().unwrap();
+    let cli = Cli::parse_from(["tasks"]);
+    let mut app = test_app(&temporary, &cli, AgentKind::Claude);
+    for view in [MainView::Tasks, MainView::BrainSearch, MainView::Logs] {
+        open_palette(&mut app, view);
+        let rows = palette_rows(&app);
+        for label in [
+            "Open brain logs as text file",
+            "Copy recent brain logs to clipboard",
+        ] {
+            assert!(rows.iter().any(|row| row.0 == label), "missing {label}");
+        }
+    }
+}

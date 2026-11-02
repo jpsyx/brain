@@ -29,6 +29,7 @@ pub enum Invocation {
     Server,
     ServerStatus,
     Killall,
+    Logs,
     Receiver,
     ReceiverStatus,
     Habits,
@@ -89,6 +90,7 @@ pub(super) const fn registry_only_prompt_order(
         | Invocation::SkillsAllWorkspaces
         | Invocation::Server
         | Invocation::ServerStatus
+        | Invocation::Logs
         | Invocation::Killall
         | Invocation::Receiver
         | Invocation::ReceiverStatus
@@ -116,6 +118,7 @@ pub const fn bootstrap_policy(invocation: Invocation) -> BootstrapPolicy {
         | Invocation::InternalMigration
         | Invocation::Server
         | Invocation::ServerStatus
+        | Invocation::Logs
         | Invocation::Killall => BootstrapPolicy::None,
         Invocation::AgentHook | Invocation::InternalServer => BootstrapPolicy::InternalNoPrompt,
         Invocation::WorkspaceCreate
@@ -186,6 +189,7 @@ pub fn invocation_for(cli: &crate::cli::Cli) -> Invocation {
             }
         }
         Some(Cmd::Check) => Invocation::Check,
+        Some(Cmd::Logs(_)) => Invocation::Logs,
         Some(Cmd::Killall) => Invocation::Killall,
         Some(Cmd::Persona(_)) => Invocation::Persona,
         Some(Cmd::Skills(_)) if crate::skills::repair::is_requested(cli) => {

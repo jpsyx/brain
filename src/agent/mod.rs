@@ -110,6 +110,8 @@ pub enum AgentError {
     ContextMismatch,
     /// Workspace sync temporarily owns the package needed before launch.
     WorkspaceSyncBusy,
+    /// An unfinished incoming sync must be recovered before launching.
+    WorkspaceSyncInterrupted(String),
     /// A frontend rejected an otherwise valid facade request.
     Frontend(String),
     /// A transport could not start or communicate with its child process.
@@ -129,6 +131,7 @@ impl Display for AgentError {
             Self::WorkspaceSyncBusy => {
                 formatter.write_str("workspace sync is in progress; retry after it completes")
             }
+            Self::WorkspaceSyncInterrupted(detail) => formatter.write_str(detail),
             Self::Frontend(message) => write!(formatter, "frontend error: {message}"),
             Self::Transport(message) => write!(formatter, "transport error: {message}"),
             Self::UnsupportedFrontend(kind) => {

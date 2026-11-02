@@ -74,6 +74,8 @@ const COMMANDS: &[Command] = &[
     Global(GlobalAction::ShowTasks),
     Global(GlobalAction::ShowBrainSearch),
     Global(GlobalAction::ShowBrainLogs),
+    Global(GlobalAction::OpenBrainLogs),
+    Global(GlobalAction::CopyBrainLogs),
     Global(GlobalAction::ToggleLayout),
     Global(GlobalAction::FocusBrainPanel),
     Global(GlobalAction::FocusMainPanel),

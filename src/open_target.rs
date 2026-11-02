@@ -109,15 +109,32 @@ pub fn finder_target(path: &Path, is_file: bool) -> &Path {
 
 /// Copy an absolute path to the macOS clipboard without shell interpolation.
 pub fn copy_to_clipboard(path: &Path) -> Result<()> {
-    let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn()?;
+    copy_bytes_to_clipboard(path.as_os_str().as_encoded_bytes())
+}
+
+/// Copy text without treating it as a path or interpolating a shell command.
+pub fn copy_text_to_clipboard(text: &str) -> Result<()> {
+    copy_bytes_to_clipboard(text.as_bytes())
+}
+
+fn copy_bytes_to_clipboard(bytes: &[u8]) -> Result<()> {
+    let mut child = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?;
     let write_result = child.stdin.take().map_or_else(
         || Err(io::Error::other("pbcopy stdin was unavailable")),
-        |mut stdin| stdin.write_all(path.as_os_str().as_encoded_bytes()),
+        |mut stdin| stdin.write_all(bytes),
     );
-    let status = child.wait()?;
+    let output = child.wait_with_output()?;
     write_result?;
-    if !status.success() {
-        bail!("pbcopy exited with status {status}");
+    if !output.status.success() {
+        bail!(
+            "pbcopy exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(())
 }
@@ -210,6 +227,24 @@ pub fn move_to_trash(path: &Path) -> Result<()> {
         .status()?;
     if !status.success() {
         bail!("osascript (trash) exited with status {status}");
+    }
+    Ok(())
+}
+
+/// Open an actual log file with the system text editor, outside the TUI.
+pub fn open_text_file(path: &Path) -> Result<()> {
+    anyhow::ensure!(
+        path.is_file(),
+        "log file is unavailable: {}",
+        path.display()
+    );
+    let output = Command::new("open").arg("-t").arg(path).output()?;
+    if !output.status.success() {
+        bail!(
+            "text editor opener exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(())
 }

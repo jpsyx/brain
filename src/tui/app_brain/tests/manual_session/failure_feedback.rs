@@ -81,11 +81,11 @@ fn search_launch_failure_is_rendered_and_survives_the_next_search_key() {
 
         start_session(&mut app);
 
-        assert_search_failure(&mut app, "could not start", "injected spawn failure");
+        assert_search_failure(&mut app, "could not start", "Show brain logs");
         press(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
-        assert_search_failure(&mut app, "could not start", "injected spawn failure");
+        assert_search_failure(&mut app, "could not start", "Show brain logs");
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        assert!(!rendered(&mut app).contains("injected spawn failure"));
+        assert!(!rendered(&mut app).contains("Show brain logs"));
     }
 }
 
@@ -106,7 +106,7 @@ fn search_persistence_failure_survives_input_before_the_first_render() {
     start_session(&mut app);
     press(&mut app, KeyCode::Char('z'), KeyModifiers::NONE);
 
-    assert_search_failure(&mut app, "could not start", "injected persistence failure");
+    assert_search_failure(&mut app, "could not start", "Show brain logs");
     assert!(recording.launch_specs().is_empty());
     let rows: u32 = connection
         .query_row("SELECT count(*) FROM brain_sessions", [], |row| row.get(0))
@@ -200,7 +200,7 @@ fn manual_failure_feedback_remains_visible_across_all_main_views() {
     ] {
         press(&mut app, KeyCode::Char(key), KeyModifiers::CONTROL);
         assert_eq!(app.shell.main_view(), view);
-        assert!(rendered(&mut app).contains("injected spawn failure"));
+        assert!(rendered(&mut app).contains("Show brain logs"));
     }
 }
 
@@ -214,12 +214,12 @@ fn a_pending_error_does_not_steal_escape_from_the_rename_picker() {
 
     choose_search_command(&mut app, "Rename session");
     assert!(matches!(app.overlay, Some(Overlay::SessionRenamePicker(_))));
-    assert!(rendered(&mut app).contains("injected spawn failure"));
+    assert!(rendered(&mut app).contains("Show brain logs"));
     press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
     assert!(app.overlay.is_none());
-    assert_search_failure(&mut app, "could not start", "injected spawn failure");
+    assert_search_failure(&mut app, "could not start", "Show brain logs");
     press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-    assert!(!rendered(&mut app).contains("injected spawn failure"));
+    assert!(!rendered(&mut app).contains("Show brain logs"));
 }
 
 #[test]
@@ -264,5 +264,30 @@ impl AgentTransport for FailingShutdownTransport {
         Err(AgentError::Transport(
             "injected shutdown failure".to_owned(),
         ))
+    }
+}
+
+#[test]
+fn interrupted_sync_explains_the_block_and_keeps_the_full_diagnostic_in_logs() {
+    for kind in AgentKind::ALL {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut app = feedback_app(&temporary, kind);
+        let error = anyhow::Error::new(AgentError::WorkspaceSyncInterrupted(
+            "cannot prepare workspace instructions and skills: receive_pending [receive]: original recovery detail".to_owned()
+        )).context("outer preparation detail");
+        let logs = crate::logging::capture_logs(|| app.report_manual_launch_error(&error));
+        let screen = rendered(&mut app);
+        assert!(screen.contains("sync did not finish"), "{screen}");
+        assert!(!screen.contains("receive_pending"));
+        assert!(!screen.contains("outer preparation detail"));
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("outer preparation detail")
+                    && line.contains("original recovery detail"))
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("brain sync --pull -w family"))
+        );
     }
 }

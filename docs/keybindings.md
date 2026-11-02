@@ -408,3 +408,12 @@ entries; generation does not embed a Markdown directory.
 The palette's Run daily triage action and Yes on the daily-triage confirmation both
 retain a pending start when sync temporarily prevents skill preparation. The run starts
 automatically after sync releases ownership; no second keypress is required.
+
+## Log commands
+
+The palette always lists **Show brain logs**, **Open brain logs as text file**,
+and **Copy recent brain logs to clipboard**, without direct shortcuts or a
+required selection. Show reloads the current run log and starts at the latest
+page. Open hands the actual file to the system text editor. Copy includes the
+latest 2,000 lines, capped at 256 KiB, plus version, source path and omission
+context. These commands work from Tasks, Brain Search, Logs and panel focus.

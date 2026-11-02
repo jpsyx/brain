@@ -25,9 +25,11 @@ concise phase plans before they probe the filesystem, start daemons, spawn
 external tools, touch the network, or write install trees. Every TUI run writes
 a timestamped `/tmp` log file;
 the command palette's receiver and brain log rows switch the main panel to a
-scrollable view of the relevant log
-directory and the log file via `open`. Verbose logs are intentionally more
-detailed than the default progress trace: they include the selected command
+scrollable view of the relevant log, initially positioned at its latest page.
+The separate **Open brain logs as text file** action uses `open -t` on the
+actual run file; **Copy recent brain logs to clipboard** writes its bounded
+recent excerpt to `pbcopy` over stdin and checks the child exit status.
+Verbose logs are intentionally more detailed than the default progress trace: they include the selected command
 action, non-secret argv/path details, task CSV load/write paths, rclone raw
 stderr, CSV merge notes, server state decisions, doctor probe results, and skill
 install counts.
@@ -2934,3 +2936,14 @@ before frontend probing or process spawn. The TUI retries through `AgentControll
 after sync ownership clears, preserving the same package checks for Claude, Codex,
 OpenCode, and pi. It does not launch against an unverified package or retry arbitrary
 frontend failures.
+
+### Session-start diagnostics
+
+All registered frontends preserve an unfinished incoming sync as a typed
+`AgentError::WorkspaceSyncInterrupted` through the shared controller preparation
+path. Its diagnostic retains the original category, stage and recovery hint.
+Manual-session startup logs the full cause before showing a short explanation;
+the current workspace selector is added to the recovery commands in that log.
+Active sync ownership remains `WorkspaceSyncBusy` and asks the user to wait.
+The TUI does not bypass either guard or recover a sync as a side effect of
+starting a session.

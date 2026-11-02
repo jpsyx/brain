@@ -33,7 +33,10 @@ pub(crate) struct LogsView {
 impl LogsView {
     pub(crate) fn load(kind: LogKind, path: Option<&Path>) -> Self {
         let text = path
-            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|path| match kind {
+                LogKind::Brain => crate::logging::export::recent_logs(path).ok(),
+                LogKind::Receiver => std::fs::read_to_string(path).ok(),
+            })
             .map(|content| match kind {
                 LogKind::Brain => content,
                 LogKind::Receiver => content
@@ -47,7 +50,7 @@ impl LogsView {
         Self {
             kind,
             text,
-            scroll: 0,
+            scroll: u16::MAX,
         }
     }
 
@@ -60,7 +63,7 @@ impl LogsView {
     }
 }
 
-pub(crate) fn draw_logs(f: &mut Frame, logs: Option<&LogsView>, area: Rect) {
+pub(crate) fn draw_logs(f: &mut Frame, logs: Option<&mut LogsView>, area: Rect) {
     let Some(logs) = logs else {
         return;
     };
@@ -70,16 +73,46 @@ pub(crate) fn draw_logs(f: &mut Frame, logs: Option<&LogsView>, area: Rect) {
         .title(logs.kind.title());
     let inner = block.inner(area);
     f.render_widget(block, area);
-    f.render_widget(
-        Paragraph::new(logs.text.as_str())
-            .scroll((logs.scroll, 0))
-            .wrap(Wrap { trim: false }),
-        inner,
-    );
+    let paragraph = Paragraph::new(logs.text.as_str()).wrap(Wrap { trim: false });
+    let last_page = paragraph
+        .line_count(inner.width)
+        .saturating_sub(usize::from(inner.height));
+    logs.scroll = logs
+        .scroll
+        .min(u16::try_from(last_page).unwrap_or(u16::MAX));
+    f.render_widget(paragraph.scroll((logs.scroll, 0)), inner);
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn opening_logs_shows_the_latest_full_error_in_a_narrow_view() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("run.log");
+        let mut logger = crate::logging::Logger::open(&path).unwrap();
+        for _ in 0..100_000 {
+            logger.write("old event").unwrap();
+        }
+        logger
+            .write("launch failed: receive_pending [receive]: complete the interrupted sync")
+            .unwrap();
+        let mut logs = super::LogsView::load(super::LogKind::Brain, Some(&path));
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 8)).unwrap();
+        terminal
+            .draw(|frame| super::draw_logs(frame, Some(&mut logs), frame.area()))
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect();
+        assert!(screen.contains("receive_pending"), "{screen}");
+        assert!(screen.contains("interrupted sync"), "{screen}");
+    }
+
     #[test]
     fn receiver_logs_filter_out_unrelated_brain_lines() {
         let content = "brain start\nreceiver server started\nsync complete\nreceiver request sms";

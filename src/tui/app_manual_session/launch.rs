@@ -113,8 +113,22 @@ impl App {
 
     pub(in crate::tui) fn report_manual_launch_error(&mut self, error: &anyhow::Error) {
         crate::logging::log(format!("manual session launch failed: {error:#}"));
+        let reason = match error.downcast_ref::<crate::agent::AgentError>() {
+            Some(crate::agent::AgentError::WorkspaceSyncBusy) => {
+                "Your workspace is syncing. Wait for it to finish, then try again."
+            }
+            Some(crate::agent::AgentError::WorkspaceSyncInterrupted(_)) => {
+                crate::logging::log(format!(
+                    "manual session recovery: brain sync --pull -w {} (or brain sync repair -w {})",
+                    self.context.workspace().name(),
+                    self.context.workspace().name()
+                ));
+                "Workspace sync did not finish. Complete the sync before starting another session."
+            }
+            _ => "The session could not be opened.",
+        };
         self.status.set_error(format!(
-            "{} could not start: {error:#}",
+            "{} could not start. {reason} Choose 'Show brain logs' for details.",
             self.context.agent_kind().label()
         ));
     }

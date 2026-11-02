@@ -13,6 +13,7 @@ mod capture_note;
 mod commands;
 mod entry_commands;
 mod global;
+mod logs;
 mod receiver;
 mod targets;
 mod task_commands;

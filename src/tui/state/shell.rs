@@ -167,6 +167,11 @@ impl ShellState {
         self.search.entries()
     }
 
+    pub(crate) fn logs_view_mut(&mut self) -> Option<&mut LogsView> {
+        self.logs_view.as_mut()
+    }
+
+    #[cfg(test)]
     pub(crate) const fn logs_view(&self) -> Option<&LogsView> {
         self.logs_view.as_ref()
     }

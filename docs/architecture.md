@@ -3262,3 +3262,15 @@ Skill-session launch preparation preserves typed sync contention through
 by session key. The skill-session tick observes sync ownership before retrying through
 the same controller launch path; it never blocks the event loop waiting for the sync
 lock.
+
+### Session errors and log export
+
+`agent::frontend` preserves interrupted-receive classification through
+`AgentError`, while `tui/app_manual_session/launch` separates readable status
+feedback from complete per-run diagnostics. `tui/logs_view` clamps scrolling to
+the wrapped content's last page, including on initial opening and resizing.
+`logging/export` owns bounded recent-file reads and diagnostic excerpt context;
+`command/logs` and `tui/app_actions/logs` share that exporter and the text-file
+and clipboard adapters in `open_target`. Log palette commands are global and
+require no task or directory target. `brain logs FILE [--copy]` has no workspace
+bootstrap requirement and still follows ordinary machine migration ordering.

@@ -16,7 +16,11 @@ fn fresh_session_registration_failure_prevents_agent_launch() {
             )
             .unwrap();
 
-        assert!(!app.open_or_focus_brain(None));
+        let logs = crate::logging::capture_logs(|| assert!(!app.open_or_focus_brain(None)));
+        assert!(
+            logs.iter()
+                .any(|line| line.contains("authorization store unavailable"))
+        );
 
         assert!(
             recording.launch_specs().is_empty(),
@@ -32,7 +36,8 @@ fn fresh_session_registration_failure_prevents_agent_launch() {
         assert!(
             app.status
                 .error()
-                .is_some_and(|message| message.contains("authorization store unavailable"))
+                .is_some_and(|message| message.contains("Show brain logs")
+                    && !message.contains("authorization store unavailable"))
         );
     }
 }
@@ -123,13 +128,18 @@ fn app_main_refuses_malformed_portable_capability_configuration() {
             alive: false,
         }));
 
-    assert!(!app.open_or_focus_brain(None));
+    let logs = crate::logging::capture_logs(|| assert!(!app.open_or_focus_brain(None)));
+    assert!(
+        logs.iter()
+            .any(|line| line.contains("agent capabilities are invalid"))
+    );
 
     assert!(recording.0.lock().expect("launch recording").is_empty());
     assert!(
         app.status
             .error()
-            .is_some_and(|message| message.contains("agent capabilities are invalid"))
+            .is_some_and(|message| message.contains("Show brain logs")
+                && !message.contains("agent capabilities are invalid"))
     );
 }
 

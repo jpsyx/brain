@@ -111,7 +111,11 @@ Manual-session launch, persistence, and close failures appear in a red error
 banner below both panels, visible in Tasks, Brain Search, and Logs. The message
 wraps to the terminal width and survives typing, focus changes, and view
 switches until Esc dismisses it. An open modal keeps its own input and Esc
-behavior; the error remains available after that modal closes.
+behavior; the error remains available after that modal closes. Launch failures use
+plain-language explanations, distinguishing an active sync from an unfinished
+incoming sync. The complete diagnostic and workspace-specific recovery command
+remain in the current TUI run log, available through **Show brain logs**.
+Editing skills in another session does not itself mark a sync as unfinished.
 
 **Start a new conversation in the selected tab.** `Ctrl+N` starts a fresh agent
 conversation in the brain panel: it sends `/new` to the running frontend for you. It fires
@@ -383,7 +387,8 @@ The "ask which one" step is a picker of its own:
   in-basket, *Search projects*, *areas*, *resources*, *archive*), *Global
   search* across all five, and *Refresh the brain directory* `[^R]`.
 - **Views and layout.** *Show the tasks view* `[^T]`, *Show the brain
-  directory* `[^B]`, *Show brain logs*, *Move brain panel to the left / right*
+  directory* `[^B]`, *Show brain logs*, *Open brain logs as text file*,
+  *Copy recent brain logs to clipboard*, *Move brain panel to the left / right*
   (the label names the direction it would move), *Focus the brain panel* `[⌥L]`,
   *Focus the main view* `[⌥H]`, *Next / Previous brain tab* `[⌥]` / `[⌥[`].
 - **Workspace.** *Open today's agenda* `[^A]`, *Open habits in browser*,
@@ -474,6 +479,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain persona [show\|list\|get\|set\|edit]` | Read or change one workspace member's persona (identity + tag styles), keyed by portable user ID. Bare `brain persona` runs onboarding when the person at this machine has nothing set, else shows their current values (see below). `brain personalize` is a hidden alias. |
 | `brain skills sync [--root <dir>]` | Render + install bundled skills into the selected brain root's `.agents/skills`, then link them into that root's `.claude/skills`, `.codex/skills`, and `.opencode/skills`, and prune skills brain rendered before but no longer produces. `--root` selects a sandbox workspace (see below). |
 | `brain skills sync --all-workspaces [--json]` | Repair every registered root independently, including when the default root is unavailable. JSON is one aggregate document; unavailable roots remain pending. |
+| `brain logs [FILE] [--copy]` | Open the selected run log in the system text editor, or copy up to its latest 2,000 lines / 256 KiB. Prompts for FILE when omitted. |
 | `brain skills status` | Show each selected workspace capability's requested state, machine availability, and separate Claude/Codex/OpenCode/pi enforcement level without printing connection material or credentials. |
 
 After a Brain version update, the first ordinary invocation migrates the core
@@ -498,10 +504,21 @@ before clap parses it.
 Every run writes brain's diagnostic log to a timestamped file under `/tmp/`.
 `--verbose` additionally mirrors that log to stdout and prints the log path at
 exit. In the persistent TUI, logs still go to the file but never to stdout;
-use the command palette's **Show receiver
-server logs** or **Show brain logs** rows to switch the main panel to a
-scrollable log view. While there, `q`, `Ctrl-C`, or the palette's **Return to
-main view** action returns to tasks, and the palette hides unrelated commands.
+use the command palette's **Show receiver logs** or **Show brain logs** rows
+for a scrollable view that opens at the latest entries. Brain logs use the same
+bounded recent window as clipboard export so days-long runs stay readable.
+Reopening a row reloads the file. `g` goes to the beginning and `G` to the latest page; `q` or `Ctrl-C`
+returns to tasks. The complete command palette remains available in Logs.
+**Open brain logs as text file** opens this run's actual file in the system's
+text editor, outside the TUI. **Copy recent brain logs to clipboard** copies up
+to the latest 2,000 lines and 256 KiB of log content, preceded by the Brain
+version, source path, and an explicit notice when older content was omitted.
+The excerpt retains chronological order and full diagnostic text within that
+window. No finite excerpt guarantees every earlier cause; use the complete
+file when the failure predates the copied window.
+The equivalent CLI commands are `brain logs FILE` and `brain logs FILE --copy`.
+Omitting FILE prompts for the log path on a terminal. They use an explicit file,
+so they cannot accidentally export the new CLI invocation's own log.
 The log includes command dispatch, normalized
 arguments, task CSV paths and mutation results, sync/rclone phases, server
 lifecycle decisions, doctor probes, and skill install counts.

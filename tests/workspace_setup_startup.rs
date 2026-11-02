@@ -284,7 +284,7 @@ fn completed_workspace_migration_remains_committed_when_peer_compatibility_fails
 }
 
 #[test]
-fn exhausted_automatic_install_wait_preserves_machine_stamp_and_managed_state() {
+fn exhausted_automatic_install_wait_defers_without_changing_managed_state() {
     use fs2::FileExt as _;
     let mut f = Fixture::new();
     let root = f.add("alpha");
@@ -304,9 +304,8 @@ fn exhausted_automatic_install_wait_preserves_machine_stamp_and_managed_state() 
     owner.try_lock_exclusive().unwrap();
     stamp(&f, "0.102.24");
     let output = f.run(&["server", "status"]);
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("compatibility refresh failed"));
-    assert_eq!(recorded(&f), "0.102.24");
+    assert_ok(&output);
+    assert_eq!(recorded(&f), env!("CARGO_PKG_VERSION"));
     assert_eq!(
         (
             fs::read(managed).unwrap(),

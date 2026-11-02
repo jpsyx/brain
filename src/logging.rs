@@ -8,6 +8,8 @@ use std::sync::{Mutex, OnceLock};
 
 use chrono::{Local, SecondsFormat};
 
+pub mod export;
+
 mod receiver_lifecycle;
 
 pub(crate) use receiver_lifecycle::{
@@ -69,6 +71,12 @@ pub fn init(verbose: bool, stdout: bool) -> io::Result<Guard> {
 
 pub fn log(message: impl AsRef<str>) {
     let message = message.as_ref();
+    #[cfg(test)]
+    TEST_CAPTURE.with(|capture| {
+        if let Some(lines) = capture.borrow_mut().as_mut() {
+            lines.push(message.to_owned());
+        }
+    });
     let line = format!(
         "{} {message}",
         Local::now().to_rfc3339_opts(SecondsFormat::Nanos, false)
@@ -198,6 +206,21 @@ fn stdout_enabled() -> bool {
 #[must_use]
 pub(crate) fn log_path_for(timestamp: &str) -> PathBuf {
     PathBuf::from("/tmp").join(format!("{timestamp}-{}.log", std::process::id()))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CAPTURE: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn capture_logs(operation: impl FnOnce()) -> Vec<String> {
+    TEST_CAPTURE.with(|capture| {
+        assert!(capture.borrow().is_none());
+        *capture.borrow_mut() = Some(Vec::new());
+    });
+    operation();
+    TEST_CAPTURE.with(|capture| capture.borrow_mut().take().unwrap())
 }
 
 #[cfg(test)]

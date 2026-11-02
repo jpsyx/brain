@@ -8,6 +8,7 @@ mod configuration;
 mod contacts;
 mod global;
 mod internal;
+mod logs;
 mod project;
 mod server;
 mod share;
@@ -20,6 +21,7 @@ pub use configuration::*;
 pub use contacts::*;
 pub use global::{AgentSelectionError, Cli};
 pub use internal::{InternalMigrationArgs, RefreshPhase, RefreshWorkspaceSkillsArgs};
+pub use logs::LogsArgs;
 pub use project::*;
 pub use server::*;
 pub use share::ShareArgs;
@@ -69,6 +71,9 @@ pub enum Cmd {
 
     /// Print the brain version.
     Version,
+
+    /// Open a Brain run log in a text editor, or copy recent logs with --copy.
+    Logs(LogsArgs),
 
     /// Read or change brain's portable config (`<brain-root>/.config/config.json`,
     /// synced with the brain). Machine-local settings live in `brain env` instead.

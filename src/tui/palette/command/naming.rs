@@ -108,6 +108,8 @@ fn static_global_label(action: GlobalAction) -> &'static str {
         GlobalAction::ShowReceiverServerStatus => "Show receiver server status",
         GlobalAction::ShowReceiverServerLogs => "Show receiver logs",
         GlobalAction::ShowBrainLogs => "Show brain logs",
+        GlobalAction::OpenBrainLogs => "Open brain logs as text file",
+        GlobalAction::CopyBrainLogs => "Copy recent brain logs to clipboard",
         GlobalAction::OpenHabits => "Open habits in browser",
         GlobalAction::SyncBrainNow => "Sync brain now",
         GlobalAction::ShowSyncStatus => "Show sync status",

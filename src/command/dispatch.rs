@@ -88,6 +88,9 @@ pub fn run(
         crate::logging::log("dispatch killall");
         return super::server::killall();
     }
+    if let Some(Cmd::Logs(args)) = &cli.command {
+        return super::logs::run(args);
+    }
     let context = ready_context(capability)?;
     if let Some(Cmd::Config(args)) = &cli.command {
         crate::logging::log("dispatch config");
@@ -220,7 +223,8 @@ pub fn run(
             unreachable!("internal migration exits before bootstrap")
         }
         Some(
-            Cmd::Config(_)
+            Cmd::Logs(_)
+            | Cmd::Config(_)
             | Cmd::Env(_)
             | Cmd::Sync(_)
             | Cmd::Persona(_)

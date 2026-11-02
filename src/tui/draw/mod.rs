@@ -89,7 +89,7 @@ pub(crate) fn draw(f: &mut Frame, app: &mut App) {
             BrainDirView::Search => app.shell.render_search(f, main_area),
             BrainDirView::Tree => app.shell.render_tree(f, main_area),
         },
-        MainView::Logs => draw_logs(f, app.shell.logs_view(), main_area),
+        MainView::Logs => draw_logs(f, app.shell.logs_view_mut(), main_area),
     }
     if let Some(brain_rect) = brain_area {
         let workspace_name = app.context.workspace().name().as_str().to_owned();
