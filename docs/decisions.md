@@ -6671,3 +6671,16 @@ that "never auto-mutate" requires; hard-deadline rows still get their own
 decision inside the round and never join a proposed defer. Spreading across
 days, rather than a uniform +7d, keeps one future day from collecting the
 whole slipped set.
+
+## Triage names tasks and keeps IDs parenthetical
+
+Triage questions and plans used to say "Defer T123" or list rows as bare IDs.
+The user does not memorize IDs, so every such question required a lookup before
+it could be answered, which slowed the one round down. Triage now refers to a
+task by name in every step, question, option, and extension, with the ID in
+parentheses so it can still be looked up. Interim communication uses a short
+name of at most four words to keep plan rows and option labels compact. Reports
+and digests are deliverables the user reads later without context, so they use
+the full name. Commands still take bare IDs, and the user may answer with either
+form. A contract test rejects any task ID in the triage skill that is not
+parenthetical or a command placeholder.

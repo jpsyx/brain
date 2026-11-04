@@ -101,6 +101,24 @@ them short. Daily triage has a hard [question budget](#daily-question-budget).
 
 Sibling skills: /todo (tasks), /agenda (day planning), /projects, /process-capture, /organize, /brain-sync (knowledge workflows). All engage the same assistant mode.
 
+## Referring to tasks
+
+The user does not memorize task IDs. An ID is a lookup handle, so include it,
+but always in parentheses after a name, never by ID alone. This applies to
+every step, question, option, and extension in daily and weekly triage, and to
+every message the user reads.
+
+- **Interim communication** (plan blocks, questions, option labels, progress
+  notes, free-text examples): use a short name of at most 4 words, then the ID.
+  Write "Defer Alex Kim intro task (T123)" or "Apply to stock sale (T234)
+  and team blog tasks (T345)", never "Defer T123" or "Apply to T123 and T234".
+- **Reports** (summary tables, the final summary, Markdown digests, PDFs): use
+  the full task name, then the ID: "Send the vendor contract to legal (T41)".
+
+Commands and their arguments still take bare IDs (`brain tasks set T41 …`).
+The user can answer with names or IDs; resolve a name to its ID yourself and
+ask only when it truly matches more than one task.
+
 ## Modes
 
 This skill has two distinct workflows:
@@ -173,7 +191,8 @@ ones the user explicitly asks for, such as a one-by-one walk of a named group.
 When the round would exceed the question surface's capacity, merge the
 lowest-value questions into the plan confirmation's free-form answer. Every
 question offers a free-form answer so the user can name exceptions in one line
-("T41 today, T18 drop, walk the finance group one by one").
+("vendor contract (T41) today, drop gym signup (T18), walk the finance group
+one by one").
 
 When the plan is empty and nothing else needs a decision, the run asks
 zero questions. Never add a second round to clarify an answer. Apply the clear
@@ -293,13 +312,15 @@ on every row (see [question shape](#asking-the-user-for-per-task-actions-use-ask
 ```
 Daily triage plan (14 past-due, 1 chronic):
 
-  Today (fits 1h40m):  T41 Send the vendor contract [p0, MIT]
-  Wed 7/9:             T12, T15, T33
-  Thu 7/10:            T19, T27
-  Fri 7/11:            T22, T30, T35 ...
-  Backlog (def >= 5):  T18 (def=8), T9 (def=6), T52 (chronic, stale_21d)
+  Today (fits 1h40m):  Send vendor contract (T41) [p0, MIT]
+  Wed 7/9:             Renew car insurance (T12), Book dentist (T15), Q3 expense report (T33)
+  Thu 7/10:            Reply to landlord (T19), Update team wiki (T27)
+  Fri 7/11:            Draft blog post (T22), Fix printer (T30), Plan offsite (T35) ...
+  Backlog (def >= 5):  Gym signup (T18) [def=8], Sort old photos (T9) [def=6],
+                       Learn Rust macros (T52) [chronic, stale_21d]
 
-At-risk (FYI, no action): T60 due 7/12 (def=2), T61 due 7/14 (p1, not started)
+At-risk (FYI, no action): Board deck (T60) due 7/12 [def=2],
+                          Tax estimate (T61) due 7/14 [p1, not started]
 ```
 
 Then ask the single round from the
@@ -308,7 +329,7 @@ The plan confirmation looks like this:
 
 ```
 header:   Plan
-question: Apply this triage plan? (15 tasks: 1 today, 11 spread over 7/9-7/13, 3 to backlog). Name exceptions in free text, e.g. "T12 today, T18 drop".
+question: Apply this triage plan? (15 tasks: 1 today, 11 spread over 7/9-7/13, 3 to backlog). Name exceptions in free text, e.g. "car insurance today, drop gym signup".
 options:  Apply (Recommended) / Apply, nothing today / Leave everything as is
 ```
 
@@ -349,7 +370,7 @@ Before any proposed defer, screen every `hard_deadline=true` row:
 - Hard-deadline rows never join a spread or any other bulk defer.
 - A hard-deadline row whose `defer_count >= 1` gets a deadline check in the
   [one round](#step-3--ask-the-one-round). Ask one multi-select question:
-  > "These hard deadlines have already slipped. Check any that are no longer real: T### '<name>' (due <date>, def=N), …"
+  > "These hard deadlines have already slipped. Check any that are no longer real: <short name> (T###) (due <date>, def=N), …"
 - Unchecked rows keep their hard deadline and stay in **Today**. Checked rows
   lose the `hard_deadline` flag and join the spread. A free-form answer can
   set a new date for a specific row instead.
@@ -428,11 +449,13 @@ Triage complete (1 question round):
   - 1 kept for today
   - 3 moved to backlog
   - 0 dropped
-  - High-defer (>= 3): T22 (4), T30 (3)
+  - High-defer (>= 3): Draft the Q3 product blog post (T22) [def=4],
+    Fix the office printer (T30) [def=3]
 
   Remaining past-due: 0
-  At-risk (next 8d, FYI): T60, T61
-  Chronic-ignore: 1 (T52 to backlog)
+  At-risk (next 8d, FYI): Finish the board deck (T60),
+    Pay the Q3 tax estimate (T61)
+  Chronic-ignore: 1 (Learn Rust macros (T52), to backlog)
 ```
 
 Omit lines that are zero, except "Remaining past-due". List any assumption you
@@ -676,7 +699,7 @@ nothing. In weekly mode, your best-guess routing of a TASK or NOTE counts as a d
 Use the available frontend question surface for concrete action choices, including
 closing offers. When none is available, ask a concise textual question with the
 same choices. Batch within that surface's supported capacity. Keep the
-question self-contained: deadline, ID, name, reason, options, and recommendation
+question self-contained: deadline, short name with ID, reason, options, and recommendation
 belong together. Never depend on a particular frontend tool name or four-question
 limit. Preserve an open/freeform response when the predefined choices do not fit.
 Daily triage asks only inside its [one round](#daily-question-budget); these
@@ -687,14 +710,15 @@ every question that names a task starts with its due date in **bold**, because
 knowing instantly whether a decision is about something due *today* vs *weeks
 out* is the single most important cue for fast triage. Format:
 
-- Due today → `**Due TODAY:** T### '<name>' [p0/work, def=1] …`
-- Future → `**Due 7/15:** T17 '<name>' [p2/personal, def=3] …`
-- Past-due → `**Due 7/5 (2d late):** T### …`
-- No due date → `**No due date:** T### …`
+- Due today → `**Due TODAY:** <short name> (T###) [p0/work, def=1] …`
+- Future → `**Due 7/15:** <short name> (T17) [p2/personal, def=3] …`
+- Past-due → `**Due 7/5 (2d late):** <short name> (T###) …`
+- No due date → `**No due date:** <short name> (T###) …`
 
-After the bolded deadline, give the task ID, name, type/priority, and key flags
-(`defer_count`, `hard_deadline`). In a compact plan block, a row can drop the
-name when the ID and deadline are enough to recognize it.
+After the bolded deadline, give the short name with its ID in parentheses (see
+[Referring to tasks](#referring-to-tasks)), then type/priority and key flags
+(`defer_count`, `hard_deadline`). Never drop the name, even in a compact plan
+block.
 
 **`Move to backlog` is a standing action everywhere.** It parks the task
 (clears its dates, hides it from active views) via `brain backlog park <T###>`,
@@ -722,7 +746,7 @@ In `capture/` the same three classes apply to **non-text items too**. A photo of
 
 If the user can't decide what to do with a note or task right now, **the inbox is still not where it stays.** This holds for every in-basket, `capture/` included: parking an undecided item back in `capture/` is the one thing `capture/` is not for. Deferring means creating a TASK in `tasks.csv` whose name is the deferred decision itself - e.g.:
 
-> `T###` "Decide what to do with the 'multi-language querying' demo idea - see scratch capture from 2026-06-10"
+> "Decide what to do with the 'multi-language querying' demo idea - see scratch capture from 2026-06-10" (T###)
 
 …and removing the original item from the inbox. The inbox empties out; the decision moves into the task system where it can be triaged like any other open loop.
 

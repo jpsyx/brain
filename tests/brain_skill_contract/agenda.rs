@@ -248,3 +248,32 @@ fn shared_bulk_consent_keeps_deadline_guards_and_maintenance_exceptions() {
         assert!(triage.contains(command));
     }
 }
+
+#[test]
+fn triage_names_tasks_and_keeps_ids_parenthetical() {
+    let id = regex::Regex::new(r"T(\d+|###)\b").unwrap();
+    for rendered in [false, true] {
+        let docs = catalog::documents(rendered);
+        let triage = &docs["triage/SKILL.md"];
+        let rule = section(triage, "## Referring to tasks", "## ");
+        for required in [
+            "every step, question, option, and extension",
+            "never by ID alone",
+            "4 words",
+            "full task name",
+        ] {
+            assert!(rule.contains(required), "naming rule missing {required}");
+        }
+        for line in triage.lines().filter(|line| !line.contains("brain ")) {
+            let line = line.split("never \"").next().unwrap();
+            for found in id.find_iter(line) {
+                let before = line[..found.start()].chars().last();
+                assert!(
+                    matches!(before, Some('(' | '<')),
+                    "bare task ID {} in: {line}",
+                    found.as_str()
+                );
+            }
+        }
+    }
+}

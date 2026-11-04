@@ -3295,6 +3295,11 @@ from triage asks nothing. Hard-deadline rows never join a proposed defer, and
 their individual review happens inside the round. Native no-penalty defers,
 preview-bound removal consent, and deliberate backlog maintenance are unchanged.
 
+Triage always names tasks, with the ID in parentheses as a lookup handle. Plans,
+questions, and options use a short name of at most four words, such as
+"Defer Alex Kim intro task (T123)". Reports and digests use the full task name.
+A bare ID is never the way triage refers to a task.
+
 
 Agent launches explicitly receive the selected workspace's reconciled `AGENTS.md`
 and trusted channel response rules for interactive, SMS, and email requests in
