@@ -3286,9 +3286,13 @@ rebuild it. Daily/weekly triage keeps its seven hook phases and runtime `require
 gate. Capture and agenda procedures load only when the run actually needs them;
 weekly-to-daily chaining begins at the daily opening phase, including maintenance.
 
-At-risk triage applies the same pre-mutation individual hard-deadline review as
-past-due triage. Every group defer variant excludes hard-deadline rows; group
-consent cannot replace their per-task confirmation. Native no-penalty defers,
+Daily triage asks at most one question round. It proposes one plan for every
+past-due and chronic-ignore task: today while remaining capacity lasts, spread
+across the next five days, or backlog at five or more defers. The user confirms
+it with free-form exceptions. At-risk and stale-waiting hits are report-only,
+and extension steps add at most one question to the same round. An agenda built
+from triage asks nothing. Hard-deadline rows never join a proposed defer, and
+their individual review happens inside the round. Native no-penalty defers,
 preview-bound removal consent, and deliberate backlog maintenance are unchanged.
 
 

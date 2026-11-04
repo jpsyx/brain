@@ -11,7 +11,8 @@
 <a id="hard-deadline-tasks"></a>
 
 Follow the canonical [/triage daily workflow](../../triage/SKILL.md#daily-triage),
-including deadline screening before group mutation, native removal previews,
+including its one-round question budget, deadline screening before any
+proposed defer, native removal previews,
 no-penalty waiting/blocked defers, and the current chronic/at-risk detectors.
 This path preserves old callers; it does not define a second triage procedure.
 

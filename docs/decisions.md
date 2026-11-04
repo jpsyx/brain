@@ -6648,3 +6648,26 @@ data and consequences. It can preserve unrelated CSV edits while rejecting
 changed targets, relationships, project edits or integration settings. This
 avoids rollback of synced files or irreversible external issue actions. CLI
 saved plans continue to require their original complete fingerprint.
+
+
+## Daily triage proposes one plan and asks one round
+
+Daily triage used to group past-due tasks, walk groups one task at a time,
+prompt for every at-risk hit, and let each extension open its own question
+round. Real runs took 7 to 10 blocking rounds and 2 to 4 hours of wall-clock
+before the day's plan existed, because the user kept leaving between rounds.
+Most answers were deferrals that a default would have produced anyway.
+
+Daily triage now gathers every candidate silently, proposes one action per row
+(today while capacity lasts, spread across the next five days, or backlog at
+five or more defers and for chronic-ignore hits), and asks at most one round.
+Free-form exceptions replace the old per-task menus. At-risk and stale-waiting
+hits are report-only. Extensions contribute at most one question to the same
+round instead of opening their own. An /agenda build delegated from triage
+treats the round as settled: it asks nothing, leaves passed habit windows
+pending (triage may not read habits, so it cannot ask on the agenda's behalf),
+and puts overflow in Cut order. Confirming the plan is the explicit user choice
+that "never auto-mutate" requires; hard-deadline rows still get their own
+decision inside the round and never join a proposed defer. Spreading across
+days, rather than a uniform +7d, keeps one future day from collecting the
+whole slipped set.

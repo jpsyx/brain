@@ -42,12 +42,12 @@ Concretely, for every pass below:
   never appear in a group, a count, a bulk operation, or a per-task prompt. If a
   past-due list you assembled contains an `H###` row, the list is wrong - rebuild
   it from `tasks.csv`.
-- **"Drop all" and per-task "Drop" apply to tasks only.** `brain tasks remove`
+- **Drop applies to tasks only.** `brain tasks remove`
   refuses a habit needle unless given `--habit`; triage must **never** pass that
   flag, under any circumstance, including a direct user instruction mid-triage
   (send them to `/todo remove` for that, so retiring a habit is a deliberate act
   outside a bulk cleanup).
-- **"Defer all N days" applies to tasks only.** Do not use `brain tasks defer` or
+- **Proposed defers and spreads apply to tasks only.** Do not use `brain tasks defer` or
   `brain habits defer` on a habit during triage. A habit the user wants out of the
   way today is handled by `/todo`'s cadence-aware `brain habits skip`, after
   triage, at their explicit request.
@@ -94,9 +94,10 @@ run `brain persona list`. It prints one block per workspace member, keyed by
 user ID. Select the person identified by `BRAIN_ACTOR_ID`, not the `(this machine)`
 marker. Read the other blocks only to understand who else shares this workspace. Honor their `role`/`works_for` (both may be
 unset - then keep the framing neutral). **Top priority is saving the user's
-time.** Group first, walk individuals only when grouping doesn't apply. Be
-blunt. Make obvious decisions. Ask the user only when you genuinely can't
-proceed - and when you ask, batch questions and keep them short.
+time.** Propose, don't ask: decide a default for every item and let the user
+correct it in one answer. Be blunt. Make obvious decisions. Ask the user only
+when you genuinely can't proceed - and when you ask, batch questions and keep
+them short. Daily triage has a hard [question budget](#daily-question-budget).
 
 Sibling skills: /todo (tasks), /agenda (day planning), /projects, /process-capture, /organize, /brain-sync (knowledge workflows). All engage the same assistant mode.
 
@@ -135,7 +136,12 @@ variables are present.
 
 # Daily triage
 
-The original "morning triage" - a fast pass over past-due tasks that bulk-groups them for one-shot decisions. The user can have 50+ past-due tasks; going 1-by-1 is unworkable. Always group first; offer bulk operations before walking items individually.
+The original "morning triage": a fast pass over past-due tasks. The user can
+have 50+ past-due tasks, and every question round is a chance for them to walk
+away while the day's plan waits. So daily triage **proposes, it does not ask.**
+It gathers every candidate, decides a default for each one, shows the whole
+plan once, and takes one round of answers. Then it applies the plan and
+finishes.
 
 ## When to invoke
 
@@ -143,6 +149,36 @@ The original "morning triage" - a fast pass over past-due tasks that bulk-groups
 - `/triage daily` or `/triage morning` invoked directly.
 - Bare `/triage` when the weekly habit isn't due (see [Routing](#routing-when-the-user-runs-bare-triage-no-mode-argument)).
 - During /agenda planning when there are 10+ past-due tasks (defer to /triage rather than handling inline).
+
+## Daily question budget
+
+Daily triage asks **at most one question round** per run, and that round is
+[Step 3](#step-3--ask-the-one-round). Everything else is silent: gathering,
+scanning, planning, applying, and the summary. The round holds every decision
+the run needs:
+
+1. The plan confirmation (always, when the plan changes anything).
+2. Hard-deadline review (only when [Step 5](#step-5--hard-deadline-review) has rows).
+3. At most one question contributed by an extension step.
+
+Steps delegated after the round ask nothing. An /agenda build that triage hands
+off takes the round's answers as settled (see
+[Triage handoff](../agenda/references/planning.md#triage-handoff)).
+
+Extension steps that need a decision contribute it to this round. They never
+open their own round, and they never re-ask about a task this run has already
+decided. An extension step that runs after the round (a merge step, for
+example) reports what it found instead of asking. The only extra rounds are
+ones the user explicitly asks for, such as a one-by-one walk of a named group.
+When the round would exceed the question surface's capacity, merge the
+lowest-value questions into the plan confirmation's free-form answer. Every
+question offers a free-form answer so the user can name exceptions in one line
+("T41 today, T18 drop, walk the finance group one by one").
+
+When the plan is empty and nothing else needs a decision, the run asks
+zero questions. Never add a second round to clarify an answer. Apply the clear
+parts, keep the rest at the plan default, and say what you assumed in the
+summary.
 
 <!-- brain:ext triage:daily-open -->
 
@@ -152,9 +188,9 @@ The original "morning triage" - a fast pass over past-due tasks that bulk-groups
 
 Daily triage can run **background sub-agents in parallel with the rest of daily
 triage** - independent jobs (an inbox sweep, an issue-tracker reconcile, a report
-build) that don't depend on the grouping / at-risk / chronic passes and would only
-burn wall-clock if run serially first. An extension registers each such sub-agent
-at the hook below.
+build) that don't depend on the planning passes and would only burn wall-clock
+if run serially first. An extension registers each such sub-agent at the hook
+below.
 
 **Launch every registered sub-agent now, in the background, and do NOT block on
 them here.** Record each sub-agent's handle so you can collect it when the task
@@ -188,117 +224,160 @@ mention the purge ran.** Just run it and move on. (See /todo SKILL.md
 
 <a id="step-1--pick-the-most-useful-grouping"></a>
 
-## Step 1 - Pick the most useful grouping
+## Step 1 - Gather the candidates (silent)
 
-The set being grouped is the past-due rows of **`tasks.csv` only** - never
-`habits.csv` (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+Read `tasks.csv` with a real CSV parser. Never read `habits.csv` here (see
+[Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+Collect, without asking anything:
 
-Try these in order; commit to the **first** one whose largest bucket has at least 3 items (otherwise you're just walking 1-by-1 anyway):
+- **Past-due rows:** `status` not `done`/`backlog` and `due_date < today`.
+- **Today's existing load:** open rows already due today, with their
+  `estimated_duration`.
+- **Load for each of the next five days:** the same sum per day.
+- **At-risk hits** from [Step 6](#step-6--forward-looking-at-risk-scan) and
+  **stale waits** from its stale-waiting check.
+- **Chronic-ignore hits** from [Step 7](#step-7--chronic-ignore-sweep).
 
-1. **By `task_type`** - "8 code tasks past due", "12 personal tasks past due". This is usually the most natural grouping.
-2. **By overdue bucket** - `<7d`, `7-30d`, `>30d`. Surfaces the "ancient zombies" (>30d) for a separate question.
-3. **By `priority`** - useful when type-grouping is balanced but priority is skewed.
-4. **By `project`** - when many past-due tasks share a project.
-
-If multiple groupings tie, prefer the one that gives the smallest number of groups (less cognitive load for the user).
+Compute dates in the shell, never in your head. Treat an empty
+`estimated_duration` as 30 minutes.
 
 <a id="step-2--present-the-groups"></a>
+<a id="step-2--build-the-plan"></a>
 
-## Step 2 - Present the groups
+## Step 2 - Build the plan
 
-One line per group:
+Give every past-due and chronic-ignore row exactly one proposed action. Use
+these defaults, in this order:
 
-```
-Past-due triage (47 tasks):
+1. **Hard deadline.** A `hard_deadline=true` row is never bulk-deferred.
+   Exclude every `hard_deadline=true` row from every proposed defer. Propose
+   **Today** for it, and send it through the
+   [hard-deadline review](#step-5--hard-deadline-review) when its
+   `defer_count >= 1`. Plan consent does not replace that individual decision.
+2. **Chronically deferred.** `defer_count >= 5`, no hard deadline, not `p0`,
+   not MIT: propose **Move to backlog** (`brain backlog park <T###>`). The
+   user can restore it later. Another defer is the wrong default at this point.
+3. **Chronic-ignore hit** (`brain tasks chronic`, see Step 7): propose **Move to
+   backlog** for the same reason. Drop stays available as a free-form exception.
+4. **Today.** A `p0` or MIT row stays for today while it fits today's
+   remaining capacity. Estimate that capacity the way /agenda does: live
+   clock, explicit anchors, and calendar busy blocks (see
+   [capacity](../agenda/references/planning.md#capacity-and-placement)),
+   minus the work already due today. Fill in priority order and stop when
+   the time runs out. Never propose more for today than fits.
+5. **Spread.** Every other row moves to one of the **next five days**. Take
+   rows in priority order, then oldest due date first. Put each one on the day
+   with the smallest load (existing work due that day plus rows already placed
+   there), and break ties toward the earliest day. Skip a day only when an
+   explicit anchor says it is unavailable. Spreading keeps a wall of +7d
+   defers from piling up on a single day.
 
-  personal  (18) - defer all 7d / drop all / 1-by-1 / skip
-  code      (12) - defer all 7d / drop all / 1-by-1 / skip
-  work      (8)  - defer all 7d / drop all / 1-by-1 / skip
-  finance   (4)  - defer all 7d / drop all / 1-by-1 / skip
-  errands   (3)  - defer all 7d / drop all / 1-by-1 / skip
-  > 30d old (12) - defer all 7d / drop all / 1-by-1 / skip
-```
+Native rules still apply when the plan runs. A `status=waiting` row or a row
+with a non-empty `blocked_by` defers with no `defer_count` penalty. Rows in
+the **Today** bucket move with `brain tasks set <T###> --due <today>`, which
+keeps their MIT and priority. Spread rows move with
+`brain tasks defer <T###> <YYYY-MM-DD>`.
 
-The "> 30d old" cross-cut is shown even when the primary grouping is by `task_type` - it's the highest-signal group.
-
-Before any group mutation, perform the [hard-deadline review](#step-5--hard-deadline-review).
-Screen every `hard_deadline=true` row, exclude it from bulk defers, and resolve
-its deadline individually before proceeding. Step numbers do not delay this gate.
+A task with `estimated_duration > 90` or scope verbs (`launch`, `build`,
+`migrate`, `research`) that keeps slipping can carry a note in the plan
+suggesting `/todo turn-into-project`. It is a note, not a question.
 
 <a id="step-3--bulk-operations-per-group"></a>
+<a id="step-3--ask-the-one-round"></a>
 
-## Step 3 - Bulk operations per group
+## Step 3 - Ask the one round
 
-- **Defer all N days** - exclude `hard_deadline=true` rows after the individual
-  deadline review above; accept any positive integer; quick-picks are `1`, `7`, `14`. Increments `defer_count` for each **except no-penalty defers**: a task with `status=waiting` or a non-empty `blocked_by` defers without raising `defer_count` (the slip isn't the user's fault). `brain tasks defer` handles this automatically; `--no-count` forces it for other not-our-fault cases. If any task in the group hits `defer_count >= 3` *after* the bulk defer, flag it in the summary.
-- **Drop all**: preview all consented IDs in one command with
-  `brain tasks remove T17 T18 --dry-run --json`, then obtain consent for the
-  exact scope and dependency/linked-issue policies. Apply the same batch with
-  `--yes` and the preview fingerprint as `--expect-plan`. The CLI owns link
-  cleanup. A stale plan requires a fresh preview and consent; unresolved policy
-  choices go back to the user. Never apply this to a habit (see
-  [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
-  Follow [/todo's removal contract](../todo/SKILL.md#remove-tasks), including
-  native status/resume after an adapter failure and committed agenda warnings.
-- **1-by-1** - walks the group with per-task prompts (see Step 4).
-- **Skip group** - moves to next.
+Show the plan as one compact block, grouped by action. Put the deadline first
+on every row (see [question shape](#asking-the-user-for-per-task-actions-use-askuserquestion)):
+
+```
+Daily triage plan (14 past-due, 1 chronic):
+
+  Today (fits 1h40m):  T41 Send the vendor contract [p0, MIT]
+  Wed 7/9:             T12, T15, T33
+  Thu 7/10:            T19, T27
+  Fri 7/11:            T22, T30, T35 ...
+  Backlog (def >= 5):  T18 (def=8), T9 (def=6), T52 (chronic, stale_21d)
+
+At-risk (FYI, no action): T60 due 7/12 (def=2), T61 due 7/14 (p1, not started)
+```
+
+Then ask the single round from the
+[question budget](#daily-question-budget) on the available question surface.
+The plan confirmation looks like this:
+
+```
+header:   Plan
+question: Apply this triage plan? (15 tasks: 1 today, 11 spread over 7/9-7/13, 3 to backlog). Name exceptions in free text, e.g. "T12 today, T18 drop".
+options:  Apply (Recommended) / Apply, nothing today / Leave everything as is
+```
+
+Hard-deadline review rows go in one more question of the same round (see
+Step 5). Do not ask about at-risk rows, stale waits, or anything the plan
+already decided.
 
 <a id="step-4--1-by-1-walk"></a>
 
-## Step 4 - 1-by-1 walk
+## Step 4 - Apply the plan
 
-For each task in the chosen group, ask via **the available question surface** (see [Asking the user for per-task actions](#asking-the-user-for-per-task-actions-use-askuserquestion)). Batch within the available surface's capacity.
+Apply the confirmed plan with the user's exceptions folded in. Run every
+mutation without further prompts. A free-form answer can ask to walk a group
+one task at a time. Honor it, but batch that walk into as few rounds as the
+question surface allows.
 
-Example question payload (one task):
-
-```
-header:   T108
-question: **Due 7/5 (1d late):** T108 "Check in with the vendor on the billing-side bug" [p2/work, def=0]. What's the call?
-options:  Done / Defer +7d / Drop / Start now
-```
-
-The full action vocabulary (`defer +14d`, `defer to date`, `mit`, `change-priority`, `convert-to-project`, `move-to-backlog`, `skip`) is still available - the user can type any of those via the auto-added "Other" option. **`move-to-backlog`** parks the task indefinitely (`brain backlog park`); surface it as an explicit option once `defer_count >= 4` (see "Default 4-option sets").
-
-**High-defer warning**: if `defer_count >= 3` *before* this action, prepend a line in red/bold:
-
-```
-  ⚠ deferred 4 times already - drop it, or commit to a firm date?
-```
-
-Recognize when the user wants to convert to a project (see [task-project-link.md](../projects/references/task-project-link.md) conversion triggers). If `estimated_duration > 90` or the task has scope verbs, suggest `/todo turn-into-project` instead of deferring again.
+- **Drop** (only as an explicit exception): preview all named IDs in one
+  command with `brain tasks remove T17 T18 --dry-run --json`. Apply with
+  `--yes` and the preview fingerprint as `--expect-plan` when the user's
+  answer already named those IDs and no dependency or linked-issue policy
+  choice is open. If a policy choice is open, keep the row at its plan default
+  and report the choice in the summary instead of opening a new round. Follow
+  [/todo's removal contract](../todo/SKILL.md#remove-tasks); never apply
+  removal to a habit (see
+  [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
+  Submit all consented IDs in one command.
+- **Backlog projects:** when a backlogged task belongs to a project, report
+  the project follow-up from
+  [/todo "Backlog ↔ projects"](../todo/SKILL.md) in the summary. Do not ask.
+- After applying, flag every row whose `defer_count >= 3` in the summary.
 
 <a id="step-5--hard-deadline-review"></a>
 
 ## Step 5 - Hard-deadline review
 
-Before bulk-deferring anything, scan for tasks with `hard_deadline=true`:
+Before any proposed defer, screen every `hard_deadline=true` row:
 
-- Hard-deadline tasks are excluded from "defer all" bulk operations.
-- For ANY hard-deadline task whose `defer_count >= 1`, pause and ask the user:
-  > "T### '<name>' was deferred [N] times and still has a hard deadline of <date>. Should the hard deadline still hold, or do you want to set a more realistic date?"
-- Get the user's answer before continuing. Apply their choice (keep deadline / change deadline / drop hard_deadline flag) before moving to bulk operations on that group.
+- Hard-deadline rows never join a spread or any other bulk defer.
+- A hard-deadline row whose `defer_count >= 1` gets a deadline check in the
+  [one round](#step-3--ask-the-one-round). Ask one multi-select question:
+  > "These hard deadlines have already slipped. Check any that are no longer real: T### '<name>' (due <date>, def=N), …"
+- Unchecked rows keep their hard deadline and stay in **Today**. Checked rows
+  lose the `hard_deadline` flag and join the spread. A free-form answer can
+  set a new date for a specific row instead.
 
 <a id="step-6--forward-looking-at-risk-scan"></a>
 
 ## Step 6 - Forward-looking at-risk scan
 
-After past-due is clean, scan the next **8 days** for tasks likely to slip. This is the "what's about to fall over?" pass - it runs every daily triage, even when past-due was empty.
+This scan never asks a question. It runs every daily triage, even when
+past-due was empty, and its hits appear as an **FYI line** in the plan and the
+summary. At-risk tasks aren't late yet, and "leave as is" was almost always
+the answer. The user can still act on any of them in the free-form answer.
 
-**Deadline window (explicit user rule):** only surface an at-risk task when its `due_date` is **within 8 days** (`<= today + 8`). Flag-when-close, not early-warning: a task in danger but still 9+ days out is left alone until it gets closer. (The chronic-ignore sweep in Step 7 uses a tighter 3-day window; at-risk gets the wider 8 days because these are genuinely in danger, not just inert.)
+**Deadline window (explicit user rule):** only surface an at-risk task when its `due_date` is **within 8 days** (`<= today + 8`). Flag-when-close, not early-warning: a task in danger but still 9+ days out is left alone until it gets closer. (The chronic-ignore sweep in Step 7 uses a tighter 3-day window.)
 
-### Stale-waiting check (runs first, alongside the at-risk scan)
+### Stale-waiting check
 
-A task in `status=waiting` is paused on an **external** party (a reply, a vendor, a legal review), so its slipping isn't avoidance - deferring it never raised `defer_count`. But waiting forever is its own failure mode. Run:
+A task in `status=waiting` is paused on an **external** party, so its slipping isn't avoidance. But waiting forever is its own failure mode. Run:
 
 ```
 brain tasks stale-waiting --pretty
 ```
 
-For each task that's been waiting **more than 7 days** (`waiting_since`), nudge the user: offer to **follow up with the external party** (infer who from the `task_name`/`see_also` if you can) and ask whether to **create a check-in task** for that follow-up. A task with `status=waiting` but an empty `waiting_since` is also surfaced (we can't tell how long - stamp it now). This is the counterpart to the chronic-ignore sweep: chronic-ignore is "we're avoiding it"; stale-waiting is "someone else is sitting on it and it's time to chase them."
+List every task that has been waiting **more than 7 days** (`waiting_since`) in the FYI line, with the party to follow up with when you can infer it from `task_name`/`see_also`. A `status=waiting` row with an empty `waiting_since` is listed too. Do not ask whether to create a check-in task; the user can request one.
 
 ### At-risk criteria
 
-Filter `tasks.csv` for rows where `status != done`, `start_date` is empty or `<= today+8`, and **any** of the following match (multiple matches = multiple reasons surfaced together). Every criterion is gated by the 8-day deadline window above - nothing with a `due_date` 9+ days out is surfaced here:
+Filter `tasks.csv` for rows where `status != done`, `start_date` is empty or `<= today+8`, and **any** of the following match. Every criterion is gated by the 8-day window above:
 
 1. **Hard deadline, never started** - `hard_deadline=true` AND `due_date <= today+8` AND `status == not_started`.
 2. **Hard deadline already pushed** - `hard_deadline=true` AND `defer_count >= 1` AND `due_date <= today+8`.
@@ -306,69 +385,14 @@ Filter `tasks.csv` for rows where `status != done`, `start_date` is empty or `<=
 4. **High-priority not started** - `priority in (p0, p1)` AND `status == not_started` AND `due_date <= today+8`.
 5. **Long task, no progress, due soon** - `estimated_duration >= 60` AND `status == not_started` AND `due_date <= today+8`.
 
-**Skip tasks already handled in this same triage session** (e.g. one you just bulk-deferred in Step 3 or warned about in Step 4). Don't re-flag them; the user just acted on them.
-
-### Presentation
-
-- **0 hits** → say "No at-risk tasks in the next 8 days." and move on. Do not fabricate a list.
-- **1–3 hits** → walk individually with the per-task prompt below.
-- **4+ hits** → group first (same logic as Step 1: try by reason, then by due bucket `≤3d` / `≤7d` / `≤14d`, then by `task_type`). Briefly show the groups as a text summary (one line per group with task IDs / counts), then ask the user how to handle each group via **the available question surface**.
-
-### Group-level prompt (4+ hits)
-
-Use **the available question surface** within its supported question capacity (one question per group; additional batches when capacity is exceeded). Options per group:
-
-```
-header:   <group label, e.g. "Renewals">
-question: <group description, e.g. "Renewals cluster (4): T94, T99-101, hard+def=1-2, due 6/26-6/29.">
-options:  Leave as is / 1-by-1 / Defer all +7d / Drop all
-```
-
-- **`Leave as is`** is ALWAYS the first option, because at-risk tasks are flagged but not yet late - leaving them unchanged is a legitimate choice and often the right one. The user is being shown a preview, not forced to act.
-- **`1-by-1`** kicks into the per-task prompt below for that group only.
-- Before any group mutation, perform the [hard-deadline review](#step-5--hard-deadline-review)
-  for every protected row. Bulk consent does not replace that individual decision.
-- **`Defer all +Nd`**: Exclude every `hard_deadline=true` row from all bulk defer variants,
-  including `Defer all +14d` and `Defer all to date`. State which rows remain outside
-  the batch. Handle protected rows separately through the per-task prompt and its
-  explicit deadline confirmation, even when the user chose a group defer.
-  Apply `brain tasks defer` only to the eligible batch; native waiting/blocked and
-  `--no-count` exemptions still apply. Flag a resulting `defer_count >= 3` in the summary.
-- **`Drop all`**: after deadline review, follow Step 3's native removal preview,
-  exact-scope consent, dependency/linked-issue policy, and fingerprint contract.
-- Less common bulk operations (`Defer all +14d`, `Defer all to date`, `Convert all to project`)
-  remain reachable through a free-form response and obey the same deadline review.
-  Choosing a different defer interval never expands the eligible batch.
-
-### Per-task prompt
-
-Ask via **the available question surface** (see [Asking the user for per-task actions](#asking-the-user-for-per-task-actions-use-askuserquestion)). Batch within the available surface's capacity.
-
-Example question payload (one task):
-
-```
-header:   T148
-question: **Due 7/12 (in 5d):** T148 "Draft the Q3 board update" [p1/work, def=1, HARD] - reasons: hard-deadline, never-started. What's the call?
-options:  Start now / Defer +7d / Drop / Convert to project
-```
-
-`defer to date`, `mit`, `change-priority`, `skip` remain reachable via "Other".
-
-- **start-now** - set `start_date=today` and `status=in_progress`. Use when the user commits to begin now.
-- **defer +Nd / defer to date** - push `due_date`, increments `defer_count` (except no-penalty defers: `status=waiting` or non-empty `blocked_by` push without raising the count). **Hard-deadline tasks require explicit confirm** (same rule as Step 5): pause and ask whether the hard deadline still holds before deferring.
-- **drop**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)).
-- **convert-to-project** - when `estimated_duration > 90` or scope verbs (`launch`, `build`, `migrate`, `research`) - suggest `/todo turn-into-project` per [task-project-link.md](../projects/references/task-project-link.md).
-- **skip** - acknowledge, no change. Use when the user is aware and chooses to leave it.
-
-### Skipping the whole pass
-
-If the user is in a hurry, accept `skip at-risk` (or just "skip") at the start of this step to jump to Step 7 with no changes.
+Skip rows the plan already covers. Show at most five hits, most urgent first,
+then "+N more".
 
 <a id="step-7--chronic-ignore-sweep"></a>
 
 ## Step 7 - Chronic-ignore sweep
 
-After the at-risk preview, sweep tasks that have rotted in the backlog - neither past-due (handled in Steps 1–4) nor about to slip (handled in Step 6), but **inert**. These are deadwood candidates. The goal is to clear them, not to revive them by default.
+Find tasks that have rotted: not past-due (that's the plan's main set) and not about to slip (Step 6), but **inert**. These are deadwood candidates, and they feed the plan with a **Move to backlog** default ([Step 2](#step-2--build-the-plan)). This sweep asks nothing on its own.
 
 **Tasks only.** An inert habit is not deadwood - a habit nobody has done in weeks is still a habit the user keeps, and its pending row is the only record of the cadence. The detector reads `tasks.csv`; never extend this sweep to `habits.csv` (see [Triage never touches habits](#triage-never-touches-habits-hard-invariant)).
 
@@ -376,11 +400,11 @@ After the at-risk preview, sweep tasks that have rotted in the backlog - neither
 
 A task in `tasks.csv` qualifies if `status != done`, its deadline is imminent or absent (`due_date` empty OR `today <= due_date <= today + 3d`), and at least one of:
 
-**Never nag about far-off deadlines (explicit user rule).** A dated task is surfaced only once it's within **3 days** of its `due_date`. Anything further out is left alone - even if it's old and untouched - because asking about it repeatedly when the deadline is still days/weeks away is just noise. (Chronic-ignore deadwood gets this tight 3-day window; the Step 6 at-risk preview uses a wider 8-day window for tasks genuinely in danger.) Undated thin rows have no deadline to be "far from", so they stay eligible (they're the truest captured-and-forgotten deadwood). Past-due rows (`due_date < today`) are owned by past-due triage (Steps 1-4), not this sweep.
+**Never nag about far-off deadlines (explicit user rule).** A dated task is surfaced only once it's within **3 days** of its `due_date`. Anything further out is left alone. Undated thin rows have no deadline to be "far from", so they stay eligible. Past-due rows (`due_date < today`) belong to the plan's past-due set, not this sweep.
 
 1. **`stale_21d`** - `today - last_touched >= 21d`. Primary signal.
-2. **`stuck_in_progress`** - `status == in_progress` AND `today - last_touched >= 14d`. The user engaged once, then walked away.
-3. **`captured_forgotten`** - `today - created_date >= 60d` AND `status == not_started` AND empty `notes`, empty `estimated_duration`, empty `project`. A thin row that's old and untouched.
+2. **`stuck_in_progress`** - `status == in_progress` AND `today - last_touched >= 14d`.
+3. **`captured_forgotten`** - `today - created_date >= 60d` AND `status == not_started` AND empty `notes`, empty `estimated_duration`, empty `project`.
 
 Don't apply these filters in your head - LLMs are bad at calendar math. Run the script:
 
@@ -390,42 +414,7 @@ brain tasks chronic
 
 Outputs one JSON object per matching task (sorted by max-days-since-touch first) with `task_id`, `task_name`, `reasons[]`, `days_since_touch`, `days_since_create`, `status`, `priority`, `task_type`, `due_date`, `defer_count`, `project`, `hard_deadline`. Pipe to `--count` for a quick number, `--pretty` for human-readable.
 
-**Skip tasks already handled in this same triage session** (deferred, dropped, started, converted in Steps 3–6). Compare against the IDs you touched earlier and drop them from the hit list before presenting.
-
-### Presentation
-
-- **0 hits** → "No chronic-ignore candidates." Move on.
-- **1–3 hits** → walk individually using the per-task prompt below.
-- **4+ hits** → group by primary reason (`stale_21d`, `stuck_in_progress`, `captured_forgotten`) and present like Step 2 with the same bulk vocabulary. Then walk groups the user picks "1-by-1".
-
-### Per-task prompt
-
-Ask via **the available question surface** (see [Asking the user for per-task actions](#asking-the-user-for-per-task-actions-use-askuserquestion)). Batch within the available surface's capacity.
-
-Example question payload (one task):
-
-```
-header:   T82
-question: **No due date:** T82 "Reach out to the prof about the reading group ..." [p3/personal, def=0] - stale_21d, 28d since touch. Recommended: Drop. Confirm?
-options:  Drop (Recommended) / Revive / Start now / Defer to date
-```
-
-`convert-to-project`, `skip` remain reachable via "Other".
-
-**Default recommendation: drop.** The whole point of this pass is to clear inertia. If the user wanted to keep it, they'd have moved on it. State "drop" as the recommended action (first option, labeled "(Recommended)"); only deviate when the task is clearly load-bearing.
-
-Actions:
-
-- **`drop`**: preview and apply through `brain tasks remove` with consent, chosen policies, and the preview fingerprint (see [/todo removal](../todo/SKILL.md#remove-tasks)). Use as default.
-- **`revive`** - bumps `last_touched` to today without changing anything else. Use when the user explicitly says "yes I still care, leave it" - they'll get another 21 days before it reappears. Script: `brain tasks touch <T###>`.
-- **`start-now`** - set `status=in_progress` and `start_date=today` (the underlying scripts will also touch the row). Use when the user commits to begin now.
-- **`convert-to-project`** - when the task is chronically ignored *because* it's too big to start. Suggest `/todo turn-into-project` per [task-project-link.md](../projects/references/task-project-link.md). Note: don't reflexively convert - converting a task the user has been avoiding doesn't fix the avoidance; sometimes drop is the honest answer.
-- **`defer to date`** - push `due_date` to a real date with a real commitment. Hard-deadline rows still require the Step 5 confirmation.
-- **`skip`** - no change. The clock keeps ticking; it'll surface again next triage.
-
-### Skipping the whole pass
-
-If the user is in a hurry, accept `skip chronic` (or just "skip") at the start of this step to jump to Step 8 with no changes.
+Free-form exceptions for a chronic row: **revive** (`brain tasks touch <T###>`, another 21 days before it reappears), **start now** (`status=in_progress`, `start_date=today`), **defer to date**, or **drop** (Step 4's removal rules).
 
 <a id="step-8--summary"></a>
 
@@ -434,19 +423,22 @@ If the user is in a hurry, accept `skip chronic` (or just "skip") at the start o
 After triage:
 
 ```
-Triage complete:
-  - 12 tasks deferred (avg push: 7d)
-  - 3 tasks dropped
-  - 1 task converted to project: apply-to-conference
-  - 0 tasks marked MIT
-  - 4 high-defer warnings issued
+Triage complete (1 question round):
+  - 11 tasks spread over 7/9-7/13
+  - 1 kept for today
+  - 3 moved to backlog
+  - 0 dropped
+  - High-defer (>= 3): T22 (4), T30 (3)
 
   Remaining past-due: 0
-  At-risk flagged (next 8d): 5 - 2 deferred, 1 dropped, 1 started, 1 skipped
-  Chronic-ignore flagged: 7 - 4 dropped, 2 revived, 1 started
+  At-risk (next 8d, FYI): T60, T61
+  Chronic-ignore: 1 (T52 to backlog)
 ```
 
-Omit the at-risk / chronic-ignore lines when those scans were skipped or returned zero hits - just note "At-risk: none" / "Chronic-ignore: none" in that case. Any integration passes you run from an extension (email, issue-tracker reconcile) add their own summary lines above these.
+Omit lines that are zero, except "Remaining past-due". List any assumption you
+made about an unclear answer. Any integration passes you run from an
+extension (email, issue-tracker reconcile) add their own summary lines above
+these.
 
 ## Collect sub-agents, then merge their output (before you finalize anything)
 
@@ -631,7 +623,7 @@ of a calendar month**, and its only extra job is reviewing the backlog.
    then set a fresh `due_date`/`priority`). **`Leave parked`
    is ALWAYS the first option** - the backlog default is to stay parked,
    and surfacing an item here is a preview, not a nudge to restore it
-   (same reasoning as Step 6's `Leave as is`). Items that aren't
+   (the same reason daily at-risk hits are FYI only). Items that aren't
    obviously relevant-and-doable stay in the backlog silently; the
    6-month purge (Step 0) eventually clears the truly dead ones with no
    prompt.
@@ -671,9 +663,11 @@ Once weekly processing is complete and managed completion is handled (or disable
 
 Apart from the explicit maintenance exceptions in daily Step 0 and the monthly
 check, triage never deletes, defers, re-prioritizes, or routes anything without
-an explicit user choice. Bulk options authorize only eligible selected rows; they
-never waive individual hard-deadline review or include protected rows in a bulk
-defer. In weekly mode, your best-guess routing of a TASK or NOTE counts as a decision the user has implicitly authorized - but anything UNSURE must be confirmed.
+an explicit user choice. In daily mode, confirming the plan is that choice for
+the eligible selected rows the plan lists, with the user's exceptions applied.
+Plan consent and bulk options never waive individual hard-deadline review or
+include protected rows in a bulk defer. "Leave everything as is" changes
+nothing. In weekly mode, your best-guess routing of a TASK or NOTE counts as a decision the user has implicitly authorized - but anything UNSURE must be confirmed.
 
 <a id="asking-the-user-for-per-task-actions-use-askuserquestion"></a>
 
@@ -681,41 +675,37 @@ defer. In weekly mode, your best-guess routing of a TASK or NOTE counts as a dec
 
 Use the available frontend question surface for concrete action choices, including
 closing offers. When none is available, ask a concise textual question with the
-same choices. Batch tasks within that surface's supported capacity. Keep the
+same choices. Batch within that surface's supported capacity. Keep the
 question self-contained: deadline, ID, name, reason, options, and recommendation
 belong together. Never depend on a particular frontend tool name or four-question
 limit. Preserve an open/freeform response when the predefined choices do not fit.
+Daily triage asks only inside its [one round](#daily-question-budget); these
+rules shape that round and the weekly questions.
 
-**Question shape** - one question per task. **Lead with the deadline, before the task ID - always.** Start the `question` field with the due date in **bold**, because knowing instantly whether a decision is about something due *today* vs *weeks out* is the single most important cue for fast triage. Format:
+**Lead with the deadline, before the task ID - always.** Every plan row and
+every question that names a task starts with its due date in **bold**, because
+knowing instantly whether a decision is about something due *today* vs *weeks
+out* is the single most important cue for fast triage. Format:
 
 - Due today → `**Due TODAY:** T### '<name>' [p0/work, def=1] …`
 - Future → `**Due 7/15:** T17 '<name>' [p2/personal, def=3] …`
 - Past-due → `**Due 7/5 (2d late):** T### …`
 - No due date → `**No due date:** T### …`
 
-After the bolded deadline, give the task ID, name, type/priority/age, and key flags (defer_count, hard_deadline). Use the task ID as the `header`. This deadline-first rule applies to **every** per-task prompt - Step 4 past-due, Step 6 at-risk, Step 7 chronic - and to any group-level line that names individual tasks. Pick the most context-appropriate options from the per-step menu (see below); provide a free-form response when supported, so the user can specify for less common actions (`defer to date`, `change priority`, `mit`, `convert-to-project`, etc.) without you having to list them.
+After the bolded deadline, give the task ID, name, type/priority, and key flags
+(`defer_count`, `hard_deadline`). In a compact plan block, a row can drop the
+name when the ID and deadline are enough to recognize it.
 
-**Default 4-option sets by step:**
-
-- **Step 4 (past-due 1-by-1):** `Done` / `Defer +7d` / `Drop` / `Start now`
-- **Step 6 (at-risk 1-by-1):** `Start now` / `Defer +7d` / `Drop` / `Convert to project`
-- **Step 7 (chronic-ignore 1-by-1):** `Drop` / `Revive` / `Start now` / `Defer to date`
-
-Deviate from these defaults when context obviously warrants it (e.g. show `Defer +14d` instead of `+7d` when the user has been deferring +14 repeatedly this session).
-
-**`Move to backlog` is a standing action everywhere.** It's always reachable via a free-form response, and you should **surface it as an explicit option whenever `defer_count >= 4`** - at that point deferring again is the wrong default, so swap `Defer` for `Move to backlog` in the option set (e.g. Step 4: `Done` / `Move to backlog` / `Drop` / `Start now`). Backlogging parks the task (clears its dates, hides it from active views) via `brain backlog park <T###>`; it stops the per-triage nagging without losing the task. **If the task belongs to a project, run the project follow-up** (backlog whole project? archive it?) per /todo SKILL.md "Backlog ↔ projects" - ask with the available question surface, don't assume.
-
-**Group-level prompts:**
-
-- **Step 2 (past-due groups)** - prose menu is fine. The past-due flow is high-velocity and the user typically answers for several groups in one message ("work: 1-by-1, personal: defer all 7d, …").
-- **Step 6 (at-risk groups)** - **DO use the available question surface**, with `Leave as is` always present as the first option. At-risk tasks aren't late yet, so leaving them alone is a valid choice and often the right one. See Step 6's "Group-level prompt (4+ hits)" subsection for the exact shape.
-- **Step 7 (chronic-ignore groups)** - the available question surface is fine but not required. The default action is `Drop all` (the whole point of the pass is to clear inertia); make that the first option labeled "(Recommended)".
+**`Move to backlog` is a standing action everywhere.** It parks the task
+(clears its dates, hides it from active views) via `brain backlog park <T###>`,
+which stops the per-triage nagging without losing the task. Daily triage
+proposes it by default at `defer_count >= 5` ([Step 2](#step-2--build-the-plan)).
+In weekly mode, surface it as an explicit option whenever `defer_count >= 4`.
 
 **Open questions** can use concise prose; concrete action menus use the available
 surface or its textual fallback.
 
-- **Hard-deadline confirmations** (Step 5, and the in-step warnings in Steps 6/7) - keep these as a single sharp prose question. They're not "pick an action," they're "is this still real?"
-- **High-defer-count warnings** (Step 4 `defer_count >= 3` line) - prepend the warning line, then still ask via the available question surface. The warning is context, not a separate question.
+- **Hard-deadline confirmations** (daily Step 5) - one multi-select inside the daily round. They're not "pick an action," they're "is this still real?"
 - **In-basket UNSURE clarifications** (weekly Step 1) - "I found '<x>', did you mean A or B?" is an open intent question, not a fixed action menu; prose is fine. (If it does collapse to a clean A/B/C action choice, use the tool.)
 
 ## Classification rules

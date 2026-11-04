@@ -160,7 +160,7 @@ assistant first.
   output resolution. `/todo today`, `/todo what`, `/todo next`, and counts remain
   task-only; they do not load agenda references or create artifacts.
 - **`/todo triage`** - see [triage-heuristics.md](triage-heuristics.md).
-  Bulk-group past-due tasks; offer defer-all / drop-all / 1-by-1.
+  Propose one plan for past-due tasks and confirm it in one question round.
 - **`/todo chronic`** - list chronically-ignored tasks via
   `brain tasks chronic`.
   Same set that `/triage` Step 7 sweeps; useful for ad-hoc inspection

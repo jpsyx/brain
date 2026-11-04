@@ -43,6 +43,17 @@ An existing plan defaults to an update: preserve choices already settled and ski
 first-build questions. Only an explicit request to start over re-enters full
 planning. A new material conflict may justify one targeted question.
 
+## Triage handoff
+
+When daily triage delegates the build, its one question round already settled
+the day. Treat that round's answers as the collaborative draft's answers and
+ask nothing. Skip the passed-habit-window question: leave them pending, so they
+render unchecked and the user can complete them later. Triage already sized
+today's work to the remaining capacity. If work still does not fit, place the
+overflow at the top of Cut order and say so in the reply, instead of asking or
+deferring it. A hard-deadline conflict that triage could not see still goes in
+the reply, not a new question.
+
 ## Capacity and placement
 
 1. Reserve the explicit [anchors and calendar](../SKILL.md#daily-anchors) first.

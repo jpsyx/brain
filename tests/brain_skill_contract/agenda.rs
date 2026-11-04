@@ -152,32 +152,80 @@ fn capture_only_requests_do_not_enter_or_complete_weekly_triage() {
     assert!(!triage.contains("\"process my capture\""));
 }
 
+fn section(text: &str, start: &str, end: &str) -> String {
+    let body = text
+        .split(start)
+        .nth(1)
+        .unwrap_or_else(|| panic!("missing section {start}"))
+        .split(end)
+        .next()
+        .unwrap();
+    body.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[test]
-fn at_risk_bulk_defers_cannot_override_individual_hard_deadline_review() {
+fn plan_proposals_cannot_override_individual_hard_deadline_review() {
     for rendered in [false, true] {
         let docs = catalog::documents(rendered);
-        let triage = &docs["triage/SKILL.md"];
-        let group = triage
-            .split("### Group-level prompt (4+ hits)")
-            .nth(1)
-            .unwrap()
-            .split("### Per-task prompt")
-            .next()
-            .unwrap();
-        let group = group.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(
-            !group.contains("still go through"),
-            "local bulk consent must not override hard-deadline protection"
+        let plan = section(
+            &docs["triage/SKILL.md"],
+            "## Step 2 - Build the plan",
+            "## Step 3",
         );
         for required in [
-            "Before any group mutation",
             "#step-5--hard-deadline-review",
-            "Exclude every `hard_deadline=true` row from all bulk defer variants",
-            "Handle protected rows separately",
-            "Bulk consent does not replace that individual decision",
+            "Exclude every `hard_deadline=true` row from every proposed defer",
+            "Plan consent does not replace that individual decision",
         ] {
-            assert!(group.contains(required), "missing local guard: {required}");
+            assert!(plan.contains(required), "missing plan guard: {required}");
         }
+    }
+}
+
+#[test]
+fn daily_triage_proposes_one_plan_and_asks_at_most_one_round() {
+    let docs = catalog::documents(false);
+    let triage = &docs["triage/SKILL.md"];
+    let budget = section(triage, "## Daily question budget", "<a id=");
+    for required in [
+        "at most one question round",
+        "free-form",
+        "never open their own round",
+        "zero questions",
+    ] {
+        assert!(budget.contains(required), "budget missing {required}");
+    }
+    let plan = section(triage, "## Step 2 - Build the plan", "## Step 3");
+    for required in [
+        "remaining capacity",
+        "next five days",
+        "`defer_count >= 5`",
+        "Move to backlog",
+        "`brain tasks chronic`",
+    ] {
+        assert!(plan.contains(required), "plan missing {required}");
+    }
+    let at_risk = section(triage, "## Step 6 - Forward-looking at-risk scan", "<a id=");
+    assert!(at_risk.contains("never asks"), "at-risk must be report-only");
+    for removed in [
+        "## Step 4 - 1-by-1 walk",
+        "### Group-level prompt (4+ hits)",
+        "1-by-1 / skip",
+    ] {
+        assert!(!triage.contains(removed), "daily triage still has {removed}");
+    }
+}
+
+#[test]
+fn agenda_built_from_daily_triage_asks_nothing() {
+    let docs = catalog::documents(false);
+    let planning = section(
+        &docs["agenda/references/planning.md"],
+        "## Triage handoff",
+        "## ",
+    );
+    for required in ["ask nothing", "Cut order", "leave them pending"] {
+        assert!(planning.contains(required), "handoff missing {required}");
     }
 }
 
