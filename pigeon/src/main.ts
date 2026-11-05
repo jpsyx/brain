@@ -20,6 +20,9 @@ const { version } = JSON.parse(
 ) as { version: string };
 
 process.exitCode = await runBird(
-  { brand: PIGEON_BRAND, packageDir, version },
+  // Pigeon works inside a brain workspace, whose rendered skills are the
+  // project's skills. It loads those and its own, never the skills installed
+  // machine-wide for other work.
+  { brand: PIGEON_BRAND, packageDir, version, skillPolicy: "own-and-project" },
   process.argv.slice(2),
 );

@@ -25,6 +25,12 @@ Pigeon has no extensions, skills, or prompt templates of its own yet. Adding
 `pigeon/extensions/*.ts`, `pigeon/skills/`, or `pigeon/prompts/` is enough for
 the launcher to load them.
 
+Pigeon's skill policy is `own-and-project`: it loads its own skills and the
+current project's `.agents/skills` (once the project is trusted), and never
+the skills installed machine-wide in `~/.agents/skills`. Run inside a brain
+workspace, the project's skills are the ones `brain skills sync` renders
+there, so Pigeon sees brain's skills and nothing meant for other work.
+
 ## Running it
 
 Pigeon is a pnpm project in `pigeon/`, separate from the Rust build. It needs
@@ -51,8 +57,7 @@ a model provider.
 
 - Depend on a published `@aiviary/core` (a pinned Git or registry version)
   instead of a local checkout, so a fresh clone of brain can run Pigeon.
-- Give Pigeon its brain-specific skills and extensions, and decide whether it
-  discovers the machine's global skills or only its own.
+- Give Pigeon its brain-specific skills and extensions.
 - Make Pigeon a brain-panel agent frontend, following
   [adding-an-agent-frontend.md](adding-an-agent-frontend.md), and then the
   default agent for brain's TUIs. Until that change lands, the frontend
