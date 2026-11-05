@@ -19,7 +19,15 @@ ASCII-art header, and system prompt. Nothing about it says "pi".
 | The `pigeon` command | `pigeon/src/main.ts` (calls `runBird` from `@aiviary/core`) |
 | Look: picture, block-letter name, palette, working message | `pigeon/src/brand.ts` |
 | Instructions, appended to pi's system prompt | `pigeon/SYSTEM.md` |
-| Home: settings, sessions, logins, theme | `~/.pigeon/agent` (override with `PIGEON_HOME`), never shared with pi |
+| Home: settings, sessions, logins, theme | `~/.pigeon/agent` (override with `PIGEON_HOME`) |
+
+Pigeon is an independent agent. It shares code with the other aiviary birds
+(`@aiviary/core` and the pi engine), never configuration: its settings,
+logins, sessions, MCP servers, instructions, packages, and skills live only
+in `~/.pigeon/agent`, and its environment settings only in `PIGEON_*`
+variables (`PIGEON_OFFLINE=1` is pi's `PI_OFFLINE=1`, for Pigeon alone).
+Plain pi's `~/.pi` and `PI_*` variables never reach it. Configure it inside
+Pigeon (`/settings`, `/login`, `/mcp`) or in `~/.pigeon/agent`.
 
 Pigeon has no extensions, skills, or prompt templates of its own yet. Adding
 `pigeon/extensions/*.ts`, `pigeon/skills/`, or `pigeon/prompts/` is enough for
