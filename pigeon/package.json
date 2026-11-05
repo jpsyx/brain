@@ -1,0 +1,29 @@
+{
+  "name": "pigeon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pigeon: brain's agent harness on the pi coding agent (work in progress).",
+  "type": "module",
+  "bin": {
+    "pigeon": "src/main.ts"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "postinstall": "node scripts/linkCore/linkCore.ts --if-configured",
+    "link:core": "node scripts/linkCore/linkCore.ts",
+    "dev": "node src/main.ts",
+    "bird:link": "node scripts/setup.ts link pigeon",
+    "bird:unlink": "node scripts/setup.ts unlink pigeon",
+    "type-check": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm type-check && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@10.30.3"
+}

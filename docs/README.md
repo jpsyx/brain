@@ -45,6 +45,9 @@ The code is the source-of-truth for *how*. They must agree on *what*.
    choices: `/dev/tty` rendering, kitty flags, slug normalization, the
    registry-driven agent facade, and the central-dispatch framing.
 
+**[pigeon.md](pigeon.md)** describes Pigeon, brain's own agent harness on pi.
+It is a **work in progress** in `pigeon/` and is not part of the binary yet.
+
 **[investigations/](investigations/)** holds dated one-off investigation
 records (`YYYY-MM-DD-<slug>.md`). They are point-in-time findings with their
 evidence, not part of the *what*/*why* contract above: read one for the

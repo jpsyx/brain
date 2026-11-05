@@ -26,3 +26,6 @@
 # bundled-skills personal-data guard test does not trip on compiled bytecode.
 __pycache__/
 *.pyc
+
+# Pigeon's Node dependencies (pigeon/ is a pnpm project; see docs/pigeon.md).
+/pigeon/node_modules/

@@ -6684,3 +6684,17 @@ and digests are deliverables the user reads later without context, so they use
 the full name. Commands still take bare IDs, and the user may answer with either
 form. A contract test rejects any task ID in the triage skill that is not
 parenthetical or a command placeholder.
+
+## Pigeon is a pi harness beside the binary, not inside it
+
+Brain's TUIs will eventually run their own agent instead of a general coding
+agent. Pigeon is that agent: a branded build of pi with brain-specific
+instructions, built on `@aiviary/core` the same way the other aiviary birds
+are, which wraps pi rather than forking it, so pi upgrades stay a version
+bump. It starts as a separate TypeScript project in `pigeon/` and is
+deliberately not wired into the binary, the frontend registry, or the brain
+panel: those seams have contracts and tests (see
+`adding-an-agent-frontend.md`), and Pigeon should enter them in one complete
+change once it is useful, not piecemeal. `@aiviary/core` is linked from a
+local checkout named by `AIVIARY_DIR` until it is published, so no
+machine-specific path is committed to this repository.
