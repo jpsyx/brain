@@ -1,4 +1,4 @@
-import { findBrandProblems, renderHeader } from "@aiviary/core";
+import { findBrandProblems, renderHeader } from "@avandar/aiviary-core";
 import { describe, expect, it } from "vitest";
 import { PIGEON_BRAND } from "./brand.ts";
 

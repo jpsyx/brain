@@ -1,4 +1,4 @@
-import type { BirdBrand } from "@aiviary/core";
+import type { BirdBrand } from "@avandar/aiviary-core";
 
 /** How Pigeon looks: its picture, its name, and its colors. */
 export const PIGEON_BRAND: BirdBrand = {

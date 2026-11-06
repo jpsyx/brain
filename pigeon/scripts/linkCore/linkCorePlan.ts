@@ -11,7 +11,7 @@ export type LinkCoreRequest = {
 export const AIVIARY_DIR_ENV_VAR_NAME = "AIVIARY_DIR";
 
 /** The package Pigeon is built on. */
-export const CORE_PACKAGE_NAME = "@aiviary/core";
+export const CORE_PACKAGE_NAME = "@avandar/aiviary-core";
 
 /**
  * The `link:core` help text.
@@ -19,14 +19,14 @@ export const CORE_PACKAGE_NAME = "@aiviary/core";
  * @returns The help text.
  */
 export function buildLinkCoreHelp(): string {
-  return `pnpm link:core: link @aiviary/core from an aiviary checkout into Pigeon.
+  return `pnpm link:core: link @avandar/aiviary-core from an aiviary checkout into Pigeon.
 
 Usage:
   pnpm link:core [--aiviary-dir <dir>] [--if-configured]
 
-Pigeon is built on @aiviary/core, which is not published yet. This links the
-package from a local aiviary checkout into node_modules/@aiviary/core, so an
-edit there takes effect in Pigeon at once. pnpm install runs it with
+Pigeon is built on @avandar/aiviary-core, which is not published yet. This
+links it from a local aiviary checkout into node_modules/@avandar/aiviary-core,
+so an edit there takes effect in Pigeon at once. pnpm install runs it with
 --if-configured.
 
 Options:

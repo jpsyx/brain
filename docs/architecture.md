@@ -44,7 +44,7 @@ parent-shell cooperation, wrapper, or plan protocol.
 ## Outside the binary: Pigeon (work in progress)
 
 `pigeon/` is a separate pnpm project, not part of the Rust build: Pigeon, a
-branded pi harness for brain work, built on `@aiviary/core`. Nothing in
+branded pi harness for brain work, built on `@avandar/aiviary-core`. Nothing in
 `src/` launches or references it yet. See [pigeon.md](pigeon.md).
 
 ## One binary, run directly

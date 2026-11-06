@@ -12,11 +12,11 @@ import {
 } from "./linkCorePlan.ts";
 
 /**
- * `pnpm link:core`: links `@aiviary/core` from a local aiviary checkout. Run
- * `pnpm link:core --help` for the details.
+ * `pnpm link:core`: links `@avandar/aiviary-core` from a local aiviary
+ * checkout. Run `pnpm link:core --help` for the details.
  *
- * It cannot use `@aiviary/core`'s own output helpers, because linking that
- * package is its job, so it styles its few lines itself.
+ * It cannot use `@avandar/aiviary-core`'s own output helpers, because linking
+ * that package is its job, so it styles its few lines itself.
  */
 const PIGEON_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const COMMAND = "pnpm link:core";
@@ -90,7 +90,7 @@ async function _main(): Promise<number> {
     );
   }
 
-  const linkPath = join(PIGEON_DIR, "node_modules", "@aiviary", "core");
+  const linkPath = join(PIGEON_DIR, "node_modules", ...CORE_PACKAGE_NAME.split("/"));
   if (existsSync(linkPath) && !lstatSync(linkPath).isSymbolicLink()) {
     return _fail(
       `${linkPath} is a real directory, not a link`,

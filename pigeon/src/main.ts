@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runBird } from "@aiviary/core";
+import { runBird } from "@avandar/aiviary-core";
 import { PIGEON_BRAND } from "./brand.ts";
 
 /**
@@ -12,7 +12,7 @@ import { PIGEON_BRAND } from "./brand.ts";
  * Everything that makes Pigeon different lives in this directory:
  * `src/brand.ts` (how it looks), `SYSTEM.md` (how it works), and
  * `extensions/`, `skills/`, and `prompts/` when it has any. The launcher in
- * `@aiviary/core` hands them to pi.
+ * `@avandar/aiviary-core` hands them to pi.
  */
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { version } = JSON.parse(

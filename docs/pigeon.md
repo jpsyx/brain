@@ -8,7 +8,7 @@
 Pigeon is brain's own agent harness: a branded build of the
 [pi coding agent](https://pi.dev) whose job is brain work (notes, tasks,
 knowledge management, personal assistance) rather than coding. It is built on
-`@aiviary/core`, the library behind the other aiviary birds, so running
+`@avandar/aiviary-core`, the library behind the other aiviary birds, so running
 `pigeon` feels like its own program: its own command, home directory, theme,
 ASCII-art header, and system prompt. Nothing about it says "pi".
 
@@ -16,13 +16,13 @@ ASCII-art header, and system prompt. Nothing about it says "pi".
 
 | Piece | Where |
 | --- | --- |
-| The `pigeon` command | `pigeon/src/main.ts` (calls `runBird` from `@aiviary/core`) |
+| The `pigeon` command | `pigeon/src/main.ts` (calls `runBird` from `@avandar/aiviary-core`) |
 | Look: picture, block-letter name, palette, working message | `pigeon/src/brand.ts` |
 | Instructions, appended to pi's system prompt | `pigeon/SYSTEM.md` |
 | Home: settings, sessions, logins, theme | `~/.pigeon/agent` (override with `PIGEON_HOME`) |
 
 Pigeon is an independent agent. It shares code with the other aiviary birds
-(`@aiviary/core` and the pi engine), never configuration: its settings,
+(`@avandar/aiviary-core` and the pi engine), never configuration: its settings,
 logins, sessions, MCP servers, instructions, packages, and skills live only
 in `~/.pigeon/agent`, and its environment settings only in `PIGEON_*`
 variables (`PIGEON_OFFLINE=1` is pi's `PI_OFFLINE=1`, for Pigeon alone).
@@ -43,11 +43,11 @@ there, so Pigeon sees brain's skills and nothing meant for other work.
 
 Pigeon is a pnpm project in `pigeon/`, separate from the Rust build. It needs
 Node.js 22.19 or newer, pnpm, and a local checkout of aiviary with its
-dependencies installed, because `@aiviary/core` is not published yet.
+dependencies installed, because `@avandar/aiviary-core` is not published yet.
 
 ```sh
 cd pigeon
-AIVIARY_DIR=<path to aiviary> pnpm install   # installs, then links @aiviary/core
+AIVIARY_DIR=<path to aiviary> pnpm install   # installs, then links the core package
 pnpm dev                                     # run Pigeon from source
 pnpm dev --help                              # Pigeon's options (every pi option works)
 pnpm check                                   # type-check and test
@@ -55,16 +55,17 @@ pnpm bird:link                               # put `pigeon` on your PATH (~/.loc
 pnpm bird:unlink                             # take it off again
 ```
 
-`pnpm install` links `@aiviary/core` only when `AIVIARY_DIR` is set; without
-it, it warns and skips. `pnpm link:core --aiviary-dir <path>` links it at any
-time. The link points at the aiviary checkout, so an edit there takes effect
-in Pigeon on the next run. On first run, use `/login` inside Pigeon to connect
-a model provider.
+`pnpm install` links `@avandar/aiviary-core` only when `AIVIARY_DIR` is set;
+without it, it warns and skips. `pnpm link:core --aiviary-dir <path>` links it
+at any time. The link points at the aiviary checkout, so an edit there takes
+effect in Pigeon on the next run. On first run, use `/login` inside Pigeon to
+connect a model provider.
 
 ## Still to do
 
-- Depend on a published `@aiviary/core` (a pinned Git or registry version)
-  instead of a local checkout, so a fresh clone of brain can run Pigeon.
+- Depend on a published `@avandar/aiviary-core` (a pinned Git or registry
+  version) instead of a local checkout, so a fresh clone of brain can run
+  Pigeon.
 - Give Pigeon its brain-specific skills and extensions.
 - Make Pigeon a brain-panel agent frontend, following
   [adding-an-agent-frontend.md](adding-an-agent-frontend.md), and then the
