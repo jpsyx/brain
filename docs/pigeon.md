@@ -17,7 +17,7 @@ ASCII-art header, and system prompt. Nothing about it says "pi".
 | Piece | Where |
 | --- | --- |
 | The `pigeon` command | `pigeon/src/main.ts` (calls `runBird` from `@avandar/aiviary-core`) |
-| Look: picture, block-letter name, palette, working message | `pigeon/src/brand.ts` |
+| Look: picture, block-letter name, palette, working message | `pigeon/src/brand.ts` (the picture is a rock pigeon in quadrant block characters, two-toned with an `artHighlight` mask: the accent for the iridescent head, neck, wingtips, and tail band, the theme's text color for the pale gray body) |
 | Instructions, appended to pi's system prompt | `pigeon/SYSTEM.md` |
 | Home: settings, sessions, logins, theme | `~/.pigeon/agent` (override with `PIGEON_HOME`) |
 
@@ -44,6 +44,8 @@ there, so Pigeon sees brain's skills and nothing meant for other work.
 Pigeon is a pnpm project in `pigeon/`, separate from the Rust build. It needs
 Node.js 22.19 or newer, pnpm, and a local checkout of aiviary with its
 dependencies installed, because `@avandar/aiviary-core` is not published yet.
+The checkout's core must support `BirdBrand.artHighlight` (the two-tone
+pictures); an older one fails Pigeon's type-check on that field.
 
 ```sh
 cd pigeon

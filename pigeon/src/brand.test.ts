@@ -20,4 +20,17 @@ describe("PIGEON_BRAND", () => {
     expect(roles).toContain("art");
     expect(roles).toContain("banner");
   });
+
+  it("draws its pale plumage in the highlight tone", () => {
+    const roles = renderHeader({
+      brand: PIGEON_BRAND,
+      width: 100,
+      details: "",
+    }).flatMap((line) => {
+      return line.map((segment) => {
+        return segment.role;
+      });
+    });
+    expect(roles).toContain("artHighlight");
+  });
 });
