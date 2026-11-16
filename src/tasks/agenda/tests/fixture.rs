@@ -85,7 +85,14 @@ pub(super) fn actor(root: &Path) -> crate::actor::ActorContext {
 pub(super) fn fake_renderer(dir: &Path) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join("markdown-to-pdf");
-    std::fs::write(&path, "#!/bin/sh\ncp \"$1\" \"$3\"\n").expect("write renderer");
+    std::fs::write(
+        &path,
+        r#"#!/bin/sh
+printf '%s\n' "$@" > "$3.args"
+cp "$1" "$3"
+"#,
+    )
+    .expect("write renderer");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
         .expect("chmod renderer");
     path

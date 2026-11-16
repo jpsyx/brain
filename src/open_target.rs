@@ -75,7 +75,7 @@ pub fn pdf_output_path(md: &Path) -> PathBuf {
 ///
 /// The `markdown-to-pdf` command is resolved from config (see
 /// [`crate::settings`]); its `run.sh`-style interface takes `<file.md> --out
-/// <file.pdf>`. The converter's non-interactive mode writes a `-vN` variant
+/// <file.pdf> --compact`. The converter's non-interactive mode writes a `-vN` variant
 /// rather than overwriting, so to guarantee the exact same-name output we drop
 /// any existing PDF at the target path first. Blocking (a deliberate action);
 /// the caller opens the result and keeps its shell up.
@@ -88,6 +88,7 @@ pub fn create_pdf(command: &crate::workspace::CommandContext, md: &Path) -> Resu
         .arg(md)
         .arg("--out")
         .arg(&out)
+        .arg("--compact")
         .status()?;
     if !status.success() {
         bail!("markdown-to-pdf exited with status {status}");
@@ -263,6 +264,56 @@ pub fn open_with_system(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn create_pdf_requests_compact_density() {
+        use crate::workspace::{
+            CommandContext, RegistryStore, WorkspaceContext, WorkspaceId, WorkspaceName,
+        };
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let root = dir.path();
+        let workspace = WorkspaceContext::new(
+            root,
+            WorkspaceId::new(),
+            WorkspaceName::parse("example").unwrap(),
+            root,
+            "member",
+            root,
+        )
+        .unwrap();
+        let command = CommandContext::for_test(
+            Arc::new(workspace),
+            RegistryStore::from_path(root.join("registry.json")),
+            "member",
+        );
+        let renderer = root.join("renderer");
+        std::fs::write(&renderer, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$3\"\n").unwrap();
+        std::fs::set_permissions(&renderer, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(
+            command.registry_store.path(),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": crate::workspace::REGISTRY_SCHEMA_VERSION,
+                "default_workspace": "example",
+                "env": {"markdown_to_pdf_path": renderer},
+                "workspaces": {"example": {
+                    "workspace_id": command.workspace.id(),
+                    "root": root,
+                    "local_user_id": "member"
+                }}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let md = root.join("note.md");
+        std::fs::write(&md, "# Note\n").unwrap();
+
+        let pdf = create_pdf(&command, &md).expect("create PDF");
+        let args = std::fs::read_to_string(pdf).unwrap();
+        assert!(args.lines().any(|arg| arg == "--compact"), "{args}");
+    }
 
     #[test]
     fn markdown_is_textlike() {

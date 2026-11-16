@@ -1982,7 +1982,9 @@ and leaves the markdown unchanged. The resolver chooses the lowest surviving
 unfinished index above the anchor, including when sessions have been removed.
 `io` is the thin shell: it resolves the day's targets from `agenda_markdown_dir`,
 `agenda_dir`, and `markdown_to_pdf_path`, reads and writes the file, and
-regenerates the printable only when one already exists. Resolution is keyed on
+regenerates the printable only when one already exists. Both explicit rendering
+and automatic regeneration pass `--agenda --compact` to preserve compact page density.
+Resolution is keyed on
 `(RegistryStore, WorkspaceContext)` rather than a `CommandContext`, so the HTTP
 habits route — a real mutation surface holding a verified workspace and its
 registry, but no command context — can sync like every other path. Every failure there is

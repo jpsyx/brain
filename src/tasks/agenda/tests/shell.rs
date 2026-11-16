@@ -152,3 +152,21 @@ fn no_printable_on_disk_means_no_regen() {
     assert_eq!(outcome, Outcome::Updated { pdf: false });
     assert!(!fixture.targets.pdf.exists());
 }
+
+#[test]
+fn agenda_printables_stay_compact_after_explicit_render_and_mutation() {
+    let mut fixture = fixture(Some(AGENDA));
+    let dir = fixture.targets.pdf.parent().expect("pdf dir").to_path_buf();
+    fixture.targets.renderer = Some(fake_renderer(&dir));
+
+    crate::tasks::agenda::io::render_pdf(&fixture.targets).expect("render agenda");
+    let args_path = fixture.targets.pdf.with_extension("pdf.args");
+    let args = std::fs::read_to_string(&args_path).expect("renderer arguments");
+    assert!(args.lines().any(|arg| arg == "--compact"), "{args}");
+    assert!(args.lines().any(|arg| arg == "--agenda"), "{args}");
+
+    std::fs::remove_file(&args_path).expect("clear captured arguments");
+    assert_eq!(complete(&fixture, "T535"), Outcome::Updated { pdf: true });
+    let args = std::fs::read_to_string(args_path).expect("regeneration arguments");
+    assert!(args.lines().any(|arg| arg == "--compact"), "{args}");
+}

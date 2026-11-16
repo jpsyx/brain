@@ -79,8 +79,8 @@ brain tasks agenda-pdf --date <YYYY-MM-DD>
 
 The native command resolves both destinations and the configured renderer, strips
 HTML comments from a fresh render copy, removes the prior PDF to avoid versioned
-collisions, passes `--agenda` for compact borderless tables, and disposes of its
-render copy. Preserve source comments such as appendix idempotency markers. Do not
+collisions, passes `--agenda --compact` for borderless tables and compact page
+density, and disposes of its render copy. Preserve source comments such as appendix idempotency markers. Do not
 invoke a shell alias or duplicate these steps. The mutation path's existing-PDF
 rule above is the exception to deliberate build/revision rendering.
 

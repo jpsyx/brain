@@ -260,6 +260,7 @@ fn run_renderer(targets: &Targets, markdown: &str) -> bool {
         .arg("--out")
         .arg(&targets.pdf)
         .arg("--agenda")
+        .arg("--compact")
         .status();
     if source != targets.markdown {
         let _ = std::fs::remove_file(&source);

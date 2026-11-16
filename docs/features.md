@@ -450,7 +450,7 @@ management and reporting commands stay outside the persistent shell.
 | `brain tasks stale-waiting [--threshold N] [--json\|--count]` | List tasks stuck in `waiting` longer than N days (7 by default). A row with no `waiting_since` is surfaced regardless — not knowing how long it has waited is itself the problem. |
 | `brain tasks linked [--open-only] [--json\|--count]` | List tasks carrying an external issue-tracker link. Brain never contacts the tracker; this is the read a caller reconciles from. |
 | `brain tasks streak <name> [status\|mark\|unmark] [--date]` | Count consecutive days on which a named thing happened, and record or forget one. Deliberately generic: brain stores the dates and counts the run; what the name means is the caller's. |
-| `brain tasks agenda-pdf [--date]` | Render the day's agenda to `<agenda_dir>/agenda-<date>.pdf`, stripping HTML comments from a copy first. Unlike the mutation path's regen, this builds one whether or not a PDF already exists — asking for it *is* the request. |
+| `brain tasks agenda-pdf [--date]` | Render the day's agenda to `<agenda_dir>/agenda-<date>.pdf` with `--agenda --compact`, stripping HTML comments from a copy first. Automatic refreshes use the same compact density. Unlike the mutation path's regen, this builds one whether or not a PDF already exists — asking for it *is* the request. |
 | `brain tasks agenda-appendix --content <file> [--date]` | Bake caller-supplied markdown into the day's agenda as one generic appendix section. Re-running replaces it rather than duplicating; core never discovers the content. |
 | `brain backlog` | Review the backlog, stalest first, with how long each has been parked. `--json` for automation. |
 | `brain backlog park\|restore <id>` | Park a task indefinitely (schedule cleared, hidden from every active view) or bring one back to `not_started` without a due date. |
@@ -2745,7 +2745,7 @@ extra affordances appear:
 
 Either way, `brain` converts the markdown to a **colocated, same-name PDF**
 (`plan.md` → `plan.pdf`, in the same directory) using the user's
-`markdown-to-pdf` tool, then opens the result with the system `open`. In the
+`markdown-to-pdf` tool with `--compact`, then opens the result with the system `open`. In the
 persistent shell this happens **in place** — the brain shell stays up, and the
 search list **auto-refreshes** so the new PDF appears immediately. Any
 pre-existing PDF at that exact path is replaced so the output name always

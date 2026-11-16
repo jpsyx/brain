@@ -2099,7 +2099,7 @@ user's existing converter rather than reimplementing PDF generation.
 first run and validated at startup (see [config.md](config.md), `src/env/`, and
 the gate in `settings/`); a missing/invalid path fails
 fast with a red error. `open_target::create_pdf` spawns that command directly
-(`<file.md> --out <file.pdf>`) — invoking the command, not any shell-function
+(`<file.md> --out <file.pdf> --compact`) — invoking the command, not any shell-function
 wrapper, since a child process can't call a shell function. The output path is
 `open_target::pdf_output_path` (same directory, same stem, `.pdf`).
 
@@ -2805,6 +2805,8 @@ registered frontend. The skill resolves Markdown with `brain env get
 agenda_markdown_dir` and PDF output with `brain config get agenda_dir`, then uses
 `brain tasks agenda-pdf --date <date>` for native rendering. Native mutations
 remain the sole owner of automatic agenda synchronization and existing-PDF refresh.
+Both explicit agenda rendering and automatic refresh pass `--agenda --compact`;
+the Create PDF action also passes `--compact`.
 
 Agenda hooks are `agenda:anchors`, `agenda:calendar`, `agenda:cutoff`, and
 `agenda:after-build`. The checked compiler projects the corresponding legacy
